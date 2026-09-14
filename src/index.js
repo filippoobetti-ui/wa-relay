@@ -152,7 +152,7 @@ export default {
         return new Response("Invalid signature", { status: 403 });
       }
 
-      ctx.waitUntil(forwardToMake(rawBody, env.MAKE_WEBHOOK_URL));
+      ctx.waitUntil(processAndForward(rawBody, env));
 
       return new Response("OK", { status: 200 });
     }
@@ -217,4 +217,161 @@ async function forwardToMake(rawBody, makeWebhookUrl) {
       } catch (e) {}
     }
   }
+}
+
+// ============================================================================
+// PUNTO 46 — cattura media su Supabase Storage prima dell'inoltro a Make.
+// FAIL-SAFE: senza WHATSAPP_TOKEN/SUPABASE_SERVICE_KEY, o se Meta/Supabase
+// falliscono, il messaggio viene comunque inoltrato a Make come prima.
+// La vecchia forwardToMake resta definita ma non è più chiamata.
+// ============================================================================
+
+async function processAndForward(rawBody, env) {
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch (e) {
+    return;
+  }
+  const makeWebhookUrl = env.MAKE_WEBHOOK_URL;
+  const canCapture = !!(env.WHATSAPP_TOKEN && env.SUPABASE_SERVICE_KEY);
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const MEDIA_TYPES = ["image", "audio", "video", "document", "sticker"];
+
+  const entries = payload.entry || [];
+  for (const entry of entries) {
+    const changes = entry.changes || [];
+    for (const change of changes) {
+      const value = change.value || {};
+      if (!value.messages || value.messages.length === 0) continue;
+
+      // Cattura media (best-effort): non deve MAI impedire l'inoltro a Make.
+      if (canCapture) {
+        for (const msg of value.messages) {
+          const tipo = msg.type;
+          if (MEDIA_TYPES.indexOf(tipo) === -1) continue;
+          const media = msg[tipo];
+          if (!media || !media.id) continue;
+          try {
+            const captured = await captureMedia(media.id, tipo, msg, env, supabaseUrl, graph);
+            if (captured && captured.signed_url) {
+              // arricchisce il messaggio SENZA rimuovere nulla (monolite compatibile)
+              media.link = captured.signed_url;
+              media.storage_path = captured.storage_path;
+              msg._media = captured;
+            }
+          } catch (e) {
+            try {
+              await logMedia(env, supabaseUrl, {
+                message_id: msg.id, telefono: msg.from, tipo,
+                mime: (media && media.mime_type) || null,
+                storage_path: null, signed_url: null, signed_url_scade: null,
+                dimensione_bytes: null, esito: "errore",
+                errore: String((e && e.message) || e).slice(0, 500)
+              });
+            } catch (_) {}
+          }
+        }
+      }
+
+      const bundle = {
+        id: entry.id,
+        time: value.messages[0] && value.messages[0].timestamp ? Number(value.messages[0].timestamp) : Math.floor(Date.now() / 1e3),
+        field: change.field,
+        messages: value.messages,
+        contacts: value.contacts || []
+      };
+      try {
+        await fetch(makeWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bundle)
+        });
+      } catch (e) {}
+    }
+  }
+}
+
+async function captureMedia(mediaId, tipo, msg, env, supabaseUrl, graph) {
+  const token = env.WHATSAPP_TOKEN;
+  const svc = env.SUPABASE_SERVICE_KEY;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    // 1) risolvi l'indirizzo del media presso Meta
+    const metaResp = await fetch(graph + "/" + mediaId, {
+      headers: { Authorization: "Bearer " + token }, signal: ctrl.signal
+    });
+    if (!metaResp.ok) throw new Error("resolve " + metaResp.status);
+    const meta = await metaResp.json();
+    const mime = meta.mime_type || (msg[tipo] && msg[tipo].mime_type) || "application/octet-stream";
+    // 2) scarica i byte (il Bearer serve anche sull'URL del media)
+    const binResp = await fetch(meta.url, {
+      headers: { Authorization: "Bearer " + token }, signal: ctrl.signal
+    });
+    if (!binResp.ok) throw new Error("download " + binResp.status);
+    const bytes = new Uint8Array(await binResp.arrayBuffer());
+    // 3) percorso stabile nel bucket wa-media
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(now.getUTCDate()).padStart(2, "0");
+    const path = tipo + "/" + yyyy + "/" + mm + "/" + dd + "/" + mediaId + extFromMime(mime);
+    // 4) upload su Supabase Storage (upsert)
+    const upResp = await fetch(supabaseUrl + "/storage/v1/object/wa-media/" + path, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": mime, "x-upsert": "true" },
+      body: bytes, signal: ctrl.signal
+    });
+    if (!upResp.ok) throw new Error("upload " + upResp.status + " " + (await upResp.text()).slice(0, 120));
+    // 5) URL firmato (7 giorni) per il consumo da Make senza header di auth
+    const signResp = await fetch(supabaseUrl + "/storage/v1/object/sign/wa-media/" + path, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: 604800 }), signal: ctrl.signal
+    });
+    if (!signResp.ok) throw new Error("sign " + signResp.status);
+    const signJson = await signResp.json();
+    const signedUrl = supabaseUrl + "/storage/v1" + signJson.signedURL;
+    const scade = new Date(Date.now() + 604800 * 1000).toISOString();
+    // 6) registro (idempotente sul WAMID)
+    await logMedia(env, supabaseUrl, {
+      message_id: msg.id, telefono: msg.from, tipo, mime, storage_path: path,
+      signed_url: signedUrl, signed_url_scade: scade, dimensione_bytes: bytes.length,
+      esito: "ok", errore: null
+    });
+    return { storage_path: path, signed_url: signedUrl, signed_url_scade: scade, mime, bytes: bytes.length, esito: "ok" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function logMedia(env, supabaseUrl, r) {
+  const svc = env.SUPABASE_SERVICE_KEY;
+  await fetch(supabaseUrl + "/rest/v1/rpc/registra_media", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      p_message_id: r.message_id, p_telefono: r.telefono, p_tipo: r.tipo, p_mime: r.mime,
+      p_storage_path: r.storage_path, p_signed_url: r.signed_url, p_signed_url_scade: r.signed_url_scade,
+      p_dimensione_bytes: r.dimensione_bytes, p_esito: r.esito, p_errore: r.errore
+    })
+  });
+}
+
+function extFromMime(mime) {
+  const m = (mime || "").split(";")[0].trim().toLowerCase();
+  const map = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
+    "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/aac": ".aac", "audio/amr": ".amr",
+    "video/mp4": ".mp4", "video/3gpp": ".3gp",
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls", "application/msword": ".doc",
+    "text/plain": ".txt", "application/zip": ".zip",
+    "application/pkcs7-mime": ".p7m", "application/x-pkcs7-mime": ".p7m"
+  };
+  return map[m] || "";
 }
