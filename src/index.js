@@ -239,6 +239,15 @@ async function processAndForward(rawBody, env) {
   const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
   const MEDIA_TYPES = ["image", "audio", "video", "document", "sticker"];
 
+  // PUNTO 47 — instradamento dei media verso lo scenario "Foto e DDT" (fail-safe).
+  // MAKE_WEBHOOK_URL_MEDIA assente  -> tutto al monolite, come prima.
+  // MEDIA_SOLO_DA (numeri separati da virgola, facoltativo) -> accensione graduale:
+  //   solo i media di quei mittenti vanno al nuovo scenario, gli altri restano al monolite.
+  // Per tornare indietro basta rimuovere MAKE_WEBHOOK_URL_MEDIA: nessun deploy necessario.
+  const mediaWebhookUrl = env.MAKE_WEBHOOK_URL_MEDIA || "";
+  const ROUTE_MEDIA_TYPES = ["image", "document"];
+  const soloDa = String(env.MEDIA_SOLO_DA || "").split(",").map((s) => s.replace(/[^0-9]/g, "")).filter(Boolean);
+
   const entries = payload.entry || [];
   for (const entry of entries) {
     const changes = entry.changes || [];
@@ -275,20 +284,30 @@ async function processAndForward(rawBody, env) {
         }
       }
 
-      const bundle = {
-        id: entry.id,
-        time: value.messages[0] && value.messages[0].timestamp ? Number(value.messages[0].timestamp) : Math.floor(Date.now() / 1e3),
-        field: change.field,
-        messages: value.messages,
-        contacts: value.contacts || []
-      };
-      try {
-        await fetch(makeWebhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(bundle)
-        });
-      } catch (e) {}
+      // Un invio per OGNI messaggio, in ordine: gli scenari leggono solo messages[1],
+      // quindi se Meta raggruppa più messaggi in una notifica nessuno va perso.
+      for (const msg of value.messages) {
+        const alMedia = !!mediaWebhookUrl
+          && ROUTE_MEDIA_TYPES.indexOf(msg.type) !== -1
+          && (soloDa.length === 0 || soloDa.indexOf(String(msg.from || "")) !== -1);
+        const url = alMedia ? mediaWebhookUrl : makeWebhookUrl;
+        if (!url) continue;
+        const bundle = {
+          id: entry.id,
+          time: msg.timestamp ? Number(msg.timestamp) : Math.floor(Date.now() / 1e3),
+          field: change.field,
+          metadata: value.metadata || {},
+          messages: [msg],
+          contacts: value.contacts || []
+        };
+        try {
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(bundle)
+          });
+        } catch (e) {}
+      }
     }
   }
 }
