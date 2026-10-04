@@ -5,6 +5,10 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  // Le variabili impostate dal pannello Cloudflare NON vanno cancellate a ogni pubblicazione
+  // da GitHub (il 04/10/2026 una pubblicazione ha tolto WHATSAPP_TOKEN, salvato come variabile
+  // semplice). I segreti veri restano comunque: questa riga protegge le variabili semplici.
+  "keep_vars": true,
   "ai": {
     "binding": "AI"
   }

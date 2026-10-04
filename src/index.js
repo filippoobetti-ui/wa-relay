@@ -136,6 +136,26 @@ export default {
       });
     }
 
+    // Stato della configurazione: dice SOLO se ogni variabile c'e' (sì/NO), mai il valore.
+    if (request.method === "GET" && url.pathname === "/stato") {
+      const si = (v) => (v ? "sì" : "NO");
+      const righe = [
+        RELAY_VERSIONE,
+        "WHATSAPP_TOKEN: " + si(env.WHATSAPP_TOKEN),
+        "SUPABASE_SERVICE_KEY: " + si(env.SUPABASE_SERVICE_KEY),
+        "META_APP_SECRET: " + si(env.META_APP_SECRET),
+        "META_VERIFY_TOKEN: " + si(env.META_VERIFY_TOKEN),
+        "MAKE_WEBHOOK_URL: " + si(env.MAKE_WEBHOOK_URL),
+        "MAKE_WEBHOOK_URL_MEDIA: " + si(env.MAKE_WEBHOOK_URL_MEDIA),
+        "AI (trascrizione vocali): " + si(env.AI),
+        "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa")
+      ];
+      return new Response(righe.join("\n") + "\n", {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" }
+      });
+    }
+
     if (request.method === "GET") {
       const mode = url.searchParams.get("hub.mode");
       const token = url.searchParams.get("hub.verify_token");
@@ -289,6 +309,22 @@ async function processAndForward(rawBody, env) {
             } catch (_) {}
           }
         }
+      } else if (env.SUPABASE_SERVICE_KEY) {
+        // 04/10/2026: senza WHATSAPP_TOKEN la cattura e' spenta. Lo si scrive nel registro
+        // (esito 'errore'), cosi' il problema si vede subito invece di restare silenzioso.
+        for (const msg of value.messages) {
+          if (MEDIA_TYPES.indexOf(msg.type) === -1) continue;
+          const media = msg[msg.type];
+          try {
+            await logMedia(env, supabaseUrl, {
+              message_id: msg.id, telefono: msg.from, tipo: msg.type,
+              mime: (media && media.mime_type) || null,
+              storage_path: null, signed_url: null, signed_url_scade: null,
+              dimensione_bytes: null, esito: "errore",
+              errore: "WHATSAPP_TOKEN mancante sul relay: cattura non eseguita"
+            });
+          } catch (_) {}
+        }
       }
 
       // CHAT UNICA (prova): numeri ammessi letti dal database e tenuti in memoria 60 s.
@@ -420,7 +456,7 @@ function extFromMime(mime) {
 // FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-2 (vocali)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-3 (stato)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -506,7 +542,13 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
   const testo = msg.type === "text" && msg.text ? String(msg.text.body || "") : "";
   const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
   const token = env.WHATSAPP_TOKEN;
-  if (!phoneId || !token || !cfg.url || !cfg.chiave) return false;
+  if (!phoneId || !cfg.url || !cfg.chiave) return false;
+  if (!token) {
+    // Senza token non si puo' rispondere: il messaggio va al Giornale normale, ma resta traccia.
+    await chatUnicaLog(env, supabaseUrl, tel, msg.id, "funzione_errore",
+      "WHATSAPP_TOKEN mancante sul relay: messaggio passato al Giornale normale");
+    return false;
+  }
 
   // 1) prova o Make? (in caso di dubbio: Make)
   let instr;
