@@ -456,7 +456,7 @@ function extFromMime(mime) {
 // FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-3 (stato)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-4 (lingua vocali)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -517,22 +517,40 @@ async function chatUnicaInvia(graph, phoneId, token, payload) {
 }
 
 // Trascrizione dei vocali con Workers AI: attiva solo se nel Worker c'e' il collegamento «AI».
-async function chatUnicaTrascrivi(env, link) {
+// Lingue plausibili in cantiere. Se Whisper ne rileva un'altra (il 04/10 un vocale italiano
+// corto e' stato letto come islandese: «Þú operari, quattro óri»), si ritrascrive in italiano.
+const CHAT_UNICA_LINGUE = ["it", "ro", "sq", "uk", "ru", "pl", "es", "pt", "fr", "en", "de", "ar", "bn", "hi",
+  "ur", "pa", "mk", "sr", "hr", "bs", "bg", "sk", "cs", "sl", "hu", "tr", "zh", "ta", "si", "ml", "tl", "fa", "el"];
+
+async function chatUnicaTrascrivi(env, link, inizio) {
+  const vuota = { testo: "", lingua: "?" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   let buf;
   try {
     const r = await fetch(link, { signal: ctrl.signal });
-    if (!r.ok) return "";
+    if (!r.ok) return vuota;
     buf = new Uint8Array(await r.arrayBuffer());
   } finally {
     clearTimeout(timer);
   }
-  if (!buf || !buf.length || buf.length > 8 * 1024 * 1024) return "";
+  if (!buf || !buf.length || buf.length > 8 * 1024 * 1024) return vuota;
   let bin = "";
   for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-  const out = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: btoa(bin) });
-  return String((out && out.text) || "").trim().slice(0, 3900);
+  const audio = btoa(bin);
+  const MODELLO = "@cf/openai/whisper-large-v3-turbo";
+  let out = await env.AI.run(MODELLO, { audio });
+  const rilevata = String((out && out.transcription_info && out.transcription_info.language) || "?").toLowerCase();
+  let lingua = rilevata;
+  // Nuovo tentativo in italiano solo se la lingua rilevata e' implausibile e c'e' ancora tempo
+  // (il lavoro in background del Worker dura al massimo 30 secondi).
+  if (rilevata !== "?" && CHAT_UNICA_LINGUE.indexOf(rilevata) === -1 && Date.now() - (inizio || Date.now()) < 15000) {
+    try {
+      const it = await env.AI.run(MODELLO, { audio, language: "it" });
+      if (it && String(it.text || "").trim()) { out = it; lingua = "it (forzato, rilevato " + rilevata + ")"; }
+    } catch (e) {}
+  }
+  return { testo: String((out && out.text) || "").trim().slice(0, 3900), lingua };
 }
 
 // Ritorna true se il messaggio e' stato preso in carico dalla prova (quindi NON va a Make).
@@ -570,8 +588,10 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
   let trascrizione = "";
   if (msg.type === "audio" && env.AI && msg.audio && msg.audio.link) {
     try {
-      trascrizione = await chatUnicaTrascrivi(env, msg.audio.link);
-      await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione", trascrizione ? "ok " + trascrizione.length + " caratteri" : "vuota");
+      const tr = await chatUnicaTrascrivi(env, msg.audio.link, inizio);
+      trascrizione = tr.testo;
+      await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione",
+        (trascrizione ? "ok " + trascrizione.length + " caratteri" : "vuota") + " · lingua " + tr.lingua);
     } catch (e) {
       await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione", "errore " + String((e && e.message) || e).slice(0, 300));
     }
