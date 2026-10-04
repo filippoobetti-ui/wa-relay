@@ -491,7 +491,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-5 + badge-1 (produzione, promemoria, flow, tesserini)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-6 + badge-1 (produzione, promemoria, flow, tesserini, glossario vocali)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -513,7 +513,7 @@ async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
 }
 
 async function chatUnicaConfig(env, supabaseUrl) {
-  const vuota = { numeri: [], url: "", chiave: "", phone_number_id: "", promemoria_ora: "" };
+  const vuota = { numeri: [], url: "", chiave: "", phone_number_id: "", promemoria_ora: "", glossario: "" };
   if (!env.SUPABASE_SERVICE_KEY || env.CHAT_UNICA === "off") return vuota;
   const ora = Date.now();
   if (_chatUnicaCache.cfg && ora - _chatUnicaCache.t < 60000) return _chatUnicaCache.cfg;
@@ -522,7 +522,8 @@ async function chatUnicaConfig(env, supabaseUrl) {
     const r = await chatUnicaRpc(env, supabaseUrl, "chat_unica_config", {}, 3000);
     if (r && Array.isArray(r.numeri)) {
       cfg = { numeri: r.numeri.map((x) => String(x)), url: String(r.url || ""), chiave: String(r.chiave || ""),
-        phone_number_id: String(r.phone_number_id || ""), promemoria_ora: String(r.promemoria_ora || "") };
+        phone_number_id: String(r.phone_number_id || ""), promemoria_ora: String(r.promemoria_ora || ""),
+        glossario: String(r.glossario_vocali || "").slice(0, 700) };
     }
   } catch (e) {}
   _chatUnicaCache = { t: ora, cfg };
@@ -555,10 +556,13 @@ async function chatUnicaInvia(graph, phoneId, token, payload) {
 // Trascrizione dei vocali con Workers AI: attiva solo se nel Worker c'e' il collegamento «AI».
 // Lingue plausibili in cantiere. Se Whisper ne rileva un'altra (il 04/10 un vocale italiano
 // corto e' stato letto come islandese: «Þú operari, quattro óri»), si ritrascrive in italiano.
+// Glossario (impostazioni.chat_unica_glossario_vocali + nomi dei cantieri, via chat_unica_config):
+// passato a Whisper come initial_prompt per scrivere giusti i termini di cantiere («ponteggio», non
+// «punteggio»). E' in italiano: per una lingua straniera plausibile si ritrascrive senza glossario.
 const CHAT_UNICA_LINGUE = ["it", "ro", "sq", "uk", "ru", "pl", "es", "pt", "fr", "en", "de", "ar", "bn", "hi",
   "ur", "pa", "mk", "sr", "hr", "bs", "bg", "sk", "cs", "sl", "hu", "tr", "zh", "ta", "si", "ml", "tl", "fa", "el"];
 
-async function chatUnicaTrascrivi(env, link, inizio) {
+async function chatUnicaTrascrivi(env, link, inizio, glossario) {
   const vuota = { testo: "", lingua: "?" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
@@ -575,18 +579,26 @@ async function chatUnicaTrascrivi(env, link, inizio) {
   for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
   const audio = btoa(bin);
   const MODELLO = "@cf/openai/whisper-large-v3-turbo";
-  let out = await env.AI.run(MODELLO, { audio });
+  const gl = String(glossario || "").trim().slice(0, 700);
+  const base = gl ? { audio, initial_prompt: gl } : { audio };
+  let out = await env.AI.run(MODELLO, base);
   const rilevata = String((out && out.transcription_info && out.transcription_info.language) || "?").toLowerCase();
   let lingua = rilevata;
-  // Nuovo tentativo in italiano solo se la lingua rilevata e' implausibile e c'e' ancora tempo
-  // (il lavoro in background del Worker dura al massimo 30 secondi).
-  if (rilevata !== "?" && CHAT_UNICA_LINGUE.indexOf(rilevata) === -1 && Date.now() - (inizio || Date.now()) < 15000) {
+  const tempo = () => Date.now() - (inizio || Date.now());
+  // Nuovo tentativo solo se c'e' ancora tempo (il lavoro in background del Worker dura al massimo 30 s):
+  // lingua implausibile → forzata in italiano; lingua straniera plausibile → di nuovo senza il glossario italiano.
+  if (rilevata !== "?" && CHAT_UNICA_LINGUE.indexOf(rilevata) === -1 && tempo() < 15000) {
     try {
-      const it = await env.AI.run(MODELLO, { audio, language: "it" });
+      const it = await env.AI.run(MODELLO, Object.assign({}, base, { language: "it" }));
       if (it && String(it.text || "").trim()) { out = it; lingua = "it (forzato, rilevato " + rilevata + ")"; }
     } catch (e) {}
+  } else if (gl && rilevata !== "?" && rilevata !== "it" && tempo() < 15000) {
+    try {
+      const alt = await env.AI.run(MODELLO, { audio, language: rilevata });
+      if (alt && String(alt.text || "").trim()) { out = alt; lingua = rilevata + " (senza glossario)"; }
+    } catch (e) {}
   }
-  return { testo: String((out && out.text) || "").trim().slice(0, 3900), lingua };
+  return { testo: String((out && out.text) || "").trim().slice(0, 3900), lingua: lingua + (gl ? " · glossario" : "") };
 }
 
 // Testo con cui il database decide l'instradamento: il corpo per i testi, l'id del pulsante o della
@@ -642,7 +654,7 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg, bundl
   let trascrizione = "";
   if (msg.type === "audio" && env.AI && msg.audio && msg.audio.link) {
     try {
-      const tr = await chatUnicaTrascrivi(env, msg.audio.link, inizio);
+      const tr = await chatUnicaTrascrivi(env, msg.audio.link, inizio, cfg.glossario);
       trascrizione = tr.testo;
       await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione",
         (trascrizione ? "ok " + trascrizione.length + " caratteri" : "vuota") + " · lingua " + tr.lingua);
