@@ -156,6 +156,12 @@ export default {
       });
     }
 
+    // Badge di cantiere (04/10/2026): le pagine dei tesserini vivono sulla Edge Function Supabase «badge»,
+    // ma il gateway di Supabase le consegna come text/plain con CSP sandbox (dominio supabase.co):
+    // il relay le ripropone sotto /badge/* con il content-type giusto. Qui non si tratta nessun dato.
+    if (url.pathname === "/badge" || url.pathname.startsWith("/badge/")) {
+      return badgeProxy(request, env);
+    }
     if (request.method === "GET") {
       const mode = url.searchParams.get("hub.mode");
       const token = url.searchParams.get("hub.verify_token");
@@ -456,7 +462,7 @@ function extFromMime(mime) {
 // FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-4 (lingua vocali)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 badge-1 (tesserini)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -640,4 +646,65 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
   await chatUnicaLog(env, supabaseUrl, tel, msg.id, "presa",
     (instr.evento || "messaggio") + " " + (msg.type || "?") + " · risposte " + invii.length + " · " + (Date.now() - inizio) + " ms");
   return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Badge di cantiere — ripropone le pagine della Edge Function Supabase «badge»
+// (tesserini di riconoscimento, pagina ufficio, pagina pubblica di verifica del QR).
+// Il gateway di Supabase riscrive il content-type delle pagine HTML in text/plain e aggiunge
+// una CSP «sandbox» sul dominio supabase.co: qui si rimette il content-type HTML.
+// Metodi ammessi: GET, HEAD, POST (modulo foto/date, al massimo 8 MB). Le risposte 303 passano
+// al browser così come sono: i collegamenti li compone già la funzione con impostazioni.badge_url.
+const BADGE_FUNZIONE_URL = "https://rvigugiufrjmzedjstuz.supabase.co/functions/v1/badge";
+
+async function badgeProxy(request, env) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD" && metodo !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+  }
+  const inUrl = new URL(request.url);
+  const base = env.BADGE_FUNZIONE_URL || BADGE_FUNZIONE_URL;
+  const target = base + inUrl.pathname.replace(/^\/badge/, "") + inUrl.search;
+
+  const init = { method: metodo, headers: {}, redirect: "manual" };
+  if (metodo === "POST") {
+    const ct = request.headers.get("content-type") || "";
+    init.headers["content-type"] = ct;
+    const corpo = await request.arrayBuffer();
+    if (corpo.byteLength > 9 * 1024 * 1024) {
+      return new Response("Modulo troppo grande (la fotografia deve stare in 8 MB).", {
+        status: 413, headers: { "Content-Type": "text/plain; charset=UTF-8" }
+      });
+    }
+    init.body = corpo;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  init.signal = ctrl.signal;
+  let r;
+  try {
+    r = await fetch(target, init);
+  } catch (e) {
+    clearTimeout(timer);
+    return new Response("Il servizio dei tesserini non risponde in questo momento. Riprova tra qualche minuto.", {
+      status: 502, headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" }
+    });
+  }
+  clearTimeout(timer);
+
+  const headers = new Headers();
+  headers.set("Content-Type", "text/html; charset=UTF-8");
+  headers.set("Cache-Control", "no-store");
+  for (const h of ["x-robots-tag", "referrer-policy", "x-frame-options", "x-content-type-options"]) {
+    const v = r.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  const loc = r.headers.get("location");
+  if (loc) headers.set("Location", loc);
+  if (metodo === "HEAD" || r.status === 303 || r.status === 302 || r.status === 304) {
+    return new Response(null, { status: r.status, headers });
+  }
+  return new Response(r.body, { status: r.status, headers });
 }
