@@ -149,6 +149,7 @@ export default {
         "MAKE_WEBHOOK_URL_MEDIA: " + si(env.MAKE_WEBHOOK_URL_MEDIA),
         "AI (trascrizione vocali): " + si(env.AI),
         "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
+        "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -385,6 +386,16 @@ async function processAndForward(rawBody, env) {
           messages: [msg],
           contacts: value.contacts || []
         };
+        // TIMBRATURE (04/10/2026): «ENTRO» / «ESCO» come messaggio intero (anche «ENTRO #codice» dal QR
+        // in baracca) e' una timbratura di presenza: la registra il database (timbratura_whatsapp), la
+        // risposta parte da qui e il pacchetto NON va a Make. Vale per tutti i numeri registrati.
+        // FAIL-SAFE: parola non riconosciuta, numero sconosciuto, interruttore spento, database o Meta
+        // che non rispondono → il messaggio prosegue verso la chat unica / Make come se nulla fosse.
+        if (env.TIMBRATURE !== "off" && msg.type === "text" && timbraturaParola(msg.text && msg.text.body)) {
+          let presa = false;
+          try { presa = await timbraturaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
         if (cu.numeri.length && cu.numeri.indexOf(String(msg.from || "")) !== -1) {
           let presa = false;
           try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu, bundle, inoltraAMake); } catch (e) { presa = false; }
@@ -491,7 +502,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-6 + badge-1 (produzione, promemoria, flow, tesserini, glossario vocali)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-6 + badge-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -918,12 +929,16 @@ async function badgeProxy(request, env) {
   const target = base + inUrl.pathname.replace(/^\/badge/, "") + inUrl.search;
 
   const init = { method: metodo, headers: {}, redirect: "manual" };
+  // Il cookie del codice di controllo (DL/CSE sulla pagina del QR) viaggia in entrambe le direzioni;
+  // il relay non lo legge e non lo conserva.
+  const cookie = request.headers.get("cookie");
+  if (cookie) init.headers["cookie"] = cookie;
   if (metodo === "POST") {
     const ct = request.headers.get("content-type") || "";
     init.headers["content-type"] = ct;
     const corpo = await request.arrayBuffer();
-    if (corpo.byteLength > 9 * 1024 * 1024) {
-      return new Response("Modulo troppo grande (la fotografia deve stare in 8 MB).", {
+    if (corpo.byteLength > 11 * 1024 * 1024) {
+      return new Response("Modulo troppo grande (fotografie fino a 8 MB, attestati fino a 10 MB).", {
         status: 413, headers: { "Content-Type": "text/plain; charset=UTF-8" }
       });
     }
@@ -953,8 +968,83 @@ async function badgeProxy(request, env) {
   }
   const loc = r.headers.get("location");
   if (loc) headers.set("Location", loc);
+  const cookies = typeof r.headers.getSetCookie === "function" ? r.headers.getSetCookie() : [];
+  for (const sc of cookies) headers.append("Set-Cookie", sc);
   if (metodo === "HEAD" || r.status === 303 || r.status === 302 || r.status === 304) {
     return new Response(null, { status: r.status, headers });
   }
   return new Response(r.body, { status: r.status, headers });
+}
+
+// ============================================================================
+// TIMBRATURE (04/10/2026). «ENTRO» / «ESCO» (o le varianti qui sotto) scritti come messaggio intero,
+// facoltativamente seguiti da «#codice» (le prime 8 cifre dell'id del cantiere, stampate nel QR della
+// baracca). Il riconoscimento definitivo lo fa il database (timbratura_parola/timbratura_whatsapp):
+// qui si filtra solo per non interrogarlo a ogni messaggio. Nessuna posizione viene letta ne' chiesta.
+// Spegnimento senza deploy: impostazioni.timbrature_attive = 'no'; emergenza: variabile TIMBRATURE=off.
+// ============================================================================
+const TIMBRATURE_PAROLE = [
+  "ENTRO", "ENTRATA", "ENTRATO", "ENTRATI", "SONO ENTRATO", "SONO ENTRATA", "INIZIO TURNO", "INIZIO LAVORO",
+  "TIMBRO ENTRATA", "TIMBRA ENTRATA", "ENTRO IN CANTIERE", "CLOCK IN", "INTRU", "AM INTRAT", "HYRA", "HYJ",
+  "ENTRADA", "WEJSCIE", "WCHODZE",
+  "ESCO", "USCITA", "USCITO", "USCITI", "SONO USCITO", "SONO USCITA", "FINE TURNO", "FINE LAVORO",
+  "TIMBRO USCITA", "TIMBRA USCITA", "ESCO DAL CANTIERE", "CLOCK OUT", "IES", "AM IESIT", "DOLA",
+  "SALIDA", "SAIDA", "WYJSCIE", "WYCHODZE"
+];
+
+// Ritorna la parola riconosciuta (maiuscola, senza accenti) oppure "" se il testo non e' una timbratura.
+function timbraturaParola(testo) {
+  let v = String(testo || "");
+  if (!v || v.length > 60) return "";
+  v = v.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ł/g, "l").toUpperCase();
+  v = v.replace(/[^A-Z0-9#]+/g, " ").trim();
+  if (!v || v.length > 40) return "";
+  const m = v.match(/^(.+?)(?: ?#[0-9A-F]{4,8})?$/);
+  if (!m) return "";
+  const parola = m[1].trim();
+  return TIMBRATURE_PAROLE.indexOf(parola) !== -1 ? parola : "";
+}
+
+// Ritorna true se il messaggio e' stato registrato (o riconosciuto come doppione) e la risposta e'
+// partita: il pacchetto NON va a Make. Ritorna false in ogni altro caso (il messaggio prosegue).
+async function timbraturaGestisci(msg, value, env, supabaseUrl, graph) {
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  const token = env.WHATSAPP_TOKEN;
+  if (!env.SUPABASE_SERVICE_KEY || !token || !phoneId) return false;
+  let nome = "";
+  try {
+    const c = (value.contacts || []).find((x) => String(x.wa_id || "") === tel) || (value.contacts || [])[0];
+    nome = (c && c.profile && c.profile.name) || "";
+  } catch (e) {}
+  const quando = msg.timestamp ? new Date(Number(msg.timestamp) * 1000).toISOString() : null;
+  let r;
+  try {
+    r = await chatUnicaRpc(env, supabaseUrl, "timbratura_whatsapp", {
+      p_telefono: tel, p_testo: String(msg.text && msg.text.body || ""), p_message_id: msg.id || null,
+      p_timestamp: quando, p_nome: nome
+    }, 6000);
+  } catch (e) {
+    return false; // database muto: il messaggio va avanti come sempre
+  }
+  if (!r || typeof r !== "object") return false;
+  if (r.esito === "duplicato") return true; // Meta ha ripetuto la notifica: gia' registrata, niente doppia risposta
+  if (r.esito === "ignora" || !r.risposta) return false;
+  try {
+    await chatUnicaInvia(graph, phoneId, token, {
+      messaging_product: "whatsapp", status: "read", message_id: msg.id
+    });
+  } catch (e) {}
+  try {
+    const inv = await chatUnicaInvia(graph, phoneId, token, {
+      messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+      text: { body: String(r.risposta).slice(0, 4000), preview_url: false }
+    });
+    if (!inv.ok) await chatUnicaLog(env, supabaseUrl, tel, msg.id, "timbratura_invio_errore", inv.status + " " + inv.testo);
+  } catch (e) {
+    await chatUnicaLog(env, supabaseUrl, tel, msg.id, "timbratura_invio_errore", String((e && e.message) || e));
+  }
+  await chatUnicaLog(env, supabaseUrl, tel, msg.id, "timbratura",
+    (r.tipo || "?") + " " + (r.esito || "") + (r.cantiere ? " · " + r.cantiere : "") + (r.origine ? " · " + r.origine : "") + (r.ora ? " · " + r.ora : ""));
+  return true;
 }
