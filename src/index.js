@@ -30,7 +30,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <div class="box">
 Obetti Filippo — ditta individuale<br>
 Sede: Via Bassa II, 57 — 35011 Campodarsego (PD), Italia<br>
-P.IVA: IT05289060286 — Codice Fiscale: BTTFPP78C28B563E<br>
+P.IVA: IT05289060286<br>
 PEC: obettifilippo@pec.it — Email: info@obettifilippo.com
 </div>
 
