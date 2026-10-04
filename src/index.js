@@ -420,7 +420,7 @@ function extFromMime(mime) {
 // FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-1";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-2 (vocali)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
