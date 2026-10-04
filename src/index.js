@@ -148,7 +148,8 @@ export default {
         "MAKE_WEBHOOK_URL: " + si(env.MAKE_WEBHOOK_URL),
         "MAKE_WEBHOOK_URL_MEDIA: " + si(env.MAKE_WEBHOOK_URL_MEDIA),
         "AI (trascrizione vocali): " + si(env.AI),
-        "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa")
+        "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
+        "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
         status: 200,
@@ -176,6 +177,12 @@ export default {
       return new Response("Forbidden", { status: 403 });
     }
 
+    // Amministrazione della chat unica (Flow, invii di prova, promemoria): chiave condivisa dal database.
+    if (request.method === "POST" && url.pathname === "/admin") {
+      try { return await chatUnicaAdmin(request, env); }
+      catch (e) { return new Response(JSON.stringify({ errore: String((e && e.message) || e).slice(0, 300) }), { status: 500, headers: { "Content-Type": "application/json" } }); }
+    }
+
     if (request.method === "POST") {
       const rawBody = await request.text();
       const signatureHeader = request.headers.get("X-Hub-Signature-256") || "";
@@ -191,6 +198,15 @@ export default {
     }
 
     return new Response("Method Not Allowed", { status: 405 });
+  },
+
+  // Cron di Cloudflare (wrangler.jsonc → triggers.crons): promemoria serale della chat unica.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(chatUnicaPromemoria(env, false).then((r) => {
+      console.log(JSON.stringify({ promemoria: r, cron: event && event.cron }));
+    }).catch((e) => {
+      console.log(JSON.stringify({ promemoria_errore: String((e && e.message) || e) }));
+    }));
   },
 };
 
@@ -333,24 +349,34 @@ async function processAndForward(rawBody, env) {
         }
       }
 
-      // CHAT UNICA (prova): numeri ammessi letti dal database e tenuti in memoria 60 s.
+      // CHAT UNICA: numeri ammessi (prova + produzione) letti dal database e tenuti in memoria 60 s.
       // Se il database non risponde la lista e' vuota: tutto va a Make come prima.
       let cu = { numeri: [], url: "", chiave: "" };
       try { cu = await chatUnicaConfig(env, supabaseUrl); } catch (e) {}
 
+      // Inoltro a Make di un pacchetto (quello originale o uno costruito dalla chat unica):
+      // foto e documenti allo scenario «Foto e DDT», tutto il resto al monolite. Stessa regola di sempre.
+      const inoltraAMake = async (bundle) => {
+        const m = bundle && Array.isArray(bundle.messages) ? bundle.messages[0] : null;
+        if (!m) return false;
+        const alMedia = !!mediaWebhookUrl
+          && ROUTE_MEDIA_TYPES.indexOf(m.type) !== -1
+          && (soloDa.length === 0 || soloDa.indexOf(String(m.from || "")) !== -1);
+        const url = alMedia ? mediaWebhookUrl : makeWebhookUrl;
+        if (!url) return false;
+        try {
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(bundle)
+          });
+          return true;
+        } catch (e) { return false; }
+      };
+
       // Un invio per OGNI messaggio, in ordine: gli scenari leggono solo messages[1],
       // quindi se Meta raggruppa più messaggi in una notifica nessuno va perso.
       for (const msg of value.messages) {
-        if (cu.numeri.length && cu.numeri.indexOf(String(msg.from || "")) !== -1) {
-          let presa = false;
-          try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu); } catch (e) { presa = false; }
-          if (presa) continue; // gestito dalla prova: NON va a Make
-        }
-        const alMedia = !!mediaWebhookUrl
-          && ROUTE_MEDIA_TYPES.indexOf(msg.type) !== -1
-          && (soloDa.length === 0 || soloDa.indexOf(String(msg.from || "")) !== -1);
-        const url = alMedia ? mediaWebhookUrl : makeWebhookUrl;
-        if (!url) continue;
         const bundle = {
           id: entry.id,
           time: msg.timestamp ? Number(msg.timestamp) : Math.floor(Date.now() / 1e3),
@@ -359,13 +385,12 @@ async function processAndForward(rawBody, env) {
           messages: [msg],
           contacts: value.contacts || []
         };
-        try {
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(bundle)
-          });
-        } catch (e) {}
+        if (cu.numeri.length && cu.numeri.indexOf(String(msg.from || "")) !== -1) {
+          let presa = false;
+          try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu, bundle, inoltraAMake); } catch (e) { presa = false; }
+          if (presa) continue; // gestito dalla chat unica (prova o produzione): il pacchetto originale NON va a Make
+        }
+        await inoltraAMake(bundle);
       }
     }
   }
@@ -455,14 +480,18 @@ function extFromMime(mime) {
 }
 
 // ============================================================================
-// CHAT UNICA — PROVA (04/10/2026). Solo per i numeri elencati nel database
-// (impostazioni.chat_unica_numeri) e solo dopo che quel numero ha scritto
-// «CHAT UNICA»: il messaggio va alla Edge Function chat-unica invece che a Make,
-// e le risposte partono da qui, sempre e solo verso chi ha scritto.
-// FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
-// va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
+// CHAT UNICA (04/10/2026). Due modalita', decise dal database (chat_unica_instrada):
+//  • PROVA: numeri in impostazioni.chat_unica_numeri che hanno scritto «PROVA CHAT» — niente
+//    finisce nel giornale vero, risponde solo la funzione.
+//  • PRODUZIONE: numeri in impostazioni.chat_unica_produzione_numeri — la funzione classifica,
+//    «prenota» sezione e cantiere nel database e dice a questo relay quali pacchetti mandare a
+//    Make (originale, vocale trascritto, parti di un messaggio). Il giornale lo scrive Make.
+// Le risposte partono da qui, sempre e solo verso chi ha scritto.
+// FAIL-SAFE: se configurazione, instradamento o funzione non rispondono, il messaggio
+// va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
+// (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 badge-1 (tesserini)";
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-5 + badge-1 (produzione, promemoria, flow, tesserini)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -484,7 +513,7 @@ async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
 }
 
 async function chatUnicaConfig(env, supabaseUrl) {
-  const vuota = { numeri: [], url: "", chiave: "" };
+  const vuota = { numeri: [], url: "", chiave: "", phone_number_id: "", promemoria_ora: "" };
   if (!env.SUPABASE_SERVICE_KEY || env.CHAT_UNICA === "off") return vuota;
   const ora = Date.now();
   if (_chatUnicaCache.cfg && ora - _chatUnicaCache.t < 60000) return _chatUnicaCache.cfg;
@@ -492,7 +521,8 @@ async function chatUnicaConfig(env, supabaseUrl) {
   try {
     const r = await chatUnicaRpc(env, supabaseUrl, "chat_unica_config", {}, 3000);
     if (r && Array.isArray(r.numeri)) {
-      cfg = { numeri: r.numeri.map((x) => String(x)), url: String(r.url || ""), chiave: String(r.chiave || "") };
+      cfg = { numeri: r.numeri.map((x) => String(x)), url: String(r.url || ""), chiave: String(r.chiave || ""),
+        phone_number_id: String(r.phone_number_id || ""), promemoria_ora: String(r.promemoria_ora || "") };
     }
   } catch (e) {}
   _chatUnicaCache = { t: ora, cfg };
@@ -559,11 +589,26 @@ async function chatUnicaTrascrivi(env, link, inizio) {
   return { testo: String((out && out.text) || "").trim().slice(0, 3900), lingua };
 }
 
-// Ritorna true se il messaggio e' stato preso in carico dalla prova (quindi NON va a Make).
-async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
+// Testo con cui il database decide l'instradamento: il corpo per i testi, l'id del pulsante o della
+// riga per gli interattivi (CU_… = chat unica), CU_FLOW per le risposte ai moduli (Flow).
+function chatUnicaTestoInstrada(msg) {
+  if (msg.type === "text" && msg.text) return String(msg.text.body || "");
+  if (msg.type === "interactive" && msg.interactive) {
+    const it = msg.interactive;
+    if (it.nfm_reply || it.type === "nfm_reply") return "CU_FLOW";
+    return String((it.button_reply && it.button_reply.id) || (it.list_reply && it.list_reply.id) || "");
+  }
+  return "";
+}
+
+// Ritorna true se il messaggio e' stato preso in carico dalla chat unica (quindi il pacchetto
+// originale NON va a Make). In PRODUZIONE la funzione restituisce anche i pacchetti da rilanciare
+// a Make (`inoltra`): li spedisce questo relay con la stessa regola di sempre (inoltraAMake).
+// FAIL-SAFE di produzione: se la funzione non risponde o sbaglia, ritorna false e il messaggio
+// originale va a Make come se la chat unica non esistesse.
+async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg, bundle, inoltraAMake) {
   const inizio = Date.now();
   const tel = String(msg.from || "");
-  const testo = msg.type === "text" && msg.text ? String(msg.text.body || "") : "";
   const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
   const token = env.WHATSAPP_TOKEN;
   if (!phoneId || !cfg.url || !cfg.chiave) return false;
@@ -574,17 +619,20 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
     return false;
   }
 
-  // 1) prova o Make? (in caso di dubbio: Make)
+  // 1) prova, produzione o Make? (in caso di dubbio: Make)
   let instr;
   try {
     instr = await chatUnicaRpc(env, supabaseUrl, "chat_unica_instrada",
-      { p_telefono: tel, p_tipo: msg.type || "", p_testo: testo }, 3000);
+      { p_telefono: tel, p_tipo: msg.type || "", p_testo: chatUnicaTestoInstrada(msg) }, 3000);
   } catch (e) {
     return false;
   }
-  if (!instr || instr.destinazione !== "prova") return false;
+  const destinazione = instr && instr.destinazione;
+  if (destinazione !== "prova" && destinazione !== "produzione") return false;
+  const produzione = destinazione === "produzione";
 
-  // Da qui il messaggio e' della prova: qualunque errore produce un avviso, mai un passaggio a Make.
+  // Da qui il messaggio e' della chat unica. In prova qualunque errore produce un avviso;
+  // in produzione un errore della funzione passa il pacchetto originale a Make (fail-safe).
   try {
     await chatUnicaInvia(graph, phoneId, token, {
       messaging_product: "whatsapp", status: "read", message_id: msg.id, typing_indicator: { type: "text" }
@@ -609,25 +657,32 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
     nome = (c && c.profile && c.profile.name) || "";
   } catch (e) {}
 
+  // Tempo disponibile per la funzione: il lavoro in background del Worker dura al massimo 30 s
+  const budget = Math.max(6000, Math.min(22000, 27000 - (Date.now() - inizio)));
   let invii = [];
+  let inoltra = [];
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 22000);
+    const timer = setTimeout(() => ctrl.abort(), budget);
     try {
       const r = await fetch(cfg.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-chat-unica-chiave": cfg.chiave },
-        body: JSON.stringify({ evento: instr.evento || "messaggio", telefono: tel, nome, phone_number_id: phoneId, msg, trascrizione }),
+        body: JSON.stringify({ destinazione, evento: instr.evento || "messaggio", telefono: tel, nome, phone_number_id: phoneId,
+          msg, trascrizione, bundle, budget_ms: budget }),
         signal: ctrl.signal
       });
       if (!r.ok) throw new Error("chat-unica HTTP " + r.status);
       const j = await r.json();
       invii = Array.isArray(j && j.invii) ? j.invii : [];
+      inoltra = Array.isArray(j && j.inoltra) ? j.inoltra : [];
     } finally {
       clearTimeout(timer);
     }
   } catch (e) {
-    await chatUnicaLog(env, supabaseUrl, tel, msg.id, "funzione_errore", String((e && e.message) || e));
+    await chatUnicaLog(env, supabaseUrl, tel, msg.id, "funzione_errore",
+      String((e && e.message) || e) + (produzione ? " · messaggio passato a Make" : ""));
+    if (produzione) return false; // Make riceve il pacchetto originale: nulla va perso
     invii = [{ messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
       text: { body: "⚠️ Prova chat unica: non sono riuscito a elaborare il messaggio. Riprova tra poco (ESCI per tornare al Giornale normale)." } }];
   }
@@ -643,11 +698,194 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
       await chatUnicaLog(env, supabaseUrl, tel, msg.id, "invio_errore", String((e && e.message) || e));
     }
   }
+
+  // Produzione: i pacchetti decisi dalla funzione (originale, vocale trascritto, parti) vanno a Make.
+  let inoltrati = 0;
+  for (const b of inoltra.slice(0, 4)) {
+    if (!b || typeof b !== "object" || !Array.isArray(b.messages) || !b.messages.length) continue;
+    // mittente sempre quello vero: nessun pacchetto puo' «parlare» a nome di un altro numero
+    b.messages[0].from = tel;
+    try { if (await inoltraAMake(b)) inoltrati++; } catch (e) {}
+  }
   await chatUnicaLog(env, supabaseUrl, tel, msg.id, "presa",
-    (instr.evento || "messaggio") + " " + (msg.type || "?") + " · risposte " + invii.length + " · " + (Date.now() - inizio) + " ms");
+    destinazione + " " + (instr.evento || "messaggio") + " " + (msg.type || "?") + " · risposte " + invii.length
+    + " · a Make " + inoltrati + " · " + (Date.now() - inizio) + " ms");
   return true;
 }
 
+// ============================================================================
+// PROMEMORIA SERALE (blocco 3, 04/10/2026): a chi ha scritto oggi, un riepilogo e il richiamo
+// alle ore in economia, dentro la finestra gratuita delle 24 ore. Chi riceve e cosa riceve lo
+// decide il database (chat_unica_promemoria_lista: impostazioni.chat_unica_promemoria_serale =
+// no | produzione | tutti); qui si spedisce e si segna l'invio (una volta al giorno per numero).
+// ============================================================================
+function oraRoma() {
+  try {
+    const parti = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+    const h = Number((parti.find((p) => p.type === "hour") || {}).value);
+    const m = Number((parti.find((p) => p.type === "minute") || {}).value);
+    return { ora: isNaN(h) ? -1 : h, minuti: isNaN(m) ? 0 : m };
+  } catch (e) { return { ora: -1, minuti: 0 }; }
+}
+
+async function chatUnicaPromemoria(env, forza) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const esito = { inviati: 0, errori: 0, saltato: "" };
+  if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.CHAT_UNICA === "off") { esito.saltato = "configurazione"; return esito; }
+  const cfg = await chatUnicaConfig(env, supabaseUrl);
+  if (!cfg.phone_number_id) { esito.saltato = "phone_number_id"; return esito; }
+  const attesa = Number(String(cfg.promemoria_ora || "17:30").split(":")[0]);
+  const adesso = oraRoma();
+  if (!forza && adesso.ora < (isNaN(attesa) ? 17 : attesa)) { esito.saltato = "ora " + adesso.ora + " < " + attesa; return esito; }
+  let lista = [];
+  try { lista = await chatUnicaRpc(env, supabaseUrl, "chat_unica_promemoria_lista", {}, 8000); } catch (e) { esito.saltato = "lista: " + String((e && e.message) || e); return esito; }
+  for (const r of (Array.isArray(lista) ? lista : []).slice(0, 60)) {
+    const tel = String(r.telefono || "").replace(/[^0-9]/g, "");
+    if (!tel || !r.testo) continue;
+    try {
+      const inv = await chatUnicaInvia(graph, cfg.phone_number_id, env.WHATSAPP_TOKEN, {
+        messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text", text: { body: String(r.testo).slice(0, 4000), preview_url: false }
+      });
+      if (inv.ok) {
+        esito.inviati++;
+        await chatUnicaRpc(env, supabaseUrl, "chat_unica_promemoria_segna", { p_telefono: tel, p_testo: r.testo }, 5000);
+        await chatUnicaLog(env, supabaseUrl, tel, null, "promemoria", "inviato · " + String(r.testo).slice(0, 200));
+      } else {
+        esito.errori++;
+        await chatUnicaLog(env, supabaseUrl, tel, null, "promemoria_errore", inv.status + " " + inv.testo);
+      }
+    } catch (e) {
+      esito.errori++;
+      await chatUnicaLog(env, supabaseUrl, tel, null, "promemoria_errore", String((e && e.message) || e));
+    }
+  }
+  return esito;
+}
+
+// ============================================================================
+// AMMINISTRAZIONE (blocco 4): operazioni che richiedono il token WhatsApp, che vive SOLO qui.
+// POST /admin con header x-chat-unica-chiave = impostazioni.chat_unica_chiave (letta dal database,
+// mai nel codice). Azioni: waba (id dell'account WhatsApp Business), flow_lista, flow_crea,
+// flow_dettaglio, flow_pubblica, flow_invia, invia (solo ai numeri della chat unica), promemoria.
+// ============================================================================
+async function graphJson(graph, token, percorso, metodo, corpo) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const init = { method: metodo || "GET", headers: { Authorization: "Bearer " + token }, signal: ctrl.signal };
+    if (corpo instanceof FormData) init.body = corpo;
+    else if (corpo) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(corpo); }
+    const r = await fetch(graph + "/" + percorso, init);
+    const t = await r.text();
+    let j = null;
+    try { j = JSON.parse(t); } catch (e) { j = { testo: t.slice(0, 500) }; }
+    return { ok: r.ok, status: r.status, dati: j };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function chatUnicaAdmin(request, env) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const rispondi = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" } });
+  if (!env.WHATSAPP_TOKEN || !env.SUPABASE_SERVICE_KEY) return rispondi({ errore: "relay non configurato" }, 503);
+  const cfg = await chatUnicaConfig(env, supabaseUrl);
+  const chiave = request.headers.get("x-chat-unica-chiave") || "";
+  if (!cfg.chiave || !chiave || chiave !== cfg.chiave) return rispondi({ errore: "non autorizzato" }, 403);
+  let corpo;
+  try { corpo = await request.json(); } catch (e) { return rispondi({ errore: "corpo non valido" }, 400); }
+  const azione = String(corpo.azione || "");
+  const token = env.WHATSAPP_TOKEN;
+  const phoneId = String(corpo.phone_number_id || cfg.phone_number_id || "");
+
+  if (azione === "waba") {
+    const r = await graphJson(graph, token, "debug_token?input_token=" + encodeURIComponent(token));
+    const d = (r.dati && r.dati.data) || {};
+    // solo gli id e i permessi: mai il token
+    return rispondi({ ok: r.ok, status: r.status, app_id: d.app_id, type: d.type, scopes: d.scopes, granular_scopes: d.granular_scopes, expires_at: d.expires_at, errore: r.dati && r.dati.error });
+  }
+  if (azione === "numero") {
+    const r = await graphJson(graph, token, phoneId + "?fields=id,display_phone_number,verified_name,quality_rating,name_status");
+    return rispondi(r);
+  }
+  if (azione === "flow_lista") {
+    if (!corpo.waba_id) return rispondi({ errore: "waba_id mancante" }, 400);
+    const r = await graphJson(graph, token, String(corpo.waba_id) + "/flows?fields=id,name,status,categories,validation_errors,json_version");
+    return rispondi(r);
+  }
+  if (azione === "flow_crea") {
+    if (!corpo.waba_id || !corpo.nome || !corpo.flow_json) return rispondi({ errore: "waba_id, nome e flow_json obbligatori" }, 400);
+    const dati = { name: String(corpo.nome), categories: Array.isArray(corpo.categorie) && corpo.categorie.length ? corpo.categorie : ["OTHER"],
+      flow_json: typeof corpo.flow_json === "string" ? corpo.flow_json : JSON.stringify(corpo.flow_json), publish: corpo.pubblica === true };
+    const r = await graphJson(graph, token, String(corpo.waba_id) + "/flows", "POST", dati);
+    return rispondi(r);
+  }
+  if (azione === "flow_aggiorna_json") {
+    if (!corpo.flow_id || !corpo.flow_json) return rispondi({ errore: "flow_id e flow_json obbligatori" }, 400);
+    const fd = new FormData();
+    fd.append("name", "flow.json");
+    fd.append("asset_type", "FLOW_JSON");
+    fd.append("file", new Blob([typeof corpo.flow_json === "string" ? corpo.flow_json : JSON.stringify(corpo.flow_json)], { type: "application/json" }), "flow.json");
+    const r = await graphJson(graph, token, String(corpo.flow_id) + "/assets", "POST", fd);
+    return rispondi(r);
+  }
+  if (azione === "flow_dettaglio") {
+    if (!corpo.flow_id) return rispondi({ errore: "flow_id mancante" }, 400);
+    const r = await graphJson(graph, token, String(corpo.flow_id) + "?fields=id,name,status,categories,validation_errors,json_version,data_api_version,preview");
+    return rispondi(r);
+  }
+  if (azione === "flow_pubblica") {
+    if (!corpo.flow_id) return rispondi({ errore: "flow_id mancante" }, 400);
+    const r = await graphJson(graph, token, String(corpo.flow_id) + "/publish", "POST", {});
+    return rispondi(r);
+  }
+  if (azione === "flow_elimina") {
+    if (!corpo.flow_id) return rispondi({ errore: "flow_id mancante" }, 400);
+    const r = await graphJson(graph, token, String(corpo.flow_id), "DELETE");
+    return rispondi(r);
+  }
+  if (azione === "flow_invia" || azione === "invia") {
+    const a = String(corpo.a || "").replace(/[^0-9]/g, "");
+    if (!a || cfg.numeri.indexOf(a) === -1) return rispondi({ errore: "destinatario non ammesso: solo i numeri della chat unica" }, 400);
+    if (!phoneId) return rispondi({ errore: "phone_number_id mancante" }, 400);
+    let payload;
+    if (azione === "invia") {
+      payload = corpo.payload && typeof corpo.payload === "object" ? corpo.payload : null;
+      if (!payload) return rispondi({ errore: "payload mancante" }, 400);
+    } else {
+      if (!corpo.flow_id) return rispondi({ errore: "flow_id mancante" }, 400);
+      const parametri = {
+        flow_message_version: "3",
+        flow_token: String(corpo.flow_token || ("ECO:" + a + ":" + Date.now())),
+        flow_id: String(corpo.flow_id),
+        flow_cta: String(corpo.cta || "Compila le ore").slice(0, 30),
+        flow_action: "navigate",
+        flow_action_payload: { screen: String(corpo.schermata || "ORE"), data: corpo.dati && typeof corpo.dati === "object" ? corpo.dati : {} }
+      };
+      if (corpo.bozza !== false) parametri.mode = "draft";
+      payload = { messaging_product: "whatsapp", recipient_type: "individual", to: a, type: "interactive",
+        interactive: { type: "flow",
+          header: corpo.intestazione ? { type: "text", text: String(corpo.intestazione).slice(0, 60) } : undefined,
+          body: { text: String(corpo.corpo || "Ore in economia di oggi: compila il modulo, ci vogliono 20 secondi.").slice(0, 1024) },
+          footer: corpo.pie ? { text: String(corpo.pie).slice(0, 60) } : undefined,
+          action: { name: "flow", parameters: parametri } } };
+      if (!payload.interactive.header) delete payload.interactive.header;
+      if (!payload.interactive.footer) delete payload.interactive.footer;
+    }
+    payload.messaging_product = "whatsapp";
+    payload.to = a;
+    const r = await chatUnicaInvia(graph, phoneId, token, payload);
+    await chatUnicaLog(env, supabaseUrl, a, null, "admin_invio", azione + " " + r.status + " " + r.testo.slice(0, 200));
+    return rispondi(r);
+  }
+  if (azione === "promemoria") {
+    const r = await chatUnicaPromemoria(env, corpo.forza === true);
+    return rispondi(r);
+  }
+  return rispondi({ errore: "azione sconosciuta" }, 400);
+}
 
 // ---------------------------------------------------------------------------
 // Badge di cantiere — ripropone le pagine della Edge Function Supabase «badge»
