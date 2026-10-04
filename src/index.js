@@ -129,6 +129,13 @@ export default {
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/versione") {
+      return new Response(RELAY_VERSIONE, {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" }
+      });
+    }
+
     if (request.method === "GET") {
       const mode = url.searchParams.get("hub.mode");
       const token = url.searchParams.get("hub.verify_token");
@@ -284,9 +291,19 @@ async function processAndForward(rawBody, env) {
         }
       }
 
+      // CHAT UNICA (prova): numeri ammessi letti dal database e tenuti in memoria 60 s.
+      // Se il database non risponde la lista e' vuota: tutto va a Make come prima.
+      let cu = { numeri: [], url: "", chiave: "" };
+      try { cu = await chatUnicaConfig(env, supabaseUrl); } catch (e) {}
+
       // Un invio per OGNI messaggio, in ordine: gli scenari leggono solo messages[1],
       // quindi se Meta raggruppa più messaggi in una notifica nessuno va perso.
       for (const msg of value.messages) {
+        if (cu.numeri.length && cu.numeri.indexOf(String(msg.from || "")) !== -1) {
+          let presa = false;
+          try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu); } catch (e) { presa = false; }
+          if (presa) continue; // gestito dalla prova: NON va a Make
+        }
         const alMedia = !!mediaWebhookUrl
           && ROUTE_MEDIA_TYPES.indexOf(msg.type) !== -1
           && (soloDa.length === 0 || soloDa.indexOf(String(msg.from || "")) !== -1);
@@ -393,4 +410,172 @@ function extFromMime(mime) {
     "application/pkcs7-mime": ".p7m", "application/x-pkcs7-mime": ".p7m"
   };
   return map[m] || "";
+}
+
+// ============================================================================
+// CHAT UNICA — PROVA (04/10/2026). Solo per i numeri elencati nel database
+// (impostazioni.chat_unica_numeri) e solo dopo che quel numero ha scritto
+// «CHAT UNICA»: il messaggio va alla Edge Function chat-unica invece che a Make,
+// e le risposte partono da qui, sempre e solo verso chi ha scritto.
+// FAIL-SAFE: se la configurazione o l'instradamento non rispondono, il messaggio
+// va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'.
+// ============================================================================
+const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-1";
+let _chatUnicaCache = { t: 0, cfg: null };
+
+async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
+  const svc = env.SUPABASE_SERVICE_KEY;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(supabaseUrl + "/rest/v1/rpc/" + nome, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" },
+      body: JSON.stringify(corpo), signal: ctrl.signal
+    });
+    if (!r.ok) throw new Error(nome + " " + r.status);
+    const t = await r.text();
+    return t ? JSON.parse(t) : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function chatUnicaConfig(env, supabaseUrl) {
+  const vuota = { numeri: [], url: "", chiave: "" };
+  if (!env.SUPABASE_SERVICE_KEY || env.CHAT_UNICA === "off") return vuota;
+  const ora = Date.now();
+  if (_chatUnicaCache.cfg && ora - _chatUnicaCache.t < 60000) return _chatUnicaCache.cfg;
+  let cfg = vuota;
+  try {
+    const r = await chatUnicaRpc(env, supabaseUrl, "chat_unica_config", {}, 3000);
+    if (r && Array.isArray(r.numeri)) {
+      cfg = { numeri: r.numeri.map((x) => String(x)), url: String(r.url || ""), chiave: String(r.chiave || "") };
+    }
+  } catch (e) {}
+  _chatUnicaCache = { t: ora, cfg };
+  return cfg;
+}
+
+async function chatUnicaLog(env, supabaseUrl, telefono, messageId, tipo, dettaglio) {
+  try {
+    await chatUnicaRpc(env, supabaseUrl, "chat_unica_log",
+      { p_telefono: telefono, p_message_id: messageId || null, p_tipo: tipo, p_dettaglio: String(dettaglio || "").slice(0, 1900) }, 3000);
+  } catch (e) {}
+}
+
+async function chatUnicaInvia(graph, phoneId, token, payload) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(graph + "/" + phoneId + "/messages", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(payload), signal: ctrl.signal
+    });
+    const t = await r.text();
+    return { ok: r.ok, status: r.status, testo: t.slice(0, 300) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Trascrizione dei vocali con Workers AI: attiva solo se nel Worker c'e' il collegamento «AI».
+async function chatUnicaTrascrivi(env, link) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  let buf;
+  try {
+    const r = await fetch(link, { signal: ctrl.signal });
+    if (!r.ok) return "";
+    buf = new Uint8Array(await r.arrayBuffer());
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!buf || !buf.length || buf.length > 8 * 1024 * 1024) return "";
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  const out = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: btoa(bin) });
+  return String((out && out.text) || "").trim().slice(0, 3900);
+}
+
+// Ritorna true se il messaggio e' stato preso in carico dalla prova (quindi NON va a Make).
+async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg) {
+  const inizio = Date.now();
+  const tel = String(msg.from || "");
+  const testo = msg.type === "text" && msg.text ? String(msg.text.body || "") : "";
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  const token = env.WHATSAPP_TOKEN;
+  if (!phoneId || !token || !cfg.url || !cfg.chiave) return false;
+
+  // 1) prova o Make? (in caso di dubbio: Make)
+  let instr;
+  try {
+    instr = await chatUnicaRpc(env, supabaseUrl, "chat_unica_instrada",
+      { p_telefono: tel, p_tipo: msg.type || "", p_testo: testo }, 3000);
+  } catch (e) {
+    return false;
+  }
+  if (!instr || instr.destinazione !== "prova") return false;
+
+  // Da qui il messaggio e' della prova: qualunque errore produce un avviso, mai un passaggio a Make.
+  try {
+    await chatUnicaInvia(graph, phoneId, token, {
+      messaging_product: "whatsapp", status: "read", message_id: msg.id, typing_indicator: { type: "text" }
+    });
+  } catch (e) {}
+
+  let trascrizione = "";
+  if (msg.type === "audio" && env.AI && msg.audio && msg.audio.link) {
+    try {
+      trascrizione = await chatUnicaTrascrivi(env, msg.audio.link);
+      await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione", trascrizione ? "ok " + trascrizione.length + " caratteri" : "vuota");
+    } catch (e) {
+      await chatUnicaLog(env, supabaseUrl, tel, msg.id, "trascrizione", "errore " + String((e && e.message) || e).slice(0, 300));
+    }
+  }
+
+  let nome = "";
+  try {
+    const c = (value.contacts || []).find((x) => String(x.wa_id || "") === tel) || (value.contacts || [])[0];
+    nome = (c && c.profile && c.profile.name) || "";
+  } catch (e) {}
+
+  let invii = [];
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 22000);
+    try {
+      const r = await fetch(cfg.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-chat-unica-chiave": cfg.chiave },
+        body: JSON.stringify({ evento: instr.evento || "messaggio", telefono: tel, nome, phone_number_id: phoneId, msg, trascrizione }),
+        signal: ctrl.signal
+      });
+      if (!r.ok) throw new Error("chat-unica HTTP " + r.status);
+      const j = await r.json();
+      invii = Array.isArray(j && j.invii) ? j.invii : [];
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    await chatUnicaLog(env, supabaseUrl, tel, msg.id, "funzione_errore", String((e && e.message) || e));
+    invii = [{ messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+      text: { body: "⚠️ Prova chat unica: non sono riuscito a elaborare il messaggio. Riprova tra poco (ESCI per tornare al Giornale normale)." } }];
+  }
+
+  for (const p of invii.slice(0, 6)) {
+    if (!p || typeof p !== "object") continue;
+    p.messaging_product = "whatsapp";
+    p.to = tel; // le risposte vanno SOLO a chi ha scritto
+    try {
+      const esito = await chatUnicaInvia(graph, phoneId, token, p);
+      if (!esito.ok) await chatUnicaLog(env, supabaseUrl, tel, msg.id, "invio_errore", esito.status + " " + esito.testo);
+    } catch (e) {
+      await chatUnicaLog(env, supabaseUrl, tel, msg.id, "invio_errore", String((e && e.message) || e));
+    }
+  }
+  await chatUnicaLog(env, supabaseUrl, tel, msg.id, "presa",
+    (instr.evento || "messaggio") + " " + (msg.type || "?") + " · risposte " + invii.length + " · " + (Date.now() - inizio) + " ms");
+  return true;
 }
