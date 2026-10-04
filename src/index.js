@@ -968,8 +968,10 @@ async function badgeProxy(request, env) {
   }
   const loc = r.headers.get("location");
   if (loc) headers.set("Location", loc);
+  // Solo il cookie della funzione (cdc): quelli dell'infrastruttura Supabase (__cf_bm, Domain=supabase.co)
+  // non riguardano questo dominio e il browser li scarterebbe comunque.
   const cookies = typeof r.headers.getSetCookie === "function" ? r.headers.getSetCookie() : [];
-  for (const sc of cookies) headers.append("Set-Cookie", sc);
+  for (const sc of cookies) if (/^cdc=/.test(sc)) headers.append("Set-Cookie", sc);
   if (metodo === "HEAD" || r.status === 303 || r.status === 302 || r.status === 304) {
     return new Response(null, { status: r.status, headers });
   }
