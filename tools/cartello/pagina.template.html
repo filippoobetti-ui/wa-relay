@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#052A21">
+<title>Cartello di cantiere — Il Giornale Lavori</title>
+<meta name="description" content="Crea il cartello di cantiere a norma, con render e loghi, e scarica il PDF per la stampa nei formati 100×100, 100×200, 150×300 e 200×300 cm. 9,00 € + IVA a cartello.">
+<style>
+/* Layout: modulo a sinistra, anteprima fissa a destra; su telefono anteprima in alto e modulo sotto. */
+:root{
+  --verde-scuro:#052A21; --verde:#0A7D48; --verde-vivo:#12B764; --fondo:#F4F6F5; --carta:#FFFFFF;
+  --bordo:#D5DCD8; --testo:#111111; --muto:#5B6763; --chiaro:#E6F4EC;
+  --avviso-bg:#FFF3DF; --avviso:#8A5A00; --errore:#A11C1C; --errore-bg:#FDECEC;
+  --font:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--fondo);color:var(--testo);font-family:var(--font);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+header.testata{background:var(--verde-scuro);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+header.testata .marchio svg{height:40px;width:auto;display:block}
+header.testata .marchio svg [fill="#0A7D48"]{fill:#fff}
+header.testata h1{font-size:1.05rem;margin:0;font-weight:600;letter-spacing:.01em}
+header.testata .prezzo{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;font-weight:700;white-space:nowrap}
+main.app{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;padding:20px;max-width:1500px;margin:0 auto;align-items:start}
+.pannello{background:var(--carta);border:1px solid var(--bordo);border-radius:14px;padding:18px 20px}
+.pannello h2{font-size:1rem;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+.pannello h2 .num{background:var(--verde);color:#fff;border-radius:999px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;flex-shrink:0}
+.pannello .sotto{color:var(--muto);font-size:.9rem;margin:0 0 14px}
+.colonna{display:grid;gap:16px;min-width:0}
+.griglia{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.griglia .largo{grid-column:1/-1}
+label.campo{display:block;min-width:0}
+label.campo span.eti{display:block;font-size:.82rem;color:var(--muto);margin-bottom:4px}
+label.campo span.eti b{color:var(--errore)}
+label.campo input,label.campo textarea,label.campo select{width:100%;padding:9px 10px;border:1px solid var(--bordo);border-radius:9px;background:#fff;min-width:0}
+label.campo textarea{min-height:64px;resize:vertical}
+label.campo input:focus,label.campo textarea:focus,label.campo select:focus,.scelte label:focus-within,button:focus-visible{outline:2px solid var(--verde);outline-offset:1px}
+.aiuto{font-size:.8rem;color:var(--muto);margin-top:4px}
+.scelte{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.scelte label{border:1px solid var(--bordo);border-radius:10px;padding:10px 12px;cursor:pointer;display:block;background:#fff}
+.scelte label:has(input:checked){border-color:var(--verde);background:var(--chiaro);box-shadow:inset 0 0 0 1px var(--verde)}
+.scelte input{position:absolute;opacity:0;pointer-events:none}
+.scelte .t{font-weight:700;display:block}
+.scelte .n{font-size:.8rem;color:var(--muto)}
+.riga-opzioni{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:12px}
+.riga-opzioni label.campo{flex:1 1 160px}
+.carica{border:1.5px dashed var(--bordo);border-radius:12px;padding:14px;text-align:center;background:#fafbfa;cursor:pointer;position:relative}
+.carica:hover{border-color:var(--verde)}
+.carica input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.carica .t{font-weight:600}
+.carica .n{font-size:.8rem;color:var(--muto)}
+.miniature{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.mini{position:relative;border:1px solid var(--bordo);border-radius:10px;background:#fff;padding:6px;width:120px}
+.mini img{width:100%;height:70px;object-fit:contain;display:block}
+.mini .nome{font-size:.72rem;color:var(--muto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
+.mini button{position:absolute;top:-8px;right:-8px;border:0;background:var(--errore);color:#fff;border-radius:999px;width:24px;height:24px;cursor:pointer;font-size:.9rem;line-height:1}
+aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
+.cornice{background:var(--carta);border:1px solid var(--bordo);border-radius:14px;padding:14px}
+.cornice .intest{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cornice .intest h2{margin:0;font-size:1rem}
+.cornice .misura{color:var(--muto);font-size:.88rem;font-variant-numeric:tabular-nums}
+#svgbox{display:flex;justify-content:center;align-items:flex-start;max-height:min(78vh,900px);overflow:auto;background:#EEF2F0;border-radius:10px;padding:10px}
+#svgbox svg{font-family:"RobotoCartello",Roboto,Arial,Helvetica,sans-serif;box-shadow:0 2px 14px rgba(0,0,0,.18)}
+.avvisi{display:grid;gap:6px}
+.avviso{background:var(--avviso-bg);color:var(--avviso);border-radius:10px;padding:9px 12px;font-size:.88rem}
+.avviso.errore{background:var(--errore-bg);color:var(--errore)}
+.avviso.ok{background:var(--chiaro);color:var(--verde)}
+.azioni{display:grid;gap:10px}
+.btn{border:0;border-radius:999px;padding:12px 18px;font-weight:700;cursor:pointer;background:var(--verde);color:#fff;min-height:46px}
+.btn.secondario{background:#fff;color:var(--verde-scuro);border:1.5px solid var(--bordo)}
+.btn.grande{font-size:1.05rem}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.pagamento{border-top:1px solid var(--bordo);padding-top:14px;margin-top:4px}
+.pagamento .tot{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
+.pagamento .tot b{font-size:1.3rem}
+.pagamento .tot small{color:var(--muto)}
+.pagato{background:var(--chiaro);border:1px solid #bfe3cf;border-radius:12px;padding:12px 14px}
+.pagato .t{font-weight:700;color:var(--verde)}
+.nota{font-size:.82rem;color:var(--muto);line-height:1.5}
+.conferma{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+footer.piede{color:var(--muto);font-size:.82rem;text-align:center;padding:20px}
+footer.piede a{color:var(--verde)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:gira .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes gira{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation:none}}
+@media (max-width:980px){
+  main.app{grid-template-columns:1fr;padding:12px}
+  aside.anteprima{position:static;order:-1}
+  #svgbox{max-height:60vh}
+  .griglia{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header class="testata">
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <a class="marchio" href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener" aria-label="Il Giornale Lavori"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 317.78 100" height="40" role="img" aria-label="Il Giornale Lavori">__LOGO_INTERNO__</svg></a>
+    <h1>Cartello di cantiere</h1>
+  </div>
+  <div class="prezzo">9,00 € + IVA a cartello</div>
+</header>
+
+<main class="app">
+  <div class="colonna" id="modulo">
+    <section class="pannello">
+      <h2><span class="num">1</span>Formato</h2>
+      <p class="sotto">Le misure sono quelle del cartello finito. Il PDF esce alla dimensione reale, pronto per la tipografia.</p>
+      <div class="scelte" id="formati"></div>
+      <div class="riga-opzioni">
+        <label class="campo"><span class="eti">Orientamento</span>
+          <select id="orientamento"><option value="verticale">Verticale</option><option value="orizzontale">Orizzontale</option></select></label>
+        <label class="campo"><span class="eti">Abbondanza per il taglio</span>
+          <select id="abbondanza"><option value="0">Nessuna (file al formato finito)</option><option value="5">5 mm — pannelli rigidi</option><option value="10">10 mm</option><option value="50">50 mm — striscioni con orlo e occhielli</option></select></label>
+      </div>
+      <p class="aiuto" id="aiuto-formato"></p>
+    </section>
+
+    <section class="pannello">
+      <h2><span class="num">2</span>Tipo di cantiere</h2>
+      <p class="sotto">Cambiano i dati richiesti: titolo edilizio per i lavori privati, importi e RUP per gli appalti pubblici.</p>
+      <div class="scelte">
+        <label><input type="radio" name="tipo" value="privato" checked><span class="t">Lavori privati</span><span class="n">permesso di costruire, SCIA, CILA · art. 27 D.P.R. 380/2001</span></label>
+        <label><input type="radio" name="tipo" value="pubblico"><span class="t">Appalto pubblico</span><span class="n">stazione appaltante, CUP/CIG, importi · Circ. LL.PP. 1729/UL</span></label>
+      </div>
+    </section>
+
+    <div id="gruppi"></div>
+
+    <section class="pannello">
+      <h2><span class="num" id="num-immagini">7</span>Render e loghi</h2>
+      <p class="sotto">JPG, PNG, WEBP o SVG. Il render va bene anche grande: viene ridotto a 4000 px per lato e incorporato nel PDF.</p>
+      <div class="griglia">
+        <div class="largo">
+          <div class="carica"><input type="file" id="file-render" accept="image/*"><div class="t">Render o immagine del progetto</div><div class="n">una sola immagine, va sotto i dati (o a destra nei formati orizzontali)</div></div>
+          <div class="miniature" id="mini-render"></div>
+        </div>
+        <div>
+          <div class="carica"><input type="file" id="file-stemma" accept="image/*"><div class="t">Stemma o logo in testata</div><div class="n">es. stemma del Comune o della stazione appaltante</div></div>
+          <div class="miniature" id="mini-stemma"></div>
+        </div>
+        <div>
+          <div class="carica"><input type="file" id="file-loghi" accept="image/*" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div></div>
+          <div class="miniature" id="mini-loghi"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pannello" id="pannello-reset">
+      <h2>Ricomincia</h2>
+      <p class="sotto">I dati restano salvati in questo browser finché non li cancelli: puoi tornare più tardi e trovare tutto com'era.</p>
+      <div class="conferma" id="reset-box"><button class="btn secondario" type="button" id="btn-reset">Cancella tutto e ricomincia</button></div>
+    </section>
+  </div>
+
+  <aside class="anteprima">
+    <div class="cornice">
+      <div class="intest"><h2>Anteprima</h2><span class="misura" id="misura"></span></div>
+      <div id="svgbox"></div>
+    </div>
+    <div class="cornice azioni">
+      <div class="avvisi" id="avvisi"></div>
+      <button class="btn secondario" type="button" id="btn-anteprima">Scarica l'anteprima gratuita (PDF con filigrana)</button>
+      <div class="pagamento" id="pagamento">
+        <div class="tot"><span>Cartello di cantiere · PDF per la stampa</span><span><b id="tot-lordo">10,98 €</b> <small>(9,00 € + IVA 22 %)</small></span></div>
+        <p class="nota">Il pagamento vale per questo cantiere: correzioni e nuovi download sono compresi. Al momento del pagamento puoi indicare partita IVA e dati per la fattura.</p>
+        <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF per la stampa</button>
+        <div id="pagato-box" hidden></div>
+      </div>
+      <p class="nota">PDF vettoriale alla dimensione reale, con carattere incorporato, QR e marchio Il Giornale Lavori. Consegnalo così com'è alla tipografia; se hai scelto l'abbondanza, nel file ci sono già i crocini di taglio.</p>
+    </div>
+  </aside>
+</main>
+
+<footer class="piede">Un servizio de <a href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener">Il Giornale Lavori</a> · <a href="https://www.ilgiornalelavori.it/note-legali" target="_blank" rel="noopener">Note legali</a> · <a href="https://www.ilgiornalelavori.it/privacy" target="_blank" rel="noopener">Privacy</a> · i dati del cartello restano nel tuo browser e non vengono inviati a nessuno, salvo il formato e l'oggetto dei lavori al momento del pagamento.</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>__MOTORE__</script>
+<script>
+(function () {
+  'use strict';
+  var M = window.CartelloMotore;
+  var RIS = __RISORSE__;
+  var API = (location.pathname.replace(/\/+$/, '') || '');
+  var PREZZO_CENT = 900, IVA_PCT = 22;
+  var CHIAVE_STATO = 'cartello.v1', DB_NOME = 'cartello-cantiere', DB_STORE = 'immagini';
+  var $ = function (s) { return document.querySelector(s); };
+  var el = function (tag, attrs, html) { var e = document.createElement(tag); if (attrs) Object.keys(attrs).forEach(function (k) { if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]); }); if (html != null) e.innerHTML = html; return e; };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+
+  var stato = { formato: '200x300', orientamento: 'verticale', tipo: 'privato', abbondanza: 0, campi: { titolo_tipo: 'pdc', avvertenze: "Vietato l'accesso ai non addetti ai lavori" }, pagamento: null, sessione: null };
+  var immagini = { stemma: null, render: null, loghi: [] };
+  var mis = null, jsPDFctor = null, ultimoEsito = null;
+
+  // ---------------------------------------------------------------- persistenza (solo questo browser)
+  function salvaStato() { try { localStorage.setItem(CHIAVE_STATO, JSON.stringify(stato)); } catch (e) { /* senza memoria si lavora lo stesso */ } }
+  function caricaStato() { try { var s = JSON.parse(localStorage.getItem(CHIAVE_STATO) || 'null'); if (s && s.campi) { stato = Object.assign(stato, s); stato.campi = Object.assign({}, stato.campi, s.campi); } } catch (e) {} }
+  function apriDb() {
+    return new Promise(function (ok, ko) {
+      try {
+        var r = indexedDB.open(DB_NOME, 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore(DB_STORE); };
+        r.onsuccess = function () { ok(r.result); };
+        r.onerror = function () { ko(r.error); };
+      } catch (e) { ko(e); }
+    });
+  }
+  function salvaImmagini() {
+    return apriDb().then(function (db) {
+      return new Promise(function (ok) { var tx = db.transaction(DB_STORE, 'readwrite'); tx.objectStore(DB_STORE).put(immagini, 'immagini'); tx.oncomplete = ok; tx.onerror = ok; });
+    }).catch(function () {});
+  }
+  function caricaImmagini() {
+    return apriDb().then(function (db) {
+      return new Promise(function (ok) { var tx = db.transaction(DB_STORE, 'readonly'); var g = tx.objectStore(DB_STORE).get('immagini'); g.onsuccess = function () { if (g.result) immagini = Object.assign(immagini, g.result); ok(); }; g.onerror = function () { ok(); }; });
+    }).catch(function () {});
+  }
+  function cancellaTutto() {
+    try { localStorage.removeItem(CHIAVE_STATO); } catch (e) {}
+    try { indexedDB.deleteDatabase(DB_NOME); } catch (e) {}
+  }
+
+  // ---------------------------------------------------------------- modulo
+  var GRUPPI = [
+    { id: 'intestazione', num: 3, titolo: 'Intestazione e oggetto dei lavori', sotto: 'Quello che si legge da lontano: ente, oggetto dei lavori e indirizzo del cantiere.' },
+    { id: 'titolo', num: 4, titolo: { privato: 'Titolo abilitativo e notifica preliminare', pubblico: 'Notifica preliminare' }, sotto: { privato: 'Estremi del titolo edilizio (art. 27, c. 4, D.P.R. 380/2001) e della notifica preliminare, che va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).', pubblico: 'La copia della notifica preliminare va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).' } },
+    { id: 'appalto', num: 4, titolo: "Dati dell'appalto", sotto: 'Importi, finanziamento e contratto come richiesti dalla Circolare Min. LL.PP. n. 1729/UL del 1° giugno 1990.' },
+    { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
+    { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA; i subappaltatori una per riga.' },
+    { id: 'tempi', num: 6, titolo: 'Tempi e avvertenze', sotto: 'Date di inizio e fine prevista; l’avvertenza viene stampata in evidenza su fondo rosso.' }
+  ];
+  function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
+  function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }
+
+  function disegnaModulo() {
+    var tipo = stato.tipo;
+    var box = $('#gruppi'); box.innerHTML = '';
+    var numero = 3;
+    GRUPPI.forEach(function (g) {
+      var campi = M.CAMPI.filter(function (c) { return c.g === g.id && visibile(c, tipo); });
+      if (!campi.length) return;
+      var sez = el('section', { class: 'pannello' });
+      sez.appendChild(el('h2', null, '<span class="num">' + numero + '</span>' + esc(M.perTipo(g.titolo, tipo))));
+      sez.appendChild(el('p', { class: 'sotto' }, esc(M.perTipo(g.sotto, tipo))));
+      numero++;
+      var gr = el('div', { class: 'griglia' });
+      campi.forEach(function (c) {
+        var lab = el('label', { class: 'campo' + ((c.tipo === 'textarea' || c.id === 'oggetto' || c.id === 'ubicazione' || c.id === 'ente' || c.id === 'ente_sotto' || c.id === 'csp' || c.id === 'cse') ? ' largo' : '') });
+        lab.appendChild(el('span', { class: 'eti' }, esc(M.perTipo(c.eti, tipo)) + (obbligatorio(c, tipo) ? ' <b>*</b>' : '')));
+        var inp;
+        if (c.tipo === 'select') {
+          inp = el('select', { id: 'c-' + c.id });
+          c.opzioni.forEach(function (o) { var op = el('option', { value: o[0] }, esc(o[1])); if ((stato.campi[c.id] || 'pdc') === o[0]) op.selected = true; inp.appendChild(op); });
+        } else if (c.tipo === 'textarea') {
+          inp = el('textarea', { id: 'c-' + c.id, rows: '2', placeholder: M.perTipo(c.ph, tipo) }); inp.value = stato.campi[c.id] || '';
+        } else {
+          inp = el('input', { id: 'c-' + c.id, type: 'text', placeholder: M.perTipo(c.ph, tipo), autocomplete: 'off' }); inp.value = stato.campi[c.id] || '';
+        }
+        inp.addEventListener('input', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+        inp.addEventListener('change', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+        lab.appendChild(inp);
+        gr.appendChild(lab);
+      });
+      sez.appendChild(gr);
+      box.appendChild(sez);
+    });
+    $('#num-immagini').textContent = numero;
+  }
+
+  function disegnaFormati() {
+    var box = $('#formati'); box.innerHTML = '';
+    M.FORMATI.forEach(function (f) {
+      var lab = el('label');
+      var inp = el('input', { type: 'radio', name: 'formato', value: f.id });
+      if (stato.formato === f.id) inp.checked = true;
+      inp.addEventListener('change', function () { if (inp.checked) { stato.formato = f.id; aggiornaOrientamento(); salvaStato(); ridisegna(); } });
+      lab.appendChild(inp);
+      lab.appendChild(el('span', { class: 't' }, esc(f.nome)));
+      lab.appendChild(el('span', { class: 'n' }, esc(f.nota)));
+      box.appendChild(lab);
+    });
+    $('#orientamento').value = stato.orientamento;
+    $('#abbondanza').value = String(stato.abbondanza || 0);
+    aggiornaOrientamento();
+  }
+  function aggiornaOrientamento() {
+    var quad = stato.formato === '100x100';
+    var sel = $('#orientamento'); sel.disabled = quad;
+    if (quad) { stato.orientamento = 'verticale'; sel.value = 'verticale'; }
+    var d = M.dimensioni(stato);
+    $('#aiuto-formato').textContent = 'File di stampa: ' + (d.W / 10).toFixed(0) + ' × ' + (d.H / 10).toFixed(0) + ' cm (base × altezza)' + (stato.abbondanza ? ', più ' + stato.abbondanza + ' mm di abbondanza per lato con crocini di taglio.' : '.');
+  }
+
+  // ---------------------------------------------------------------- immagini
+  function elaboraImmagine(file, maxLato, conTrasparenza) {
+    return new Promise(function (ok, ko) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) throw new Error('vuota');
+          var r = Math.min(1, maxLato / Math.max(w, h));
+          var W = Math.max(1, Math.round(w * r)), H = Math.max(1, Math.round(h * r));
+          var trasp = conTrasparenza && /png|svg|webp|gif/i.test(file.type || '');
+          var disegna = function (lato) {
+            var rr = Math.min(1, lato / Math.max(w, h));
+            var cw = Math.max(1, Math.round(w * rr)), ch = Math.max(1, Math.round(h * rr));
+            var cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+            var ctx = cv.getContext('2d');
+            if (!trasp) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch); }
+            ctx.drawImage(img, 0, 0, cw, ch);
+            return trasp ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.9);
+          };
+          var src = disegna(maxLato);
+          var mini = disegna(Math.min(maxLato, 900));
+          URL.revokeObjectURL(url);
+          ok({ src: src, mini: mini, w: W, h: H, tipo: trasp ? 'PNG' : 'JPEG', nome: file.name || 'immagine' });
+        } catch (e) { URL.revokeObjectURL(url); ko(e); }
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); ko(new Error('Formato non leggibile')); };
+      img.src = url;
+    });
+  }
+  function miniatura(box, img, onRimuovi) {
+    var d = el('div', { class: 'mini' });
+    d.appendChild(el('img', { src: img.mini || img.src, alt: '' }));
+    d.appendChild(el('div', { class: 'nome' }, esc(img.nome) + ' · ' + img.w + '×' + img.h));
+    var b = el('button', { type: 'button', 'aria-label': 'Rimuovi' }, '×');
+    b.addEventListener('click', onRimuovi);
+    d.appendChild(b);
+    box.appendChild(d);
+  }
+  function disegnaMiniature() {
+    var r = $('#mini-render'); r.innerHTML = ''; if (immagini.render) miniatura(r, immagini.render, function () { immagini.render = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
+    var s = $('#mini-stemma'); s.innerHTML = ''; if (immagini.stemma) miniatura(s, immagini.stemma, function () { immagini.stemma = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
+    var l = $('#mini-loghi'); l.innerHTML = '';
+    immagini.loghi.forEach(function (lg, i) { miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); }); });
+  }
+  function errore(msg) { mostraAvvisi([{ testo: msg, tipo: 'errore' }].concat(ultimoEsito ? ultimoEsito.avvisi.map(function (a) { return { testo: a }; }) : [])); }
+  $('#file-render').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    elaboraImmagine(f, 4000, false).then(function (img) { immagini.render = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { errore('Immagine non leggibile: usa JPG, PNG, WEBP o SVG (le foto HEIC di iPhone vanno prima convertite).'); });
+    e.target.value = '';
+  });
+  $('#file-stemma').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    elaboraImmagine(f, 1600, true).then(function (img) { immagini.stemma = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { errore('Immagine non leggibile: usa JPG, PNG, WEBP o SVG.'); });
+    e.target.value = '';
+  });
+  $('#file-loghi').addEventListener('change', function (e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    var posto = 4 - immagini.loghi.length;
+    if (posto <= 0) { errore('Hai già quattro loghi: rimuovine uno per aggiungerne un altro.'); return; }
+    Promise.all(files.slice(0, posto).map(function (f) { return elaboraImmagine(f, 1600, true); }))
+      .then(function (imgs) { immagini.loghi = immagini.loghi.concat(imgs); return salvaImmagini(); })
+      .then(function () { disegnaMiniature(); ridisegna(); })
+      .catch(function () { errore('Uno dei loghi non è leggibile: usa JPG, PNG, WEBP o SVG.'); });
+  });
+
+  // ---------------------------------------------------------------- anteprima
+  var timer = null;
+  function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
+  function datiCorrenti() { return { formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function mostraAvvisi(lista) {
+    var box = $('#avvisi'); box.innerHTML = '';
+    lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
+  }
+  function mancanti() {
+    var tipo = stato.tipo, out = [];
+    M.CAMPI.forEach(function (c) { if (visibile(c, tipo) && obbligatorio(c, tipo) && !M.pulisci(stato.campi[c.id])) out.push(M.perTipo(c.eti, tipo)); });
+    return out;
+  }
+  function ridisegna() {
+    if (!mis) return;
+    var dati = datiCorrenti();
+    try { ultimoEsito = M.impagina(dati, mis); } catch (e) { mostraAvvisi([{ testo: 'Non riesco a comporre il cartello: ' + e.message, tipo: 'errore' }]); return; }
+    $('#svgbox').innerHTML = M.svg(ultimoEsito, RIS, { mostraAbbondanza: ultimoEsito.b > 0, usaMini: true });
+    $('#misura').textContent = (ultimoEsito.W / 10) + ' × ' + (ultimoEsito.H / 10) + ' cm · ' + (stato.tipo === 'pubblico' ? 'appalto pubblico' : 'lavori privati');
+    var lista = ultimoEsito.avvisi.map(function (a) { return { testo: a }; });
+    var manca = mancanti();
+    if (manca.length) lista.unshift({ testo: 'Campi obbligatori da compilare: ' + manca.join(', ') + '.' });
+    var bloccato = ultimoEsito.avvisi.some(function (a) { return a.indexOf('Troppi dati') === 0; });
+    mostraAvvisi(lista);
+    $('#btn-acquista').disabled = bloccato || manca.length > 0;
+    aggiornaPagamento();
+  }
+
+  // ---------------------------------------------------------------- PDF
+  function nomeFile(suffisso) { var d = M.dimensioni(stato); return 'cartello-cantiere-' + (d.W / 10) + 'x' + (d.H / 10) + (suffisso ? '-' + suffisso : '') + '.pdf'; }
+  function generaPdf(filigrana) {
+    var esito = M.impagina(datiCorrenti(), mis);
+    return M.pdf(esito, jsPDFctor, RIS, { filigrana: !!filigrana });
+  }
+  function conAttesa(btn, testo, lavoro) {
+    var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + testo;
+    return new Promise(function (ok) { setTimeout(ok, 30); }).then(lavoro).catch(function (e) { errore('Non sono riuscito a creare il PDF: ' + (e && e.message ? e.message : e)); })
+      .then(function () { btn.innerHTML = prima; btn.disabled = false; ridisegna(); });
+  }
+  $('#btn-anteprima').addEventListener('click', function () {
+    var btn = this;
+    conAttesa(btn, 'Preparo l’anteprima…', function () { generaPdf(true).save(nomeFile('anteprima')); });
+  });
+
+  // ---------------------------------------------------------------- pagamento
+  function stessoCantiere(p) {
+    var norm = function (s) { return M.pulisci(s).toLowerCase().replace(/\s+/g, ' '); };
+    return p && norm(p.oggetto) === norm(stato.campi.oggetto) && norm(p.ubicazione) === norm(stato.campi.ubicazione);
+  }
+  function aggiornaPagamento() {
+    var box = $('#pagato-box'), btn = $('#btn-acquista');
+    var p = stato.pagamento;
+    if (p && stessoCantiere(p)) {
+      box.hidden = false;
+      box.innerHTML = '<div class="pagato"><div class="t">✓ Pagamento ricevuto' + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
+        '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.pulisci(p.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
+        '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF per la stampa</button></div>';
+      btn.hidden = true;
+      $('#btn-scarica').addEventListener('click', function () {
+        var b = this;
+        conAttesa(b, 'Preparo il PDF per la stampa…', function () {
+          generaPdf(false).save(nomeFile(''));
+          try { fetch(API + '/scarico', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione }) }); } catch (e) {}
+        });
+      });
+    } else {
+      box.hidden = !p; btn.hidden = false;
+      if (p) box.innerHTML = '<div class="avviso">Il pagamento registrato riguarda un altro cantiere («' + esc(M.pulisci(p.oggetto).slice(0, 60)) + '»). Per questo cartello serve un nuovo acquisto, oppure rimetti oggetto e ubicazione di quello pagato.</div>';
+    }
+  }
+  $('#btn-acquista').addEventListener('click', function () {
+    var btn = this;
+    var manca = mancanti();
+    if (manca.length) { errore('Compila prima i campi obbligatori: ' + manca.join(', ') + '.'); return; }
+    var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Apro il pagamento sicuro…';
+    salvaStato();
+    salvaImmagini().then(function () {
+      return fetch(API + '/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200), ritorno: location.origin + location.pathname })
+      });
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+      if (!x.ok || !x.j || !x.j.url) throw new Error((x.j && x.j.errore) || 'servizio di pagamento non disponibile');
+      stato.sessione = x.j.id; salvaStato();
+      location.href = x.j.url;
+    }).catch(function (e) {
+      btn.innerHTML = prima; btn.disabled = false;
+      errore('Pagamento non avviato: ' + (e && e.message ? e.message : e) + '. Riprova tra qualche istante.');
+    });
+  });
+  function verificaSessione(id) {
+    return fetch(API + '/verifica?sessione=' + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.esito === 'pagato') {
+        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '' };
+        stato.sessione = null; salvaStato();
+        mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
+        aggiornaPagamento();
+        return true;
+      }
+      return false;
+    }).catch(function () { return false; });
+  }
+
+  // ---------------------------------------------------------------- ricomincia
+  $('#btn-reset').addEventListener('click', function () {
+    var box = $('#reset-box');
+    box.innerHTML = '<span>Cancello dati, immagini e stato del pagamento salvati in questo browser. Confermi?</span><button class="btn" type="button" id="reset-si">Sì, cancella</button><button class="btn secondario" type="button" id="reset-no">No</button>';
+    $('#reset-si').addEventListener('click', function () { cancellaTutto(); location.replace(location.pathname); });
+    $('#reset-no').addEventListener('click', function () { box.innerHTML = '<button class="btn secondario" type="button" id="btn-reset2">Cancella tutto e ricomincia</button>'; $('#btn-reset2').addEventListener('click', function () { $('#btn-reset').click(); }); });
+  });
+
+  // ---------------------------------------------------------------- avvio
+  function avvia() {
+    if (!window.jspdf || !window.jspdf.jsPDF) { mostraAvvisi([{ testo: 'Il componente che crea il PDF non si è caricato: controlla la connessione e ricarica la pagina.', tipo: 'errore' }]); return; }
+    jsPDFctor = window.jspdf.jsPDF;
+    mis = M.creaMisuratore(jsPDFctor, RIS.font);
+    try {
+      var fr = new FontFace('RobotoCartello', 'url(data:font/ttf;base64,' + RIS.font.regolare + ')', { weight: '400' });
+      var fb = new FontFace('RobotoCartello', 'url(data:font/ttf;base64,' + RIS.font.grassetto + ')', { weight: '700' });
+      document.fonts.add(fr); document.fonts.add(fb);
+      Promise.all([fr.load(), fb.load()]).then(function () { ridisegna(); }).catch(function () {});
+    } catch (e) { /* senza FontFace l'anteprima usa Arial: il PDF non cambia */ }
+    caricaStato();
+    document.querySelectorAll('input[name="tipo"]').forEach(function (r) { r.checked = r.value === stato.tipo; r.addEventListener('change', function () { if (r.checked) { stato.tipo = r.value; salvaStato(); disegnaModulo(); ridisegna(); } }); });
+    $('#orientamento').addEventListener('change', function (e) { stato.orientamento = e.target.value; salvaStato(); aggiornaOrientamento(); ridisegna(); });
+    $('#abbondanza').addEventListener('change', function (e) { stato.abbondanza = Number(e.target.value) || 0; salvaStato(); aggiornaOrientamento(); ridisegna(); });
+    disegnaFormati();
+    disegnaModulo();
+    caricaImmagini().then(function () {
+      disegnaMiniature();
+      ridisegna();
+      var q = new URLSearchParams(location.search);
+      var sess = q.get('sessione') || stato.sessione;
+      if (q.get('esito') === 'annullato') mostraAvvisi([{ testo: 'Pagamento annullato: il cartello è rimasto com’era, puoi riprovare quando vuoi.' }]);
+      if (sess) {
+        verificaSessione(sess).then(function (ok) {
+          if (!ok && q.get('sessione')) {
+            // Stripe può impiegare qualche secondo: si riprova due volte
+            setTimeout(function () { verificaSessione(sess).then(function (ok2) { if (!ok2) setTimeout(function () { verificaSessione(sess); }, 4000); }); }, 3000);
+          }
+        });
+      }
+      if (q.get('sessione') || q.get('esito')) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', avvia); else avvia();
+})();
+</script>
+</body>
+</html>
