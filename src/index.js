@@ -507,7 +507,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-1 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#052A21">
 <title>Cartello di cantiere — Il Giornale Lavori</title>
-<meta name="description" content="Crea il cartello di cantiere a norma, con render e loghi, e scarica il PDF per la stampa nei formati 100×100, 100×200, 150×300 e 200×300 cm. 9,00 € + IVA a cartello.">
+<meta name="description" content="Crea il cartello di cantiere a norma, con render e loghi, e scarica il PDF/X-1a per la stampa (CMYK, testi in tracciati) nei formati 100×100, 100×200, 150×300 e 200×300 cm. 9,00 € + IVA a cartello.">
 <style>
 /* Layout: modulo a sinistra, anteprima fissa a destra; su telefono anteprima in alto e modulo sotto. */
 :root{
@@ -106,7 +106,7 @@ footer.piede a{color:var(--verde)}
   <div class="colonna" id="modulo">
     <section class="pannello">
       <h2><span class="num">1</span>Formato</h2>
-      <p class="sotto">Le misure sono quelle del cartello finito. Il PDF esce alla dimensione reale, pronto per la tipografia.</p>
+      <p class="sotto">Le misure sono quelle del cartello finito. Il file esce alla dimensione reale in PDF/X-1a, pronto per la tipografia.</p>
       <div class="scelte" id="formati"></div>
       <div class="riga-opzioni">
         <label class="campo"><span class="eti">Orientamento</span>
@@ -163,12 +163,12 @@ footer.piede a{color:var(--verde)}
       <div class="avvisi" id="avvisi"></div>
       <button class="btn secondario" type="button" id="btn-anteprima">Scarica l'anteprima gratuita (PDF con filigrana)</button>
       <div class="pagamento" id="pagamento">
-        <div class="tot"><span>Cartello di cantiere · PDF per la stampa</span><span><b id="tot-lordo">10,98 €</b> <small>(9,00 € + IVA 22 %)</small></span></div>
+        <div class="tot"><span>Cartello di cantiere · PDF/X-1a per la stampa</span><span><b id="tot-lordo">10,98 €</b> <small>(9,00 € + IVA 22 %)</small></span></div>
         <p class="nota">Il pagamento vale per questo cantiere: correzioni e nuovi download sono compresi. Al momento del pagamento puoi indicare partita IVA e dati per la fattura.</p>
-        <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF per la stampa</button>
+        <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF/X-1a per la stampa</button>
         <div id="pagato-box" hidden></div>
       </div>
-      <p class="nota">PDF vettoriale alla dimensione reale, con carattere incorporato, QR e marchio Il Giornale Lavori. Consegnalo così com'è alla tipografia; se hai scelto l'abbondanza, nel file ci sono già i crocini di taglio.</p>
+      <p class="nota"><b>File di stampa PDF/X-1a:2001</b>, lo standard chiesto dalle tipografie: vettoriale alla dimensione reale, colori in quadricromia (CMYK, condizione di stampa FOGRA39), testi convertiti in tracciati (nessun carattere da installare), immagini in CMYK, TrimBox e, se hai scelto l'abbondanza, BleedBox con crocini di taglio. QR e marchio Il Giornale Lavori sempre presenti.</p>
     </div>
   </aside>
 </main>
@@ -176,12 +176,16 @@ footer.piede a{color:var(--verde)}
 <footer class="piede">Un servizio de <a href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener">Il Giornale Lavori</a> · <a href="https://www.ilgiornalelavori.it/note-legali" target="_blank" rel="noopener">Note legali</a> · <a href="https://www.ilgiornalelavori.it/privacy" target="_blank" rel="noopener">Privacy</a> · i dati del cartello restano nel tuo browser e non vengono inviati a nessuno, salvo il formato e l'oggetto dei lavori al momento del pagamento.</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js"></script>
 <script>__MOTORE__</script>
+<script>__STAMPA__</script>
 <script>
 (function () {
   'use strict';
   var M = window.CartelloMotore;
+  var S = window.CartelloStampa;
   var RIS = __RISORSE__;
+  var fontOT = null; // caratteri letti da opentype.js per i testi in tracciati
   var API = (location.pathname.replace(/\/+$/, '') || '');
   var PREZZO_CENT = 900, IVA_PCT = 22;
   var CHIAVE_STATO = 'cartello.v1', DB_NOME = 'cartello-cantiere', DB_STORE = 'immagini';
@@ -391,18 +395,49 @@ footer.piede a{color:var(--verde)}
 
   // ---------------------------------------------------------------- PDF
   function nomeFile(suffisso) { var d = M.dimensioni(stato); return 'cartello-cantiere-' + (d.W / 10) + 'x' + (d.H / 10) + (suffisso ? '-' + suffisso : '') + '.pdf'; }
-  function generaPdf(filigrana) {
+  function scarica(u8, nome) {
+    var blob = new Blob([u8], { type: 'application/pdf' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 4000);
+  }
+  // pixel di un'immagine caricata (per la conversione in CMYK), a bande, dal canvas
+  function leggiPixel(img) {
+    return new Promise(function (ok, ko) {
+      var im = new Image();
+      im.onload = function () {
+        var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        var ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(im, 0, 0);
+        ok({ larghezza: cv.width, altezza: cv.height, banda: function (y0, n) { return ctx.getImageData(0, y0, cv.width, n).data; } });
+      };
+      im.onerror = function () { ko(new Error('immagine non leggibile')); };
+      im.src = img.src;
+    });
+  }
+  // stampa=true → PDF/X-1a (CMYK, testi in tracciati); altrimenti anteprima con filigrana (RGB, testi in tracciati)
+  function generaPdf(stampa, avanzamento) {
     var esito = M.impagina(datiCorrenti(), mis);
-    return M.pdf(esito, jsPDFctor, RIS, { filigrana: !!filigrana });
+    if (!stampa) {
+      var docA = M.pdf(esito, jsPDFctor, RIS, { filigrana: true, stampa: S, fontOT: fontOT });
+      return Promise.resolve(new Uint8Array(docA.output('arraybuffer')));
+    }
+    if (!fontOT) return Promise.reject(new Error('il componente dei caratteri (opentype.js) non si è caricato: ricarica la pagina'));
+    return M.preparaImmaginiCmyk(esito, S, leggiPixel, avanzamento).then(function (mappa) {
+      var doc = M.pdf(esito, jsPDFctor, RIS, { cmyk: true, stampa: S, fontOT: fontOT, immaginiCmyk: mappa });
+      return S.completaPdfX1a(doc.output(), { titolo: 'Cartello di cantiere ' + M.dimensioni(stato).formato.nome.replace(/\u00d7/g, 'x') + ' - ' + M.pulisci(stato.campi.oggetto).slice(0, 80) });
+    });
   }
   function conAttesa(btn, testo, lavoro) {
     var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + testo;
-    return new Promise(function (ok) { setTimeout(ok, 30); }).then(lavoro).catch(function (e) { errore('Non sono riuscito a creare il PDF: ' + (e && e.message ? e.message : e)); })
+    var aggiorna = function (t) { btn.innerHTML = '<span class="spinner"></span>' + t; };
+    return new Promise(function (ok) { setTimeout(ok, 30); }).then(function () { return lavoro(aggiorna); })
+      .catch(function (e) { errore('Non sono riuscito a creare il PDF: ' + (e && e.message ? e.message : e)); })
       .then(function () { btn.innerHTML = prima; btn.disabled = false; ridisegna(); });
   }
   $('#btn-anteprima').addEventListener('click', function () {
     var btn = this;
-    conAttesa(btn, 'Preparo l’anteprima…', function () { generaPdf(true).save(nomeFile('anteprima')); });
+    conAttesa(btn, 'Preparo l’anteprima…', function () { return generaPdf(false).then(function (u8) { scarica(u8, nomeFile('anteprima')); }); });
   });
 
   // ---------------------------------------------------------------- pagamento
@@ -417,13 +452,15 @@ footer.piede a{color:var(--verde)}
       box.hidden = false;
       box.innerHTML = '<div class="pagato"><div class="t">✓ Pagamento ricevuto' + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
         '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.pulisci(p.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
-        '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF per la stampa</button></div>';
+        '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button></div>';
       btn.hidden = true;
       $('#btn-scarica').addEventListener('click', function () {
         var b = this;
-        conAttesa(b, 'Preparo il PDF per la stampa…', function () {
-          generaPdf(false).save(nomeFile(''));
-          try { fetch(API + '/scarico', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione }) }); } catch (e) {}
+        conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
+          return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }).then(function (u8) {
+            scarica(u8, nomeFile('PDFX1a'));
+            try { fetch(API + '/scarico', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione }) }); } catch (e) {}
+          });
         });
       });
     } else {
@@ -477,6 +514,12 @@ footer.piede a{color:var(--verde)}
     if (!window.jspdf || !window.jspdf.jsPDF) { mostraAvvisi([{ testo: 'Il componente che crea il PDF non si è caricato: controlla la connessione e ricarica la pagina.', tipo: 'errore' }]); return; }
     jsPDFctor = window.jspdf.jsPDF;
     mis = M.creaMisuratore(jsPDFctor, RIS.font);
+    try {
+      if (window.opentype && S) {
+        var ab = function (b64) { var bin = atob(b64); var u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+        fontOT = { regolare: window.opentype.parse(ab(RIS.font.regolare)), grassetto: window.opentype.parse(ab(RIS.font.grassetto)) };
+      }
+    } catch (e) { fontOT = null; }
     try {
       var fr = new FontFace('RobotoCartello', 'url(data:font/ttf;base64,' + RIS.font.regolare + ')', { weight: '400' });
       var fb = new FontFace('RobotoCartello', 'url(data:font/ttf;base64,' + RIS.font.grassetto + ')', { weight: '700' });

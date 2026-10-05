@@ -416,7 +416,7 @@
     }
     if (k <= K_MIN + 0.001 && !avvisi.some((a) => a.startsWith('Troppi dati'))) avvisi.push('Il testo è stato ridotto al minimo per far entrare tutti i dati: valuta un formato più grande o testi più brevi.');
 
-    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo };
+    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo, immagini: img };
   }
 
   // ------------------------------------------------------------------ anteprima SVG
@@ -516,16 +516,48 @@
 
   function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 
+  // opz: { filigrana, cmyk, stampa (modulo CartelloStampa), fontOT: {regolare, grassetto} (opentype.js → testi in tracciati),
+  //        immaginiCmyk: Map(img → Uint8Array JPEG CMYK), titolo }
   function pdf(esito, jsPDFctor, ris, opz) {
     opz = opz || {};
-    const { W, H, b, prims, u } = esito;
+    const { W, H, b, prims } = esito;
     const pw = W + 2 * b, ph = H + 2 * b;
-    const doc = new jsPDFctor({ unit: 'mm', format: [pw, ph], orientation: pw >= ph ? 'l' : 'p', compress: true });
-    registraFont(doc, ris.font);
-    doc.setProperties({ title: `Cartello di cantiere ${esito.formato.nome} — Il Giornale Lavori`, subject: 'Cartello di cantiere', creator: 'Il Giornale Lavori — www.ilgiornalelavori.it', author: 'Il Giornale Lavori' });
+    const cmyk = !!(opz.cmyk && opz.stampa);
+    const tracciati = !!(opz.fontOT && opz.stampa);
+    const doc = new jsPDFctor({ unit: 'mm', format: [pw, ph], orientation: pw >= ph ? 'l' : 'p', compress: true, putOnlyUsedFonts: true, floatPrecision: 3 });
+    if (!tracciati) registraFont(doc, ris.font);
+    const titolo = opz.titolo || `Cartello di cantiere ${esito.formato.nome.replace(/\u00d7/g, 'x')} - Il Giornale Lavori`;
+    doc.setProperties({ title: titolo, subject: 'Cartello di cantiere', creator: 'Il Giornale Lavori — www.ilgiornalelavori.it', author: 'Il Giornale Lavori' });
+    if (typeof doc.setFileId === 'function') doc.setFileId(Array.from({ length: 32 }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join(''));
+    // riquadri di pagina: TrimBox = formato finito, BleedBox = foglio con abbondanza (in punti)
+    try {
+      const k = 72 / 25.4;
+      const ctx = doc.getPageInfo(1).pageContext;
+      ctx.trimBox = { bottomLeftX: b * k, bottomLeftY: b * k, topRightX: (W + b) * k, topRightY: (H + b) * k };
+      if (b > 0) ctx.bleedBox = { bottomLeftX: 0, bottomLeftY: 0, topRightX: pw * k, topRightY: ph * k };
+    } catch (e) { /* riquadri facoltativi */ }
     const ox = b, oy = b;
-    const fill = (hex) => { const [r, g, bl] = hexRgb(hex); doc.setFillColor(r, g, bl); };
-    const stroke = (hex) => { const [r, g, bl] = hexRgb(hex); doc.setDrawColor(r, g, bl); };
+    const colore = (hex, metodo) => {
+      if (cmyk) { const c = opz.stampa.cmykDaHex(hex); doc[metodo](c[0], c[1], c[2], c[3]); }
+      else { const [r, g, bl] = hexRgb(hex); doc[metodo](r, g, bl); }
+    };
+    const fill = (hex) => colore(hex, 'setFillColor');
+    const stroke = (hex) => colore(hex, 'setDrawColor');
+    const testo = (p, x, y) => {
+      if (tracciati) {
+        const font = p.b ? opz.fontOT.grassetto : opz.fontOT.regolare;
+        const linee = opz.stampa.tracciatoTesto(font, p.s, x, y, p.size, p.a, p.ls || 0);
+        if (linee.length === 0) return;
+        fill(p.c); doc.path(linee); doc.fill();
+      } else {
+        doc.setFont('Roboto', p.b ? 'bold' : 'normal');
+        doc.setFontSize(ptDaMm(p.size));
+        colore(p.c, 'setTextColor');
+        const o = { align: p.a === 'left' ? 'left' : p.a };
+        if (p.ls) o.charSpace = p.ls * p.size;
+        doc.text(p.s, x, y, o);
+      }
+    };
 
     for (const p of prims) {
       if (p.t === 'rect') {
@@ -540,16 +572,13 @@
       } else if (p.t === 'line') {
         stroke(p.c); doc.setLineWidth(p.lw); doc.line(ox + p.x1, oy + p.y1, ox + p.x2, oy + p.y2);
       } else if (p.t === 'text') {
-        doc.setFont('Roboto', p.b ? 'bold' : 'normal');
-        doc.setFontSize(ptDaMm(p.size));
-        const [r, g, bl] = hexRgb(p.c); doc.setTextColor(r, g, bl);
-        const o = { align: p.a === 'left' ? 'left' : p.a };
-        if (p.ls) o.charSpace = p.ls * p.size;
-        doc.text(p.s, ox + p.x, oy + p.y, o);
+        testo(p, ox + p.x, oy + p.y);
       } else if (p.t === 'img') {
-        doc.addImage(p.img.src, p.img.tipo || 'JPEG', ox + p.x, oy + p.y, p.w, p.h, undefined, 'FAST');
+        const jpegCmyk = cmyk && opz.immaginiCmyk ? opz.immaginiCmyk.get(p.img) : null;
+        if (jpegCmyk) doc.addImage(jpegCmyk, 'JPEG', ox + p.x, oy + p.y, p.w, p.h, undefined, 'FAST');
+        else doc.addImage(p.img.src, p.img.tipo || 'JPEG', ox + p.x, oy + p.y, p.w, p.h, undefined, 'FAST');
       } else if (p.t === 'logo') {
-        disegnaLogoPdf(doc, ris.logoTracciati, ox + p.x, oy + p.y, p.h);
+        disegnaLogoPdf(doc, ris.logoTracciati, ox + p.x, oy + p.y, p.h, fill);
       } else if (p.t === 'qr') {
         const n = ris.qr.n, mod = p.size / n;
         fill('#FFFFFF'); doc.rect(ox + p.x - 2 * mod, oy + p.y - 2 * mod, p.size + 4 * mod, p.size + 4 * mod, 'F');
@@ -566,21 +595,35 @@
     }
 
     if (opz.filigrana) {
-      const testo = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.ilgiornalelavori.it';
+      const t = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.ilgiornalelavori.it';
       const size = Math.min(W, H) / 22;
       doc.saveGraphicsState();
       doc.setGState(new doc.GState({ opacity: 0.14 }));
-      doc.setFont('Roboto', 'bold'); doc.setFontSize(ptDaMm(size)); doc.setTextColor(5, 42, 33);
       const passo = size * 5;
-      for (let yy = -H; yy < H * 2; yy += passo) {
-        doc.text(testo, ox + W / 2, oy + yy, { align: 'center', angle: 30 });
+      if (tracciati) {
+        // scritte inclinate come tracciati: rotazione di 30° attorno al punto di ancoraggio
+        const ang = -30 * Math.PI / 180, cs = Math.cos(ang), sn = Math.sin(ang);
+        for (let yy = -H; yy < H * 2; yy += passo) {
+          const cx = ox + W / 2, cy = oy + yy;
+          const linee = opz.stampa.tracciatoTesto(opz.fontOT.grassetto, t, 0, 0, size, 'center', 0).map((c) => {
+            const r = (x, y) => [cx + x * cs - y * sn, cy + x * sn + y * cs];
+            if (c.op === 'h') return c;
+            if (c.op === 'c') return { op: 'c', c: [...r(c.c[0], c.c[1]), ...r(c.c[2], c.c[3]), ...r(c.c[4], c.c[5])] };
+            return { op: c.op, c: r(c.c[0], c.c[1]) };
+          });
+          fill('#052A21'); doc.path(linee); doc.fill();
+        }
+      } else {
+        doc.setFont('Roboto', 'bold'); doc.setFontSize(ptDaMm(size)); colore('#052A21', 'setTextColor');
+        for (let yy = -H; yy < H * 2; yy += passo) doc.text(t, ox + W / 2, oy + yy, { align: 'center', angle: 30 });
       }
       doc.restoreGraphicsState();
     }
 
     if (b > 0) {
-      // crocini di taglio nell'abbondanza
-      stroke('#000000'); doc.setLineWidth(0.25);
+      // crocini di taglio nell'abbondanza (in quadricromia piena, così escono su ogni lastra)
+      if (cmyk) doc.setDrawColor(1, 1, 1, 1); else stroke('#000000');
+      doc.setLineWidth(0.25);
       const L = Math.min(b * 0.8, 8), g = Math.min(b * 0.15, 2);
       const angoli = [[0, 0, -1, -1], [W, 0, 1, -1], [0, H, -1, 1], [W, H, 1, 1]];
       for (const [cx, cy, dx, dy] of angoli) {
@@ -591,11 +634,26 @@
     return doc;
   }
 
+  // Immagini del cartello → JPEG CMYK (una volta sola per immagine). leggiPixel(img) → {larghezza, altezza, banda(y0, n)}
+  async function preparaImmaginiCmyk(esito, stampa, leggiPixel, avanzamento) {
+    const mappa = new Map();
+    const imgs = esito.prims.filter((p) => p.t === 'img').map((p) => p.img);
+    const uniche = Array.from(new Set(imgs));
+    for (let i = 0; i < uniche.length; i++) {
+      const img = uniche[i];
+      const sfondo = img === ((esito.immagini || {}).stemma) ? hexRgb(BRAND.scuro) : [255, 255, 255];
+      const sorgente = await leggiPixel(img);
+      const jpeg = await stampa.codificaJpegCmyk(sorgente, 88, sfondo, (f) => avanzamento && avanzamento((i + f) / uniche.length));
+      mappa.set(img, jpeg);
+    }
+    return mappa;
+  }
+
   // Marchio Il Giornale Lavori in tracciati vettoriali (coordinate 0..317.78 × 0..100).
-  function disegnaLogoPdf(doc, tracciati, x, y, h) {
+  function disegnaLogoPdf(doc, tracciati, x, y, h, fill) {
     const s = h / 100;
     for (const tr of tracciati) {
-      const [r, g, b] = hexRgb(tr.fill); doc.setFillColor(r, g, b);
+      fill(tr.fill);
       if (tr.rect) { doc.roundedRect(x + tr.rect[0] * s, y + tr.rect[1] * s, tr.rect[2] * s, tr.rect[3] * s, tr.rect[4] * s, tr.rect[4] * s, 'F'); continue; }
       const linee = tr.cmds.map((c) => {
         if (c[0] === 'm') return { op: 'm', c: [x + c[1] * s, y + c[2] * s] };
@@ -608,5 +666,5 @@
     }
   }
 
-  return { BRAND, FORMATI, CAMPI, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, FORMATI, CAMPI, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });
