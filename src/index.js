@@ -164,6 +164,11 @@ export default {
     if (url.pathname === "/badge" || url.pathname.startsWith("/badge/")) {
       return badgeProxy(request, env);
     }
+    // Cartello di cantiere (05/10/2026): pagina statica (public/cartello/index.html) + pagamento sulla
+    // Edge Function Supabase «cartello». Anche qui non si tratta nessun dato: si passa e basta.
+    if (url.pathname === "/cartello" || url.pathname.startsWith("/cartello/")) {
+      return cartelloRoute(request, env);
+    }
     if (request.method === "GET") {
       const mode = url.searchParams.get("hub.mode");
       const token = url.searchParams.get("hub.verify_token");
@@ -502,7 +507,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-04 chat-unica-6 + badge-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-1 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -976,6 +981,78 @@ async function badgeProxy(request, env) {
     return new Response(null, { status: r.status, headers });
   }
   return new Response(r.body, { status: r.status, headers });
+}
+
+// ---------------------------------------------------------------------------
+// Cartello di cantiere (05/10/2026) — il generatore del cartello (modulo, anteprima e PDF nel browser).
+// GET /cartello (o /cartello/) serve il file statico public/cartello/index.html tramite il binding ASSETS;
+// /cartello/checkout, /cartello/verifica e /cartello/scarico vanno alla Edge Function Supabase «cartello»
+// (Checkout Stripe da 9,00 € + IVA e registro delle vendite). Il relay non legge e non conserva nulla.
+const CARTELLO_FUNZIONE_URL = "https://rvigugiufrjmzedjstuz.supabase.co/functions/v1/cartello";
+const CARTELLO_API = new Set(["/checkout", "/verifica", "/scarico", "/stato"]);
+
+async function cartelloRoute(request, env) {
+  const metodo = request.method;
+  const inUrl = new URL(request.url);
+  const sotto = (inUrl.pathname.replace(/^\/cartello/, "") || "/").replace(/\/+$/, "") || "/";
+
+  if (sotto === "/" || sotto === "/index.html") {
+    if (metodo !== "GET" && metodo !== "HEAD") {
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    }
+    if (!env.ASSETS) {
+      return new Response("La pagina del cartello non e' disponibile su questa versione del relay.", {
+        status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" }
+      });
+    }
+    const r = await env.ASSETS.fetch(new Request(new URL("/cartello/index.html", inUrl.origin), { method: "GET", headers: request.headers }));
+    const headers = new Headers(r.headers);
+    headers.set("Content-Type", "text/html; charset=UTF-8");
+    headers.set("Cache-Control", "public, max-age=300");
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("X-Frame-Options", "DENY");
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    if (metodo === "HEAD") return new Response(null, { status: r.status, headers });
+    return new Response(r.body, { status: r.status, headers });
+  }
+
+  if (!CARTELLO_API.has(sotto)) {
+    return new Response("Pagina non trovata", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+  if (metodo !== "GET" && metodo !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+  }
+  const base = env.CARTELLO_FUNZIONE_URL || CARTELLO_FUNZIONE_URL;
+  const init = { method: metodo, headers: {} };
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip) init.headers["x-forwarded-for"] = ip;
+  const ua = request.headers.get("user-agent");
+  if (ua) init.headers["user-agent"] = ua;
+  if (metodo === "POST") {
+    init.headers["content-type"] = request.headers.get("content-type") || "application/json";
+    const corpo = await request.arrayBuffer();
+    if (corpo.byteLength > 64 * 1024) {
+      return new Response(JSON.stringify({ errore: "richiesta troppo grande" }), { status: 413, headers: { "Content-Type": "application/json" } });
+    }
+    init.body = corpo;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  init.signal = ctrl.signal;
+  let r;
+  try {
+    r = await fetch(base + sotto + inUrl.search, init);
+  } catch (e) {
+    clearTimeout(timer);
+    return new Response(JSON.stringify({ errore: "servizio non raggiungibile in questo momento" }), {
+      status: 502, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
+    });
+  }
+  clearTimeout(timer);
+  return new Response(r.body, {
+    status: r.status,
+    headers: { "Content-Type": r.headers.get("content-type") || "application/json", "Cache-Control": "no-store" }
+  });
 }
 
 // ============================================================================

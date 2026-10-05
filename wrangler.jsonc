@@ -12,6 +12,16 @@
   "ai": {
     "binding": "AI"
   },
+  // Cartello di cantiere (05/10/2026): la pagina del generatore e' un file statico in public/cartello/.
+  // run_worker_first: il Worker decide sempre lui (il webhook WhatsApp e tutto il resto restano come prima);
+  // il file viene letto con env.ASSETS solo dalla rotta /cartello. Niente redirect automatici (html_handling none).
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
   // Promemoria serale della chat unica (blocco 3): due passaggi in UTC perche' l'ora legale cambia.
   // Il Worker manda il promemoria solo se a Roma sono almeno le 17 (impostazioni.chat_unica_promemoria_ora)
   // e una sola volta al giorno per numero (tabella chat_unica_promemoria_invii).
