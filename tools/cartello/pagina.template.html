@@ -199,7 +199,7 @@ footer.piede a{color:var(--verde)}
   var el = function (tag, attrs, html) { var e = document.createElement(tag); if (attrs) Object.keys(attrs).forEach(function (k) { if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]); }); if (html != null) e.innerHTML = html; return e; };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 
-  var stato = { formato: '200x300', orientamento: 'verticale', tipo: 'privato', abbondanza: 0, campi: { titolo_tipo: 'pdc', avvertenze: "Vietato l'accesso ai non addetti ai lavori" }, pagamento: null, sessione: null };
+  var stato = { formato: '200x300', orientamento: 'verticale', tipo: 'privato', abbondanza: 0, campi: { titolo_tipo: 'pdc' }, pagamento: null, sessione: null };
   var immagini = { stemma: null, render: null, loghi: [] };
   var mis = null, jsPDFctor = null, ultimoEsito = null;
 
@@ -238,7 +238,7 @@ footer.piede a{color:var(--verde)}
     { id: 'appalto', num: 4, titolo: "Dati dell'appalto", sotto: 'Importi, finanziamento e contratto come richiesti dalla Circolare Min. LL.PP. n. 1729/UL del 1° giugno 1990.' },
     { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
     { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA; i subappaltatori una per riga.' },
-    { id: 'tempi', num: 6, titolo: 'Tempi e avvertenze', sotto: 'Date di inizio e fine prevista; l’avvertenza viene stampata in evidenza su fondo rosso.' }
+    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Date di inizio e fine prevista. Sotto i dati il cartello riporta sempre, su fondo rosso, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
   ];
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }

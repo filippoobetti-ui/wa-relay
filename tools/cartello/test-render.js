@@ -31,7 +31,7 @@ const privato = {
     direttore_cantiere: 'geom. Andrea Rossi', capocantiere: 'Giovanni Bianchi',
     subappaltatori: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari\nPonteggi Alfa S.r.l. — montaggio ponteggi',
     data_inizio: '15/10/2026', data_fine: '30/06/2027',
-    avvertenze: 'Vietato l’accesso ai non addetti ai lavori'
+    avvertenze: ''
   }
 };
 const pubblico = {

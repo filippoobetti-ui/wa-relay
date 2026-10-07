@@ -200,6 +200,7 @@ footer.piede a{color:var(--verde)}
   const LOGO_RAPPORTO = 317.78 / 100; // larghezza / altezza del marchio orizzontale
   const SITO = 'www.ilgiornalelavori.it';
   const SLOGAN = 'Cartello realizzato con';
+  const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
 
   const FORMATI = [
     { id: '100x100', nome: '100 × 100 cm', lato1: 1000, lato2: 1000, nota: 'quadrato, pannello singolo' },
@@ -261,8 +262,7 @@ footer.piede a{color:var(--verde)}
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici e lavoratori autonomi (una per riga)', ph: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari', per: 'entrambi', tipo: 'textarea', riga: 'Subappaltatori e lavoratori autonomi' },
     { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
-    { g: 'tempi', id: 'avvertenze', eti: 'Avvertenza stampata in evidenza', ph: "Vietato l'accesso ai non addetti ai lavori", per: 'entrambi' }
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' }
   ];
 
   const ORDINE_RIGHE = {
@@ -481,14 +481,17 @@ footer.piede a{color:var(--verde)}
       yCorpoFine = yL - 2 * u;
     }
 
-    // ---------- avvertenza in evidenza (facoltativa)
-    const avvert = pulisci(c.avvertenze);
-    if (avvert) {
-      const hA = 4.2 * u;
+    // ---------- fascia rossa fissa (decisione di Filippo 07/10/2026: testo unico, non modificabile dal cliente)
+    {
+      const wA = W - 2 * m - 3 * u;
+      let fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 1, null, 1.2);
+      if (fitA.troncato || fitA.size < 1.7 * u) fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 2, null, 1.2);
+      const passo = fitA.size * 1.2;
+      const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
       R(m, yA, W - 2 * m, hA, BRAND.avviso, { rx: 0.6 * u });
-      const fitA = adatta(mis, avvert.toUpperCase(), true, 2.3 * u, 1.3 * u, W - 2 * m - 3 * u, 1, null, 1.2);
-      T(W / 2, yA + hA / 2 + fitA.size * 0.36, fitA.righe[0], fitA.size, true, BRAND.bianco, 'center');
+      const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
+      fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
       yCorpoFine = yA - 2 * u;
     }
 
@@ -1189,7 +1192,7 @@ footer.piede a{color:var(--verde)}
   var el = function (tag, attrs, html) { var e = document.createElement(tag); if (attrs) Object.keys(attrs).forEach(function (k) { if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]); }); if (html != null) e.innerHTML = html; return e; };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 
-  var stato = { formato: '200x300', orientamento: 'verticale', tipo: 'privato', abbondanza: 0, campi: { titolo_tipo: 'pdc', avvertenze: "Vietato l'accesso ai non addetti ai lavori" }, pagamento: null, sessione: null };
+  var stato = { formato: '200x300', orientamento: 'verticale', tipo: 'privato', abbondanza: 0, campi: { titolo_tipo: 'pdc' }, pagamento: null, sessione: null };
   var immagini = { stemma: null, render: null, loghi: [] };
   var mis = null, jsPDFctor = null, ultimoEsito = null;
 
@@ -1228,7 +1231,7 @@ footer.piede a{color:var(--verde)}
     { id: 'appalto', num: 4, titolo: "Dati dell'appalto", sotto: 'Importi, finanziamento e contratto come richiesti dalla Circolare Min. LL.PP. n. 1729/UL del 1° giugno 1990.' },
     { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
     { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA; i subappaltatori una per riga.' },
-    { id: 'tempi', num: 6, titolo: 'Tempi e avvertenze', sotto: 'Date di inizio e fine prevista; l’avvertenza viene stampata in evidenza su fondo rosso.' }
+    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Date di inizio e fine prevista. Sotto i dati il cartello riporta sempre, su fondo rosso, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
   ];
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }

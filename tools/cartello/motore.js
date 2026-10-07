@@ -15,6 +15,7 @@
   const LOGO_RAPPORTO = 317.78 / 100; // larghezza / altezza del marchio orizzontale
   const SITO = 'www.ilgiornalelavori.it';
   const SLOGAN = 'Cartello realizzato con';
+  const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
 
   const FORMATI = [
     { id: '100x100', nome: '100 × 100 cm', lato1: 1000, lato2: 1000, nota: 'quadrato, pannello singolo' },
@@ -76,8 +77,7 @@
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici e lavoratori autonomi (una per riga)', ph: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari', per: 'entrambi', tipo: 'textarea', riga: 'Subappaltatori e lavoratori autonomi' },
     { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
-    { g: 'tempi', id: 'avvertenze', eti: 'Avvertenza stampata in evidenza', ph: "Vietato l'accesso ai non addetti ai lavori", per: 'entrambi' }
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' }
   ];
 
   const ORDINE_RIGHE = {
@@ -296,14 +296,17 @@
       yCorpoFine = yL - 2 * u;
     }
 
-    // ---------- avvertenza in evidenza (facoltativa)
-    const avvert = pulisci(c.avvertenze);
-    if (avvert) {
-      const hA = 4.2 * u;
+    // ---------- fascia rossa fissa (decisione di Filippo 07/10/2026: testo unico, non modificabile dal cliente)
+    {
+      const wA = W - 2 * m - 3 * u;
+      let fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 1, null, 1.2);
+      if (fitA.troncato || fitA.size < 1.7 * u) fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 2, null, 1.2);
+      const passo = fitA.size * 1.2;
+      const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
       R(m, yA, W - 2 * m, hA, BRAND.avviso, { rx: 0.6 * u });
-      const fitA = adatta(mis, avvert.toUpperCase(), true, 2.3 * u, 1.3 * u, W - 2 * m - 3 * u, 1, null, 1.2);
-      T(W / 2, yA + hA / 2 + fitA.size * 0.36, fitA.righe[0], fitA.size, true, BRAND.bianco, 'center');
+      const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
+      fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
       yCorpoFine = yA - 2 * u;
     }
 
