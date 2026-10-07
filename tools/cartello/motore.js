@@ -53,7 +53,7 @@
     { g: 'intestazione', id: 'ente', eti: { privato: 'Comune di (scrivi solo il nome)', pubblico: 'Stazione appaltante' }, ph: { privato: 'Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia di (scrivi solo il nome)', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
     { g: 'intestazione', id: 'ufficio', eti: 'Ufficio competente', ph: 'Ufficio Edilizia Privata — Comune di Vigonza', per: 'privato', riga: 'Ufficio competente' },
-    { g: 'intestazione', id: 'oggetto', eti: 'Lavori di (oggetto dei lavori: sul cartello viene scritto «Lavori di …»)', ph: 'ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
+    { g: 'intestazione', id: 'oggetto', eti: 'Oggetto dei lavori (sul cartello è sempre preceduto da «Lavori di»)', ph: 'ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
     { g: 'intestazione', id: 'ubicazione', eti: 'Ubicazione del cantiere', ph: 'Via Roma 12 — Vigonza (PD)', per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'catasto', eti: 'Riferimenti catastali', ph: 'Fg. 5, Mapp. 123, Sub. 2', per: 'entrambi' },
 
@@ -143,7 +143,9 @@
   function titoloLavori(s) {
     let t = pulisci(s);
     if (!t) return '';
-    if (/^lavori\b/i.test(t)) return t.charAt(0).toUpperCase() + t.slice(1);
+    // «Lavori di» compare sempre (Filippo 07/10/2026): si toglie un eventuale «lavori di» / «lavori» già scritto e si rimette il prefisso
+    t = t.replace(/^lavori(\s+di)?(\s+|$)/i, '');
+    if (!t) return '';
     // minuscola iniziale, salvo sigle o nomi propri tutti maiuscoli (es. «SP 52», «PNRR»)
     if (!/^[A-ZÀ-Ý]{2,}\b/.test(t)) t = t.charAt(0).toLowerCase() + t.slice(1);
     return 'Lavori di ' + t;

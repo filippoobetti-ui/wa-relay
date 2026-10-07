@@ -73,6 +73,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
 .esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
 .campo .data3{display:flex;align-items:center;gap:6px}.campo .data3 input{width:auto;flex:0 0 3.6em;min-width:0;text-align:center;padding-left:4px;padding-right:4px}.campo .data3 input.anno{flex-basis:5.4em}.campo .data3 .sep{color:#8a958f;font-weight:600}.campo .data3.errata input{border-color:#c0392b;background:#fdecea}
@@ -238,7 +239,7 @@ footer.piede a{color:var(--verde)}
     { g: 'intestazione', id: 'ente', eti: { privato: 'Comune di (scrivi solo il nome)', pubblico: 'Stazione appaltante' }, ph: { privato: 'Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia di (scrivi solo il nome)', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
     { g: 'intestazione', id: 'ufficio', eti: 'Ufficio competente', ph: 'Ufficio Edilizia Privata — Comune di Vigonza', per: 'privato', riga: 'Ufficio competente' },
-    { g: 'intestazione', id: 'oggetto', eti: 'Lavori di (oggetto dei lavori: sul cartello viene scritto «Lavori di …»)', ph: 'ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
+    { g: 'intestazione', id: 'oggetto', eti: 'Oggetto dei lavori (sul cartello è sempre preceduto da «Lavori di»)', ph: 'ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
     { g: 'intestazione', id: 'ubicazione', eti: 'Ubicazione del cantiere', ph: 'Via Roma 12 — Vigonza (PD)', per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'catasto', eti: 'Riferimenti catastali', ph: 'Fg. 5, Mapp. 123, Sub. 2', per: 'entrambi' },
 
@@ -328,7 +329,9 @@ footer.piede a{color:var(--verde)}
   function titoloLavori(s) {
     let t = pulisci(s);
     if (!t) return '';
-    if (/^lavori\b/i.test(t)) return t.charAt(0).toUpperCase() + t.slice(1);
+    // «Lavori di» compare sempre (Filippo 07/10/2026): si toglie un eventuale «lavori di» / «lavori» già scritto e si rimette il prefisso
+    t = t.replace(/^lavori(\s+di)?(\s+|$)/i, '');
+    if (!t) return '';
     // minuscola iniziale, salvo sigle o nomi propri tutti maiuscoli (es. «SP 52», «PNRR»)
     if (!/^[A-ZÀ-Ý]{2,}\b/.test(t)) t = t.charAt(0).toLowerCase() + t.slice(1);
     return 'Lavori di ' + t;
@@ -1424,7 +1427,8 @@ footer.piede a{color:var(--verde)}
           inp.addEventListener('input', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
           inp.addEventListener('change', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
         }
-        lab.appendChild(inp);
+        if (c.id === 'oggetto') { var pre = el('div', { class: 'con-prefisso' }); pre.appendChild(el('span', { class: 'prefisso' }, 'Lavori di')); pre.appendChild(inp); lab.appendChild(pre); }
+        else lab.appendChild(inp);
         gr.appendChild(lab);
       });
       sez.appendChild(gr);
