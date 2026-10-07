@@ -73,6 +73,8 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
+.esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
 .campo .data3{display:flex;align-items:center;gap:6px}.campo .data3 input{width:auto;flex:0 0 3.6em;min-width:0;text-align:center;padding-left:4px;padding-right:4px}.campo .data3 input.anno{flex-basis:5.4em}.campo .data3 .sep{color:#8a958f;font-weight:600}.campo .data3.errata input{border-color:#c0392b;background:#fdecea}
 .motivo-blocco{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:14px;line-height:1.35}
 .pagamento{border-top:1px solid var(--bordo);padding-top:14px;margin-top:4px}
@@ -133,18 +135,18 @@ footer.piede a{color:var(--verde)}
 
     <section class="pannello">
       <h2><span class="num" id="num-immagini">7</span>Render e loghi</h2>
-      <p class="sotto">JPG, PNG, WEBP o SVG. Il render va bene anche grande: viene ridotto a 4000 px per lato e incorporato nel PDF.</p>
+      <p class="sotto"><b>File ammessi: JPG, PNG, WEBP o SVG</b>, fino a 25 MB ciascuno. <b>Non si possono caricare</b> PDF, foto HEIC dell'iPhone, file Word/Excel, AI, EPS, PSD, TIFF o DWG: salvali prima come JPG o PNG (per i loghi meglio PNG con sfondo trasparente o SVG). Il render va bene anche grande: viene ridotto a 4000 px per lato e incorporato nel PDF.</p>
       <div class="griglia">
         <div class="largo">
-          <div class="carica"><input type="file" id="file-render" accept="image/*"><div class="t">Render o immagine del progetto</div><div class="n">una sola immagine, va sotto i dati (o a destra nei formati orizzontali)</div></div>
+          <div class="carica"><input type="file" id="file-render" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"><div class="t">Render o immagine del progetto</div><div class="n">una sola immagine, va sotto i dati (o a destra nei formati orizzontali)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-render" hidden></p>
           <div class="miniature" id="mini-render"></div>
         </div>
         <div>
-          <div class="carica"><input type="file" id="file-stemma" accept="image/*"><div class="t">Stemma o logo in testata</div><div class="n">es. stemma del Comune o della stazione appaltante</div></div>
+          <div class="carica"><input type="file" id="file-stemma" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"><div class="t">Stemma o logo in testata</div><div class="n">es. stemma del Comune o della stazione appaltante</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-stemma" hidden></p>
           <div class="miniature" id="mini-stemma"></div>
         </div>
         <div>
-          <div class="carica"><input type="file" id="file-loghi" accept="image/*" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div></div>
+          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p>
           <div class="miniature" id="mini-loghi"></div>
         </div>
       </div>
@@ -1401,27 +1403,44 @@ footer.piede a{color:var(--verde)}
     var l = $('#mini-loghi'); l.innerHTML = '';
     immagini.loghi.forEach(function (lg, i) { miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); }); });
   }
+  // ---------------------------------------------------------------- controllo dei file caricati
+  var MAX_FILE = 25 * 1024 * 1024;
+  var NOTI = { pdf: 'è un PDF: aprilo e salva la pagina come immagine JPG o PNG', heic: 'è una foto HEIC dell’iPhone: convertila in JPG (sull’iPhone: Impostazioni › Fotocamera › Formati › «Più compatibile»)', heif: 'è una foto HEIF: convertila in JPG', tif: 'è un TIFF: salvalo come JPG o PNG', tiff: 'è un TIFF: salvalo come JPG o PNG', psd: 'è un file Photoshop: esportalo in PNG o JPG', ai: 'è un file Illustrator: esportalo in SVG o PNG', eps: 'è un file EPS: esportalo in SVG o PNG', dwg: 'è un disegno DWG: esporta la vista in JPG o PNG', dxf: 'è un disegno DXF: esporta la vista in JPG o PNG', doc: 'è un file Word: salva l’immagine come JPG o PNG', docx: 'è un file Word: salva l’immagine come JPG o PNG', xls: 'è un file Excel', xlsx: 'è un file Excel', ppt: 'è un file PowerPoint: esporta la diapositiva in PNG', pptx: 'è un file PowerPoint: esporta la diapositiva in PNG', gif: 'è una GIF: salvala come PNG', bmp: 'è un BMP: salvalo come PNG o JPG', zip: 'è un archivio ZIP: estrai prima l’immagine' };
+  function controllaFile(f) {
+    var nome = f.name || 'file', est = (nome.split('.').pop() || '').toLowerCase();
+    if (!/^(jpe?g|png|webp|svg)$/.test(est) && !/^image\/(jpeg|png|webp|svg\+xml)$/.test(f.type || '')) {
+      return '«' + nome + '» non si può usare: ' + (NOTI[est] || 'formato non ammesso') + '. Formati ammessi: JPG, PNG, WEBP, SVG.';
+    }
+    if (f.size > MAX_FILE) return '«' + nome + '» è troppo grande (' + (f.size / 1048576).toFixed(0) + ' MB): il massimo è 25 MB. Riducilo o salvalo come JPG.';
+    return '';
+  }
+  function esitoFile(id, msg) { var p = $('#esito-' + id); if (!p) return; p.hidden = !msg; p.textContent = msg || ''; }
   function errore(msg) { mostraAvvisi([{ testo: msg, tipo: 'errore' }].concat(ultimoEsito ? ultimoEsito.avvisi.map(function (a) { return { testo: a }; }) : [])); }
   $('#file-render').addEventListener('change', function (e) {
     var f = e.target.files && e.target.files[0]; if (!f) return;
-    elaboraImmagine(f, 4000, false).then(function (img) { immagini.render = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { errore('Immagine non leggibile: usa JPG, PNG, WEBP o SVG (le foto HEIC di iPhone vanno prima convertite).'); });
+    var no = controllaFile(f); esitoFile('render', no); if (no) { e.target.value = ''; return; }
+    elaboraImmagine(f, 4000, false).then(function (img) { immagini.render = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { esitoFile('render', '«' + f.name + '» non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine). Salvalo di nuovo come JPG o PNG.'); });
     e.target.value = '';
   });
   $('#file-stemma').addEventListener('change', function (e) {
     var f = e.target.files && e.target.files[0]; if (!f) return;
-    elaboraImmagine(f, 1600, true).then(function (img) { immagini.stemma = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { errore('Immagine non leggibile: usa JPG, PNG, WEBP o SVG.'); });
+    var no = controllaFile(f); esitoFile('stemma', no); if (no) { e.target.value = ''; return; }
+    elaboraImmagine(f, 1600, true).then(function (img) { immagini.stemma = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { esitoFile('stemma', '«' + f.name + '» non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine). Salvalo di nuovo come PNG o JPG.'); });
     e.target.value = '';
   });
   $('#file-loghi').addEventListener('change', function (e) {
     var files = Array.prototype.slice.call(e.target.files || []);
     e.target.value = '';
     if (!files.length) return;
+    var scarti = []; files = files.filter(function (f) { var no = controllaFile(f); if (no) scarti.push(no); return !no; });
+    esitoFile('loghi', scarti.join(' '));
+    if (!files.length) return;
     var posto = 4 - immagini.loghi.length;
     if (posto <= 0) { errore('Hai già quattro loghi: rimuovine uno per aggiungerne un altro.'); return; }
     Promise.all(files.slice(0, posto).map(function (f) { return elaboraImmagine(f, 1600, true); }))
       .then(function (imgs) { immagini.loghi = immagini.loghi.concat(imgs); return salvaImmagini(); })
       .then(function () { disegnaMiniature(); ridisegna(); })
-      .catch(function () { errore('Uno dei loghi non è leggibile: usa JPG, PNG, WEBP o SVG.'); });
+      .catch(function () { esitoFile('loghi', 'Uno dei loghi non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine): salvalo di nuovo come PNG o SVG.'); });
   });
 
   // ---------------------------------------------------------------- anteprima
