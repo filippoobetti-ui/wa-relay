@@ -12,7 +12,7 @@
 //   GET  /verifica?sessione=cs_…  {esito: 'pagato'|'in_attesa'|'non_trovato', formato, oggetto, ubicazione, pagato_il}
 //   POST /scarico                 {sessione} → registra un download del PDF pagato
 //
-// Variabili: STRIPE_SECRET_KEY (segreto Supabase), SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (automatiche).
+// Variabili: STRIPE_SECRET_KEY (segreto Supabase, facoltativo: senza, si passa da Make 7820289), SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (automatiche).
 // Impostazioni lette dal database a ogni richiesta: cartello_url, cartello_prezzo_cent, cartello_attivo, stripe_tax_rate_id_iva22.
 
 const URL_BASE = Deno.env.get('SUPABASE_URL') ?? '';
@@ -82,15 +82,48 @@ function formUrl(dati: Record<string, string>): string {
   return Object.entries(dati).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
 }
 
+// Stripe: con STRIPE_SECRET_KEY si chiama l'API direttamente; altrimenti (scelta del 07/10/2026) passa dallo
+// scenario Make 7820289, che usa la connessione Stripe LIVE 10997898 dell'account «Il Giornale Lavori».
+// Il filtro dello scenario ammette solo la chiave condivisa e solo percorsi /v1/checkout/sessions.
+let viaMake: { url: string; chiave: string } | null = null;
+async function canaleStripe(): Promise<'diretto' | 'make' | null> {
+  if (STRIPE_KEY) return 'diretto';
+  if (!viaMake) {
+    const imp = await impostazioni(['cartello_stripe_hook_url', 'cartello_stripe_hook_chiave']);
+    if (imp.cartello_stripe_hook_url && imp.cartello_stripe_hook_chiave) viaMake = { url: imp.cartello_stripe_hook_url, chiave: imp.cartello_stripe_hook_chiave };
+  }
+  return viaMake ? 'make' : null;
+}
+
 async function stripe(metodo: string, percorso: string, dati?: Record<string, string>): Promise<{ ok: boolean; stato: number; corpo: Dizionario }> {
-  const r = await fetch(`https://api.stripe.com/v1/${percorso}`, {
-    method: metodo,
-    headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: dati ? formUrl(dati) : undefined,
-  });
-  let corpo: Dizionario = {};
-  try { corpo = (await r.json()) as Dizionario; } catch { /* corpo non JSON: si restituisce vuoto */ }
-  return { ok: r.ok, stato: r.status, corpo };
+  const canale = await canaleStripe();
+  if (canale === 'diretto') {
+    const r = await fetch(`https://api.stripe.com/v1/${percorso}`, {
+      method: metodo,
+      headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: dati ? formUrl(dati) : undefined,
+    });
+    let corpo: Dizionario = {};
+    try { corpo = (await r.json()) as Dizionario; } catch { /* corpo non JSON */ }
+    return { ok: r.ok, stato: r.status, corpo };
+  }
+  if (canale === 'make' && viaMake) {
+    try {
+      const r = await fetch(viaMake.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chiave: viaMake.chiave, url: `/v1/${percorso}`, method: metodo, body: dati ? formUrl(dati) : '' }),
+      });
+      const testo = await r.text();
+      let corpo: Dizionario = {};
+      try { corpo = JSON.parse(testo) as Dizionario; } catch { corpo = { error: { message: testo.slice(0, 160) } }; }
+      if (corpo.errore) return { ok: false, stato: 502, corpo: { error: { message: String(corpo.errore) } } };
+      return { ok: r.ok && !!corpo.id, stato: r.status, corpo };
+    } catch (e) {
+      return { ok: false, stato: 502, corpo: { error: { message: String((e as Error)?.message ?? e) } } };
+    }
+  }
+  return { ok: false, stato: 503, corpo: { error: { message: 'pagamenti non configurati' } } };
 }
 
 async function hashIp(req: Request): Promise<string> {
@@ -106,7 +139,7 @@ function dataIt(iso: string | null | undefined): string {
 }
 
 async function checkout(req: Request): Promise<Response> {
-  if (!STRIPE_KEY) return json({ errore: 'pagamenti non ancora configurati' }, 503);
+  if (!(await canaleStripe())) return json({ errore: 'pagamenti non ancora configurati' }, 503);
   let dati: Dizionario;
   try { dati = (await req.json()) as Dizionario; } catch { return json({ errore: 'richiesta non leggibile' }, 400); }
   const formato = String(dati.formato ?? '');
@@ -175,7 +208,7 @@ async function verifica(sessione: string): Promise<Response> {
   if (riga.stato === 'pagato') {
     return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string) });
   }
-  if (!STRIPE_KEY) return json({ esito: 'in_attesa' });
+  if (!(await canaleStripe())) return json({ esito: 'in_attesa' });
   const r = await stripe('GET', `checkout/sessions/${encodeURIComponent(sessione)}`);
   if (!r.ok) return json({ esito: 'in_attesa' });
   const s = r.corpo;
@@ -212,7 +245,7 @@ Deno.serve(async (req: Request) => {
     if (percorso === '/verifica') return await verifica(url.searchParams.get('sessione') ?? '');
     if (percorso === '/' || percorso === '/stato') {
       const imp = await impostazioni(['cartello_attivo', 'cartello_prezzo_cent']);
-      return json({ servizio: 'cartello', attivo: (imp.cartello_attivo || 'si') !== 'no', prezzo_cent: parseInt(imp.cartello_prezzo_cent || '900', 10) || 900, pagamenti: STRIPE_KEY ? 'configurati' : 'da configurare' });
+      return json({ servizio: 'cartello', attivo: (imp.cartello_attivo || 'si') !== 'no', prezzo_cent: parseInt(imp.cartello_prezzo_cent || '900', 10) || 900, pagamenti: (await canaleStripe()) ? 'configurati (' + (STRIPE_KEY ? 'chiave diretta' : 'via Make 7820289') + ')' : 'da configurare' });
     }
     return json({ errore: 'percorso non valido' }, 404);
   }
