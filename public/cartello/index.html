@@ -73,6 +73,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.campo .data3{display:flex;align-items:center;gap:6px}.campo .data3 input{width:auto;flex:0 0 3.6em;min-width:0;text-align:center;padding-left:4px;padding-right:4px}.campo .data3 input.anno{flex-basis:5.4em}.campo .data3 .sep{color:#8a958f;font-weight:600}.campo .data3.errata input{border-color:#c0392b;background:#fdecea}
 .motivo-blocco{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:14px;line-height:1.35}
 .pagamento{border-top:1px solid var(--bordo);padding-top:14px;margin-top:4px}
 .pagamento .tot{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
@@ -256,9 +257,9 @@ footer.piede a{color:var(--verde)}
     { g: 'impresa', id: 'direttore_cantiere', eti: 'Direttore tecnico di cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore tecnico di cantiere' },
     { g: 'impresa', id: 'capocantiere', eti: 'Responsabile di cantiere / preposto', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Responsabile di cantiere' },
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici e lavoratori autonomi (una per riga)', ph: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari', per: 'entrambi', tipo: 'textarea', riga: 'Subappaltatori e lavoratori autonomi' },
-    { g: 'tempi', id: 'data_inizio', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
+    { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
     { g: 'tempi', id: 'avvertenze', eti: 'Avvertenza stampata in evidenza', ph: "Vietato l'accesso ai non addetti ai lavori", per: 'entrambi' }
   ];
 
@@ -1230,6 +1231,67 @@ footer.piede a{color:var(--verde)}
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }
 
+  // ---------------------------------------------------------------- campi data GG / MM / AAAA con avanzamento automatico
+  function campoData(c, tipo) {
+    var box = el('div', { class: 'data3' });
+    var v = String(stato.campi[c.id] || '');
+    var m = v.match(/^\s*(\d{0,2})\s*\/?\s*(\d{0,2})\s*\/?\s*(\d{0,4})\s*$/) || ['', '', '', ''];
+    var parti = [
+      el('input', { id: 'c-' + c.id, type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '2', placeholder: 'GG', 'aria-label': 'giorno' }),
+      el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '2', placeholder: 'MM', 'aria-label': 'mese' }),
+      el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '4', placeholder: 'AAAA', 'aria-label': 'anno', class: 'anno' })
+    ];
+    if (m[0] !== '') { parti[0].value = m[1]; parti[1].value = m[2]; parti[2].value = m[3]; }
+    else if (v) { parti[0].value = ''; } // valore libero di una versione precedente: si ricompila
+    var lung = [2, 2, 4];
+    function controlla() {
+      var g = parti[0].value, me = parti[1].value, a = parti[2].value, ok = true;
+      if (g.length === 2 && (+g < 1 || +g > 31)) ok = false;
+      if (me.length === 2 && (+me < 1 || +me > 12)) ok = false;
+      if (g.length === 2 && me.length === 2 && a.length === 4) { var d = new Date(+a, +me - 1, +g); ok = ok && d.getDate() === +g && d.getMonth() === +me - 1; }
+      box.classList.toggle('errata', !ok);
+    }
+    function salva() {
+      var g = parti[0].value, me = parti[1].value, a = parti[2].value;
+      var val = (g || me || a) ? [g, me, a].filter(function (x, i) { return x || i < 2; }).join('/').replace(/\/+$/, '') : '';
+      controlla();
+      var ok = true;
+      if (g.length === 2 && (+g < 1 || +g > 31)) ok = false;
+      if (me.length === 2 && (+me < 1 || +me > 12)) ok = false;
+      if (g.length === 2 && me.length === 2 && a.length === 4) { var d = new Date(+a, +me - 1, +g); ok = ok && d.getDate() === +g && d.getMonth() === +me - 1; }
+      box.classList.toggle('errata', !ok);
+      stato.campi[c.id] = val; salvaStato(); ridisegnaPiano();
+    }
+    parti.forEach(function (p, i) {
+      p.addEventListener('input', function () {
+        var cifre = p.value.replace(/\D/g, '');
+        // incolla di una data intera (15/10/2026, 15102026, 15-10-2026)
+        if (i === 0 && cifre.length > 2) {
+          parti[0].value = cifre.slice(0, 2); parti[1].value = cifre.slice(2, 4); parti[2].value = cifre.slice(4, 8);
+          salva(); (cifre.length >= 8 ? parti[2] : parti[cifre.length > 4 ? 2 : 1]).focus(); return;
+        }
+        // una sola cifra che non può iniziare un giorno/mese valido: si completa con lo zero
+        if (cifre.length === 1 && ((i === 0 && +cifre > 3) || (i === 1 && +cifre > 1))) cifre = '0' + cifre;
+        p.value = cifre.slice(0, lung[i]);
+        salva();
+        if (p.value.length === lung[i] && i < 2) { parti[i + 1].focus(); parti[i + 1].select(); }
+      });
+      p.addEventListener('keydown', function (e) {
+        if (e.key === 'Backspace' && p.value === '' && i > 0) { e.preventDefault(); var pr = parti[i - 1]; pr.focus(); pr.value = pr.value.slice(0, -1); salva(); }
+        if ((e.key === '/' || e.key === '.' || e.key === '-') && i < 2) { e.preventDefault(); if (p.value.length === 1) { p.value = '0' + p.value; salva(); } parti[i + 1].focus(); }
+        if (e.key === 'ArrowRight' && i < 2 && p.selectionStart === p.value.length) { e.preventDefault(); parti[i + 1].focus(); }
+        if (e.key === 'ArrowLeft' && i > 0 && p.selectionStart === 0) { e.preventDefault(); parti[i - 1].focus(); }
+      });
+      p.addEventListener('focus', function () { try { p.select(); } catch (e) {} });
+      box.appendChild(p);
+      if (i < 2) box.appendChild(el('span', { class: 'sep' }, '/'));
+    });
+    controlla();
+    box.addEventListener('input', function (e) { e.stopPropagation(); });
+    box.addEventListener('change', function (e) { e.stopPropagation(); });
+    return box;
+  }
+
   function disegnaModulo() {
     var tipo = stato.tipo;
     var box = $('#gruppi'); box.innerHTML = '';
@@ -1249,13 +1311,17 @@ footer.piede a{color:var(--verde)}
         if (c.tipo === 'select') {
           inp = el('select', { id: 'c-' + c.id });
           c.opzioni.forEach(function (o) { var op = el('option', { value: o[0] }, esc(o[1])); if ((stato.campi[c.id] || 'pdc') === o[0]) op.selected = true; inp.appendChild(op); });
+        } else if (c.tipo === 'data') {
+          inp = campoData(c, tipo);
         } else if (c.tipo === 'textarea') {
           inp = el('textarea', { id: 'c-' + c.id, rows: '2', placeholder: M.perTipo(c.ph, tipo) }); inp.value = stato.campi[c.id] || '';
         } else {
           inp = el('input', { id: 'c-' + c.id, type: 'text', placeholder: M.perTipo(c.ph, tipo), autocomplete: 'off' }); inp.value = stato.campi[c.id] || '';
         }
-        inp.addEventListener('input', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
-        inp.addEventListener('change', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+        if (c.tipo !== 'data') {
+          inp.addEventListener('input', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+          inp.addEventListener('change', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+        }
         lab.appendChild(inp);
         gr.appendChild(lab);
       });

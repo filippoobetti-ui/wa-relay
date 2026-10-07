@@ -74,9 +74,9 @@
     { g: 'impresa', id: 'direttore_cantiere', eti: 'Direttore tecnico di cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore tecnico di cantiere' },
     { g: 'impresa', id: 'capocantiere', eti: 'Responsabile di cantiere / preposto', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Responsabile di cantiere' },
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici e lavoratori autonomi (una per riga)', ph: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari', per: 'entrambi', tipo: 'textarea', riga: 'Subappaltatori e lavoratori autonomi' },
-    { g: 'tempi', id: 'data_inizio', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
+    { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' },
     { g: 'tempi', id: 'avvertenze', eti: 'Avvertenza stampata in evidenza', ph: "Vietato l'accesso ai non addetti ai lavori", per: 'entrambi' }
   ];
 
