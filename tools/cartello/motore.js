@@ -31,63 +31,102 @@
     ['cila', 'CILA'],
     ['cilas', 'CILAS'],
     ['sanatoria', 'Permesso di costruire in sanatoria'],
+    ['dia', 'Denuncia di inizio attività'],
     ['autorizzazione', 'Autorizzazione edilizia'],
     ['altro', 'Titolo abilitativo']
   ];
 
+  const IMPIANTI = [
+    ['elettrico', 'Impianto elettrico'],
+    ['elettronico', 'Impianto elettronico'],
+    ['radiotv', 'Impianto radiotelevisivo'],
+    ['idraulico', 'Impianto idraulico'],
+    ['metano', 'Impianto di trasporto e utilizzo del metano'],
+    ['riscaldamento', 'Impianto di riscaldamento'],
+    ['climatizzazione', 'Impianto di climatizzazione']
+  ];
+
   // Campi del modulo. «per» dice in quale tipo di cantiere il campo compare.
   // «riga» è l'etichetta stampata sul cartello (se diversa dall'etichetta del modulo).
+  // Diciture allineate al cartello di cantiere tradizionale (foto di Filippo, 07/10/2026).
   const CAMPI = [
-    { g: 'intestazione', id: 'ente', eti: { privato: 'Comune', pubblico: 'Stazione appaltante' }, ph: { privato: 'Comune di Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
-    { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Provincia di Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
-    { g: 'intestazione', id: 'oggetto', eti: 'Oggetto dei lavori', ph: 'Lavori di ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
+    { g: 'intestazione', id: 'ente', eti: { privato: 'Comune di', pubblico: 'Stazione appaltante' }, ph: { privato: 'Comune di Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
+    { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia di', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Provincia di Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
+    { g: 'intestazione', id: 'ufficio', eti: 'Ufficio competente', ph: 'Ufficio Edilizia Privata — Comune di Vigonza', per: 'privato', riga: 'Ufficio competente' },
+    { g: 'intestazione', id: 'oggetto', eti: 'Lavori di (oggetto dei lavori)', ph: 'Ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
     { g: 'intestazione', id: 'ubicazione', eti: 'Ubicazione del cantiere', ph: 'Via Roma 12 — Vigonza (PD)', per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'catasto', eti: 'Riferimenti catastali', ph: 'Fg. 5, Mapp. 123, Sub. 2', per: 'entrambi' },
 
     { g: 'titolo', id: 'titolo_tipo', eti: 'Tipo di titolo abilitativo', per: 'privato', tipo: 'select', opzioni: TITOLI_ABILITATIVI },
-    { g: 'titolo', id: 'titolo_estremi', eti: 'Numero / protocollo e data', ph: 'n. 45/2026 del 12/03/2026', per: 'privato', obbl: true },
+    { g: 'titolo', id: 'titolo_estremi', eti: 'N° del titolo', ph: '45/2026', per: 'privato', obbl: true },
+    { g: 'titolo', id: 'titolo_data', tipo: 'data', eti: 'In data', ph: '12/03/2026', per: 'privato' },
     { g: 'titolo', id: 'titolo_altri', eti: 'Altri titoli e autorizzazioni', ph: 'Autorizzazione paesaggistica n. … del …\nDeposito sismico prot. … del …', per: 'privato', tipo: 'textarea', riga: 'Altri titoli e autorizzazioni' },
+    { g: 'titolo', id: 'notifica', eti: 'Notifica preliminare (art. 99 D.Lgs. 81/2008)', ph: 'prot. 12345 del 01/10/2026', per: 'entrambi', riga: 'Notifica preliminare (art. 99 D.Lgs. 81/2008)' },
+    { g: 'titolo', id: 'n_lavoratori', eti: 'Numero presunto di lavoratori sul cantiere', ph: '12', per: 'entrambi', riga: 'Numero presunto di lavoratori sul cantiere' },
 
     { g: 'appalto', id: 'cup', eti: 'CUP', ph: 'H71B23000000001', per: 'pubblico' },
     { g: 'appalto', id: 'cig', eti: 'CIG', ph: 'A0123456789', per: 'pubblico' },
-    { g: 'appalto', id: 'importo_progetto', eti: 'Importo complessivo del progetto', ph: '€ 1.250.000,00', per: 'pubblico', riga: 'Importo complessivo del progetto' },
+    { g: 'appalto', id: 'importo_progetto', eti: { privato: 'Importo complessivo dei lavori', pubblico: 'Importo complessivo del progetto' }, ph: { privato: '€ 180.000,00', pubblico: '€ 1.250.000,00' }, per: 'entrambi', riga: { privato: 'Importo complessivo dei lavori', pubblico: 'Importo complessivo del progetto' } },
     { g: 'appalto', id: 'importo_lavori', eti: "Importo lavori a base d'appalto", ph: '€ 980.000,00', per: 'pubblico', riga: "Importo lavori a base d'appalto" },
     { g: 'appalto', id: 'oneri_sicurezza', eti: 'Oneri per la sicurezza (non soggetti a ribasso)', ph: '€ 32.000,00', per: 'pubblico', riga: 'Oneri per la sicurezza' },
     { g: 'appalto', id: 'importo_contratto', eti: 'Importo contrattuale', ph: '€ 871.250,00 (ribasso del 12,35 %)', per: 'pubblico', riga: 'Importo contrattuale' },
     { g: 'appalto', id: 'finanziamento', eti: 'Fonte di finanziamento', ph: 'PNRR — M5C2 Inv. 2.1 · Fondi di bilancio', per: 'pubblico', riga: 'Fonte di finanziamento' },
     { g: 'appalto', id: 'contratto', eti: "Contratto d'appalto", ph: 'Rep. n. 1234 del 10/01/2026', per: 'pubblico', riga: "Contratto d'appalto" },
-    { g: 'appalto', id: 'notifica', eti: 'Notifica preliminare (art. 99 D.Lgs. 81/2008)', ph: 'prot. 12345 del 01/10/2026', per: 'entrambi', riga: 'Notifica preliminare (art. 99 D.Lgs. 81/2008)' },
 
+    { g: 'soggetti', id: 'proprieta', eti: 'Proprietà', ph: 'Mario Rossi e Anna Bianchi', per: 'privato', riga: 'Proprietà' },
     { g: 'soggetti', id: 'committente', eti: 'Committente', ph: 'Mario Rossi — Via Verdi 3, Padova', per: 'entrambi', obblPer: 'privato', riga: 'Committente' },
     { g: 'soggetti', id: 'rup', eti: 'Responsabile unico del progetto (RUP)', ph: 'ing. Anna Bianchi', per: 'pubblico', riga: 'Responsabile unico del progetto (RUP)' },
     { g: 'soggetti', id: 'progettista', eti: 'Progettista', ph: 'arch. Luca Verdi — Ordine Architetti PD n. 1234', per: 'entrambi', riga: 'Progettista' },
-    { g: 'soggetti', id: 'progettista_strutture', eti: 'Progettista delle strutture', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Progettista delle strutture' },
-    { g: 'soggetti', id: 'progettista_impianti', eti: 'Progettista degli impianti', ph: 'per. ind. Marco Blu', per: 'entrambi', riga: 'Progettista degli impianti' },
     { g: 'soggetti', id: 'direttore_lavori', eti: 'Direttore dei lavori', ph: 'arch. Luca Verdi', per: 'entrambi', obbl: true, riga: 'Direttore dei lavori' },
-    { g: 'soggetti', id: 'dl_strutture', eti: 'Direttore dei lavori strutturali', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Direttore dei lavori strutturali' },
-    { g: 'soggetti', id: 'csp', eti: 'Coordinatore per la sicurezza in fase di progettazione (CSP)', ph: 'geom. Sara Gialli', per: 'entrambi', riga: 'Coordinatore sicurezza in progettazione (CSP)' },
-    { g: 'soggetti', id: 'cse', eti: 'Coordinatore per la sicurezza in fase di esecuzione (CSE)', ph: 'geom. Sara Gialli', per: 'entrambi', riga: 'Coordinatore sicurezza in esecuzione (CSE)' },
+    { g: 'soggetti', id: 'dl_strutture', eti: 'Direttore dei lavori delle strutture', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Direttore dei lavori delle strutture' },
+    { g: 'soggetti', id: 'csp', eti: 'Coordinatore per la progettazione (sicurezza)', ph: 'geom. Sara Gialli', per: 'entrambi', riga: 'Coordinatore per la progettazione' },
     { g: 'soggetti', id: 'responsabile_lavori', eti: 'Responsabile dei lavori', ph: '', per: 'entrambi', riga: 'Responsabile dei lavori' },
-    { g: 'soggetti', id: 'collaudatore', eti: 'Collaudatore', ph: 'ing. Carla Viola (collaudo statico)', per: 'entrambi', riga: 'Collaudatore' },
+    { g: 'soggetti', id: 'cse', eti: "Coordinatore per l'esecuzione (sicurezza)", ph: 'geom. Sara Gialli', per: 'entrambi', riga: "Coordinatore per l'esecuzione" },
+    { g: 'soggetti', id: 'progettista_strutture', eti: 'Calcolatore statico', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore statico' },
+    { g: 'soggetti', id: 'calcolatore_ca', eti: 'Calcolatore opere in C.A.', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore opere in C.A.' },
+    { g: 'soggetti', id: 'collaudatore', eti: "Collaudatore in corso d'opera", ph: 'ing. Carla Viola', per: 'entrambi', riga: "Collaudatore in corso d'opera" },
     { g: 'soggetti', id: 'altri_tecnici', eti: 'Altri tecnici', ph: 'geol. … (relazione geologica)\ning. … (certificazione energetica)', per: 'entrambi', tipo: 'textarea', riga: 'Altri tecnici' },
 
     { g: 'impresa', id: 'impresa', eti: 'Impresa esecutrice', ph: 'Rossi Costruzioni S.r.l. — Via dell’Industria 8, Padova — P.IVA 01234567890', per: 'entrambi', obbl: true, tipo: 'textarea', riga: 'Impresa esecutrice' },
-    { g: 'impresa', id: 'direttore_cantiere', eti: 'Direttore tecnico di cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore tecnico di cantiere' },
-    { g: 'impresa', id: 'capocantiere', eti: 'Responsabile di cantiere / preposto', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Responsabile di cantiere' },
-    { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici e lavoratori autonomi (una per riga)', ph: 'Impianti Bianchi S.n.c. — impianti elettrici\nIdraulica Verdi S.r.l. — impianti idrico-sanitari', per: 'entrambi', tipo: 'textarea', riga: 'Subappaltatori e lavoratori autonomi' },
-    { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Inizio lavori', pubblico: 'Consegna / inizio lavori' } },
+    { g: 'impresa', id: 'impresa_cciaa', eti: 'C.C.I.A.A. (iscrizione / n. REA)', ph: 'PD-123456', per: 'entrambi' },
+    { g: 'impresa', id: 'impresa_anc', eti: 'A.N.C. (se presente)', ph: '', per: 'entrambi' },
+    { g: 'impresa', id: 'impresa_soa', eti: 'S.O.A. (attestazione e categorie)', ph: 'n. 12345/10/00 — OG1 cl. III', per: 'entrambi' },
+    { g: 'impresa', id: 'direttore_cantiere', eti: 'Direttore del cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore del cantiere' },
+    { g: 'impresa', id: 'assistente_dc', eti: 'Assistente del direttore di cantiere', ph: 'geom. Marco Verdi', per: 'entrambi', riga: 'Assistente del direttore di cantiere' },
+    { g: 'impresa', id: 'capocantiere', eti: 'Capo cantiere', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Capo cantiere' },
+    { g: 'impresa', id: 'resp_sicurezza', eti: 'Responsabile della sicurezza', ph: 'RSPP: ing. Luisa Neri', per: 'entrambi', riga: 'Responsabile della sicurezza' },
+    { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici (una per riga, con C.C.I.A.A., A.N.C., S.O.A.)', ph: 'Impianti Bianchi S.n.c. — C.C.I.A.A. PD-234567 — S.O.A. OS30 cl. II\nIdraulica Verdi S.r.l. — C.C.I.A.A. PD-345678', per: 'entrambi', tipo: 'textarea', riga: 'Imprese subappaltatrici' },
+    { g: 'impianti', id: 'imp_elettrico_prog', eti: 'Impianto elettrico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_elettrico_inst', eti: 'Impianto elettrico — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_elettronico_prog', eti: 'Impianto elettronico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_elettronico_inst', eti: 'Impianto elettronico — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_radiotv_prog', eti: 'Impianto radiotelevisivo — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_radiotv_inst', eti: 'Impianto radiotelevisivo — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_idraulico_prog', eti: 'Impianto idraulico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_idraulico_inst', eti: 'Impianto idraulico — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_metano_prog', eti: 'Impianto trasporto e utilizzo metano — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_metano_inst', eti: 'Impianto trasporto e utilizzo metano — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_riscaldamento_prog', eti: 'Impianto di riscaldamento — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_riscaldamento_inst', eti: 'Impianto di riscaldamento — impresa installatrice', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_climatizzazione_prog', eti: 'Impianto di climatizzazione — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_climatizzazione_inst', eti: 'Impianto di climatizzazione — impresa installatrice', ph: '', per: 'entrambi' },
+
+    { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Fine lavori prevista', ph: '30/06/2027', per: 'entrambi', riga: 'Fine lavori prevista' }
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Data contrattuale di ultimazione dei lavori', ph: '30/06/2027', per: 'entrambi', riga: 'Data contrattuale di ultimazione dei lavori' },
+    { g: 'tempi', id: 'comunicazioni', eti: 'Aggiornamento dei dati, comunicazioni al pubblico ed eventuali motivi di interruzione e ripresa dei lavori (facoltativo: se vuoto resta lo spazio libero)', ph: '', per: 'entrambi', tipo: 'textarea' }
   ];
 
   const ORDINE_RIGHE = {
-    privato: ['titolo', 'titolo_altri', 'notifica', 'committente', 'progettista', 'progettista_strutture', 'progettista_impianti',
-      'direttore_lavori', 'dl_strutture', 'csp', 'cse', 'responsabile_lavori', 'collaudatore', 'altri_tecnici',
-      'impresa', 'direttore_cantiere', 'capocantiere', 'subappaltatori', 'data_inizio', 'data_fine'],
-    pubblico: ['cupcig', 'importo_progetto', 'importo_lavori', 'oneri_sicurezza', 'importo_contratto', 'finanziamento', 'contratto', 'notifica',
-      'committente', 'rup', 'progettista', 'progettista_strutture', 'progettista_impianti',
-      'direttore_lavori', 'dl_strutture', 'csp', 'cse', 'responsabile_lavori', 'collaudatore', 'altri_tecnici',
-      'impresa', 'direttore_cantiere', 'capocantiere', 'subappaltatori', 'data_inizio', 'tempo_utile', 'data_fine']
+    privato: ['ufficio', 'titolo', 'titolo_altri', 'proprieta', 'committente', 'importo_progetto', 'date', 'progettista',
+      'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
+      'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
+      'impianti', 'altri_tecnici', 'notifica', 'emergenze', 'comunicazioni'],
+    pubblico: ['cupcig', 'importo_progetto', 'importo_lavori', 'oneri_sicurezza', 'importo_contratto', 'finanziamento', 'contratto',
+      'committente', 'rup', 'date', 'tempo_utile', 'progettista',
+      'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
+      'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
+      'impianti', 'altri_tecnici', 'notifica', 'emergenze', 'comunicazioni']
   };
 
   function perTipo(v, tipo) { return (v && typeof v === 'object') ? (v[tipo] || '') : (v || ''); }
@@ -105,7 +144,43 @@
         const estremi = v('titolo_estremi');
         if (!estremi) continue;
         const t = TITOLI_ABILITATIVI.find((x) => x[0] === (c.titolo_tipo || 'pdc')) || TITOLI_ABILITATIVI[0];
-        righe.push({ id, etichetta: t[1], valore: estremi, forte: true });
+        const data = v('titolo_data');
+        righe.push({ id, etichetta: t[1] + ' n°', valore: estremi + (data ? '   in data ' + data : ''), forte: true });
+        continue;
+      }
+      if (id === 'date') {
+        // «Data inizio lavori» e «Data contrattuale di ultimazione» come due righe distinte
+        for (const d of ['data_inizio', 'data_fine']) {
+          const def = campo(d), val = v(d);
+          if (val) righe.push({ id: d, etichetta: perTipo(def.riga, tipo), valore: val, forte: false });
+        }
+        continue;
+      }
+      if (id === 'impresa') {
+        const imp = v('impresa');
+        if (!imp) continue;
+        const iscr = [['C.C.I.A.A.', 'impresa_cciaa'], ['A.N.C.', 'impresa_anc'], ['S.O.A.', 'impresa_soa']].filter((x) => v(x[1])).map((x) => x[0] + ' ' + v(x[1]));
+        righe.push({ id, etichetta: 'Impresa esecutrice', valore: imp + (iscr.length ? '\n' + iscr.join('  ·  ') : ''), forte: true });
+        continue;
+      }
+      if (id === 'impianti') {
+        for (const [k, nome] of IMPIANTI) {
+          const p = v('imp_' + k + '_prog'), ins = v('imp_' + k + '_inst');
+          if (!p && !ins) continue;
+          const parti = [];
+          if (p) parti.push('Progettista: ' + p);
+          if (ins) parti.push('Impresa installatrice: ' + ins);
+          righe.push({ id: 'imp_' + k, etichetta: nome, valore: parti.join('\n'), forte: false });
+        }
+        continue;
+      }
+      if (id === 'emergenze') {
+        righe.push({ id, etichetta: 'Numero unico per le emergenze', valore: '112', forte: true, fisso: true });
+        continue;
+      }
+      if (id === 'comunicazioni') {
+        // sempre presente: se il cliente non scrive nulla resta lo spazio libero per aggiornamenti e comunicazioni
+        righe.push({ id, etichetta: 'Aggiornamento dei dati o comunicazioni al pubblico ed eventuali motivi di interruzione e ripresa dei lavori', valore: v('comunicazioni'), forte: false, fisso: true, minRighe: v('comunicazioni') ? 0 : 3 });
         continue;
       }
       if (id === 'cupcig') {
@@ -296,7 +371,7 @@
       yCorpoFine = yL - 2 * u;
     }
 
-    // ---------- fascia rossa fissa (decisione di Filippo 07/10/2026: testo unico, non modificabile dal cliente)
+    // ---------- fascia verde fissa (testo bianco) (decisione di Filippo 07/10/2026: testo unico, non modificabile dal cliente)
     {
       const wA = W - 2 * m - 3 * u;
       let fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 1, null, 1.2);
@@ -304,7 +379,7 @@
       const passo = fitA.size * 1.2;
       const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
-      R(m, yA, W - 2 * m, hA, BRAND.avviso, { rx: 0.6 * u });
+      R(m, yA, W - 2 * m, hA, BRAND.accento, { rx: 0.6 * u });
       const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
       fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
       yCorpoFine = yA - 2 * u;
@@ -326,7 +401,8 @@
       let h = 0;
       for (const r of lista) {
         const le = aCapo(mis, r.etichetta, true, sEt, wEt - 1.2 * u);
-        const lv = aCapo(mis, r.valore, r.forte, sVal, wVal);
+        const lv = r.valore ? aCapo(mis, r.valore, r.forte, sVal, wVal) : [];
+        while (lv.length < (r.minRighe || 1)) lv.push('');
         const hr = Math.max(le.length * sEt * LH, lv.length * sVal * LH) + 2 * pad;
         out.push({ r, le, lv, hr });
         h += hr;
@@ -351,7 +427,7 @@
         let ye = yy + mt.pad + extra / 2;
         for (const l of le) { T(x, baseline(ye, mt.sEt), l, mt.sEt, true, BRAND.accento); ye += mt.sEt * LH; }
         let yv = yy + mt.pad + extra / 2;
-        for (const l of lv) { T(x + mt.wEt, baseline(yv, mt.sVal), l, mt.sVal, !!r.forte, BRAND.testo); yv += mt.sVal * LH; }
+        for (const l of lv) { if (l) T(x + mt.wEt, baseline(yv, mt.sVal), l, mt.sVal, !!r.forte, BRAND.testo); yv += mt.sVal * LH; }
         yy += hRiga;
         prims.push({ t: 'line', x1: x, y1: yy, x2: x + wTab, y2: yy, c: BRAND.bordo, lw: 0.12 * u });
       }
@@ -387,7 +463,7 @@
     }
 
     let k = 1;
-    if (righe.length === 0) {
+    if (righe.every((r) => r.fisso)) {
       T(m, baseline(yCorpoInizio, 2 * u), 'Compila i dati del cantiere: compariranno qui.', 2 * u, false, BRAND.grigio);
       if (render) riquadroRender(m, yCorpoInizio + 4 * u, wCorpo, hCorpo - 4 * u);
     } else if (render && orizzontale) {
@@ -669,5 +745,5 @@
     }
   }
 
-  return { BRAND, FORMATI, CAMPI, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, FORMATI, IMPIANTI, CAMPI, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });

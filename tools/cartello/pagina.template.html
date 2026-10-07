@@ -234,11 +234,12 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- modulo
   var GRUPPI = [
     { id: 'intestazione', num: 3, titolo: 'Intestazione e oggetto dei lavori', sotto: 'Quello che si legge da lontano: ente, oggetto dei lavori e indirizzo del cantiere.' },
-    { id: 'titolo', num: 4, titolo: { privato: 'Titolo abilitativo e notifica preliminare', pubblico: 'Notifica preliminare' }, sotto: { privato: 'Estremi del titolo edilizio (art. 27, c. 4, D.P.R. 380/2001) e della notifica preliminare, che va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).', pubblico: 'La copia della notifica preliminare va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).' } },
-    { id: 'appalto', num: 4, titolo: "Dati dell'appalto", sotto: 'Importi, finanziamento e contratto come richiesti dalla Circolare Min. LL.PP. n. 1729/UL del 1° giugno 1990.' },
+    { id: 'titolo', num: 4, titolo: { privato: 'Titolo abilitativo e notifica preliminare', pubblico: 'Notifica preliminare e lavoratori' }, sotto: { privato: 'Estremi del titolo edilizio (art. 27, c. 4, D.P.R. 380/2001) e della notifica preliminare, che va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).', pubblico: 'La copia della notifica preliminare va esposta in cantiere (art. 99, c. 2, D.Lgs. 81/2008).' } },
+    { id: 'appalto', num: 4, titolo: { privato: 'Importo dei lavori', pubblico: "Dati dell'appalto" }, sotto: { privato: 'Importo complessivo dei lavori, come riportato sul cartello.', pubblico: 'Importi, finanziamento e contratto come richiesti dalla Circolare Min. LL.PP. n. 1729/UL del 1° giugno 1990.' } },
     { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
-    { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA; i subappaltatori una per riga.' },
-    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Date di inizio e fine prevista. Sotto i dati il cartello riporta sempre, su fondo rosso, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
+    { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA, con C.C.I.A.A., A.N.C. e S.O.A.; direzione del cantiere e sicurezza; i subappaltatori una per riga.' },
+    { id: 'impianti', num: 6, titolo: 'Impianti', sotto: 'Per ogni impianto il progettista e l’impresa installatrice (D.M. 37/2008). Gli impianti lasciati vuoti non vengono stampati.' },
+    { id: 'tempi', num: 6, titolo: 'Tempi e comunicazioni', sotto: 'Data di inizio e data contrattuale di ultimazione. Il cartello riporta sempre il numero unico per le emergenze 112, lo spazio per aggiornamenti e comunicazioni al pubblico e, su fondo verde, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
   ];
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }
@@ -317,7 +318,7 @@ footer.piede a{color:var(--verde)}
       numero++;
       var gr = el('div', { class: 'griglia' });
       campi.forEach(function (c) {
-        var lab = el('label', { class: 'campo' + ((c.tipo === 'textarea' || c.id === 'oggetto' || c.id === 'ubicazione' || c.id === 'ente' || c.id === 'ente_sotto' || c.id === 'csp' || c.id === 'cse') ? ' largo' : '') });
+        var lab = el('label', { class: 'campo' + ((c.tipo === 'textarea' || c.id === 'oggetto' || c.id === 'ubicazione' || c.id === 'ente' || c.id === 'ente_sotto' || c.id === 'ufficio') ? ' largo' : '') });
         lab.appendChild(el('span', { class: 'eti' }, esc(M.perTipo(c.eti, tipo)) + (obbligatorio(c, tipo) ? ' <b>*</b>' : '')));
         var inp;
         if (c.tipo === 'select') {
