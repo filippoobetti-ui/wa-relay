@@ -113,20 +113,19 @@
 
     { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' } },
     { g: 'tempi', id: 'tempo_utile', eti: "Tempo utile per l'ultimazione", ph: '365 giorni naturali e consecutivi', per: 'pubblico', riga: "Tempo utile per l'ultimazione" },
-    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Data contrattuale di ultimazione dei lavori', ph: '30/06/2027', per: 'entrambi', riga: 'Data contrattuale di ultimazione dei lavori' },
-    { g: 'tempi', id: 'comunicazioni', eti: 'Aggiornamento dei dati, comunicazioni al pubblico ed eventuali motivi di interruzione e ripresa dei lavori (facoltativo: se vuoto resta lo spazio libero)', ph: '', per: 'entrambi', tipo: 'textarea' }
+    { g: 'tempi', id: 'data_fine', tipo: 'data', eti: 'Data contrattuale di ultimazione dei lavori', ph: '30/06/2027', per: 'entrambi', riga: 'Data contrattuale di ultimazione dei lavori' }
   ];
 
   const ORDINE_RIGHE = {
     privato: ['ufficio', 'titolo', 'titolo_altri', 'proprieta', 'committente', 'importo_progetto', 'date', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze', 'comunicazioni'],
+      'impianti', 'altri_tecnici', 'notifica', 'emergenze'],
     pubblico: ['cupcig', 'importo_progetto', 'importo_lavori', 'oneri_sicurezza', 'importo_contratto', 'finanziamento', 'contratto',
       'committente', 'rup', 'date', 'tempo_utile', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze', 'comunicazioni']
+      'impianti', 'altri_tecnici', 'notifica', 'emergenze']
   };
 
   // Prefissi automatici (decisione di Filippo 07/10/2026): il cliente scrive solo il nome.
@@ -200,11 +199,6 @@
         righe.push({ id, etichetta: 'Numero unico per le emergenze', valore: '112', forte: true, fisso: true });
         continue;
       }
-      if (id === 'comunicazioni') {
-        // sempre presente: se il cliente non scrive nulla resta lo spazio libero per aggiornamenti e comunicazioni
-        righe.push({ id, etichetta: 'Aggiornamento dei dati o comunicazioni al pubblico ed eventuali motivi di interruzione e ripresa dei lavori', valore: v('comunicazioni'), forte: false, fisso: true, minRighe: v('comunicazioni') ? 0 : 3 });
-        continue;
-      }
       if (id === 'cupcig') {
         const cup = v('cup'), cig = v('cig');
         if (!cup && !cig) continue;
@@ -219,6 +213,8 @@
       if (!def || !val) continue;
       righe.push({ id, etichetta: perTipo(def.riga, tipo) || perTipo(def.eti, tipo), valore: val, forte: ['impresa', 'direttore_lavori', 'committente'].includes(id) });
     }
+    // tutti i valori compilati in carattere normale (Filippo 07/10/2026)
+    for (const r of righe) r.forte = false;
     return righe;
   }
 
@@ -382,13 +378,23 @@
     // ---------- striscia loghi (facoltativa) sopra il piede
     let yCorpoFine = yF - 2 * u;
     if (loghi.length) {
-      const hL = 7.5 * u;
+      // didascalia sopra ogni logo («Impresa esecutrice», «Committente», «Progettista»…), scelta dal cliente (Filippo 07/10/2026)
+      const conDidascalie = loghi.some((lg) => pulisci(lg.ruolo));
+      const sDid = 1.45 * u;
+      const hDid = conDidascalie ? sDid * 1.6 : 0;
+      const hL = 7.5 * u + hDid;
       const yL = yF - 1.6 * u - hL;
       R(m, yL - 0.6 * u, W - 2 * m, 0.12 * u, BRAND.bordo);
       const wSlot = (W - 2 * m) / loghi.length;
       loghi.forEach((lg, i) => {
-        const d = dentro(lg.w, lg.h, wSlot - 2.4 * u, hL - 1.2 * u);
-        prims.push({ t: 'img', x: m + wSlot * i + (wSlot - d.w) / 2, y: yL + (hL - d.h) / 2, w: d.w, h: d.h, img: lg });
+        const ruolo = pulisci(lg.ruolo);
+        if (ruolo) {
+          const fitD = adatta(mis, ruolo, true, sDid, 1.0 * u, wSlot - 2 * u, 1, null, 1.2);
+          T(m + wSlot * i + wSlot / 2, baseline(yL + 0.2 * u, fitD.size), fitD.righe[0], fitD.size, true, BRAND.accento, 'center');
+        }
+        const hImg = hL - hDid;
+        const d = dentro(lg.w, lg.h, wSlot - 2.4 * u, hImg - 1.2 * u);
+        prims.push({ t: 'img', x: m + wSlot * i + (wSlot - d.w) / 2, y: yL + hDid + (hImg - d.h) / 2, w: d.w, h: d.h, img: lg });
       });
       yCorpoFine = yL - 2 * u;
     }

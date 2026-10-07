@@ -54,6 +54,8 @@ label.campo input:focus,label.campo textarea:focus,label.campo select:focus,.sce
 .miniature{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
 .mini{position:relative;border:1px solid var(--bordo);border-radius:10px;background:#fff;padding:6px;width:120px}
 .mini img{width:100%;height:70px;object-fit:contain;display:block}
+.mini input.ruolo{width:100%;margin-top:6px;font-size:.78rem;padding:5px 6px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}
+#mini-loghi .mini{width:170px}
 .mini .nome{font-size:.72rem;color:var(--muto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
 .mini button{position:absolute;top:-8px;right:-8px;border:0;background:var(--errore);color:#fff;border-radius:999px;width:24px;height:24px;cursor:pointer;font-size:.9rem;line-height:1}
 aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
@@ -147,7 +149,7 @@ footer.piede a{color:var(--verde)}
           <div class="miniature" id="mini-stemma"></div>
         </div>
         <div>
-          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p>
+          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p><p class="nota" style="margin:6px 0 0">Sotto ogni logo scrivi la dicitura che va stampata sopra (es. «Impresa esecutrice», «Committente», «Progettista»).</p><datalist id="ruoli-loghi"><option value="Impresa esecutrice"><option value="Committente"><option value="Progettista"><option value="Direttore dei lavori"><option value="Coordinatore per la sicurezza"><option value="Stazione appaltante"><option value="Ente finanziatore"><option value="Impresa subappaltatrice"></datalist>
           <div class="miniature" id="mini-loghi"></div>
         </div>
       </div>
@@ -240,7 +242,7 @@ footer.piede a{color:var(--verde)}
     { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
     { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA, con C.C.I.A.A., A.N.C. e S.O.A.; direzione del cantiere e sicurezza; i subappaltatori una per riga.' },
     { id: 'impianti', num: 6, titolo: 'Impianti', sotto: 'Per ogni impianto il progettista e l’impresa installatrice (D.M. 37/2008). Gli impianti lasciati vuoti non vengono stampati.' },
-    { id: 'tempi', num: 6, titolo: 'Tempi e comunicazioni', sotto: 'Data di inizio e data contrattuale di ultimazione. Il cartello riporta sempre il numero unico per le emergenze 112, lo spazio per aggiornamenti e comunicazioni al pubblico e, su fondo verde, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
+    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Data di inizio e data contrattuale di ultimazione. Il cartello riporta sempre il numero unico per le emergenze 112 e, su fondo verde, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
   ];
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }
@@ -414,7 +416,15 @@ footer.piede a{color:var(--verde)}
     var r = $('#mini-render'); r.innerHTML = ''; if (immagini.render) miniatura(r, immagini.render, function () { immagini.render = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
     var s = $('#mini-stemma'); s.innerHTML = ''; if (immagini.stemma) miniatura(s, immagini.stemma, function () { immagini.stemma = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
     var l = $('#mini-loghi'); l.innerHTML = '';
-    immagini.loghi.forEach(function (lg, i) { miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); }); });
+    immagini.loghi.forEach(function (lg, i) {
+      miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); });
+      // didascalia stampata sopra il logo
+      var box = l.lastChild;
+      var inp = el('input', { type: 'text', class: 'ruolo', list: 'ruoli-loghi', placeholder: 'Dicitura (es. Committente)', 'aria-label': 'Dicitura sopra il logo', maxlength: '40' });
+      inp.value = lg.ruolo || '';
+      inp.addEventListener('input', function () { lg.ruolo = inp.value; salvaImmagini(); ridisegnaPiano(); });
+      box.appendChild(inp);
+    });
   }
   // ---------------------------------------------------------------- controllo dei file caricati
   var MAX_FILE = 25 * 1024 * 1024;
