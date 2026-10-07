@@ -235,10 +235,10 @@ footer.piede a{color:var(--verde)}
   // «riga» è l'etichetta stampata sul cartello (se diversa dall'etichetta del modulo).
   // Diciture allineate al cartello di cantiere tradizionale (foto di Filippo, 07/10/2026).
   const CAMPI = [
-    { g: 'intestazione', id: 'ente', eti: { privato: 'Comune di', pubblico: 'Stazione appaltante' }, ph: { privato: 'Comune di Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
-    { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia di', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Provincia di Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
+    { g: 'intestazione', id: 'ente', eti: { privato: 'Comune di (scrivi solo il nome)', pubblico: 'Stazione appaltante' }, ph: { privato: 'Vigonza', pubblico: 'Comune di Padova' }, per: 'entrambi', obbl: true },
+    { g: 'intestazione', id: 'ente_sotto', eti: { privato: 'Provincia di (scrivi solo il nome)', pubblico: 'Settore / ufficio competente' }, ph: { privato: 'Padova', pubblico: 'Settore Lavori Pubblici e Infrastrutture' }, per: 'entrambi' },
     { g: 'intestazione', id: 'ufficio', eti: 'Ufficio competente', ph: 'Ufficio Edilizia Privata — Comune di Vigonza', per: 'privato', riga: 'Ufficio competente' },
-    { g: 'intestazione', id: 'oggetto', eti: 'Lavori di (oggetto dei lavori)', ph: 'Ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
+    { g: 'intestazione', id: 'oggetto', eti: 'Lavori di (oggetto dei lavori: sul cartello viene scritto «Lavori di …»)', ph: 'ristrutturazione edilizia con ampliamento di fabbricato residenziale', per: 'entrambi', obbl: true, tipo: 'textarea' },
     { g: 'intestazione', id: 'ubicazione', eti: 'Ubicazione del cantiere', ph: 'Via Roma 12 — Vigonza (PD)', per: 'entrambi', obbl: true },
     { g: 'intestazione', id: 'catasto', eti: 'Riferimenti catastali', ph: 'Fg. 5, Mapp. 123, Sub. 2', per: 'entrambi' },
 
@@ -313,6 +313,26 @@ footer.piede a{color:var(--verde)}
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
       'impianti', 'altri_tecnici', 'notifica', 'emergenze', 'comunicazioni']
   };
+
+  // Prefissi automatici (decisione di Filippo 07/10/2026): il cliente scrive solo il nome.
+  // «Vigonza» → «Comune di Vigonza»; «Padova» → «Provincia di Padova»; «ristrutturazione…» → «Lavori di ristrutturazione…».
+  // Se il cliente ha già scritto il prefisso, non si raddoppia.
+  function conPrefisso(testo, prefisso, re) {
+    const t = pulisci(testo);
+    if (!t) return '';
+    if (re.test(t)) return t;
+    return prefisso + ' ' + t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  function nomeComune(s) { return conPrefisso(s, 'Comune di', /^(comune|citt[aà]|municipio)(?=\s|$)/i); }
+  function nomeProvincia(s) { return conPrefisso(s, 'Provincia di', /^(provincia|citt[aà] metropolitana|regione)(?=\s|$)/i); }
+  function titoloLavori(s) {
+    let t = pulisci(s);
+    if (!t) return '';
+    if (/^lavori\b/i.test(t)) return t.charAt(0).toUpperCase() + t.slice(1);
+    // minuscola iniziale, salvo sigle o nomi propri tutti maiuscoli (es. «SP 52», «PNRR»)
+    if (!/^[A-ZÀ-Ý]{2,}\b/.test(t)) t = t.charAt(0).toLowerCase() + t.slice(1);
+    return 'Lavori di ' + t;
+  }
 
   function perTipo(v, tipo) { return (v && typeof v === 'object') ? (v[tipo] || '') : (v || ''); }
   function campo(id) { return CAMPI.find((c) => c.id === id); }
@@ -481,8 +501,8 @@ footer.piede a{color:var(--verde)}
       : 'Circ. Min. LL.PP. n. 1729/UL del 1/6/1990 · art. 90, c. 7, D.Lgs. 81/2008';
     let sEti = 2.5 * u, sNorm = 1.3 * u;
     let wDx = Math.max(mis.larghezza('CARTELLO DI CANTIERE', true, sEti), mis.larghezza(normativa, false, sNorm));
-    const ente = pulisci(c.ente) || (tipo === 'privato' ? 'Comune di …' : 'Stazione appaltante');
-    const enteSotto = pulisci(c.ente_sotto);
+    const ente = (tipo === 'privato' ? nomeComune(c.ente) : pulisci(c.ente)) || (tipo === 'privato' ? 'Comune di …' : 'Stazione appaltante');
+    const enteSotto = tipo === 'privato' ? nomeProvincia(c.ente_sotto) : pulisci(c.ente_sotto);
     let wSx = W - m - xTesto - wDx - 3 * u;
     let mostraNorm = true;
     if (wSx < W * 0.4) { mostraNorm = false; sEti = 2.1 * u; wDx = mis.larghezza('CARTELLO DI CANTIERE', true, sEti); wSx = W - m - xTesto - wDx - 3 * u; }
@@ -500,7 +520,7 @@ footer.piede a{color:var(--verde)}
 
     // ---------- titolo (oggetto dei lavori) e ubicazione
     y = hH + 2.4 * u;
-    const oggetto = pulisci(c.oggetto) || 'Oggetto dei lavori';
+    const oggetto = titoloLavori(c.oggetto) || 'Lavori di …';
     const fitTit = adatta(mis, oggetto, true, 4.6 * u, 2.6 * u, W - 2 * m, 4, null, 1.08);
     if (fitTit.troncato) avvisi.push('L’oggetto dei lavori è molto lungo: è stato ridotto per stare in quattro righe.');
     for (const r of fitTit.righe) { T(m, baseline(y, fitTit.size), r, fitTit.size, true, BRAND.scuro); y += fitTit.size * 1.08; }
@@ -930,7 +950,7 @@ footer.piede a{color:var(--verde)}
     }
   }
 
-  return { BRAND, FORMATI, IMPIANTI, CAMPI, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });
 </script>
 <script>// Cartello di cantiere — Il Giornale Lavori
