@@ -1628,7 +1628,10 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- pagamento
   function stessoCantiere(p) {
     var norm = function (s) { return M.pulisci(s).toLowerCase().replace(/\s+/g, ' '); };
-    return p && norm(p.oggetto) === norm(stato.campi.oggetto) && norm(p.ubicazione) === norm(stato.campi.ubicazione);
+    if (!p) return false;
+    // pagamento recuperato su un altro dispositivo/browser prima di compilare: si lega al cantiere al primo download
+    if (!norm(p.oggetto)) return true;
+    return norm(p.oggetto) === norm(stato.campi.oggetto) && (!norm(p.ubicazione) || norm(p.ubicazione) === norm(stato.campi.ubicazione));
   }
   function aggiornaPagamento() {
     var box = $('#pagato-box'), btn = $('#btn-acquista');
@@ -1636,7 +1639,7 @@ footer.piede a{color:var(--verde)}
     if (p && stessoCantiere(p)) {
       box.hidden = false;
       box.innerHTML = '<div class="pagato"><div class="t">✓ Pagamento ricevuto' + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
-        '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.pulisci(p.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
+        '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.titoloLavori(p.oggetto || stato.campi.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
         '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button></div>';
       btn.hidden = true;
       $('#btn-scarica').addEventListener('click', function () {
@@ -1644,6 +1647,7 @@ footer.piede a{color:var(--verde)}
         conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
           return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }).then(function (u8) {
             scarica(u8, nomeFile('PDFX1a'));
+            if (!M.pulisci(p.oggetto)) { p.oggetto = stato.campi.oggetto; p.ubicazione = stato.campi.ubicazione; salvaStato(); }
             try { fetch(API + '/scarico', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione }) }); } catch (e) {}
           });
         });
