@@ -72,6 +72,8 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.secondario{background:#fff;color:var(--verde-scuro);border:1.5px solid var(--bordo)}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.spento{opacity:.55}
+.motivo-blocco{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:14px;line-height:1.35}
 .pagamento{border-top:1px solid var(--bordo);padding-top:14px;margin-top:4px}
 .pagamento .tot{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
 .pagamento .tot b{font-size:1.3rem}
@@ -166,6 +168,7 @@ footer.piede a{color:var(--verde)}
         <div class="tot"><span>Cartello di cantiere · PDF/X-1a per la stampa</span><span><b id="tot-lordo">10,98 €</b> <small>(9,00 € + IVA 22 %)</small></span></div>
         <p class="nota">Il pagamento vale per questo cantiere: correzioni e nuovi download sono compresi. Al momento del pagamento puoi indicare partita IVA e dati per la fattura.</p>
         <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF/X-1a per la stampa</button>
+        <p class="motivo-blocco" id="motivo-blocco" hidden></p>
         <div id="pagato-box" hidden></div>
       </div>
       <p class="nota"><b>File di stampa PDF/X-1a:2001</b>, lo standard chiesto dalle tipografie: vettoriale alla dimensione reale, colori in quadricromia (CMYK, condizione di stampa FOGRA39), testi convertiti in tracciati (nessun carattere da installare), immagini in CMYK, TrimBox e, se hai scelto l'abbondanza, BleedBox con crocini di taglio. QR e marchio Il Giornale Lavori sempre presenti.</p>
@@ -1368,6 +1371,7 @@ footer.piede a{color:var(--verde)}
     M.CAMPI.forEach(function (c) { if (visibile(c, tipo) && obbligatorio(c, tipo) && !M.pulisci(stato.campi[c.id])) out.push(M.perTipo(c.eti, tipo)); });
     return out;
   }
+  var motivoBlocco = '';
   function ridisegna() {
     if (!mis) return;
     var dati = datiCorrenti();
@@ -1379,7 +1383,9 @@ footer.piede a{color:var(--verde)}
     if (manca.length) lista.unshift({ testo: 'Campi obbligatori da compilare: ' + manca.join(', ') + '.' });
     var bloccato = ultimoEsito.avvisi.some(function (a) { return a.indexOf('Troppi dati') === 0; });
     mostraAvvisi(lista);
-    $('#btn-acquista').disabled = bloccato || manca.length > 0;
+    motivoBlocco = manca.length ? 'Per acquistare manca ancora: ' + manca.join(', ') + '.' : (bloccato ? 'Troppi dati per la misura scelta: accorcia qualche testo oppure scegli un formato più grande (es. 2,00 × 3,00 m).' : '');
+    $('#btn-acquista').classList.toggle('spento', !!motivoBlocco);
+    $('#motivo-blocco').hidden = !motivoBlocco; $('#motivo-blocco').textContent = motivoBlocco;
     aggiornaPagamento();
   }
 
@@ -1460,8 +1466,8 @@ footer.piede a{color:var(--verde)}
   }
   $('#btn-acquista').addEventListener('click', function () {
     var btn = this;
-    var manca = mancanti();
-    if (manca.length) { errore('Compila prima i campi obbligatori: ' + manca.join(', ') + '.'); return; }
+    ridisegna();
+    if (motivoBlocco) { var mb = $('#motivo-blocco'); mb.hidden = false; mb.textContent = motivoBlocco; mb.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Apro il pagamento sicuro…';
     salvaStato();
     salvaImmagini().then(function () {
