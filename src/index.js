@@ -115,6 +115,16 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Portale cliente (08/10/2026): sul dominio dedicato risponde SOLO il portale (mai il webhook WhatsApp);
+    // su workers.dev resta raggiungibile sotto /portale/ per collaudo.
+    if (url.hostname === (env.PORTALE_HOST || PORTALE_HOST_PREDEFINITO)) {
+      return portaleRoute(request, env, "");
+    }
+    if (url.pathname === "/portale" || url.pathname.startsWith("/portale/")) {
+      if (url.pathname === "/portale") return Response.redirect(url.origin + "/portale/" + url.search, 301);
+      return portaleRoute(request, env, "/portale");
+    }
+
     if (request.method === "GET" && url.pathname === "/privacy") {
       return new Response(PRIVACY_HTML, {
         status: 200,
@@ -507,7 +517,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-1 (portale cliente fuori da Make, installabile)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1126,4 +1136,204 @@ async function timbraturaGestisci(msg, value, env, supabaseUrl, graph) {
   await chatUnicaLog(env, supabaseUrl, tel, msg.id, "timbratura",
     (r.tipo || "?") + " " + (r.esito || "") + (r.cantiere ? " · " + r.cantiere : "") + (r.origine ? " · " + r.origine : "") + (r.ora ? " · " + r.ora : ""));
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Portale cliente (08/10/2026) — la stessa pagina che prima serviva lo scenario Make 7376932,
+// ora servita da qui senza consumare crediti Make. La pagina la compone sempre il database
+// (public.dashboard_html, eseguibile solo con la chiave di servizio): il relay la chiede, aggiunge
+// le righe per renderla installabile come app (manifest, icone, service worker) e la consegna.
+// Raggiungibile su https://app.ilgiornalelavori.it/ (dominio dedicato: su quel dominio risponde SOLO
+// il portale, mai il webhook WhatsApp) e, per collaudo, su <workers.dev>/portale/.
+// Il relay non conserva nulla: il gettone resta solo nel telefono del cliente (localStorage).
+const PORTALE_HOST_PREDEFINITO = "app.ilgiornalelavori.it";
+const PORTALE_COLORE = "#0A7D48";
+const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png"]);
+
+function portaleHtmlHeaders(extra) {
+  const h = new Headers({
+    "Content-Type": "text/html; charset=UTF-8",
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex, nofollow",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff"
+  });
+  if (extra) for (const [k, v] of Object.entries(extra)) h.set(k, v);
+  return h;
+}
+
+function portaleTesta(base) {
+  return '<link rel="manifest" href="' + base + '/manifest.webmanifest">' +
+    '<meta name="theme-color" content="' + PORTALE_COLORE + '">' +
+    '<link rel="icon" type="image/png" sizes="192x192" href="' + base + '/icona-192.png">' +
+    '<link rel="apple-touch-icon" href="' + base + '/apple-touch-icon.png">' +
+    '<meta name="apple-mobile-web-app-capable" content="yes">' +
+    '<meta name="mobile-web-app-capable" content="yes">' +
+    '<meta name="apple-mobile-web-app-title" content="Giornale Lavori">';
+}
+
+function portaleScriptSw(base) {
+  return "if('serviceWorker' in navigator){try{navigator.serviceWorker.register('" + base + "/sw.js',{scope:'" + base + "/'}).catch(function(){});}catch(e){}}";
+}
+
+function portaleIngresso(base, avviso) {
+  const msg = avviso ? '<p class="err">' + avviso + '</p>' : '';
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
+    '<title>Il Giornale Lavori - Accesso</title>' + portaleTesta(base) +
+    '<style>' +
+    ':root{--v:' + PORTALE_COLORE + ';--t:#1b1f1d;--s:#5b6560;--b:#f4f6f5;--c:#fff;--l:#dfe5e2}' +
+    '@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531}}' +
+    '*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--b);color:var(--t)}' +
+    'main{max-width:440px;margin:0 auto;padding:48px 16px}' +
+    '.card{background:var(--c);border:1px solid var(--l);border-radius:14px;padding:24px}' +
+    'img{width:72px;height:72px;display:block;margin:0 auto 12px}' +
+    'h1{font-size:1.25rem;text-align:center;margin:0 0 4px}p{color:var(--s);line-height:1.45;margin:0 0 16px;text-align:center}' +
+    'label{display:block;font-weight:600;margin:0 0 6px}' +
+    'input{width:100%;font-size:1rem;padding:12px;border:1px solid var(--l);border-radius:10px;background:var(--b);color:var(--t)}' +
+    'button{width:100%;margin-top:12px;font-size:1rem;font-weight:600;padding:12px;border:0;border-radius:10px;background:var(--v);color:#fff}' +
+    '.err{color:#b3261e;font-weight:600}.piede{font-size:.85rem;margin-top:16px}' +
+    '</style></head><body><main><div class="card">' +
+    '<img src="' + base + '/icona-192.png" alt="">' +
+    '<h1>Il Giornale Lavori</h1><p>I tuoi cantieri, giorno per giorno.</p>' + msg +
+    '<form method="get" action="' + base + '/" id="f">' +
+    '<label for="t">Collegamento o codice d\'accesso</label>' +
+    '<input id="t" name="t" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Incolla qui il collegamento ricevuto" required>' +
+    '<button type="submit">Entra</button></form>' +
+    '<p class="piede">Il collegamento te lo ha mandato chi ti ha attivato il servizio. Basta aprirlo una volta: poi l\'app lo ricorda.</p>' +
+    '</div></main><script>(function(){var B="' + base + '";' +
+    'var q=new URLSearchParams(location.search);' +
+    'if(q.has("esci")){try{localStorage.removeItem("gl_portale_t")}catch(e){}}' +
+    'else if(!q.has("t")){var s=null;try{s=localStorage.getItem("gl_portale_t")}catch(e){}' +
+    'if(s&&/^[0-9a-f]{64}$/.test(s)){location.replace(B+"/?t="+s);return}}' +
+    'document.getElementById("f").addEventListener("submit",function(ev){var v=document.getElementById("t").value||"";' +
+    'var m=v.match(/[0-9a-fA-F]{64}/);if(m){ev.preventDefault();location.href=B+"/?t="+m[0].toLowerCase();}});' +
+    portaleScriptSw(base) + '})();</script></body></html>';
+}
+
+const PORTALE_SW = [
+  "// Service worker del portale Il Giornale Lavori: nessuna copia dei dati sul telefono,",
+  "// solo una pagina di cortesia quando manca la connessione.",
+  "self.addEventListener('install', function () { self.skipWaiting(); });",
+  "self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });",
+  "self.addEventListener('fetch', function (e) {",
+  "  if (e.request.mode !== 'navigate') return;",
+  "  e.respondWith(fetch(e.request).catch(function () {",
+  "    return new Response('<!DOCTYPE html><html lang=\"it\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Nessuna connessione</title></head><body style=\"font-family:system-ui,sans-serif;padding:48px 16px;text-align:center\"><h1 style=\"font-size:1.2rem\">Nessuna connessione</h1><p>Il Giornale Lavori ha bisogno di internet per mostrarti i cantieri. Riprova appena il telefono torna in rete.</p><p><a href=\"\" onclick=\"location.reload();return false\">Riprova</a></p></body></html>',",
+  "      { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });",
+  "  }));",
+  "});",
+  ""
+].join("\n");
+
+async function portaleRoute(request, env, prefisso) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  const inUrl = new URL(request.url);
+  const base = prefisso; // "" sul dominio dedicato, "/portale" su workers.dev
+  let sotto = inUrl.pathname.slice(prefisso.length) || "/";
+
+  if (sotto === "/manifest.webmanifest") {
+    const manifest = {
+      id: base + "/",
+      name: "Il Giornale Lavori",
+      short_name: "Giornale Lavori",
+      description: "I cantieri della tua impresa: giornale, rapportini, DDT, foto e documenti.",
+      lang: "it",
+      start_url: base + "/",
+      scope: base + "/",
+      display: "standalone",
+      orientation: "portrait",
+      background_color: "#FFFFFF",
+      theme_color: PORTALE_COLORE,
+      icons: [
+        { src: base + "/icona-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: base + "/icona-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: base + "/icona-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+        { src: base + "/icona-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+      ]
+    };
+    return new Response(JSON.stringify(manifest), {
+      status: 200,
+      headers: { "Content-Type": "application/manifest+json; charset=UTF-8", "Cache-Control": "public, max-age=3600" }
+    });
+  }
+
+  if (sotto === "/sw.js") {
+    return new Response(PORTALE_SW, {
+      status: 200,
+      headers: { "Content-Type": "application/javascript; charset=UTF-8", "Cache-Control": "no-cache" }
+    });
+  }
+
+  if (PORTALE_ICONE.has(sotto)) {
+    const r = await env.ASSETS.fetch(new Request(inUrl.origin + "/portale" + sotto));
+    if (!r.ok) return new Response("Not Found", { status: 404 });
+    const h = new Headers(r.headers);
+    h.set("Cache-Control", "public, max-age=86400");
+    return new Response(metodo === "HEAD" ? null : r.body, { status: 200, headers: h });
+  }
+
+  if (sotto === "/robots.txt") {
+    return new Response("User-agent: *\nDisallow: /\n", { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+
+  if (sotto !== "/" && sotto !== "/index.html") {
+    return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+
+  const tGrezzo = inUrl.searchParams.get("t");
+  if (tGrezzo === null) {
+    return new Response(metodo === "HEAD" ? null : portaleIngresso(base, ""), { status: 200, headers: portaleHtmlHeaders() });
+  }
+  const m = String(tGrezzo).match(/[0-9a-fA-F]{64}/);
+  if (!m) {
+    return new Response(portaleIngresso(base, "Il collegamento non è completo. Incollalo di nuovo per intero."), { status: 200, headers: portaleHtmlHeaders() });
+  }
+  const token = m[0].toLowerCase();
+  const commessa = (inUrl.searchParams.get("c") || "").slice(0, 64);
+
+  if (!env.SUPABASE_SERVICE_KEY) {
+    return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  let html;
+  try {
+    const r = await fetch(supabaseUrl + "/rest/v1/rpc/dashboard_html", {
+      method: "POST",
+      headers: {
+        "apikey": env.SUPABASE_SERVICE_KEY,
+        "Authorization": "Bearer " + env.SUPABASE_SERVICE_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ p_token: token, p_commessa: commessa }),
+      signal: ctrl.signal
+    });
+    if (!r.ok) throw new Error("rpc " + r.status);
+    html = await r.json();
+    if (typeof html !== "string") throw new Error("risposta non testuale");
+  } catch (e) {
+    clearTimeout(timer);
+    return new Response(portaleIngresso(base, "Il servizio non risponde in questo momento. Riprova tra qualche minuto."), {
+      status: 503, headers: portaleHtmlHeaders({ "Retry-After": "60" })
+    });
+  }
+  clearTimeout(timer);
+
+  // Pagina valida = contiene i collegamenti con il gettone (le pagine di errore non lo riportano mai).
+  const valida = html.indexOf("?t=" + token) !== -1;
+  const script = valida
+    ? "<script>(function(){try{localStorage.setItem('gl_portale_t','" + token + "')}catch(e){}" + portaleScriptSw(base) + "})();</script>"
+    : "<script>(function(){try{if(localStorage.getItem('gl_portale_t')==='" + token + "')localStorage.removeItem('gl_portale_t')}catch(e){}})();</script>";
+  html = html.indexOf("</head>") !== -1 ? html.replace("</head>", portaleTesta(base) + "</head>") : html;
+  html = html.lastIndexOf("</body>") !== -1
+    ? html.slice(0, html.lastIndexOf("</body>")) + script + html.slice(html.lastIndexOf("</body>"))
+    : html + script;
+  return new Response(metodo === "HEAD" ? null : html, { status: 200, headers: portaleHtmlHeaders() });
 }
