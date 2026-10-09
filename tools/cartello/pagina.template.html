@@ -54,7 +54,7 @@ label.campo input:focus,label.campo textarea:focus,label.campo select:focus,.sce
 .miniature{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
 .mini{position:relative;border:1px solid var(--bordo);border-radius:10px;background:#fff;padding:6px;width:120px}
 .mini img{width:100%;height:70px;object-fit:contain;display:block}
-.mini input.ruolo{width:100%;margin-top:6px;font-size:.78rem;padding:5px 6px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}
+.mini .ruolo{width:100%;margin-top:4px;font-size:.8rem;padding:5px 6px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box;background:#fff}.mini .eti-ruolo{font-size:.72rem;font-weight:600;margin-top:6px;color:var(--testo, #222)}
 #mini-loghi .mini{width:170px}
 .mini .nome{font-size:.72rem;color:var(--muto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
 .mini button{position:absolute;top:-8px;right:-8px;border:0;background:var(--errore);color:#fff;border-radius:999px;width:24px;height:24px;cursor:pointer;font-size:.9rem;line-height:1}
@@ -150,11 +150,11 @@ footer.piede a{color:var(--verde)}
           <div class="miniature" id="mini-render"></div>
         </div>
         <div>
-          <div class="carica"><input type="file" id="file-stemma" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"><div class="t">Stemma o logo in testata</div><div class="n">es. stemma del Comune o della stazione appaltante</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-stemma" hidden></p>
+          <div class="carica"><input type="file" id="file-stemma" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"><div class="t">Stemma del Comune (in alto a sinistra)</div><div class="n">va nella fascia colorata in alto, accanto al nome del Comune: lo stemma del Comune o il logo dell’ente che appalta i lavori</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-stemma" hidden></p>
           <div class="miniature" id="mini-stemma"></div>
         </div>
         <div>
-          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4)</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p><p class="nota" style="margin:6px 0 0">Sotto ogni logo scrivi la dicitura che va stampata sopra (es. «Impresa esecutrice», «Committente», «Progettista»).</p><datalist id="ruoli-loghi"><option value="Impresa esecutrice"><option value="Committente"><option value="Progettista"><option value="Direttore dei lavori"><option value="Coordinatore per la sicurezza"><option value="Stazione appaltante"><option value="Ente finanziatore"><option value="Impresa subappaltatrice"></datalist>
+          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4), ognuno con la sua scritta</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p><p class="nota" style="margin:6px 0 0">Ai loghi vengono date in ordine le scritte «Impresa esecutrice», «Committente», «Direzione lavori», «Progettista»: puoi cambiarle dal menu sotto ogni logo.</p>
           <div class="miniature" id="mini-loghi"></div>
         </div>
       </div>
@@ -431,18 +431,44 @@ footer.piede a{color:var(--verde)}
     d.appendChild(b);
     box.appendChild(d);
   }
+  // diciture proposte sopra i loghi, assegnate in ordine ai loghi caricati (modificabili)
+  var RUOLI_LOGHI = ['Impresa esecutrice', 'Committente', 'Direzione lavori', 'Progettista', 'Coordinatore per la sicurezza', 'Stazione appaltante', 'Ente finanziatore', 'Impresa subappaltatrice'];
+  function ruoliPredefiniti() {
+    var usati = immagini.loghi.map(function (lg) { return lg.ruolo; });
+    immagini.loghi.forEach(function (lg) {
+      if (lg.ruolo != null && String(lg.ruolo) !== '') return;
+      if (lg.ruolo === '' && lg.ruoloScelto) return; // «Nessuna scritta» scelto dal cliente
+      var libero = RUOLI_LOGHI.slice(0, 4).filter(function (r) { return usati.indexOf(r) < 0; })[0];
+      if (libero) { lg.ruolo = libero; usati.push(libero); }
+    });
+  }
   function disegnaMiniature() {
     var r = $('#mini-render'); r.innerHTML = ''; if (immagini.render) miniatura(r, immagini.render, function () { immagini.render = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
     var s = $('#mini-stemma'); s.innerHTML = ''; if (immagini.stemma) miniatura(s, immagini.stemma, function () { immagini.stemma = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
     var l = $('#mini-loghi'); l.innerHTML = '';
     immagini.loghi.forEach(function (lg, i) {
       miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); });
-      // didascalia stampata sopra il logo
+      // dicitura stampata sopra il logo: elenco a scelta + «Altro» libero (Filippo 09/10/2026)
       var box = l.lastChild;
-      var inp = el('input', { type: 'text', class: 'ruolo', list: 'ruoli-loghi', placeholder: 'Dicitura (es. Committente)', 'aria-label': 'Dicitura sopra il logo', maxlength: '40' });
-      inp.value = lg.ruolo || '';
-      inp.addEventListener('input', function () { lg.ruolo = inp.value; salvaImmagini(); ridisegnaPiano(); });
-      box.appendChild(inp);
+      box.appendChild(el('div', { class: 'eti-ruolo' }, 'Scritta sopra il logo'));
+      var sel = el('select', { class: 'ruolo', 'aria-label': 'Scritta stampata sopra il logo' });
+      var noti = RUOLI_LOGHI.concat(['Altro…', 'Nessuna scritta']);
+      noti.forEach(function (r) { sel.appendChild(el('option', { value: r }, esc(r))); });
+      var altro = el('input', { type: 'text', class: 'ruolo', placeholder: 'Scrivi la dicitura', maxlength: '40', 'aria-label': 'Dicitura personalizzata' });
+      var r0 = lg.ruolo == null ? '' : String(lg.ruolo);
+      if (r0 === '') sel.value = 'Nessuna scritta';
+      else if (RUOLI_LOGHI.indexOf(r0) >= 0) sel.value = r0;
+      else { sel.value = 'Altro…'; altro.value = r0; }
+      altro.hidden = sel.value !== 'Altro…';
+      sel.addEventListener('change', function () {
+        altro.hidden = sel.value !== 'Altro…';
+        lg.ruoloScelto = true;
+        lg.ruolo = sel.value === 'Nessuna scritta' ? '' : (sel.value === 'Altro…' ? altro.value : sel.value);
+        if (!altro.hidden) altro.focus();
+        salvaImmagini(); ridisegnaPiano();
+      });
+      altro.addEventListener('input', function () { lg.ruolo = altro.value; salvaImmagini(); ridisegnaPiano(); });
+      box.appendChild(sel); box.appendChild(altro);
     });
   }
   // ---------------------------------------------------------------- controllo dei file caricati
@@ -480,7 +506,7 @@ footer.piede a{color:var(--verde)}
     var posto = 4 - immagini.loghi.length;
     if (posto <= 0) { errore('Hai già quattro loghi: rimuovine uno per aggiungerne un altro.'); return; }
     Promise.all(files.slice(0, posto).map(function (f) { return elaboraImmagine(f, 1600, true); }))
-      .then(function (imgs) { immagini.loghi = immagini.loghi.concat(imgs); return salvaImmagini(); })
+      .then(function (imgs) { immagini.loghi = immagini.loghi.concat(imgs); ruoliPredefiniti(); return salvaImmagini(); })
       .then(function () { disegnaMiniature(); ridisegna(); })
       .catch(function () { esitoFile('loghi', 'Uno dei loghi non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine): salvalo di nuovo come PNG o SVG.'); });
   });
@@ -661,6 +687,7 @@ footer.piede a{color:var(--verde)}
     disegnaColori();
     disegnaModulo();
     caricaImmagini().then(function () {
+      ruoliPredefiniti();
       disegnaMiniature();
       ridisegna();
       var q = new URLSearchParams(location.search);

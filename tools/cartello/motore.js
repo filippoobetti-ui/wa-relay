@@ -402,7 +402,7 @@
     if (loghi.length) {
       // didascalia sopra ogni logo («Impresa esecutrice», «Committente», «Progettista»…), scelta dal cliente (Filippo 07/10/2026)
       const conDidascalie = loghi.some((lg) => pulisci(lg.ruolo));
-      const sDid = 1.45 * u;
+      const sDid = 1.9 * u;
       const hDid = conDidascalie ? sDid * 1.6 : 0;
       const hL = 7.5 * u + hDid;
       const yL = yF - 1.6 * u - hL;
