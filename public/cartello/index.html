@@ -596,7 +596,7 @@ footer.piede a{color:var(--verde)}
     const hF = 9 * u;
     const yF = H - hF;
     R(0, yF, W, hF, BRAND.bianco, { sfondo: 'piede' });
-    R(0, yF, W, 0.3 * u, BRAND.accento);
+    R(0, yF, W, 0.3 * u, tema.medio); // riga sopra il piede nel colore scelto (Filippo 09/10/2026)
     const hLogo = 4.6 * u;
     const wLogo = hLogo * LOGO_RAPPORTO;
     prims.push({ t: 'logo', x: m, y: yF + (hF - hLogo) / 2 + 0.1 * u, h: hLogo, w: wLogo });
