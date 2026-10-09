@@ -1169,7 +1169,7 @@ function portaleTesta(base) {
     '<link rel="apple-touch-icon" href="' + base + '/apple-touch-icon.png">' +
     '<meta name="apple-mobile-web-app-capable" content="yes">' +
     '<meta name="mobile-web-app-capable" content="yes">' +
-    '<meta name="apple-mobile-web-app-title" content="Giornale Lavori">';
+    '<meta name="apple-mobile-web-app-title" content="Pippo">';
 }
 
 function portaleScriptSw(base) {
@@ -1239,8 +1239,8 @@ async function portaleRoute(request, env, prefisso) {
   if (sotto === "/manifest.webmanifest") {
     const manifest = {
       id: base + "/",
-      name: "Il Giornale Lavori",
-      short_name: "Giornale Lavori",
+      name: "Pippo - Il Giornale Lavori",
+      short_name: "Pippo",
       description: "I cantieri della tua impresa: giornale, rapportini, DDT, foto e documenti.",
       lang: "it",
       start_url: base + "/",
