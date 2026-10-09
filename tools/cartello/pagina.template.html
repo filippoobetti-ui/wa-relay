@@ -378,7 +378,7 @@ footer.piede a{color:var(--verde)}
       if (stato.formato === f.id) inp.checked = true;
       inp.addEventListener('change', function () { if (inp.checked) { stato.formato = f.id; aggiornaOrientamento(); salvaStato(); ridisegna(); } });
       lab.appendChild(inp);
-      lab.appendChild(el('span', { class: 't' }, esc(f.nome)));
+      lab.appendChild(el('span', { class: 't', 'data-formato': f.id }, esc(f.nome)));
       lab.appendChild(el('span', { class: 'n' }, esc(f.nota)));
       box.appendChild(lab);
     });
@@ -410,6 +410,11 @@ footer.piede a{color:var(--verde)}
     var sel = $('#orientamento'); sel.disabled = quad || su;
     if (quad) { stato.orientamento = 'verticale'; sel.value = 'verticale'; }
     var riga = $('#misure-su'); if (riga) riga.hidden = !su;
+    // a fianco di ogni misura: quale lato è la base e quale l'altezza, secondo l'orientamento scelto (Filippo 09/10/2026)
+    Array.prototype.forEach.call(document.querySelectorAll('#formati [data-formato]'), function (sp) {
+      var dd = M.dimensioni({ formato: sp.getAttribute('data-formato'), orientamento: stato.orientamento });
+      sp.innerHTML = 'base <b>' + (dd.W / 10) + '</b> × altezza <b>' + (dd.H / 10) + '</b> cm';
+    });
     var d = M.dimensioni(stato);
     var errM = su ? M.controllaMisura(stato) : '';
     if (errM) { $('#aiuto-formato').textContent = errM; $('#aiuto-formato').classList.add('errore'); return; }

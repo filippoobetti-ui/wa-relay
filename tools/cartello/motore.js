@@ -27,7 +27,6 @@
     azzurro:   { nome: 'Azzurro',   testata: '#0B78B8', medio: '#2E96D2', testo: '#08405F', chiaro: '#D3EAF7' },
     blu:       { nome: 'Blu',       testata: '#13306E', medio: '#2F5BB7', testo: '#0B1D45', chiaro: '#D3DCF2' },
     arancione: { nome: 'Arancione', testata: '#C9550C', medio: '#E37A1F', testo: '#6B2C05', chiaro: '#FBE0C7' },
-    grigio:    { nome: 'Grigio',    testata: '#3C3C3C', medio: '#6E6E6E', testo: '#1E1E1E', chiaro: '#E0E0E0' },
     bordeaux:  { nome: 'Bordeaux',  testata: '#6D1A2E', medio: '#9E2F49', testo: '#3D0C18', chiaro: '#F1D3DA' },
     petrolio:  { nome: 'Verde petrolio', testata: '#0E4D5A', medio: '#1F7A8C', testo: '#082C34', chiaro: '#D2E8EC' },
     oliva:     { nome: 'Verde oliva', testata: '#4E5A1C', medio: '#6F7F2A', testo: '#2C330F', chiaro: '#E5EBCF' },
