@@ -17,6 +17,20 @@
   const SLOGAN = 'Cartello realizzato con';
   const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
 
+  // Colori del cartello scelti dal cliente (Filippo 09/10/2026). Per ogni colore:
+  // testata = tinta piena in alto; medio = tinta più tenue per filetti, fascia finale e didascalie di posizione;
+  // testo = tinta più scura per titolo ed etichette dei dati; chiaro = scritte secondarie sulla testata.
+  // Il piede con il marchio Il Giornale Lavori resta sempre verde.
+  const TEMI = {
+    verde:     { nome: 'Verde',     testata: '#052A21', medio: '#0A7D48', testo: '#052A21', chiaro: '#CFE3D8' },
+    rosso:     { nome: 'Rosso',     testata: '#A11C1C', medio: '#D2423A', testo: '#5C0F0F', chiaro: '#F6D3D0' },
+    azzurro:   { nome: 'Azzurro',   testata: '#0B78B8', medio: '#2E96D2', testo: '#08405F', chiaro: '#D3EAF7' },
+    blu:       { nome: 'Blu',       testata: '#13306E', medio: '#2F5BB7', testo: '#0B1D45', chiaro: '#D3DCF2' },
+    arancione: { nome: 'Arancione', testata: '#C9550C', medio: '#E37A1F', testo: '#6B2C05', chiaro: '#FBE0C7' },
+    grigio:    { nome: 'Grigio',    testata: '#3C3C3C', medio: '#6E6E6E', testo: '#1E1E1E', chiaro: '#E0E0E0' }
+  };
+  function temaDi(dati) { return TEMI[dati && dati.colore] || TEMI.verde; }
+
   const FORMATI = [
     { id: '100x100', nome: '100 × 100 cm', lato1: 1000, lato2: 1000, nota: 'quadrato, pannello singolo' },
     { id: '100x200', nome: '100 × 200 cm', lato1: 1000, lato2: 2000, nota: 'il più diffuso in edilizia privata' },
@@ -286,6 +300,7 @@
     const c = dati.campi || {};
     const img = dati.immagini || {};
     const loghi = (img.loghi || []).filter(Boolean).slice(0, 4);
+    const tema = temaDi(dati);
     const u = Math.min(W, H) / 100;        // unità di disegno: 1 % del lato corto
     const m = 3 * u;                        // margine di sicurezza
     const prims = [];
@@ -300,7 +315,7 @@
 
     // ---------- testata (banda scura)
     const hH = 10 * u;
-    R(0, 0, W, hH, BRAND.scuro, { sfondo: 'testata' });
+    R(0, 0, W, hH, tema.testata, { sfondo: 'testata' });
     let xTesto = m;
     if (img.stemma) {
       const lato = hH - 2.6 * u;
@@ -325,28 +340,28 @@
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
     let y = (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
-    if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, '#CFE3D8'); }
+    if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
     const hDx = sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0);
     let yDx = (hH - hDx) / 2;
     T(W - m, baseline(yDx, sEti), 'CARTELLO DI CANTIERE', sEti, true, BRAND.bianco, 'right');
-    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m, baseline(yDx, sNorm), normativa, sNorm, false, '#CFE3D8', 'right'); }
+    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m, baseline(yDx, sNorm), normativa, sNorm, false, tema.chiaro, 'right'); }
 
     // ---------- titolo (oggetto dei lavori) e ubicazione
     y = hH + 2.4 * u;
     const oggetto = titoloLavori(c.oggetto) || 'Lavori di …';
     const fitTit = adatta(mis, oggetto, true, 4.6 * u, 2.6 * u, W - 2 * m, 4, null, 1.08);
     if (fitTit.troncato) avvisi.push('L’oggetto dei lavori è molto lungo: è stato ridotto per stare in quattro righe.');
-    for (const r of fitTit.righe) { T(m, baseline(y, fitTit.size), r, fitTit.size, true, BRAND.scuro); y += fitTit.size * 1.08; }
+    for (const r of fitTit.righe) { T(m, baseline(y, fitTit.size), r, fitTit.size, true, tema.testo); y += fitTit.size * 1.08; }
     y += 1.4 * u;
     const ubic = [pulisci(c.ubicazione), pulisci(c.catasto)].filter(Boolean).join('  ·  ');
     if (ubic) {
-      T(m, baseline(y, 1.35 * u), 'UBICAZIONE DEL CANTIERE', 1.35 * u, true, BRAND.accento, 'left', { ls: 0.06 });
+      T(m, baseline(y, 1.35 * u), 'UBICAZIONE DEL CANTIERE', 1.35 * u, true, tema.medio, 'left', { ls: 0.06 });
       y += 1.35 * u * 1.5;
       const fitU = adatta(mis, ubic, false, 2.3 * u, 1.6 * u, W - 2 * m, 2, null, 1.2);
       for (const r of fitU.righe) { T(m, baseline(y, fitU.size), r, fitU.size, false, '#222222'); y += fitU.size * 1.2; }
     }
     y += 1.6 * u;
-    R(m, y, W - 2 * m, 0.35 * u, BRAND.accento);
+    R(m, y, W - 2 * m, 0.35 * u, tema.medio);
     y += 0.35 * u + 2.2 * u;
     const yCorpoInizio = y;
 
@@ -390,7 +405,7 @@
         const ruolo = pulisci(lg.ruolo);
         if (ruolo) {
           const fitD = adatta(mis, ruolo, true, sDid, 1.0 * u, wSlot - 2 * u, 1, null, 1.2);
-          T(m + wSlot * i + wSlot / 2, baseline(yL + 0.2 * u, fitD.size), fitD.righe[0], fitD.size, true, BRAND.accento, 'center');
+          T(m + wSlot * i + wSlot / 2, baseline(yL + 0.2 * u, fitD.size), fitD.righe[0], fitD.size, true, tema.testo, 'center');
         }
         const hImg = hL - hDid;
         const d = dentro(lg.w, lg.h, wSlot - 2.4 * u, hImg - 1.2 * u);
@@ -407,7 +422,7 @@
       const passo = fitA.size * 1.2;
       const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
-      R(m, yA, W - 2 * m, hA, BRAND.accento, { rx: 0.6 * u });
+      R(m, yA, W - 2 * m, hA, tema.medio, { rx: 0.6 * u });
       const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
       fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
       yCorpoFine = yA - 2 * u;
@@ -453,7 +468,7 @@
         const hRiga = hr + extra;
         if (yy + hRiga > y0 + hMax + 0.01) { avvisi.push('Troppi dati per il formato scelto: le ultime righe non entrano. Riduci i testi o scegli un formato più grande.'); break; }
         let ye = yy + mt.pad + extra / 2;
-        for (const l of le) { T(x, baseline(ye, mt.sEt), l, mt.sEt, true, BRAND.accento); ye += mt.sEt * LH; }
+        for (const l of le) { T(x, baseline(ye, mt.sEt), l, mt.sEt, true, tema.testo); ye += mt.sEt * LH; }
         let yv = yy + mt.pad + extra / 2;
         for (const l of lv) { if (l) T(x + mt.wEt, baseline(yv, mt.sVal), l, mt.sVal, !!r.forte, BRAND.testo); yv += mt.sVal * LH; }
         yy += hRiga;
@@ -523,7 +538,7 @@
     }
     if (k <= K_MIN + 0.001 && !avvisi.some((a) => a.startsWith('Troppi dati'))) avvisi.push('Il testo è stato ridotto al minimo per far entrare tutti i dati: valuta un formato più grande o testi più brevi.');
 
-    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo, immagini: img };
+    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo, immagini: img, tema };
   }
 
   // ------------------------------------------------------------------ anteprima SVG
@@ -748,7 +763,7 @@
     const uniche = Array.from(new Set(imgs));
     for (let i = 0; i < uniche.length; i++) {
       const img = uniche[i];
-      const sfondo = img === ((esito.immagini || {}).stemma) ? hexRgb(BRAND.scuro) : [255, 255, 255];
+      const sfondo = img === ((esito.immagini || {}).stemma) ? hexRgb((esito.tema || TEMI.verde).testata) : [255, 255, 255];
       const sorgente = await leggiPixel(img);
       const jpeg = await stampa.codificaJpegCmyk(sorgente, 88, sfondo, (f) => avanzamento && avanzamento((i + f) / uniche.length));
       mappa.set(img, jpeg);
@@ -773,5 +788,5 @@
     }
   }
 
-  return { BRAND, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, TEMI, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });

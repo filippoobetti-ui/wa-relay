@@ -75,6 +75,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
 .con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
 .esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
@@ -123,6 +124,10 @@ footer.piede a{color:var(--verde)}
           <select id="abbondanza"><option value="0">Nessuna (file al formato finito)</option><option value="5">5 mm — pannelli rigidi</option><option value="10">10 mm</option><option value="50">50 mm — striscioni con orlo e occhielli</option></select></label>
       </div>
       <p class="aiuto" id="aiuto-formato"></p>
+      <div class="campo" style="margin-top:12px"><span class="eti">Colore del cartello</span>
+        <div class="colori" id="colori" role="radiogroup" aria-label="Colore del cartello"></div>
+        <p class="nota" style="margin:6px 0 0">Tinta piena in testata, tinta più tenue nei dettagli, tinta più scura per titolo e voci del cartello. Il marchio Il Giornale Lavori in fondo resta verde.</p>
+      </div>
     </section>
 
     <section class="pannello">
@@ -348,6 +353,20 @@ footer.piede a{color:var(--verde)}
     $('#num-immagini').textContent = numero;
   }
 
+  function disegnaColori() {
+    var box = $('#colori'); if (!box) return; box.innerHTML = '';
+    Object.keys(M.TEMI).forEach(function (k) {
+      var t = M.TEMI[k];
+      var lab = el('label', { class: 'colore', title: t.nome });
+      var inp = el('input', { type: 'radio', name: 'colore', value: k });
+      if ((stato.colore || 'verde') === k) inp.checked = true;
+      inp.addEventListener('change', function () { if (inp.checked) { stato.colore = k; salvaStato(); ridisegna(); } });
+      lab.appendChild(inp);
+      lab.appendChild(el('span', { class: 'cam' }, '<i style="background:' + t.testata + '"></i><i style="background:' + t.medio + '"></i><i style="background:' + t.chiaro + '"></i>'));
+      lab.appendChild(el('span', { class: 't' }, esc(t.nome)));
+      box.appendChild(lab);
+    });
+  }
   function disegnaFormati() {
     var box = $('#formati'); box.innerHTML = '';
     M.FORMATI.forEach(function (f) {
@@ -469,7 +488,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -639,6 +658,7 @@ footer.piede a{color:var(--verde)}
     $('#orientamento').addEventListener('change', function (e) { stato.orientamento = e.target.value; salvaStato(); aggiornaOrientamento(); ridisegna(); });
     $('#abbondanza').addEventListener('change', function (e) { stato.abbondanza = Number(e.target.value) || 0; salvaStato(); aggiornaOrientamento(); ridisegna(); });
     disegnaFormati();
+    disegnaColori();
     disegnaModulo();
     caricaImmagini().then(function () {
       disegnaMiniature();

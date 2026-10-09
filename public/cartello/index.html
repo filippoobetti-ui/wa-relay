@@ -75,6 +75,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
 .con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
 .esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
@@ -123,6 +124,10 @@ footer.piede a{color:var(--verde)}
           <select id="abbondanza"><option value="0">Nessuna (file al formato finito)</option><option value="5">5 mm — pannelli rigidi</option><option value="10">10 mm</option><option value="50">50 mm — striscioni con orlo e occhielli</option></select></label>
       </div>
       <p class="aiuto" id="aiuto-formato"></p>
+      <div class="campo" style="margin-top:12px"><span class="eti">Colore del cartello</span>
+        <div class="colori" id="colori" role="radiogroup" aria-label="Colore del cartello"></div>
+        <p class="nota" style="margin:6px 0 0">Tinta piena in testata, tinta più tenue nei dettagli, tinta più scura per titolo e voci del cartello. Il marchio Il Giornale Lavori in fondo resta verde.</p>
+      </div>
     </section>
 
     <section class="pannello">
@@ -204,6 +209,20 @@ footer.piede a{color:var(--verde)}
   const SITO = 'www.ilgiornalelavori.it';
   const SLOGAN = 'Cartello realizzato con';
   const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
+
+  // Colori del cartello scelti dal cliente (Filippo 09/10/2026). Per ogni colore:
+  // testata = tinta piena in alto; medio = tinta più tenue per filetti, fascia finale e didascalie di posizione;
+  // testo = tinta più scura per titolo ed etichette dei dati; chiaro = scritte secondarie sulla testata.
+  // Il piede con il marchio Il Giornale Lavori resta sempre verde.
+  const TEMI = {
+    verde:     { nome: 'Verde',     testata: '#052A21', medio: '#0A7D48', testo: '#052A21', chiaro: '#CFE3D8' },
+    rosso:     { nome: 'Rosso',     testata: '#A11C1C', medio: '#D2423A', testo: '#5C0F0F', chiaro: '#F6D3D0' },
+    azzurro:   { nome: 'Azzurro',   testata: '#0B78B8', medio: '#2E96D2', testo: '#08405F', chiaro: '#D3EAF7' },
+    blu:       { nome: 'Blu',       testata: '#13306E', medio: '#2F5BB7', testo: '#0B1D45', chiaro: '#D3DCF2' },
+    arancione: { nome: 'Arancione', testata: '#C9550C', medio: '#E37A1F', testo: '#6B2C05', chiaro: '#FBE0C7' },
+    grigio:    { nome: 'Grigio',    testata: '#3C3C3C', medio: '#6E6E6E', testo: '#1E1E1E', chiaro: '#E0E0E0' }
+  };
+  function temaDi(dati) { return TEMI[dati && dati.colore] || TEMI.verde; }
 
   const FORMATI = [
     { id: '100x100', nome: '100 × 100 cm', lato1: 1000, lato2: 1000, nota: 'quadrato, pannello singolo' },
@@ -474,6 +493,7 @@ footer.piede a{color:var(--verde)}
     const c = dati.campi || {};
     const img = dati.immagini || {};
     const loghi = (img.loghi || []).filter(Boolean).slice(0, 4);
+    const tema = temaDi(dati);
     const u = Math.min(W, H) / 100;        // unità di disegno: 1 % del lato corto
     const m = 3 * u;                        // margine di sicurezza
     const prims = [];
@@ -488,7 +508,7 @@ footer.piede a{color:var(--verde)}
 
     // ---------- testata (banda scura)
     const hH = 10 * u;
-    R(0, 0, W, hH, BRAND.scuro, { sfondo: 'testata' });
+    R(0, 0, W, hH, tema.testata, { sfondo: 'testata' });
     let xTesto = m;
     if (img.stemma) {
       const lato = hH - 2.6 * u;
@@ -513,28 +533,28 @@ footer.piede a{color:var(--verde)}
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
     let y = (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
-    if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, '#CFE3D8'); }
+    if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
     const hDx = sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0);
     let yDx = (hH - hDx) / 2;
     T(W - m, baseline(yDx, sEti), 'CARTELLO DI CANTIERE', sEti, true, BRAND.bianco, 'right');
-    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m, baseline(yDx, sNorm), normativa, sNorm, false, '#CFE3D8', 'right'); }
+    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m, baseline(yDx, sNorm), normativa, sNorm, false, tema.chiaro, 'right'); }
 
     // ---------- titolo (oggetto dei lavori) e ubicazione
     y = hH + 2.4 * u;
     const oggetto = titoloLavori(c.oggetto) || 'Lavori di …';
     const fitTit = adatta(mis, oggetto, true, 4.6 * u, 2.6 * u, W - 2 * m, 4, null, 1.08);
     if (fitTit.troncato) avvisi.push('L’oggetto dei lavori è molto lungo: è stato ridotto per stare in quattro righe.');
-    for (const r of fitTit.righe) { T(m, baseline(y, fitTit.size), r, fitTit.size, true, BRAND.scuro); y += fitTit.size * 1.08; }
+    for (const r of fitTit.righe) { T(m, baseline(y, fitTit.size), r, fitTit.size, true, tema.testo); y += fitTit.size * 1.08; }
     y += 1.4 * u;
     const ubic = [pulisci(c.ubicazione), pulisci(c.catasto)].filter(Boolean).join('  ·  ');
     if (ubic) {
-      T(m, baseline(y, 1.35 * u), 'UBICAZIONE DEL CANTIERE', 1.35 * u, true, BRAND.accento, 'left', { ls: 0.06 });
+      T(m, baseline(y, 1.35 * u), 'UBICAZIONE DEL CANTIERE', 1.35 * u, true, tema.medio, 'left', { ls: 0.06 });
       y += 1.35 * u * 1.5;
       const fitU = adatta(mis, ubic, false, 2.3 * u, 1.6 * u, W - 2 * m, 2, null, 1.2);
       for (const r of fitU.righe) { T(m, baseline(y, fitU.size), r, fitU.size, false, '#222222'); y += fitU.size * 1.2; }
     }
     y += 1.6 * u;
-    R(m, y, W - 2 * m, 0.35 * u, BRAND.accento);
+    R(m, y, W - 2 * m, 0.35 * u, tema.medio);
     y += 0.35 * u + 2.2 * u;
     const yCorpoInizio = y;
 
@@ -578,7 +598,7 @@ footer.piede a{color:var(--verde)}
         const ruolo = pulisci(lg.ruolo);
         if (ruolo) {
           const fitD = adatta(mis, ruolo, true, sDid, 1.0 * u, wSlot - 2 * u, 1, null, 1.2);
-          T(m + wSlot * i + wSlot / 2, baseline(yL + 0.2 * u, fitD.size), fitD.righe[0], fitD.size, true, BRAND.accento, 'center');
+          T(m + wSlot * i + wSlot / 2, baseline(yL + 0.2 * u, fitD.size), fitD.righe[0], fitD.size, true, tema.testo, 'center');
         }
         const hImg = hL - hDid;
         const d = dentro(lg.w, lg.h, wSlot - 2.4 * u, hImg - 1.2 * u);
@@ -595,7 +615,7 @@ footer.piede a{color:var(--verde)}
       const passo = fitA.size * 1.2;
       const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
-      R(m, yA, W - 2 * m, hA, BRAND.accento, { rx: 0.6 * u });
+      R(m, yA, W - 2 * m, hA, tema.medio, { rx: 0.6 * u });
       const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
       fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
       yCorpoFine = yA - 2 * u;
@@ -641,7 +661,7 @@ footer.piede a{color:var(--verde)}
         const hRiga = hr + extra;
         if (yy + hRiga > y0 + hMax + 0.01) { avvisi.push('Troppi dati per il formato scelto: le ultime righe non entrano. Riduci i testi o scegli un formato più grande.'); break; }
         let ye = yy + mt.pad + extra / 2;
-        for (const l of le) { T(x, baseline(ye, mt.sEt), l, mt.sEt, true, BRAND.accento); ye += mt.sEt * LH; }
+        for (const l of le) { T(x, baseline(ye, mt.sEt), l, mt.sEt, true, tema.testo); ye += mt.sEt * LH; }
         let yv = yy + mt.pad + extra / 2;
         for (const l of lv) { if (l) T(x + mt.wEt, baseline(yv, mt.sVal), l, mt.sVal, !!r.forte, BRAND.testo); yv += mt.sVal * LH; }
         yy += hRiga;
@@ -711,7 +731,7 @@ footer.piede a{color:var(--verde)}
     }
     if (k <= K_MIN + 0.001 && !avvisi.some((a) => a.startsWith('Troppi dati'))) avvisi.push('Il testo è stato ridotto al minimo per far entrare tutti i dati: valuta un formato più grande o testi più brevi.');
 
-    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo, immagini: img };
+    return { W, H, b, u, prims, avvisi, k, formato, orizzontale, tipo, immagini: img, tema };
   }
 
   // ------------------------------------------------------------------ anteprima SVG
@@ -936,7 +956,7 @@ footer.piede a{color:var(--verde)}
     const uniche = Array.from(new Set(imgs));
     for (let i = 0; i < uniche.length; i++) {
       const img = uniche[i];
-      const sfondo = img === ((esito.immagini || {}).stemma) ? hexRgb(BRAND.scuro) : [255, 255, 255];
+      const sfondo = img === ((esito.immagini || {}).stemma) ? hexRgb((esito.tema || TEMI.verde).testata) : [255, 255, 255];
       const sorgente = await leggiPixel(img);
       const jpeg = await stampa.codificaJpegCmyk(sorgente, 88, sfondo, (f) => avanzamento && avanzamento((i + f) / uniche.length));
       mappa.set(img, jpeg);
@@ -961,7 +981,7 @@ footer.piede a{color:var(--verde)}
     }
   }
 
-  return { BRAND, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, TEMI, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });
 </script>
 <script>// Cartello di cantiere — Il Giornale Lavori
@@ -987,7 +1007,13 @@ footer.piede a{color:var(--verde)}
     '#222222': [0.00, 0.00, 0.00, 0.95],
     '#555555': [0.00, 0.00, 0.00, 0.70],
     '#000000': [0.00, 0.00, 0.00, 1.00],
-    '#FFFFFF': [0.00, 0.00, 0.00, 0.00]
+    '#FFFFFF': [0.00, 0.00, 0.00, 0.00],
+    // colori del cartello (09/10/2026): testata, medio, testo, chiaro per ogni tema
+    '#D2423A': [0.05, 0.85, 0.80, 0.00], '#5C0F0F': [0.25, 1.00, 1.00, 0.55], '#F6D3D0': [0.00, 0.20, 0.12, 0.00],
+    '#0B78B8': [0.90, 0.40, 0.00, 0.05], '#2E96D2': [0.75, 0.25, 0.00, 0.00], '#08405F': [1.00, 0.60, 0.15, 0.55], '#D3EAF7': [0.15, 0.03, 0.00, 0.00],
+    '#13306E': [1.00, 0.85, 0.15, 0.30], '#2F5BB7': [0.85, 0.60, 0.00, 0.00], '#0B1D45': [1.00, 0.90, 0.20, 0.60], '#D3DCF2': [0.17, 0.10, 0.00, 0.00],
+    '#C9550C': [0.10, 0.75, 1.00, 0.05], '#E37A1F': [0.00, 0.60, 0.95, 0.00], '#6B2C05': [0.25, 0.80, 1.00, 0.55], '#FBE0C7': [0.00, 0.13, 0.22, 0.00],
+    '#3C3C3C': [0.00, 0.00, 0.00, 0.85], '#6E6E6E': [0.00, 0.00, 0.00, 0.65], '#1E1E1E': [0.00, 0.00, 0.00, 0.95], '#E0E0E0': [0.00, 0.00, 0.00, 0.12]
   };
   function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
   function cmykDaRgb(r, g, b) {
@@ -1445,6 +1471,20 @@ footer.piede a{color:var(--verde)}
     $('#num-immagini').textContent = numero;
   }
 
+  function disegnaColori() {
+    var box = $('#colori'); if (!box) return; box.innerHTML = '';
+    Object.keys(M.TEMI).forEach(function (k) {
+      var t = M.TEMI[k];
+      var lab = el('label', { class: 'colore', title: t.nome });
+      var inp = el('input', { type: 'radio', name: 'colore', value: k });
+      if ((stato.colore || 'verde') === k) inp.checked = true;
+      inp.addEventListener('change', function () { if (inp.checked) { stato.colore = k; salvaStato(); ridisegna(); } });
+      lab.appendChild(inp);
+      lab.appendChild(el('span', { class: 'cam' }, '<i style="background:' + t.testata + '"></i><i style="background:' + t.medio + '"></i><i style="background:' + t.chiaro + '"></i>'));
+      lab.appendChild(el('span', { class: 't' }, esc(t.nome)));
+      box.appendChild(lab);
+    });
+  }
   function disegnaFormati() {
     var box = $('#formati'); box.innerHTML = '';
     M.FORMATI.forEach(function (f) {
@@ -1566,7 +1606,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -1736,6 +1776,7 @@ footer.piede a{color:var(--verde)}
     $('#orientamento').addEventListener('change', function (e) { stato.orientamento = e.target.value; salvaStato(); aggiornaOrientamento(); ridisegna(); });
     $('#abbondanza').addEventListener('change', function (e) { stato.abbondanza = Number(e.target.value) || 0; salvaStato(); aggiornaOrientamento(); ridisegna(); });
     disegnaFormati();
+    disegnaColori();
     disegnaModulo();
     caricaImmagini().then(function () {
       disegnaMiniature();
