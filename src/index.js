@@ -216,10 +216,20 @@ export default {
     return new Response("Method Not Allowed", { status: 405 });
   },
 
-  // Cron di Cloudflare (wrangler.jsonc → triggers.crons): promemoria serale della chat unica.
+  // Cron di Cloudflare (wrangler.jsonc → triggers.crons): promemoria serale della chat unica
+  // e, il venerdì, la domanda settimanale del cronoprogramma (CRONO_CRONS). Ogni cron fa solo il suo lavoro.
   async scheduled(event, env, ctx) {
+    const cron = (event && event.cron) || "";
+    if (CRONO_CRONS.indexOf(cron) !== -1) {
+      ctx.waitUntil(cronoSettimana(env, false).then((r) => {
+        console.log(JSON.stringify({ crono_settimana: r, cron }));
+      }).catch((e) => {
+        console.log(JSON.stringify({ crono_settimana_errore: String((e && e.message) || e) }));
+      }));
+      return;
+    }
     ctx.waitUntil(chatUnicaPromemoria(env, false).then((r) => {
-      console.log(JSON.stringify({ promemoria: r, cron: event && event.cron }));
+      console.log(JSON.stringify({ promemoria: r, cron }));
     }).catch((e) => {
       console.log(JSON.stringify({ promemoria_errore: String((e && e.message) || e) }));
     }));
@@ -406,6 +416,14 @@ async function processAndForward(rawBody, env) {
         // risposta parte da qui e il pacchetto NON va a Make. Vale per tutti i numeri registrati.
         // FAIL-SAFE: parola non riconosciuta, numero sconosciuto, interruttore spento, database o Meta
         // che non rispondono → il messaggio prosegue verso la chat unica / Make come se nulla fosse.
+        // CRONOPROGRAMMA (09/10/2026): risposta ai pulsanti della domanda del venerdì (id «CRONO_<n>_<lettera>»).
+        // La registra il database (crono_risposta), la conferma parte da qui, il pacchetto NON va a Make.
+        // FAIL-SAFE: database o Meta che non rispondono → il messaggio prosegue come prima (Make lo ignora).
+        if (env.CRONO !== "off" && cronoIdPulsante(msg)) {
+          let presa = false;
+          try { presa = await cronoRispostaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
         if (env.TIMBRATURE !== "off" && msg.type === "text" && timbraturaParola(msg.text && msg.text.body)) {
           let presa = false;
           try { presa = await timbraturaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
@@ -517,7 +535,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-2 (portale cliente fuori da Make, installabile, visore foto a scorrimento)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-2 (portale cliente fuori da Make, installabile, visore foto a scorrimento) + crono-1 (domanda del venerdi sul cronoprogramma)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -802,6 +820,66 @@ async function chatUnicaPromemoria(env, forza) {
 }
 
 // ============================================================================
+// CRONOPROGRAMMA — domanda del venerdì (09/10/2026). Il database decide chi riceve e cosa
+// (crono_settimana_lista: referenti in crono_referenti, lavorazioni in corso o in partenza, solo il
+// venerdì dall'ora impostata, una volta a settimana per lavorazione); qui si spedisce e si segna.
+// Fuori dalla finestra di 24 ore Meta rifiuta il messaggio libero: l'errore resta in crono_richieste.
+// ============================================================================
+const CRONO_CRONS = ["0 14 * * 5", "0 15 * * 5"];
+
+function cronoIdPulsante(msg) {
+  if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
+  const it = msg.interactive;
+  const id = String((it.button_reply && it.button_reply.id) || (it.list_reply && it.list_reply.id) || "");
+  return /^CRONO_[0-9]+_[FCSIN]$/.test(id) ? id : "";
+}
+
+async function cronoSettimana(env, forza) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const esito = { inviati: 0, errori: 0, saltato: "" };
+  if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.CRONO === "off") { esito.saltato = "configurazione"; return esito; }
+  const cfg = await chatUnicaConfig(env, supabaseUrl);
+  if (!cfg.phone_number_id) { esito.saltato = "phone_number_id"; return esito; }
+  let lista = [];
+  try { lista = await chatUnicaRpc(env, supabaseUrl, "crono_settimana_lista", { p_forza: forza === true }, 8000); }
+  catch (e) { esito.saltato = "lista: " + String((e && e.message) || e); return esito; }
+  for (const r of (Array.isArray(lista) ? lista : []).slice(0, 60)) {
+    const tel = String(r.telefono || "").replace(/[^0-9]/g, "");
+    if (!tel || !r.payload || typeof r.payload !== "object") continue;
+    const payload = r.payload;
+    payload.messaging_product = "whatsapp";
+    payload.to = tel; // il destinatario e' sempre quello della richiesta
+    let ok = false, dettaglio = "";
+    try {
+      const inv = await chatUnicaInvia(graph, cfg.phone_number_id, env.WHATSAPP_TOKEN, payload);
+      ok = inv.ok; dettaglio = inv.status + " " + inv.testo;
+    } catch (e) { dettaglio = String((e && e.message) || e); }
+    if (ok) esito.inviati++; else esito.errori++;
+    try { await chatUnicaRpc(env, supabaseUrl, "crono_settimana_segna", { p_id: r.id, p_ok: ok, p_dettaglio: dettaglio.slice(0, 250) }, 5000); } catch (e) {}
+  }
+  return esito;
+}
+
+async function cronoRispostaGestisci(msg, value, env, supabaseUrl, graph) {
+  const id = cronoIdPulsante(msg);
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  if (!id || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN) return false;
+  const r = await chatUnicaRpc(env, supabaseUrl, "crono_risposta", { p_telefono: tel, p_id_pulsante: id }, 5000);
+  if (!r || r.esito === "non_mio" || r.esito === "errore") return false;
+  if (r.testo) {
+    try {
+      await chatUnicaInvia(graph, phoneId, env.WHATSAPP_TOKEN, {
+        messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+        context: { message_id: msg.id }, text: { body: String(r.testo).slice(0, 1000), preview_url: false }
+      });
+    } catch (e) {}
+  }
+  return true;
+}
+
+// ============================================================================
 // AMMINISTRAZIONE (blocco 4): operazioni che richiedono il token WhatsApp, che vive SOLO qui.
 // POST /admin con header x-chat-unica-chiave = impostazioni.chat_unica_chiave (letta dal database,
 // mai nel codice). Azioni: waba (id dell'account WhatsApp Business), flow_lista, flow_crea,
@@ -920,6 +998,10 @@ async function chatUnicaAdmin(request, env) {
   }
   if (azione === "promemoria") {
     const r = await chatUnicaPromemoria(env, corpo.forza === true);
+    return rispondi(r);
+  }
+  if (azione === "crono_settimana") {
+    const r = await cronoSettimana(env, corpo.forza === true);
     return rispondi(r);
   }
   return rispondi({ errore: "azione sconosciuta" }, 400);

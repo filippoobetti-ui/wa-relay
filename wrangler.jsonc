@@ -25,7 +25,9 @@
   // Promemoria serale della chat unica (blocco 3): due passaggi in UTC perche' l'ora legale cambia.
   // Il Worker manda il promemoria solo se a Roma sono almeno le 17 (impostazioni.chat_unica_promemoria_ora)
   // e una sola volta al giorno per numero (tabella chat_unica_promemoria_invii).
+  // Cronoprogramma (09/10/2026): venerdi 14:00 e 15:00 UTC, domanda settimanale ai referenti dei cantieri;
+  // il database spedisce solo dall'ora impostata (crono_settimanale_ora, ora di Roma) e una volta a settimana.
   "triggers": {
-    "crons": ["30 15 * * *", "30 16 * * *"]
+    "crons": ["30 15 * * *", "30 16 * * *", "0 14 * * 5", "0 15 * * 5"]
   }
 }
