@@ -220,6 +220,14 @@ export default {
   // e, il venerdì, la domanda settimanale del cronoprogramma (CRONO_CRONS). Ogni cron fa solo il suo lavoro.
   async scheduled(event, env, ctx) {
     const cron = (event && event.cron) || "";
+    if (BUONGIORNO_CRONS.indexOf(cron) !== -1) {
+      ctx.waitUntil(chatUnicaBuongiorno(env, false, "").then((r) => {
+        console.log(JSON.stringify({ buongiorno: r, cron }));
+      }).catch((e) => {
+        console.log(JSON.stringify({ buongiorno_errore: String((e && e.message) || e) }));
+      }));
+      return;
+    }
     if (CRONO_CRONS.indexOf(cron) !== -1) {
       ctx.waitUntil(cronoSettimana(env, false).then((r) => {
         console.log(JSON.stringify({ crono_settimana: r, cron }));
@@ -820,6 +828,44 @@ async function chatUnicaPromemoria(env, forza) {
 }
 
 // ============================================================================
+// BUONGIORNO (09/10/2026): ogni mattina, lun-ven non festivi, «📍 In che cantiere sei oggi?» a ogni operaio
+// della chat unica, con i pulsanti dei suoi cantieri (id CU_CANT_<uuid>, gestiti dalla Edge Function chat-unica
+// come una scelta del cantiere). Il database decide chi riceve (chat_unica_buongiorno_lista): solo se la
+// finestra gratuita di 24 ore e' aperta, una volta al giorno, non a chi ha gia' scritto oggi. Costo: zero.
+// Interruttori: impostazioni.chat_unica_buongiorno = si/no; variabile BUONGIORNO=off nel Worker.
+// ============================================================================
+const BUONGIORNO_CRONS = ["0 5 * * MON-FRI"]; // 07:00 di Roma con l'ora legale, 06:00 con l'ora solare
+
+async function chatUnicaBuongiorno(env, forza, solo) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const esito = { inviati: 0, errori: 0, saltato: "" };
+  if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.CHAT_UNICA === "off" || env.BUONGIORNO === "off") { esito.saltato = "configurazione"; return esito; }
+  const cfg = await chatUnicaConfig(env, supabaseUrl);
+  if (!cfg.phone_number_id) { esito.saltato = "phone_number_id"; return esito; }
+  let lista = [];
+  try { lista = await chatUnicaRpc(env, supabaseUrl, "chat_unica_buongiorno_lista", { p_forza: forza === true, p_solo: solo || null }, 10000); }
+  catch (e) { esito.saltato = "lista: " + String((e && e.message) || e); return esito; }
+  for (const r of (Array.isArray(lista) ? lista : []).slice(0, 200)) {
+    const tel = String(r.telefono || "").replace(/[^0-9]/g, "");
+    if (!tel || !r.payload || typeof r.payload !== "object") continue;
+    if (cfg.numeri.indexOf(tel) === -1) continue; // solo numeri della chat unica
+    const payload = r.payload;
+    payload.messaging_product = "whatsapp";
+    payload.to = tel;
+    let ok = false, dettaglio = "";
+    try {
+      const inv = await chatUnicaInvia(graph, cfg.phone_number_id, env.WHATSAPP_TOKEN, payload);
+      ok = inv.ok; dettaglio = inv.status + " " + inv.testo;
+    } catch (e) { dettaglio = String((e && e.message) || e); }
+    if (ok) esito.inviati++; else esito.errori++;
+    try { await chatUnicaRpc(env, supabaseUrl, "chat_unica_buongiorno_segna", { p_telefono: tel, p_ok: ok, p_dettaglio: dettaglio.slice(0, 250) }, 5000); } catch (e) {}
+    await chatUnicaLog(env, supabaseUrl, tel, null, ok ? "buongiorno" : "buongiorno_errore", dettaglio.slice(0, 300));
+  }
+  return esito;
+}
+
+// ============================================================================
 // CRONOPROGRAMMA — domanda del venerdì (09/10/2026). Il database decide chi riceve e cosa
 // (crono_settimana_lista: referenti in crono_referenti, lavorazioni in corso o in partenza, solo il
 // venerdì dall'ora impostata, una volta a settimana per lavorazione); qui si spedisce e si segna.
@@ -998,6 +1044,12 @@ async function chatUnicaAdmin(request, env) {
   }
   if (azione === "promemoria") {
     const r = await chatUnicaPromemoria(env, corpo.forza === true);
+    return rispondi(r);
+  }
+  if (azione === "buongiorno") {
+    const solo = String(corpo.solo || "").replace(/[^0-9]/g, "");
+    if (corpo.forza === true && !solo) return rispondi({ errore: "con forza serve il destinatario (solo)" }, 400);
+    const r = await chatUnicaBuongiorno(env, corpo.forza === true, solo);
     return rispondi(r);
   }
   if (azione === "crono_settimana") {
