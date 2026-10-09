@@ -834,12 +834,12 @@ async function chatUnicaPromemoria(env, forza) {
 // finestra gratuita di 24 ore e' aperta, una volta al giorno, non a chi ha gia' scritto oggi. Costo: zero.
 // Interruttori: impostazioni.chat_unica_buongiorno = si/no; variabile BUONGIORNO=off nel Worker.
 // ============================================================================
-const BUONGIORNO_CRONS = ["0 5 * * MON-FRI"]; // 07:00 di Roma con l'ora legale, 06:00 con l'ora solare
+const BUONGIORNO_CRONS = ["0 5 * * MON-FRI", "0 6 * * MON-FRI"]; // due passaggi UTC: il database spedisce dalle 7:00 di Roma, una volta al giorno
 
 async function chatUnicaBuongiorno(env, forza, solo) {
   const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
   const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
-  const esito = { inviati: 0, errori: 0, saltato: "" };
+  const esito = { versione: "buongiorno-2", inviati: 0, errori: 0, saltato: "" };
   if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.CHAT_UNICA === "off" || env.BUONGIORNO === "off") { esito.saltato = "configurazione"; return esito; }
   const cfg = await chatUnicaConfig(env, supabaseUrl);
   if (!cfg.phone_number_id) { esito.saltato = "phone_number_id"; return esito; }
