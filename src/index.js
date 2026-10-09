@@ -825,7 +825,7 @@ async function chatUnicaPromemoria(env, forza) {
 // venerdì dall'ora impostata, una volta a settimana per lavorazione); qui si spedisce e si segna.
 // Fuori dalla finestra di 24 ore Meta rifiuta il messaggio libero: l'errore resta in crono_richieste.
 // ============================================================================
-const CRONO_CRONS = ["0 14 * * 5", "0 15 * * 5"];
+const CRONO_CRONS = ["0 14 * * FRI", "0 15 * * FRI"]; // Cloudflare: 1 = domenica, quindi si usa FRI (il 09/10 «5» era giovedi)
 
 function cronoIdPulsante(msg) {
   if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
