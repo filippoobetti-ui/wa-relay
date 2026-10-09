@@ -160,6 +160,7 @@ export default {
         "AI (trascrizione vocali): " + si(env.AI),
         "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
         "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
+        "RIMOZIONE (persone rimosse dai Tesserini): " + (env.RIMOZIONE === "off" ? "spenta dal Worker" : "accesa (elenco da persone_rimosse_numeri, in memoria 60 s)"),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -331,12 +332,34 @@ async function processAndForward(rawBody, env) {
   const ROUTE_MEDIA_TYPES = ["image", "document"];
   const soloDa = String(env.MEDIA_SOLO_DA || "").split(",").map((s) => s.replace(/[^0-9]/g, "")).filter(Boolean);
 
+  // RIMOZIONE (09/10/2026): numeri delle persone rimosse dal Giornale Lavori (pagina Tesserini > «Cancella»),
+  // letti dal database e tenuti in memoria 60 s. Un messaggio da un numero rimosso si ferma QUI: niente
+  // cattura media, niente chat unica, niente Make. La persona riceve un avviso («accesso disattivato»,
+  // nella sua lingua) al massimo una volta ogni 24 ore. Se il database non risponde vale l'ultima lista letta;
+  // se non e' mai stata letta, la lista e' vuota e tutto prosegue come prima. Emergenza: variabile RIMOZIONE=off.
+  let rimossi = [];
+  if (env.RIMOZIONE !== "off") {
+    try { rimossi = await rimossiNumeri(env, supabaseUrl); } catch (e) { rimossi = []; }
+  }
+
   const entries = payload.entry || [];
   for (const entry of entries) {
     const changes = entry.changes || [];
     for (const change of changes) {
       const value = change.value || {};
       if (!value.messages || value.messages.length === 0) continue;
+
+      if (rimossi.length) {
+        const restano = [];
+        for (const msg of value.messages) {
+          if (rimossi.indexOf(String(msg.from || "")) === -1) { restano.push(msg); continue; }
+          let bloccato = true;
+          try { bloccato = await rimossoGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { bloccato = true; }
+          if (!bloccato) restano.push(msg); // ripristinata da meno di 60 s: il messaggio prosegue
+        }
+        if (restano.length === 0) continue;
+        value.messages = restano;
+      }
 
       // Cattura media (best-effort): non deve MAI impedire l'inoltro a Make.
       if (canCapture) {
@@ -543,7 +566,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-3 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti in prova con ?movimenti=1) + crono-1 (domanda del venerdi sul cronoprogramma)";
+const RELAY_VERSIONE = "wa-relay 2026-10-09 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-3 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti in prova con ?movimenti=1) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1269,6 +1292,69 @@ async function timbraturaGestisci(msg, value, env, supabaseUrl, graph) {
   }
   await chatUnicaLog(env, supabaseUrl, tel, msg.id, "timbratura",
     (r.tipo || "?") + " " + (r.esito || "") + (r.cantiere ? " · " + r.cantiere : "") + (r.origine ? " · " + r.origine : "") + (r.ora ? " · " + r.ora : ""));
+  return true;
+}
+
+// ============================================================================
+// RIMOZIONE (09/10/2026) — persone tolte dal Giornale Lavori dalla pagina Tesserini («Cancella»,
+// persone.rimosso_il). Il database e' la sola fonte: qui si tiene in memoria per 60 s l'elenco dei
+// numeri rimossi (persone_rimosse_numeri) e, per ogni messaggio da uno di quei numeri, si chiede al
+// database se mandare l'avviso (persona_rimossa_avviso: al massimo uno ogni 24 ore, testo nella lingua
+// della persona). «Ripristina» dalla stessa pagina riapre tutto entro 60 s. Nessuno scenario Make coinvolto.
+// ============================================================================
+let _rimossiCache = { t: 0, numeri: [] };
+
+async function rimossiNumeri(env, supabaseUrl) {
+  if (!env.SUPABASE_SERVICE_KEY) return [];
+  const ora = Date.now();
+  if (ora - _rimossiCache.t < 60000) return _rimossiCache.numeri;
+  try {
+    const r = await chatUnicaRpc(env, supabaseUrl, "persone_rimosse_numeri", {}, 3000);
+    const numeri = Array.isArray(r) ? r.map((x) => String(x).replace(/[^0-9]/g, "")).filter(Boolean) : [];
+    _rimossiCache = { t: ora, numeri };
+    return numeri;
+  } catch (e) {
+    // database muto: vale l'ultima lista letta (anche se vecchia), ma si riprova al prossimo messaggio
+    _rimossiCache.t = ora - 50000;
+    return _rimossiCache.numeri;
+  }
+}
+
+// Ritorna true se il messaggio va fermato (persona rimossa: avviso mandato se dovuto), false se la persona
+// risulta nel frattempo ripristinata (il messaggio prosegue). In caso di dubbio (database muto) ferma.
+async function rimossoGestisci(msg, value, env, supabaseUrl, graph) {
+  const tel = String(msg.from || "");
+  let r;
+  try {
+    r = await chatUnicaRpc(env, supabaseUrl, "persona_rimossa_avviso", { p_telefono: tel }, 6000);
+  } catch (e) {
+    return true;
+  }
+  if (!r || typeof r !== "object") return true;
+  if (r.rimossa !== true) {
+    _rimossiCache = { t: 0, numeri: [] }; // la lista in memoria e' vecchia: si rilegge al prossimo messaggio
+    return false;
+  }
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  const token = env.WHATSAPP_TOKEN;
+  if (token && phoneId && msg.id) {
+    try {
+      await chatUnicaInvia(graph, phoneId, token, { messaging_product: "whatsapp", status: "read", message_id: msg.id });
+    } catch (e) {}
+  }
+  let dettaglio = (r.nome || "?") + " · " + (msg.type || "?") + " · fermato";
+  if (r.avvisa === true && r.testo && token && phoneId) {
+    try {
+      const inv = await chatUnicaInvia(graph, phoneId, token, {
+        messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+        text: { body: String(r.testo).slice(0, 4000), preview_url: false }
+      });
+      dettaglio += inv.ok ? " · avviso inviato (" + (r.lingua || "it") + ")" : " · avviso NON inviato " + inv.status + " " + inv.testo;
+    } catch (e) {
+      dettaglio += " · avviso NON inviato " + String((e && e.message) || e);
+    }
+  }
+  await chatUnicaLog(env, supabaseUrl, tel, msg.id, "rimosso", dettaglio);
   return true;
 }
 
