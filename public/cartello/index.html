@@ -313,19 +313,19 @@ footer.piede a{color:var(--verde)}
     { g: 'impresa', id: 'capocantiere', titolo: true, eti: 'Capo cantiere', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Capo cantiere' },
     { g: 'impresa', id: 'resp_sicurezza', titolo: true, eti: 'Responsabile della sicurezza', ph: 'RSPP: ing. Luisa Neri', per: 'entrambi', riga: 'Responsabile della sicurezza' },
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici (una per riga, con C.C.I.A.A., A.N.C., S.O.A.)', ph: 'Impianti Bianchi S.n.c. — C.C.I.A.A. PD-234567 — S.O.A. OS30 cl. II\nIdraulica Verdi S.r.l. — C.C.I.A.A. PD-345678', per: 'entrambi', tipo: 'textarea', riga: 'Imprese subappaltatrici' },
-    { g: 'impianti', id: 'imp_elettrico_prog', eti: 'Impianto elettrico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_elettrico_prog', titolo: true, eti: 'Impianto elettrico — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_elettrico_inst', eti: 'Impianto elettrico — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_elettronico_prog', eti: 'Impianto elettronico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_elettronico_prog', titolo: true, eti: 'Impianto elettronico — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_elettronico_inst', eti: 'Impianto elettronico — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_radiotv_prog', eti: 'Impianto radiotelevisivo — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_radiotv_prog', titolo: true, eti: 'Impianto radiotelevisivo — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_radiotv_inst', eti: 'Impianto radiotelevisivo — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_idraulico_prog', eti: 'Impianto idraulico — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_idraulico_prog', titolo: true, eti: 'Impianto idraulico — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_idraulico_inst', eti: 'Impianto idraulico — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_metano_prog', eti: 'Impianto trasporto e utilizzo metano — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_metano_prog', titolo: true, eti: 'Impianto trasporto e utilizzo metano — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_metano_inst', eti: 'Impianto trasporto e utilizzo metano — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_riscaldamento_prog', eti: 'Impianto di riscaldamento — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_riscaldamento_prog', titolo: true, eti: 'Impianto di riscaldamento — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_riscaldamento_inst', eti: 'Impianto di riscaldamento — impresa installatrice', ph: '', per: 'entrambi' },
-    { g: 'impianti', id: 'imp_climatizzazione_prog', eti: 'Impianto di climatizzazione — progettista', ph: '', per: 'entrambi' },
+    { g: 'impianti', id: 'imp_climatizzazione_prog', titolo: true, eti: 'Impianto di climatizzazione — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_climatizzazione_inst', eti: 'Impianto di climatizzazione — impresa installatrice', ph: '', per: 'entrambi' },
 
     { g: 'tempi', id: 'data_inizio', tipo: 'data', eti: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' }, ph: '15/10/2026', per: 'entrambi', riga: { privato: 'Data inizio lavori', pubblico: 'Data di consegna / inizio lavori' } },
@@ -412,7 +412,7 @@ footer.piede a{color:var(--verde)}
       }
       if (id === 'impianti') {
         for (const [k, nome] of IMPIANTI) {
-          const p = v('imp_' + k + '_prog'), ins = v('imp_' + k + '_inst');
+          const p = conQualifica(v('imp_' + k + '_prog'), v('imp_' + k + '_prog_titolo')), ins = v('imp_' + k + '_inst');
           if (!p && !ins) continue;
           const parti = [];
           if (p) parti.push('Progettista: ' + p);
