@@ -306,7 +306,7 @@
     const tipo = dati.tipo === 'pubblico' ? 'pubblico' : 'privato';
     const c = dati.campi || {};
     const img = dati.immagini || {};
-    const loghi = (img.loghi || []).filter(Boolean).slice(0, 4);
+    const loghi = (img.loghi || []).filter(Boolean).slice(0, 7);
     const tema = temaDi(dati);
     const u = Math.min(W, H) / 100;        // unità di disegno: 1 % del lato corto
     const m = 3 * u;                        // margine di sicurezza

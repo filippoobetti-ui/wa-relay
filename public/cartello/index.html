@@ -75,6 +75,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.t-sez{font-weight:700;margin-top:4px}.slot-griglia{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media (max-width:620px){.slot-griglia{grid-template-columns:1fr}}.slot{border:1px dashed var(--bordo);border-radius:12px;padding:10px 12px;background:#fafbfa}.slot.pieno{border-style:solid;background:#fff}.slot .t{font-weight:700}.slot .n{font-size:.78rem;color:var(--muto)}.slot-img{margin-top:8px;height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--bordo);border-radius:8px}.slot-img img{max-width:100%;max-height:56px;object-fit:contain}.slot .nome{font-size:.72rem;color:var(--muto);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .ruolo{width:100%;margin-top:8px;font-size:.85rem;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}.slot-azioni{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btn.piccolo{padding:6px 14px;font-size:.85rem;width:auto;min-height:0;height:auto;line-height:1.2;display:inline-flex;align-items:center;justify-content:center}
 .colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
 .con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
@@ -153,9 +154,10 @@ footer.piede a{color:var(--verde)}
           <div class="carica"><input type="file" id="file-stemma" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"><div class="t">Stemma del Comune (in alto a sinistra)</div><div class="n">va nella fascia colorata in alto, accanto al nome del Comune: lo stemma del Comune o il logo dell’ente che appalta i lavori</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-stemma" hidden></p>
           <div class="miniature" id="mini-stemma"></div>
         </div>
-        <div>
-          <div class="carica"><input type="file" id="file-loghi" accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" multiple><div class="t">Loghi in basso (fino a 4), ognuno con la sua scritta</div><div class="n">impresa, committente, studio, enti finanziatori (per i lavori PNRR: UE, Italia Domani, Ministero)</div><div class="ammessi">Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB</div></div><p class="esito-file" id="esito-loghi" hidden></p><p class="nota" style="margin:6px 0 0">Ai loghi vengono date in ordine le scritte «Impresa esecutrice», «Committente», «Direzione lavori», «Progettista»: puoi cambiarle dal menu sotto ogni logo.</p>
-          <div class="miniature" id="mini-loghi"></div>
+        <div class="largo">
+          <div class="t-sez">Loghi in basso sul cartello</div>
+          <p class="nota" style="margin:2px 0 8px">Carica ogni logo nella casella del suo soggetto: sul cartello compare con la scritta sopra (es. «Committente»). Le caselle vuote non si stampano. Formati ammessi: <b>JPG, PNG, WEBP, SVG</b> · max 25 MB; per i loghi meglio PNG con sfondo trasparente o SVG.</p>
+          <div class="slot-griglia" id="slot-loghi"></div>
         </div>
       </div>
     </section>
@@ -499,7 +501,7 @@ footer.piede a{color:var(--verde)}
     const tipo = dati.tipo === 'pubblico' ? 'pubblico' : 'privato';
     const c = dati.campi || {};
     const img = dati.immagini || {};
-    const loghi = (img.loghi || []).filter(Boolean).slice(0, 4);
+    const loghi = (img.loghi || []).filter(Boolean).slice(0, 7);
     const tema = temaDi(dati);
     const u = Math.min(W, H) / 100;        // unità di disegno: 1 % del lato corto
     const m = 3 * u;                        // margine di sicurezza
@@ -1563,45 +1565,80 @@ footer.piede a{color:var(--verde)}
     d.appendChild(b);
     box.appendChild(d);
   }
-  // diciture proposte sopra i loghi, assegnate in ordine ai loghi caricati (modificabili)
-  var RUOLI_LOGHI = ['Impresa esecutrice', 'Committente', 'Direzione lavori', 'Progettista', 'Coordinatore per la sicurezza', 'Stazione appaltante', 'Ente finanziatore', 'Impresa subappaltatrice'];
-  function ruoliPredefiniti() {
-    var usati = immagini.loghi.map(function (lg) { return lg.ruolo; });
+  // Loghi in basso: una casella per ogni soggetto (Filippo 09/10/2026). Ordine sul cartello = ordine delle caselle.
+  var ACCETTA = '.jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml';
+  var SLOT_LOGHI = [
+    { k: 'impresa', t: 'Impresa esecutrice' },
+    { k: 'committente', t: 'Committente' },
+    { k: 'dl', t: 'Direzione lavori' },
+    { k: 'progettista', t: 'Progettista' },
+    { k: 'sicurezza', t: 'Coordinatore per la sicurezza' },
+    { k: 'ente', t: 'Ente finanziatore', n: 'es. lavori PNRR: UE, Italia Domani, Ministero' },
+    { k: 'altro', t: 'Altro', libero: true, n: 'un altro soggetto: scrivi tu la scritta' }
+  ];
+  function ordinaLoghi() { var ord = SLOT_LOGHI.map(function (s) { return s.k; }); immagini.loghi.sort(function (a, b) { return ord.indexOf(a.slot) - ord.indexOf(b.slot); }); }
+  // loghi caricati con la versione precedente (senza casella): si mettono nella casella della loro scritta
+  function migraLoghi() {
+    var usati = {};
+    immagini.loghi.forEach(function (lg) { if (lg.slot) usati[lg.slot] = 1; });
     immagini.loghi.forEach(function (lg) {
-      if (lg.ruolo != null && String(lg.ruolo) !== '') return;
-      if (lg.ruolo === '' && lg.ruoloScelto) return; // «Nessuna scritta» scelto dal cliente
-      var libero = RUOLI_LOGHI.slice(0, 4).filter(function (r) { return usati.indexOf(r) < 0; })[0];
-      if (libero) { lg.ruolo = libero; usati.push(libero); }
+      if (lg.slot) return;
+      var r = String(lg.ruolo || '').toLowerCase();
+      var s = SLOT_LOGHI.filter(function (x) { return !x.libero && !usati[x.k] && (r === x.t.toLowerCase() || (x.k === 'dl' && r.indexOf('direttore dei lavori') >= 0)); })[0];
+      if (!s && r && !usati.altro) s = SLOT_LOGHI[SLOT_LOGHI.length - 1];
+      if (!s) s = SLOT_LOGHI.filter(function (x) { return !usati[x.k]; })[0];
+      if (!s) return;
+      lg.slot = s.k; usati[s.k] = 1; if (!s.libero) lg.ruolo = s.t;
+    });
+    immagini.loghi = immagini.loghi.filter(function (lg) { return lg.slot; });
+    ordinaLoghi();
+  }
+  function logoDi(k) { return immagini.loghi.filter(function (lg) { return lg.slot === k; })[0] || null; }
+  function disegnaSlotLoghi() {
+    var box = $('#slot-loghi'); if (!box) return; box.innerHTML = '';
+    SLOT_LOGHI.forEach(function (s) {
+      var lg = logoDi(s.k);
+      var card = el('div', { class: 'slot' + (lg ? ' pieno' : '') });
+      card.appendChild(el('div', { class: 't' }, 'Logo ' + esc(s.libero ? 'altro soggetto' : s.t)));
+      if (s.n) card.appendChild(el('div', { class: 'n' }, esc(s.n)));
+      if (lg) {
+        var m = el('div', { class: 'slot-img' }); m.appendChild(el('img', { src: lg.mini || lg.src, alt: '' })); card.appendChild(m);
+        card.appendChild(el('div', { class: 'nome' }, esc(lg.nome || '')));
+      }
+      if (s.libero) {
+        var t = el('input', { type: 'text', class: 'ruolo', maxlength: '40', placeholder: 'Scritta sopra il logo (es. Fornitore)', 'aria-label': 'Scritta sopra il logo' });
+        t.value = (lg && lg.ruolo) || stato.ruoloAltro || '';
+        t.addEventListener('input', function () { stato.ruoloAltro = t.value; salvaStato(); var l2 = logoDi('altro'); if (l2) { l2.ruolo = t.value; salvaImmagini(); ridisegnaPiano(); } });
+        card.appendChild(t);
+      }
+      var azioni = el('div', { class: 'slot-azioni' });
+      var lab = el('label', { class: 'btn secondario piccolo' }, lg ? 'Sostituisci' : '+ Carica il logo');
+      var inp = el('input', { type: 'file', accept: ACCETTA, hidden: '' });
+      lab.appendChild(inp); azioni.appendChild(lab);
+      if (lg) {
+        var rm = el('button', { type: 'button', class: 'btn secondario piccolo' }, 'Togli');
+        rm.addEventListener('click', function () { immagini.loghi = immagini.loghi.filter(function (x) { return x !== lg; }); salvaImmagini(); disegnaSlotLoghi(); ridisegna(); });
+        azioni.appendChild(rm);
+      }
+      card.appendChild(azioni);
+      var esito = el('p', { class: 'esito-file', hidden: '' }); card.appendChild(esito);
+      inp.addEventListener('change', function (e) {
+        var f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+        var no = controllaFile(f); esito.hidden = !no; esito.textContent = no || ''; if (no) return;
+        elaboraImmagine(f, 1600, true).then(function (img) {
+          img.slot = s.k; img.ruolo = s.libero ? (stato.ruoloAltro || '') : s.t;
+          immagini.loghi = immagini.loghi.filter(function (x) { return x.slot !== s.k; }).concat([img]);
+          ordinaLoghi(); return salvaImmagini();
+        }).then(function () { disegnaSlotLoghi(); ridisegna(); })
+          .catch(function () { esito.hidden = false; esito.textContent = '«' + f.name + '» non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine): salvalo di nuovo come PNG o SVG.'; });
+      });
+      box.appendChild(card);
     });
   }
   function disegnaMiniature() {
     var r = $('#mini-render'); r.innerHTML = ''; if (immagini.render) miniatura(r, immagini.render, function () { immagini.render = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
     var s = $('#mini-stemma'); s.innerHTML = ''; if (immagini.stemma) miniatura(s, immagini.stemma, function () { immagini.stemma = null; salvaImmagini(); disegnaMiniature(); ridisegna(); });
-    var l = $('#mini-loghi'); l.innerHTML = '';
-    immagini.loghi.forEach(function (lg, i) {
-      miniatura(l, lg, function () { immagini.loghi.splice(i, 1); salvaImmagini(); disegnaMiniature(); ridisegna(); });
-      // dicitura stampata sopra il logo: elenco a scelta + «Altro» libero (Filippo 09/10/2026)
-      var box = l.lastChild;
-      box.appendChild(el('div', { class: 'eti-ruolo' }, 'Scritta sopra il logo'));
-      var sel = el('select', { class: 'ruolo', 'aria-label': 'Scritta stampata sopra il logo' });
-      var noti = RUOLI_LOGHI.concat(['Altro…', 'Nessuna scritta']);
-      noti.forEach(function (r) { sel.appendChild(el('option', { value: r }, esc(r))); });
-      var altro = el('input', { type: 'text', class: 'ruolo', placeholder: 'Scrivi la dicitura', maxlength: '40', 'aria-label': 'Dicitura personalizzata' });
-      var r0 = lg.ruolo == null ? '' : String(lg.ruolo);
-      if (r0 === '') sel.value = 'Nessuna scritta';
-      else if (RUOLI_LOGHI.indexOf(r0) >= 0) sel.value = r0;
-      else { sel.value = 'Altro…'; altro.value = r0; }
-      altro.hidden = sel.value !== 'Altro…';
-      sel.addEventListener('change', function () {
-        altro.hidden = sel.value !== 'Altro…';
-        lg.ruoloScelto = true;
-        lg.ruolo = sel.value === 'Nessuna scritta' ? '' : (sel.value === 'Altro…' ? altro.value : sel.value);
-        if (!altro.hidden) altro.focus();
-        salvaImmagini(); ridisegnaPiano();
-      });
-      altro.addEventListener('input', function () { lg.ruolo = altro.value; salvaImmagini(); ridisegnaPiano(); });
-      box.appendChild(sel); box.appendChild(altro);
-    });
+    disegnaSlotLoghi();
   }
   // ---------------------------------------------------------------- controllo dei file caricati
   var MAX_FILE = 25 * 1024 * 1024;
@@ -1627,20 +1664,6 @@ footer.piede a{color:var(--verde)}
     var no = controllaFile(f); esitoFile('stemma', no); if (no) { e.target.value = ''; return; }
     elaboraImmagine(f, 1600, true).then(function (img) { immagini.stemma = img; return salvaImmagini(); }).then(function () { disegnaMiniature(); ridisegna(); }).catch(function () { esitoFile('stemma', '«' + f.name + '» non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine). Salvalo di nuovo come PNG o JPG.'); });
     e.target.value = '';
-  });
-  $('#file-loghi').addEventListener('change', function (e) {
-    var files = Array.prototype.slice.call(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    var scarti = []; files = files.filter(function (f) { var no = controllaFile(f); if (no) scarti.push(no); return !no; });
-    esitoFile('loghi', scarti.join(' '));
-    if (!files.length) return;
-    var posto = 4 - immagini.loghi.length;
-    if (posto <= 0) { errore('Hai già quattro loghi: rimuovine uno per aggiungerne un altro.'); return; }
-    Promise.all(files.slice(0, posto).map(function (f) { return elaboraImmagine(f, 1600, true); }))
-      .then(function (imgs) { immagini.loghi = immagini.loghi.concat(imgs); ruoliPredefiniti(); return salvaImmagini(); })
-      .then(function () { disegnaMiniature(); ridisegna(); })
-      .catch(function () { esitoFile('loghi', 'Uno dei loghi non è leggibile anche se ha un’estensione ammessa (file danneggiato o non è davvero un’immagine): salvalo di nuovo come PNG o SVG.'); });
   });
 
   // ---------------------------------------------------------------- anteprima
@@ -1819,7 +1842,7 @@ footer.piede a{color:var(--verde)}
     disegnaColori();
     disegnaModulo();
     caricaImmagini().then(function () {
-      ruoliPredefiniti();
+      migraLoghi();
       disegnaMiniature();
       ridisegna();
       var q = new URLSearchParams(location.search);
