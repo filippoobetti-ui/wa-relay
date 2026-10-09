@@ -517,7 +517,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-1 (portale cliente fuori da Make, installabile)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-2 (portale cliente fuori da Make, installabile, visore foto a scorrimento)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1227,6 +1227,51 @@ const PORTALE_SW = [
   ""
 ].join("\n");
 
+// Visore foto a tutto schermo (09/10/2026): toccando una foto si apre a pieno schermo e si scorre
+// a destra/sinistra tra tutte le foto della stessa scheda (Foto, Giornale…). Tasto Indietro o X per chiudere.
+// Le foto si caricano solo vicino a quella visibile (la scheda Foto può averne centinaia).
+const PORTALE_VISORE = "<style>" +
+  "#gl-v{position:fixed;inset:0;z-index:9999;background:#000;display:none;flex-direction:column}" +
+  "#gl-v.on{display:flex}" +
+  "#gl-v .bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;color:#fff;font:600 .95rem system-ui,sans-serif;background:rgba(0,0,0,.6)}" +
+  "#gl-v .bar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+  "#gl-v button{background:none;border:0;color:#fff;font-size:1.6rem;line-height:1;padding:6px 10px;cursor:pointer}" +
+  "#gl-v .trk{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}" +
+  "#gl-v .trk::-webkit-scrollbar{display:none}" +
+  "#gl-v .sl{flex:0 0 100%;width:100%;height:100%;scroll-snap-align:center;scroll-snap-stop:always;display:flex;align-items:center;justify-content:center;overflow:hidden}" +
+  "#gl-v .sl img{max-width:100%;max-height:100%;object-fit:contain;touch-action:pan-x pinch-zoom}" +
+  "#gl-v .fr{position:absolute;top:50%;transform:translateY(-50%);font-size:2.4rem;background:rgba(0,0,0,.35);border-radius:50%;width:48px;height:48px;padding:0}" +
+  "#gl-v .fr.sx{left:8px}#gl-v .fr.dx{right:8px}" +
+  "@media (hover:none){#gl-v .fr{display:none}}" +
+  "</style>" +
+  "<div id=\"gl-v\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Foto a tutto schermo\">" +
+  "<div class=\"bar\"><span id=\"gl-v-t\"></span><button type=\"button\" id=\"gl-v-x\" aria-label=\"Chiudi\">&times;</button></div>" +
+  "<div class=\"trk\" id=\"gl-v-k\"></div>" +
+  "<button type=\"button\" class=\"fr sx\" id=\"gl-v-p\" aria-label=\"Foto precedente\">&lsaquo;</button>" +
+  "<button type=\"button\" class=\"fr dx\" id=\"gl-v-n\" aria-label=\"Foto successiva\">&rsaquo;</button></div>" +
+  "<script>(function(){try{" +
+  "var V=document.getElementById('gl-v'),K=document.getElementById('gl-v-k'),T=document.getElementById('gl-v-t');" +
+  "var lista=[],cur=0,aperto=false,raf=0;" +
+  "function nota(a){var l=a.getAttribute('aria-label')||'';return l.replace(/^Foto delle /,'ore ');}" +
+  "function carica(i){for(var j=i-2;j<=i+2;j++){var s=K.children[j];if(s&&!s.firstChild){var im=document.createElement('img');im.alt='';im.decoding='async';im.src=lista[j].src;s.appendChild(im);}}}" +
+  "function titolo(){T.textContent=(cur+1)+' / '+lista.length+(lista[cur].nota?' \\u00b7 '+lista[cur].nota:'');}" +
+  "function vai(i,liscio){i=Math.max(0,Math.min(lista.length-1,i));cur=i;carica(i);titolo();K.scrollTo({left:i*K.clientWidth,behavior:liscio?'smooth':'auto'});}" +
+  "function apri(gruppo,i){lista=gruppo;K.innerHTML='';for(var j=0;j<lista.length;j++){var d=document.createElement('div');d.className='sl';K.appendChild(d);}" +
+  "V.classList.add('on');document.documentElement.style.overflow='hidden';if(!aperto){aperto=true;try{history.pushState({glv:1},'')}catch(e){}}vai(i,false);}" +
+  "function chiudi(daStoria){if(!aperto)return;aperto=false;V.classList.remove('on');K.innerHTML='';document.documentElement.style.overflow='';if(!daStoria){try{history.back()}catch(e){}}}" +
+  "K.addEventListener('scroll',function(){if(raf)return;raf=requestAnimationFrame(function(){raf=0;var i=Math.round(K.scrollLeft/Math.max(1,K.clientWidth));if(i!==cur&&lista[i]){cur=i;carica(i);titolo();}});},{passive:true});" +
+  "window.addEventListener('resize',function(){if(aperto)vai(cur,false);});" +
+  "window.addEventListener('popstate',function(){if(aperto)chiudi(true);});" +
+  "document.getElementById('gl-v-x').addEventListener('click',function(){chiudi(false);});" +
+  "document.getElementById('gl-v-p').addEventListener('click',function(){vai(cur-1,true);});" +
+  "document.getElementById('gl-v-n').addEventListener('click',function(){vai(cur+1,true);});" +
+  "document.addEventListener('keydown',function(e){if(!aperto)return;if(e.key==='Escape')chiudi(false);else if(e.key==='ArrowLeft')vai(cur-1,true);else if(e.key==='ArrowRight')vai(cur+1,true);});" +
+  "document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.querySelector('img'))return;" +
+  "var cont=a.closest('.pann')||a.closest('main')||document.body;var aa=cont.querySelectorAll('a');var g=[],idx=0;" +
+  "for(var j=0;j<aa.length;j++){var im=aa[j].querySelector('img');if(!im)continue;if(aa[j]===a)idx=g.length;g.push({src:aa[j].getAttribute('href')||im.getAttribute('src'),nota:nota(aa[j])});}" +
+  "if(!g.length)return;e.preventDefault();apri(g,idx);},true);" +
+  "}catch(x){}})();</script>";
+
 async function portaleRoute(request, env, prefisso) {
   const metodo = request.method;
   if (metodo !== "GET" && metodo !== "HEAD") {
@@ -1328,10 +1373,11 @@ async function portaleRoute(request, env, prefisso) {
 
   // Pagina valida = contiene i collegamenti con il gettone (le pagine di errore non lo riportano mai).
   const valida = html.indexOf("?t=" + token) !== -1;
-  const script = valida
+  let script = valida
     ? "<script>(function(){try{localStorage.setItem('gl_portale_t','" + token + "')}catch(e){}" + portaleScriptSw(base) + "})();</script>"
     : "<script>(function(){try{if(localStorage.getItem('gl_portale_t')==='" + token + "')localStorage.removeItem('gl_portale_t')}catch(e){}})();</script>";
   html = html.indexOf("</head>") !== -1 ? html.replace("</head>", portaleTesta(base) + "</head>") : html;
+  if (valida && html.indexOf("<img") !== -1) script = PORTALE_VISORE + script;
   html = html.lastIndexOf("</body>") !== -1
     ? html.slice(0, html.lastIndexOf("</body>")) + script + html.slice(html.lastIndexOf("</body>"))
     : html + script;
