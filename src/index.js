@@ -543,7 +543,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-2 (portale cliente fuori da Make, installabile, visore foto a scorrimento) + crono-1 (domanda del venerdi sul cronoprogramma)";
+const RELAY_VERSIONE = "wa-relay 2026-10-05 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-3 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti in prova con ?movimenti=1) + crono-1 (domanda del venerdi sul cronoprogramma)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1340,7 +1340,8 @@ function portaleIngresso(base, avviso) {
     'var q=new URLSearchParams(location.search);' +
     'if(q.has("esci")){try{localStorage.removeItem("gl_portale_t")}catch(e){}}' +
     'else if(!q.has("t")){var s=null;try{s=localStorage.getItem("gl_portale_t")}catch(e){}' +
-    'if(s&&/^[0-9a-f]{64}$/.test(s)){location.replace(B+"/?t="+s);return}}' +
+    'var mv=q.get("movimenti");mv=(mv==="1"||mv==="0")?"&movimenti="+mv:"";' +
+    'if(s&&/^[0-9a-f]{64}$/.test(s)){location.replace(B+"/?t="+s+mv);return}}' +
     'document.getElementById("f").addEventListener("submit",function(ev){var v=document.getElementById("t").value||"";' +
     'var m=v.match(/[0-9a-fA-F]{64}/);if(m){ev.preventDefault();location.href=B+"/?t="+m[0].toLowerCase();}});' +
     portaleScriptSw(base) + '})();</script></body></html>';
@@ -1388,6 +1389,102 @@ const PORTALE_VISORE = "<style>" +
 // Frecce sulla riga delle sezioni del cantiere (09/10/2026): la riga scorre di lato; le frecce
 // compaiono solo quando c'e' altro da vedere da quella parte, e la sezione scelta resta in vista.
 const PORTALE_FRECCE = "<style>.schede-w{position:sticky;top:0;z-index:2;margin:0 -16px 14px}.schede-w nav.schede{position:static;margin:0}.sch-fr{position:absolute;top:0;bottom:1px;width:56px;border:0;padding:0;cursor:pointer;display:none;align-items:center}.sch-fr.on{display:flex}.sch-fr span{width:34px;height:34px;border-radius:50%;background:#0A7D48;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.6rem;line-height:1;padding-bottom:3px;box-shadow:0 1px 4px rgba(0,0,0,.25)}.sch-fr.sx{left:0;justify-content:flex-start;padding-left:6px;background:linear-gradient(90deg,#fff 50%,rgba(255,255,255,0))}.sch-fr.dx{right:0;justify-content:flex-end;padding-right:6px;background:linear-gradient(270deg,#fff 50%,rgba(255,255,255,0))}<\/style>" + "<script>" + "(function(){try{\nvar n=document.querySelector('nav.schede');if(!n)return;\nvar w=document.createElement('div');w.className='schede-w';n.parentNode.insertBefore(w,n);w.appendChild(n);\nfunction bt(cl,txt,lab,dir){var b=document.createElement('button');b.type='button';b.className='sch-fr '+cl;b.innerHTML='<span>'+txt+'<\/span>';b.setAttribute('aria-label',lab);\n b.addEventListener('click',function(){n.scrollBy({left:dir*Math.max(120,n.clientWidth*0.7),behavior:'smooth'});});w.appendChild(b);return b;}\nvar sx=bt('sx','&lsaquo;','Sezioni precedenti',-1),dx=bt('dx','&rsaquo;','Altre sezioni',1);\nfunction agg(){var m=n.scrollWidth-n.clientWidth;sx.classList.toggle('on',n.scrollLeft>4);dx.classList.toggle('on',n.scrollLeft<m-4);}\nn.addEventListener('scroll',agg,{passive:true});window.addEventListener('resize',agg);\nfunction mostra(){var c=document.querySelector('.tbr:checked');if(!c)return;var l=n.querySelector('label[for=\"'+c.id+'\"]');if(!l)return;\n var r=l.offsetLeft-n.offsetLeft,ww=l.offsetWidth;if(r<n.scrollLeft+40||r+ww>n.scrollLeft+n.clientWidth-40)n.scrollLeft=Math.max(0,r-(n.clientWidth-ww)/2);agg();}\nvar rs=document.querySelectorAll('.tbr');for(var i=0;i<rs.length;i++)rs[i].addEventListener('change',mostra);\nmostra();agg();setTimeout(agg,300);\n}catch(x){}})();\n" + "</script>";
+
+// Movimenti del portale (09/10/2026, IN PROVA): transizioni graduali invece dei cambi di pagina a scatto.
+// Si accendono solo con ?movimenti=1 (che lascia il cookie gl_mov sul telefono) e si spengono con ?movimenti=0:
+// le imprese clienti non vedono nulla finche' Filippo non approva. Quando saranno definitivi basta togliere la condizione.
+// Cosa fanno: (1) la scheda del cantiere toccata si allarga fino a diventare l'intestazione della pagina del cantiere,
+// e si richiude tornando all'elenco (transizioni fra pagine di Chrome, @view-transition); (2) le sezioni del cantiere
+// scivolano di lato nella direzione giusta, la pillola verde corre sulla sezione scelta e si cambia sezione anche
+// trascinando il contenuto; (3) schede e pulsanti si schiacciano leggermente sotto il dito; (4) in Rapportini il
+// totale delle ore sale con un conteggio; (5) all'apertura le schede entrano a cascata e la scheda toccata pulsa
+// mentre arriva la pagina. Con «Riduci animazioni» attivo sul telefono resta tutto fermo.
+// Niente nomi di transizione sulle sezioni intere (possono contenere centinaia di foto: l'istantanea costerebbe troppo
+// sul telefono): la transizione fra sezioni e' la dissolvenza dell'intera pagina piu' lo scivolamento CSS della
+// sezione nuova; i soli elementi "nominati" sono le schede dei cantieri, l'intestazione e la pillola attiva.
+const PORTALE_MOVIMENTI_STILE = "<style>" +
+  "@view-transition{navigation:auto}" +
+  "a.cantiere,nav.schede label,a.link,a.indietro,header .agg a{transition:transform .12s ease}" +
+  "a.cantiere:active,nav.schede label:active,a.link:active,a.indietro:active,header .agg a:active{transform:scale(.975)}" +
+  "@keyframes gl-entra{from{opacity:0;transform:translateY(14px)}}" +
+  ".gl-entra{animation:gl-entra .45s cubic-bezier(.2,.8,.2,1) backwards}" +
+  "@keyframes gl-pulsa{0%,100%{box-shadow:0 0 0 0 rgba(10,125,72,0)}50%{box-shadow:0 0 0 6px rgba(10,125,72,.28)}}" +
+  ".gl-attesa{animation:gl-pulsa 1s ease-in-out infinite!important}" +
+  "@keyframes gl-su{from{opacity:0;transform:translateY(24px)}}" +
+  "@keyframes gl-in-dx{from{opacity:0;transform:translateX(44px)}}" +
+  "@keyframes gl-in-sx{from{opacity:0;transform:translateX(-44px)}}" +
+  "section.pann{touch-action:pan-y pinch-zoom;animation:gl-su .42s cubic-bezier(.2,.8,.2,1) backwards}" +
+  "html[data-dir=avanti] section.pann{animation-name:gl-in-dx;animation-duration:.3s}" +
+  "html[data-dir=indietro] section.pann{animation-name:gl-in-sx;animation-duration:.3s}" +
+  ".schede-w,nav.schede{animation:gl-su .36s cubic-bezier(.2,.8,.2,1) backwards}.schede-w nav.schede{animation:none}" +
+  "::view-transition-group(*){animation-duration:320ms;animation-timing-function:cubic-bezier(.2,.8,.2,1)}" +
+  "::view-transition-old(root),::view-transition-new(root){animation-duration:220ms}" +
+  "::view-transition-group(tab-attiva){animation-duration:260ms}" +
+  "@media (prefers-reduced-motion:reduce){.gl-entra,.gl-attesa,section.pann,.schede-w,nav.schede{animation:none!important}" +
+  "a.cantiere,nav.schede label,a.link,a.indietro,header .agg a{transition:none}" +
+  "::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}" +
+  "</style>";
+const PORTALE_MOVIMENTI_SCRIPT = "<script>" + String.raw`(function(){try{
+var D=document,H=D.documentElement,ridotto=false;
+try{ridotto=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)}catch(e){}
+var VT=typeof D.startViewTransition==='function'&&!ridotto;
+var cid=(new URLSearchParams(location.search)).get('c')||'';
+function nome(id){return 'c-'+String(id).replace(/[^A-Za-z0-9_-]/g,'');}
+/* elenco: ogni scheda porta il nome del suo cantiere (cosi' si trasforma nell'intestazione), entra a cascata, pulsa al tocco */
+var schede=D.querySelectorAll('a.cantiere'),i;
+for(i=0;i<schede.length;i++){(function(a,k){
+ var m=(a.getAttribute('href')||'').match(/[?&]c=([0-9a-fA-F-]{8,64})/);
+ if(m)a.style.viewTransitionName=nome(m[1]);
+ if(!ridotto){a.classList.add('gl-entra');a.style.animationDelay=(k*60)+'ms';}
+ a.addEventListener('click',function(){a.classList.add('gl-attesa');});
+})(schede[i],i);}
+function pulita(){for(var j=0;j<schede.length;j++)schede[j].classList.remove('gl-attesa');var b=D.querySelector('a.indietro.gl-attesa');if(b)b.classList.remove('gl-attesa');}
+window.addEventListener('pageshow',pulita);
+window.addEventListener('pagereveal',function(e){if(e.viewTransition){for(var j=0;j<schede.length;j++)schede[j].classList.remove('gl-entra');}pulita();});
+/* cantiere: l'intestazione ha il nome della scheda da cui si arriva */
+var nav=D.querySelector('nav.schede'),testa=D.querySelector('header');
+if(cid&&nav&&testa)testa.style.viewTransitionName=nome(cid);
+var ind=D.querySelector('a.indietro');if(ind)ind.addEventListener('click',function(){ind.classList.add('gl-attesa');});
+if(!nav)return;
+/* sezioni */
+var radios=[].slice.call(D.querySelectorAll('input.tbr'));
+function sez(r){return D.getElementById('p-'+r.id.slice(3));}
+function lab(r){return nav.querySelector('label[for="'+r.id+'"]');}
+function corrente(){for(var j=0;j<radios.length;j++)if(radios[j].checked)return radios[j];return null;}
+function nomina(){var c=corrente();for(var j=0;j<radios.length;j++){var l=lab(radios[j]);if(l)l.style.viewTransitionName=(radios[j]===c)?'tab-attiva':'';}}
+nomina();
+/* conteggio delle ore in Rapportini */
+function conta(){var c=corrente();if(!c||c.id!=='tb-r'||ridotto)return;var s=sez(c);if(!s)return;var ns=s.querySelectorAll('.totale .v');
+ for(var j=0;j<ns.length;j++)(function(el){if(el.getAttribute('data-gl-contato'))return;el.setAttribute('data-gl-contato','1');
+  var txt=el.textContent||'',m=txt.match(/^\s*(\d+),(\d{2})\s*h\s*$/);if(!m)return;var fine=parseInt(m[1],10)+parseInt(m[2],10)/100;if(!(fine>0))return;
+  var t0=performance.now(),dur=750;function fmt(n){return n.toFixed(2).replace('.',',')+' h';}
+  function passo(t){var p=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-p,3);el.textContent=p<1?fmt(fine*e):txt;if(p<1)requestAnimationFrame(passo);}
+  requestAnimationFrame(passo);})(ns[j]);}
+function azzeraConteggi(){var ns=D.querySelectorAll('.totale .v[data-gl-contato]');for(var j=0;j<ns.length;j++)ns[j].removeAttribute('data-gl-contato');}
+function vai(r,dir){if(!r||r.checked)return;
+ var applica=function(){r.checked=true;H.setAttribute('data-dir',dir);azzeraConteggi();nomina();r.dispatchEvent(new Event('change',{bubbles:true}));};
+ if(VT){var t=D.startViewTransition(applica);t.finished.then(conta,conta);}else{applica();conta();}}
+nav.addEventListener('click',function(e){var l=e.target&&e.target.closest?e.target.closest('label[for]'):null;if(!l||!nav.contains(l))return;
+ var r=D.getElementById(l.htmlFor);if(!r)return;e.preventDefault();var da=radios.indexOf(corrente()),a=radios.indexOf(r);vai(r,a>da?'avanti':'indietro');});
+/* trascinamento a destra/sinistra sul contenuto = sezione precedente/successiva */
+var sx=null,sy=0,t0=0;
+D.addEventListener('pointerdown',function(e){if(e.pointerType==='mouse'&&e.button!==0){sx=null;return;}var s=e.target&&e.target.closest?e.target.closest('section.pann'):null;if(!s){sx=null;return;}sx=e.clientX;sy=e.clientY;t0=Date.now();},{passive:true});
+D.addEventListener('pointerup',function(e){if(sx===null)return;var dx=e.clientX-sx,dy=e.clientY-sy,dt=Date.now()-t0;sx=null;
+ if(dt<700&&Math.abs(dx)>56&&Math.abs(dy)<60){var k=radios.indexOf(corrente())+(dx<0?1:-1);if(k>=0&&k<radios.length)vai(radios[k],dx<0?'avanti':'indietro');}},{passive:true});
+D.addEventListener('pointercancel',function(){sx=null;},{passive:true});
+conta();
+}catch(x){}})();
+` + "</script>";
+
+function portaleMovimenti(request, inUrl, base) {
+  const param = inUrl.searchParams.get("movimenti");
+  const cookie = /(?:^|;\s*)gl_mov=1(?:;|$)/.test(request.headers.get("Cookie") || "");
+  const attivi = param === "1" || (param !== "0" && cookie);
+  let setCookie = null;
+  if (param === "1") setCookie = "gl_mov=1; Path=" + base + "/; Max-Age=7776000; SameSite=Lax; Secure";
+  else if (param === "0") setCookie = "gl_mov=; Path=" + base + "/; Max-Age=0; SameSite=Lax; Secure";
+  return { attivi, setCookie };
+}
 
 async function portaleRoute(request, env, prefisso) {
   const metodo = request.method;
@@ -1490,14 +1587,19 @@ async function portaleRoute(request, env, prefisso) {
 
   // Pagina valida = contiene i collegamenti con il gettone (le pagine di errore non lo riportano mai).
   const valida = html.indexOf("?t=" + token) !== -1;
+  const mov = portaleMovimenti(request, inUrl, base);
   let script = valida
     ? "<script>(function(){try{localStorage.setItem('gl_portale_t','" + token + "')}catch(e){}" + portaleScriptSw(base) + "})();</script>"
     : "<script>(function(){try{if(localStorage.getItem('gl_portale_t')==='" + token + "')localStorage.removeItem('gl_portale_t')}catch(e){}})();</script>";
-  html = html.indexOf("</head>") !== -1 ? html.replace("</head>", portaleTesta(base) + "</head>") : html;
+  const testa = portaleTesta(base) + (valida && mov.attivi ? PORTALE_MOVIMENTI_STILE : "");
+  html = html.indexOf("</head>") !== -1 ? html.replace("</head>", testa + "</head>") : html;
+  if (valida && mov.attivi) script = PORTALE_MOVIMENTI_SCRIPT + script;   // dopo visore e frecce (che vengono anteposti qui sotto)
   if (valida && html.indexOf("<img") !== -1) script = PORTALE_VISORE + script;
   if (valida && html.indexOf('<nav class="schede"') !== -1) script = PORTALE_FRECCE + script;
   html = html.lastIndexOf("</body>") !== -1
     ? html.slice(0, html.lastIndexOf("</body>")) + script + html.slice(html.lastIndexOf("</body>"))
     : html + script;
-  return new Response(metodo === "HEAD" ? null : html, { status: 200, headers: portaleHtmlHeaders() });
+  return new Response(metodo === "HEAD" ? null : html, {
+    status: 200, headers: portaleHtmlHeaders(mov.setCookie ? { "Set-Cookie": mov.setCookie } : null)
+  });
 }
