@@ -1,4 +1,4 @@
-// cartello — Il Giornale Lavori (05/10/2026) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
+// cartello — Il Giornale Lavori (05/10/2026) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
 // già esistente (scenario 7490419 → onboarding_completa_da_pagamento → cartello_completa_da_pagamento).
 // Generatore del cartello di cantiere: la PAGINA (public/cartello/index.html del relay wa-relay) si compila
 // e compone il PDF nel browser del cliente (jsPDF + motore condiviso); QUI ci sono solo i passaggi del
@@ -21,6 +21,16 @@ const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
 const CARTELLO_URL_DEFAULT = 'https://wa-relay.filippo-obetti.workers.dev/cartello';
 const FORMATI: Record<string, string> = { '100x100': '100 × 100 cm', '100x200': '100 × 200 cm', '150x300': '150 × 300 cm', '200x300': '200 × 300 cm' };
 const RE_SESSIONE = /^cs_(test|live)_[A-Za-z0-9]{10,200}$/;
+
+// v4 (09/10/2026): misure personalizzate «BxH» in cm (40–600 per lato, lato lungo ≤ 3 volte il corto).
+function etichettaFormato(formato: string): string {
+  if (FORMATI[formato]) return FORMATI[formato];
+  const m = /^(\d{2,3})x(\d{2,3})$/.exec(formato);
+  if (!m) return '';
+  const b = Number(m[1]), h = Number(m[2]);
+  if (b < 40 || h < 40 || b > 600 || h > 600 || Math.max(b, h) / Math.min(b, h) > 3) return '';
+  return `${b} × ${h} cm (su misura)`;
+}
 
 type Dizionario = Record<string, unknown>;
 
@@ -148,7 +158,8 @@ async function checkout(req: Request): Promise<Response> {
   const oggetto = String(dati.oggetto ?? '').trim().slice(0, 300);
   const ubicazione = String(dati.ubicazione ?? '').trim().slice(0, 200);
   const ritornoRichiesto = String(dati.ritorno ?? '');
-  if (!FORMATI[formato]) return json({ errore: 'formato non valido' }, 400);
+  const etichetta = etichettaFormato(formato);
+  if (!etichetta) return json({ errore: 'formato non valido' }, 400);
   if (!oggetto) return json({ errore: 'manca l’oggetto dei lavori' }, 400);
 
   const imp = await impostazioni(['cartello_url', 'cartello_prezzo_cent', 'cartello_attivo', 'stripe_tax_rate_id_iva22']);
@@ -159,7 +170,7 @@ async function checkout(req: Request): Promise<Response> {
   const ammessi = [base, 'https://www.ilgiornalelavori.it', 'https://ilgiornalelavori.it'];
   const ritorno = ammessi.some((a) => ritornoRichiesto.startsWith(a)) ? ritornoRichiesto.replace(/\/+$/, '') : base;
 
-  const descrizione = `Cartello di cantiere ${FORMATI[formato]} (${orientamento}) — file PDF per la stampa`;
+  const descrizione = `Cartello di cantiere ${etichetta} (${orientamento}) — file PDF per la stampa`;
   // token CRT-…: lo scenario Make 7490419 lo legge dal client_reference_id e conferma il pagamento nel database
   // anche se il cliente non torna mai sulla pagina (idempotente: un secondo recapito risponde 'ok')
   const token = 'CRT-' + crypto.randomUUID().replace(/-/g, '');
@@ -170,7 +181,7 @@ async function checkout(req: Request): Promise<Response> {
     'line_items[0][quantity]': '1',
     'line_items[0][price_data][currency]': 'eur',
     'line_items[0][price_data][unit_amount]': String(prezzo),
-    'line_items[0][price_data][product_data][name]': `Cartello di cantiere ${FORMATI[formato]}`,
+    'line_items[0][price_data][product_data][name]': `Cartello di cantiere ${etichetta}`,
     'line_items[0][price_data][product_data][description]': 'File PDF vettoriale per la stampa, con render, loghi e QR — Il Giornale Lavori',
     customer_creation: 'always',
     'tax_id_collection[enabled]': 'true',
@@ -205,6 +216,8 @@ async function verifica(sessione: string): Promise<Response> {
   if (!RE_SESSIONE.test(sessione)) return json({ esito: 'non_trovato' }, 404);
   const riga = await leggiVendita(sessione);
   if (!riga) return json({ esito: 'non_trovato' }, 404);
+  // v4 (09/10/2026): vendita rimborsata o annullata → non si sblocca più, anche se su Stripe la sessione resta «paid»
+  if (riga.stato === 'rimborsato' || riga.stato === 'annullato') return json({ esito: String(riga.stato) }, 410);
   if (riga.stato === 'pagato') {
     return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string) });
   }

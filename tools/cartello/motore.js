@@ -292,7 +292,31 @@
   }
 
   // ------------------------------------------------------------------ impaginazione
+  // Misure personalizzate (Filippo 09/10/2026): base e altezza in cm scritte dal cliente, da 40 a 600 cm per lato.
+  const MISURA_MIN = 40, MISURA_MAX = 600, MISURA_RAPPORTO = 3;
+  function misuraSu(dati) {
+    const m = (dati && dati.misura) || {};
+    const lim = (v, d) => { const n = Math.round(Number(String(v == null ? '' : v).replace(',', '.'))); return isFinite(n) && n > 0 ? Math.max(MISURA_MIN, Math.min(MISURA_MAX, n)) : d; };
+    return { b: lim(m.b, 120), h: lim(m.h, 180) };
+  }
+  function controllaMisura(dati) {
+    const m = (dati && dati.misura) || {};
+    const b = Number(String(m.b == null ? '' : m.b).replace(',', '.')), h = Number(String(m.h == null ? '' : m.h).replace(',', '.'));
+    if (!b || !h) return 'Scrivi base e altezza del cartello in centimetri.';
+    if (b < MISURA_MIN || h < MISURA_MIN || b > MISURA_MAX || h > MISURA_MAX) return 'Ogni lato deve essere tra ' + MISURA_MIN + ' e ' + MISURA_MAX + ' cm.';
+    if (Math.max(b, h) / Math.min(b, h) > MISURA_RAPPORTO) return 'Il lato lungo può essere al massimo ' + MISURA_RAPPORTO + ' volte il lato corto, altrimenti i testi non stanno.';
+    return '';
+  }
+  function codiceFormato(dati) {
+    if (dati.formato !== 'su_misura') return dati.formato;
+    const s = misuraSu(dati); return s.b + 'x' + s.h;
+  }
   function dimensioni(dati) {
+    if (dati.formato === 'su_misura') {
+      const s = misuraSu(dati);
+      const f = { id: s.b + 'x' + s.h, nome: s.b + ' × ' + s.h + ' cm (su misura)', lato1: s.b * 10, lato2: s.h * 10, nota: 'su misura' };
+      return { W: s.b * 10, H: s.h * 10, formato: f, orizzontale: s.b > s.h };
+    }
     const f = FORMATI.find((x) => x.id === dati.formato) || FORMATI[3];
     const oriz = dati.orientamento === 'orizzontale';
     const W = oriz ? f.lato2 : f.lato1;
@@ -795,5 +819,5 @@
     }
   }
 
-  return { BRAND, TEMI, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });

@@ -75,6 +75,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.scelte label.su-misura{grid-column:1/-1}.misure-su{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}.misure-su[hidden]{display:none}.aiuto.errore{color:#8a1c12;font-weight:600}
 .t-sez{font-weight:700;margin-top:4px}.slot-griglia{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media (max-width:620px){.slot-griglia{grid-template-columns:1fr}}.slot{border:1px dashed var(--bordo);border-radius:12px;padding:10px 12px;background:#fafbfa}.slot.pieno{border-style:solid;background:#fff}.slot .t{font-weight:700}.slot .n{font-size:.78rem;color:var(--muto)}.slot-img{margin-top:8px;height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--bordo);border-radius:8px}.slot-img img{max-width:100%;max-height:56px;object-fit:contain}.slot .nome{font-size:.72rem;color:var(--muto);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .ruolo{width:100%;margin-top:8px;font-size:.85rem;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}.slot-azioni{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btn.piccolo{padding:6px 14px;font-size:.85rem;width:auto;min-height:0;height:auto;line-height:1.2;display:inline-flex;align-items:center;justify-content:center}
 .colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
 .con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
@@ -381,16 +382,39 @@ footer.piede a{color:var(--verde)}
       lab.appendChild(el('span', { class: 'n' }, esc(f.nota)));
       box.appendChild(lab);
     });
+    // misure personalizzate
+    var labP = el('label', { class: 'su-misura' });
+    var inpP = el('input', { type: 'radio', name: 'formato', value: 'su_misura' });
+    if (stato.formato === 'su_misura') inpP.checked = true;
+    inpP.addEventListener('change', function () { if (inpP.checked) { stato.formato = 'su_misura'; aggiornaOrientamento(); salvaStato(); ridisegna(); } });
+    labP.appendChild(inpP);
+    labP.appendChild(el('span', { class: 't' }, 'Misure personalizzate'));
+    labP.appendChild(el('span', { class: 'n' }, 'scrivi base e altezza esatte, per esempio per un tuo piedistallo'));
+    box.appendChild(labP);
+    var riga = el('div', { class: 'misure-su', id: 'misure-su' });
+    stato.misura = stato.misura || { b: '', h: '' };
+    [['b', 'Base (cm)'], ['h', 'Altezza (cm)']].forEach(function (x) {
+      var lab = el('label', { class: 'campo' }); lab.appendChild(el('span', { class: 'eti' }, x[1]));
+      var inp = el('input', { type: 'text', inputmode: 'numeric', id: 'misura-' + x[0], placeholder: x[0] === 'b' ? '120' : '180', maxlength: '3', autocomplete: 'off' });
+      inp.value = stato.misura[x[0]] || '';
+      inp.addEventListener('input', function () { inp.value = inp.value.replace(/[^0-9]/g, ''); stato.misura[x[0]] = inp.value; aggiornaOrientamento(); salvaStato(); ridisegnaPiano(); });
+      lab.appendChild(inp); riga.appendChild(lab);
+    });
+    box.parentNode.insertBefore(riga, box.nextSibling);
     $('#orientamento').value = stato.orientamento;
     $('#abbondanza').value = String(stato.abbondanza || 0);
     aggiornaOrientamento();
   }
   function aggiornaOrientamento() {
-    var quad = stato.formato === '100x100';
-    var sel = $('#orientamento'); sel.disabled = quad;
+    var quad = stato.formato === '100x100', su = stato.formato === 'su_misura';
+    var sel = $('#orientamento'); sel.disabled = quad || su;
     if (quad) { stato.orientamento = 'verticale'; sel.value = 'verticale'; }
+    var riga = $('#misure-su'); if (riga) riga.hidden = !su;
     var d = M.dimensioni(stato);
-    $('#aiuto-formato').textContent = 'File di stampa: ' + (d.W / 10).toFixed(0) + ' × ' + (d.H / 10).toFixed(0) + ' cm (base × altezza)' + (stato.abbondanza ? ', più ' + stato.abbondanza + ' mm di abbondanza per lato con crocini di taglio.' : '.');
+    var errM = su ? M.controllaMisura(stato) : '';
+    if (errM) { $('#aiuto-formato').textContent = errM; $('#aiuto-formato').classList.add('errore'); return; }
+    $('#aiuto-formato').classList.remove('errore');
+    $('#aiuto-formato').textContent = (su ? 'Su misura: l’orientamento segue base e altezza. ' : '') + 'File di stampa: ' + (d.W / 10).toFixed(0) + ' × ' + (d.H / 10).toFixed(0) + ' cm (base × altezza)' + (stato.abbondanza ? ', più ' + stato.abbondanza + ' mm di abbondanza per lato con crocini di taglio.' : '.');
   }
 
   // ---------------------------------------------------------------- immagini
@@ -537,7 +561,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { colore: stato.colore || 'verde', formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -557,9 +581,11 @@ footer.piede a{color:var(--verde)}
     var lista = ultimoEsito.avvisi.map(function (a) { return { testo: a }; });
     var manca = mancanti();
     if (manca.length) lista.unshift({ testo: 'Campi obbligatori da compilare: ' + manca.join(', ') + '.' });
-    var bloccato = ultimoEsito.avvisi.some(function (a) { return a.indexOf('Troppi dati') === 0; });
+    var errMisura = stato.formato === 'su_misura' ? M.controllaMisura(stato) : '';
+    if (errMisura) lista.unshift({ testo: errMisura, tipo: 'errore' });
+    var bloccato = !!errMisura || ultimoEsito.avvisi.some(function (a) { return a.indexOf('Troppi dati') === 0; });
     mostraAvvisi(lista);
-    motivoBlocco = manca.length ? 'Per acquistare manca ancora: ' + manca.join(', ') + '.' : (bloccato ? 'Troppi dati per la misura scelta: accorcia qualche testo oppure scegli un formato più grande (es. 2,00 × 3,00 m).' : '');
+    motivoBlocco = manca.length ? 'Per acquistare manca ancora: ' + manca.join(', ') + '.' : errMisura ? errMisura : (bloccato ? 'Troppi dati per la misura scelta: accorcia qualche testo oppure scegli un formato più grande (es. 2,00 × 3,00 m).' : '');
     $('#btn-acquista').classList.toggle('spento', !!motivoBlocco);
     $('#motivo-blocco').hidden = !motivoBlocco; $('#motivo-blocco').textContent = motivoBlocco;
     aggiornaPagamento();
@@ -653,7 +679,7 @@ footer.piede a{color:var(--verde)}
     salvaImmagini().then(function () {
       return fetch(API + '/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200), ritorno: location.origin + location.pathname })
+        body: JSON.stringify({ formato: M.codiceFormato(stato), orientamento: stato.formato === 'su_misura' ? 'verticale' : stato.orientamento, tipo: stato.tipo, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200), ritorno: location.origin + location.pathname })
       });
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
       if (!x.ok || !x.j || !x.j.url) throw new Error((x.j && x.j.errore) || 'servizio di pagamento non disponibile');
