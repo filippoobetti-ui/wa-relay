@@ -453,17 +453,16 @@
       yCorpoFine = yL - 2 * u;
     }
 
-    // ---------- fascia verde fissa (testo bianco) (decisione di Filippo 07/10/2026: testo unico, non modificabile dal cliente)
+    // ---------- dicitura finale fissa: senza fascia, in nero, stampatello, stesso carattere dei dati (Filippo 09/10/2026)
     {
       const wA = W - 2 * m - 3 * u;
-      let fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 1, null, 1.2);
-      if (fitA.troncato || fitA.size < 1.7 * u) fitA = adatta(mis, AVVERTENZA, true, 2.3 * u, 1.3 * u, wA, 2, null, 1.2);
+      let fitA = adatta(mis, AVVERTENZA, false, 2.3 * u, 1.3 * u, wA, 1, null, 1.2);
+      if (fitA.troncato || fitA.size < 1.7 * u) fitA = adatta(mis, AVVERTENZA, false, 2.3 * u, 1.3 * u, wA, 2, null, 1.2);
       const passo = fitA.size * 1.2;
       const hA = Math.max(4.2 * u, fitA.righe.length * passo + 2 * u);
       const yA = yCorpoFine - hA;
-      R(m, yA, W - 2 * m, hA, tema.medio, { rx: 0.6 * u });
       const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
-      fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, true, BRAND.bianco, 'center'));
+      fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, false, BRAND.testo, 'center'));
       yCorpoFine = yA - 2 * u;
     }
 
