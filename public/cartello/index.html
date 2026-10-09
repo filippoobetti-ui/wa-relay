@@ -310,7 +310,7 @@ footer.piede a{color:var(--verde)}
     { g: 'impresa', id: 'impresa_soa', eti: 'S.O.A. (attestazione e categorie)', ph: 'n. 12345/10/00 — OG1 cl. III', per: 'entrambi' },
     { g: 'impresa', id: 'direttore_cantiere', titolo: true, eti: 'Direttore del cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore del cantiere' },
     { g: 'impresa', id: 'assistente_dc', titolo: true, eti: 'Assistente del direttore di cantiere', ph: 'geom. Marco Verdi', per: 'entrambi', riga: 'Assistente del direttore di cantiere' },
-    { g: 'impresa', id: 'capocantiere', eti: 'Capo cantiere', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Capo cantiere' },
+    { g: 'impresa', id: 'capocantiere', titolo: true, eti: 'Capo cantiere', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Capo cantiere' },
     { g: 'impresa', id: 'resp_sicurezza', titolo: true, eti: 'Responsabile della sicurezza', ph: 'RSPP: ing. Luisa Neri', per: 'entrambi', riga: 'Responsabile della sicurezza' },
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici (una per riga, con C.C.I.A.A., A.N.C., S.O.A.)', ph: 'Impianti Bianchi S.n.c. — C.C.I.A.A. PD-234567 — S.O.A. OS30 cl. II\nIdraulica Verdi S.r.l. — C.C.I.A.A. PD-345678', per: 'entrambi', tipo: 'textarea', riga: 'Imprese subappaltatrici' },
     { g: 'impianti', id: 'imp_elettrico_prog', eti: 'Impianto elettrico — progettista', ph: '', per: 'entrambi' },
@@ -1524,7 +1524,8 @@ footer.piede a{color:var(--verde)}
             bar.appendChild(b);
           });
           lab.appendChild(bar);
-          inp.placeholder = String(inp.placeholder || '').replace(/^(ing|arch|geom|per\. ind|dott)\.\s*/i, '');
+          var es = String(inp.placeholder || '').replace(/^(ing|arch|geom|per\. ind|dott|RSPP:\s*ing)\.\s*/i, '').replace(/\s*[—(].*$/, '');
+          inp.placeholder = 'Nome e cognome';
         }
         if (c.id === 'oggetto') { var pre = el('div', { class: 'con-prefisso' }); pre.appendChild(el('span', { class: 'prefisso' }, 'Lavori di')); pre.appendChild(inp); lab.appendChild(pre); }
         else lab.appendChild(inp);

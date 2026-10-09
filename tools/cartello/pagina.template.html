@@ -360,7 +360,8 @@ footer.piede a{color:var(--verde)}
             bar.appendChild(b);
           });
           lab.appendChild(bar);
-          inp.placeholder = String(inp.placeholder || '').replace(/^(ing|arch|geom|per\. ind|dott)\.\s*/i, '');
+          var es = String(inp.placeholder || '').replace(/^(ing|arch|geom|per\. ind|dott|RSPP:\s*ing)\.\s*/i, '').replace(/\s*[—(].*$/, '');
+          inp.placeholder = 'Nome e cognome';
         }
         if (c.id === 'oggetto') { var pre = el('div', { class: 'con-prefisso' }); pre.appendChild(el('span', { class: 'prefisso' }, 'Lavori di')); pre.appendChild(inp); lab.appendChild(pre); }
         else lab.appendChild(inp);
