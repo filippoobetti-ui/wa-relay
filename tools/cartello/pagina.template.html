@@ -75,6 +75,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .btn.grande{font-size:1.05rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.spento{opacity:.55}
+.qualifiche{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 6px}.qualifiche .q{border:1px solid var(--bordo);background:#fff;border-radius:999px;padding:4px 11px;font-size:.82rem;cursor:pointer;color:inherit;font-family:inherit}.qualifiche .q.attiva{background:var(--verde);border-color:var(--verde);color:#fff;font-weight:600}
 .scelte label.su-misura{grid-column:1/-1}.misure-su{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}.misure-su[hidden]{display:none}.aiuto.errore{color:#8a1c12;font-weight:600}
 .t-sez{font-weight:700;margin-top:4px}.slot-griglia{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media (max-width:620px){.slot-griglia{grid-template-columns:1fr}}.slot{border:1px dashed var(--bordo);border-radius:12px;padding:10px 12px;background:#fafbfa}.slot.pieno{border-style:solid;background:#fff}.slot .t{font-weight:700}.slot .n{font-size:.78rem;color:var(--muto)}.slot-img{margin-top:8px;height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--bordo);border-radius:8px}.slot-img img{max-width:100%;max-height:56px;object-fit:contain}.slot .nome{font-size:.72rem;color:var(--muto);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .ruolo{width:100%;margin-top:8px;font-size:.85rem;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}.slot-azioni{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btn.piccolo{padding:6px 14px;font-size:.85rem;width:auto;min-height:0;height:auto;line-height:1.2;display:inline-flex;align-items:center;justify-content:center}
 .colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
@@ -345,6 +346,21 @@ footer.piede a{color:var(--verde)}
         if (c.tipo !== 'data') {
           inp.addEventListener('input', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
           inp.addEventListener('change', function () { stato.campi[c.id] = inp.value; salvaStato(); ridisegnaPiano(); });
+        }
+        if (c.titolo) {
+          // pulsanti della qualifica: nessuna, ing., arch., geom., per. ind., dott.
+          var bar = el('div', { class: 'qualifiche', role: 'radiogroup', 'aria-label': 'Qualifica' });
+          [''].concat(M.QUALIFICHE).forEach(function (q) {
+            var b = el('button', { type: 'button', class: 'q' + (((stato.campi[c.id + '_titolo'] || '') === q) ? ' attiva' : ''), 'aria-pressed': String((stato.campi[c.id + '_titolo'] || '') === q) }, q ? esc(q) : 'nessuna');
+            b.addEventListener('click', function () {
+              stato.campi[c.id + '_titolo'] = q; salvaStato(); ridisegnaPiano();
+              Array.prototype.forEach.call(bar.children, function (x) { x.classList.remove('attiva'); x.setAttribute('aria-pressed', 'false'); });
+              b.classList.add('attiva'); b.setAttribute('aria-pressed', 'true');
+            });
+            bar.appendChild(b);
+          });
+          lab.appendChild(bar);
+          inp.placeholder = String(inp.placeholder || '').replace(/^(ing|arch|geom|per\. ind|dott)\.\s*/i, '');
         }
         if (c.id === 'oggetto') { var pre = el('div', { class: 'con-prefisso' }); pre.appendChild(el('span', { class: 'prefisso' }, 'Lavori di')); pre.appendChild(inp); lab.appendChild(pre); }
         else lab.appendChild(inp);

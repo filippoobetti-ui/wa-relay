@@ -95,26 +95,26 @@
 
     { g: 'soggetti', id: 'proprieta', eti: 'Proprietà', ph: 'Mario Rossi e Anna Bianchi', per: 'privato', riga: 'Proprietà' },
     { g: 'soggetti', id: 'committente', eti: 'Committente', ph: 'Mario Rossi — Via Verdi 3, Padova', per: 'entrambi', obblPer: 'privato', riga: 'Committente' },
-    { g: 'soggetti', id: 'rup', eti: 'Responsabile unico del progetto (RUP)', ph: 'ing. Anna Bianchi', per: 'pubblico', riga: 'Responsabile unico del progetto (RUP)' },
-    { g: 'soggetti', id: 'progettista', eti: 'Progettista', ph: 'arch. Luca Verdi — Ordine Architetti PD n. 1234', per: 'entrambi', riga: 'Progettista' },
-    { g: 'soggetti', id: 'direttore_lavori', eti: 'Direttore dei lavori', ph: 'arch. Luca Verdi', per: 'entrambi', obbl: true, riga: 'Direttore dei lavori' },
-    { g: 'soggetti', id: 'dl_strutture', eti: 'Direttore dei lavori delle strutture', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Direttore dei lavori delle strutture' },
-    { g: 'soggetti', id: 'csp', eti: 'Coordinatore per la progettazione (sicurezza)', ph: 'geom. Sara Gialli', per: 'entrambi', riga: 'Coordinatore per la progettazione' },
-    { g: 'soggetti', id: 'responsabile_lavori', eti: 'Responsabile dei lavori', ph: '', per: 'entrambi', riga: 'Responsabile dei lavori' },
-    { g: 'soggetti', id: 'cse', eti: "Coordinatore per l'esecuzione (sicurezza)", ph: 'geom. Sara Gialli', per: 'entrambi', riga: "Coordinatore per l'esecuzione" },
-    { g: 'soggetti', id: 'progettista_strutture', eti: 'Calcolatore statico', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore statico' },
-    { g: 'soggetti', id: 'calcolatore_ca', eti: 'Calcolatore opere in C.A.', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore opere in C.A.' },
-    { g: 'soggetti', id: 'collaudatore', eti: "Collaudatore in corso d'opera", ph: 'ing. Carla Viola', per: 'entrambi', riga: "Collaudatore in corso d'opera" },
+    { g: 'soggetti', id: 'rup', titolo: true, eti: 'Responsabile unico del progetto (RUP)', ph: 'ing. Anna Bianchi', per: 'pubblico', riga: 'Responsabile unico del progetto (RUP)' },
+    { g: 'soggetti', id: 'progettista', titolo: true, eti: 'Progettista', ph: 'arch. Luca Verdi — Ordine Architetti PD n. 1234', per: 'entrambi', riga: 'Progettista' },
+    { g: 'soggetti', id: 'direttore_lavori', titolo: true, eti: 'Direttore dei lavori', ph: 'arch. Luca Verdi', per: 'entrambi', obbl: true, riga: 'Direttore dei lavori' },
+    { g: 'soggetti', id: 'dl_strutture', titolo: true, eti: 'Direttore dei lavori delle strutture', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Direttore dei lavori delle strutture' },
+    { g: 'soggetti', id: 'csp', titolo: true, eti: 'Coordinatore per la progettazione (sicurezza)', ph: 'geom. Sara Gialli', per: 'entrambi', riga: 'Coordinatore per la progettazione' },
+    { g: 'soggetti', id: 'responsabile_lavori', titolo: true, eti: 'Responsabile dei lavori', ph: '', per: 'entrambi', riga: 'Responsabile dei lavori' },
+    { g: 'soggetti', id: 'cse', titolo: true, eti: "Coordinatore per l'esecuzione (sicurezza)", ph: 'geom. Sara Gialli', per: 'entrambi', riga: "Coordinatore per l'esecuzione" },
+    { g: 'soggetti', id: 'progettista_strutture', titolo: true, eti: 'Calcolatore statico', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore statico' },
+    { g: 'soggetti', id: 'calcolatore_ca', titolo: true, eti: 'Calcolatore opere in C.A.', ph: 'ing. Paolo Neri', per: 'entrambi', riga: 'Calcolatore opere in C.A.' },
+    { g: 'soggetti', id: 'collaudatore', titolo: true, eti: "Collaudatore in corso d'opera", ph: 'ing. Carla Viola', per: 'entrambi', riga: "Collaudatore in corso d'opera" },
     { g: 'soggetti', id: 'altri_tecnici', eti: 'Altri tecnici', ph: 'geol. … (relazione geologica)\ning. … (certificazione energetica)', per: 'entrambi', tipo: 'textarea', riga: 'Altri tecnici' },
 
     { g: 'impresa', id: 'impresa', eti: 'Impresa esecutrice', ph: 'Rossi Costruzioni S.r.l. — Via dell’Industria 8, Padova — P.IVA 01234567890', per: 'entrambi', obbl: true, tipo: 'textarea', riga: 'Impresa esecutrice' },
     { g: 'impresa', id: 'impresa_cciaa', eti: 'C.C.I.A.A. (iscrizione / n. REA)', ph: 'PD-123456', per: 'entrambi' },
     { g: 'impresa', id: 'impresa_anc', eti: 'A.N.C. (se presente)', ph: '', per: 'entrambi' },
     { g: 'impresa', id: 'impresa_soa', eti: 'S.O.A. (attestazione e categorie)', ph: 'n. 12345/10/00 — OG1 cl. III', per: 'entrambi' },
-    { g: 'impresa', id: 'direttore_cantiere', eti: 'Direttore del cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore del cantiere' },
-    { g: 'impresa', id: 'assistente_dc', eti: 'Assistente del direttore di cantiere', ph: 'geom. Marco Verdi', per: 'entrambi', riga: 'Assistente del direttore di cantiere' },
+    { g: 'impresa', id: 'direttore_cantiere', titolo: true, eti: 'Direttore del cantiere', ph: 'geom. Andrea Rossi', per: 'entrambi', riga: 'Direttore del cantiere' },
+    { g: 'impresa', id: 'assistente_dc', titolo: true, eti: 'Assistente del direttore di cantiere', ph: 'geom. Marco Verdi', per: 'entrambi', riga: 'Assistente del direttore di cantiere' },
     { g: 'impresa', id: 'capocantiere', eti: 'Capo cantiere', ph: 'Giovanni Bianchi', per: 'entrambi', riga: 'Capo cantiere' },
-    { g: 'impresa', id: 'resp_sicurezza', eti: 'Responsabile della sicurezza', ph: 'RSPP: ing. Luisa Neri', per: 'entrambi', riga: 'Responsabile della sicurezza' },
+    { g: 'impresa', id: 'resp_sicurezza', titolo: true, eti: 'Responsabile della sicurezza', ph: 'RSPP: ing. Luisa Neri', per: 'entrambi', riga: 'Responsabile della sicurezza' },
     { g: 'impresa', id: 'subappaltatori', eti: 'Imprese subappaltatrici (una per riga, con C.C.I.A.A., A.N.C., S.O.A.)', ph: 'Impianti Bianchi S.n.c. — C.C.I.A.A. PD-234567 — S.O.A. OS30 cl. II\nIdraulica Verdi S.r.l. — C.C.I.A.A. PD-345678', per: 'entrambi', tipo: 'textarea', riga: 'Imprese subappaltatrici' },
     { g: 'impianti', id: 'imp_elettrico_prog', eti: 'Impianto elettrico — progettista', ph: '', per: 'entrambi' },
     { g: 'impianti', id: 'imp_elettrico_inst', eti: 'Impianto elettrico — impresa installatrice', ph: '', per: 'entrambi' },
@@ -168,6 +168,15 @@
     // minuscola iniziale, salvo sigle o nomi propri tutti maiuscoli (es. «SP 52», «PNRR»)
     if (!/^[A-ZÀ-Ý]{2,}\b/.test(t)) t = t.charAt(0).toLowerCase() + t.slice(1);
     return 'Lavori di ' + t;
+  }
+
+  // Qualifica dei tecnici (Filippo 09/10/2026): scelta a pulsanti nel modulo, stampata davanti al nome.
+  const QUALIFICHE = ['ing.', 'arch.', 'geom.', 'per. ind.', 'dott.'];
+  const RE_QUALIFICA = /^(ing|arch|geom|per\.?\s*ind|p\.?\s*i|dott|dr|avv|geol|agr|ind)\.?\s/i;
+  function conQualifica(nome, qualifica) {
+    const n = pulisci(nome);
+    if (!n || !qualifica || RE_QUALIFICA.test(n)) return n;
+    return qualifica + ' ' + n;
   }
 
   function perTipo(v, tipo) { return (v && typeof v === 'object') ? (v[tipo] || '') : (v || ''); }
@@ -229,7 +238,7 @@
         continue;
       }
       const def = campo(id);
-      const val = v(id);
+      const val = def && def.titolo ? conQualifica(v(id), v(id + '_titolo')) : v(id);
       if (!def || !val) continue;
       righe.push({ id, etichetta: perTipo(def.riga, tipo) || perTipo(def.eti, tipo), valore: val, forte: ['impresa', 'direttore_lavori', 'committente'].includes(id) });
     }
@@ -818,5 +827,5 @@
     }
   }
 
-  return { BRAND, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, QUALIFICHE, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });
