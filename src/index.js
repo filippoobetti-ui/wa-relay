@@ -1923,7 +1923,7 @@ async function chiamateGestisci(value, env, supabaseUrl, graph, rimossi) {
       await chatUnicaLog(env, supabaseUrl, tel || "?", null, "chiamata_evento", callId + " · " + JSON.stringify(extra).slice(0, 1500));
     }
     if (evento !== "connect" || String(c.direction || "USER_INITIATED") !== "USER_INITIATED") continue;
-    if (c.session === undefined && env.CHIAMATE_SIP === "si") continue; // in modalita' SIP la chiamata e' gestita altrove
+    if (!c.session) continue; // senza SDP = modalita' SIP: la chiamata la gestisce il server SIP, non va rifiutata qui
     if (!callId || _chiamateViste.has(callId)) continue;
     _chiamateViste.set(callId, ora);
     if (!phoneId || !token) continue;
