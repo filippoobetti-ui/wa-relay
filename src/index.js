@@ -603,7 +603,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-1 (assistente vocale OpenAI via SIP, webhook /voce/openai)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-2 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -2098,12 +2098,17 @@ async function voceWebhook(request, env, ctx) {
   }
   // Solo le chiamate passate dal nostro centralino (intestazione X-GL-Centralino con il token condiviso)
   // possono parlare con l'assistente: una chiamata SIP diretta al progetto OpenAI viene rifiutata.
-  let centralinoOk = false;
+  // Il motivo del rifiuto finisce nel registro (solo i NOMI delle intestazioni, mai i valori).
+  let centralinoOk = false, motivo = "";
   try {
     const atteso = await chatUnicaRpc(env, supabaseUrl, "centralino_token", {}, 3e3);
-    const h = (data.sip_headers || []).find((x) => String(x.name || "").toLowerCase() === "x-gl-centralino");
-    centralinoOk = !!(atteso && h && String(h.value || "").trim() === String(atteso));
-  } catch (e) { centralinoOk = false; }
+    const intest = Array.isArray(data.sip_headers) ? data.sip_headers : [];
+    const h = intest.find((x) => String((x && x.name) || "").toLowerCase() === "x-gl-centralino");
+    if (!atteso) motivo = "token del centralino non letto";
+    else if (!h) motivo = "intestazione X-GL-Centralino assente (ricevute: " + intest.map((x) => x && x.name).filter(Boolean).join(", ").slice(0, 500) + ")";
+    else if (String(h.value || "").trim() !== String(atteso)) motivo = "contrassegno diverso";
+    centralinoOk = !motivo;
+  } catch (e) { motivo = "errore lettura token: " + String((e && e.message) || e).slice(0, 150); }
   if (!centralinoOk) {
     ctx.waitUntil((async () => {
       let esito = "nessuna chiave";
@@ -2111,7 +2116,7 @@ async function voceWebhook(request, env, ctx) {
         const r = await voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/reject", { status_code: 403 });
         esito = "rifiutata " + r.status;
       }
-      await log("voce_non_autorizzata", callId + " · senza contrassegno del centralino · " + esito);
+      await log("voce_non_autorizzata", callId + " · " + motivo + " · " + esito);
     })());
     return new Response("ok", { status: 200 });
   }
