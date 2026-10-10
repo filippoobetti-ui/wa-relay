@@ -551,15 +551,25 @@ footer.piede a{color:var(--verde)}
     // Sfondo
     R(0, 0, W, H, BRAND.bianco);
 
-    // ---------- testata (banda scura)
+    // ---------- testata: riquadro con angoli arrotondati e leggera sfumatura (Filippo 10/10/2026 sera)
+    // dal colore della testata (a sinistra) verso il colore medio del tema (a destra, al 55 %),
+    // staccato dal bordo di 1,5 unità; la sfumatura è fatta a strisce verticali, così esce uguale in anteprima e nel PDF CMYK.
     const hH = 10 * u;
-    R(0, 0, W, hH, tema.testata, { sfondo: 'testata' });
-    let xTesto = m;
+    const iT = 1.5 * u;                     // distacco dal bordo del cartello
+    const xB0 = iT, xB1 = W - iT, yB0 = iT, wB = xB1 - xB0;
+    const rT = 2.4 * u;                     // raggio degli angoli
+    const mescola = (h1, h2, t) => { const a = hexRgb(h1), b2 = hexRgb(h2); return '#' + a.map((v, i) => Math.round(v + (b2[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+    const cA = tema.testata, cB = mescola(tema.testata, tema.medio, 0.55);
+    R(xB0, yB0, wB, hH, cA, { rx: rT });
+    R(xB1 - 2 * rT, yB0, 2 * rT, hH, cB, { rx: rT });
+    const nStr = 72, xS0 = xB0 + rT, xS1 = xB1 - rT, wS = (xS1 - xS0) / nStr;
+    for (let k = 0; k < nStr; k++) R(xS0 + k * wS, yB0, wS + 0.05 * u, hH, mescola(cA, cB, (k + 0.5) / nStr));
+    let xTesto = m + iT;
     if (img.stemma) {
       const lato = hH - 2.6 * u;
       const d = dentro(img.stemma.w, img.stemma.h, lato * 1.6, lato);
-      prims.push({ t: 'img', x: m, y: (hH - d.h) / 2, w: d.w, h: d.h, img: img.stemma });
-      xTesto = m + d.w + 2 * u;
+      prims.push({ t: 'img', x: m + iT, y: yB0 + (hH - d.h) / 2, w: d.w, h: d.h, img: img.stemma });
+      xTesto = m + iT + d.w + 2 * u;
     }
     // blocco a destra: «CARTELLO DI CANTIERE» + riferimento normativo
     const normativa = tipo === 'privato'
@@ -569,23 +579,23 @@ footer.piede a{color:var(--verde)}
     let wDx = Math.max(mis.larghezza('CARTELLO DI CANTIERE', true, sEti), mis.larghezza(normativa, false, sNorm));
     const ente = (tipo === 'privato' ? nomeComune(c.ente) : pulisci(c.ente)) || (tipo === 'privato' ? 'Comune di …' : 'Stazione appaltante');
     const enteSotto = tipo === 'privato' ? nomeProvincia(c.ente_sotto) : pulisci(c.ente_sotto);
-    let wSx = W - m - xTesto - wDx - 3 * u;
+    let wSx = W - m - iT - xTesto - wDx - 3 * u;
     let mostraNorm = true;
-    if (wSx < W * 0.4) { mostraNorm = false; sEti = 2.1 * u; wDx = mis.larghezza('CARTELLO DI CANTIERE', true, sEti); wSx = W - m - xTesto - wDx - 3 * u; }
+    if (wSx < W * 0.4) { mostraNorm = false; sEti = 2.1 * u; wDx = mis.larghezza('CARTELLO DI CANTIERE', true, sEti); wSx = W - m - iT - xTesto - wDx - 3 * u; }
     const fitEnte = adatta(mis, ente.toUpperCase(), true, 3.4 * u, 2.0 * u, wSx, 2, null, 1.12);
     const sSotto = Math.min(1.9 * u, fitEnte.size * 0.6);
     const fitSotto = enteSotto ? adatta(mis, enteSotto, false, sSotto, 1.3 * u, wSx, 1, null, 1.2) : null;
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
-    let y = (hH - hBlocco) / 2;
+    let y = yB0 + (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
     if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
     const hDx = sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0);
-    let yDx = (hH - hDx) / 2;
-    T(W - m, baseline(yDx, sEti), 'CARTELLO DI CANTIERE', sEti, true, BRAND.bianco, 'right');
-    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m, baseline(yDx, sNorm), normativa, sNorm, false, tema.chiaro, 'right'); }
+    let yDx = yB0 + (hH - hDx) / 2;
+    T(W - m - iT, baseline(yDx, sEti), 'CARTELLO DI CANTIERE', sEti, true, BRAND.bianco, 'right');
+    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m - iT, baseline(yDx, sNorm), normativa, sNorm, false, tema.chiaro, 'right'); }
 
     // ---------- titolo (oggetto dei lavori) e ubicazione
-    y = hH + 2.4 * u;
+    y = yB0 + hH + 2.4 * u;
     const oggetto = titoloLavori(c.oggetto) || 'Lavori di …';
     const fitTit = adatta(mis, oggetto, true, 4.6 * u, 2.6 * u, W - 2 * m, 4, null, 1.08);
     if (fitTit.troncato) avvisi.push('L’oggetto dei lavori è molto lungo: è stato ridotto per stare in quattro righe.');
