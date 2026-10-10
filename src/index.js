@@ -866,7 +866,7 @@ async function chatUnicaPromemoria(env, forza) {
 // finestra gratuita di 24 ore e' aperta, una volta al giorno, non a chi ha gia' scritto oggi. Costo: zero.
 // Interruttori: impostazioni.chat_unica_buongiorno = si/no; variabile BUONGIORNO=off nel Worker.
 // ============================================================================
-const BUONGIORNO_CRONS = ["0 5 * * MON-FRI", "0 6 * * MON-FRI"]; // due passaggi UTC: il database spedisce dalle 7:00 di Roma, una volta al giorno
+const BUONGIORNO_CRONS = ["0 5,6 * * MON-FRI", "0 5 * * MON-FRI", "0 6 * * MON-FRI"]; // due passaggi UTC: il database spedisce dalle 7:00 di Roma, una volta al giorno
 
 async function chatUnicaBuongiorno(env, forza, solo) {
   const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
@@ -903,7 +903,7 @@ async function chatUnicaBuongiorno(env, forza, solo) {
 // venerdì dall'ora impostata, una volta a settimana per lavorazione); qui si spedisce e si segna.
 // Fuori dalla finestra di 24 ore Meta rifiuta il messaggio libero: l'errore resta in crono_richieste.
 // ============================================================================
-const CRONO_CRONS = ["0 14 * * FRI", "0 15 * * FRI"]; // Cloudflare: 1 = domenica, quindi si usa FRI (il 09/10 «5» era giovedi)
+const CRONO_CRONS = ["0 14,15 * * FRI", "0 14 * * FRI", "0 15 * * FRI"]; // Cloudflare: 1 = domenica, quindi si usa FRI (il 09/10 «5» era giovedi)
 
 function cronoIdPulsante(msg) {
   if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
