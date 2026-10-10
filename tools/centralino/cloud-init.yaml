@@ -146,6 +146,8 @@ write_files:
       ANON = "__ANON__"
       TOKEN = "__TOKEN__"
       LOG = "/usr/local/bin/gl-log.py"
+      if not os.path.exists("/etc/kamailio/tls/fullchain.pem"):
+          raise SystemExit(0)  # certificato non ancora pronto: ci pensa gl-avvio.sh
       try:
           req = urllib.request.Request(URL, data=json.dumps({"p_token": TOKEN}).encode(),
               headers={"apikey": ANON, "Authorization": "Bearer " + ANON, "Content-Type": "application/json"})
