@@ -170,6 +170,7 @@ export default {
         "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
         "RIMOZIONE (persone rimosse dai Tesserini): " + (env.RIMOZIONE === "off" ? "spenta dal Worker" : "accesa (elenco da persone_rimosse_numeri, in memoria 60 s)"),
         "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
+        "CHIAMATE (risponditore in chat): " + (env.CHIAMATE === "off" ? "spento dal Worker" : "acceso (chiamata chiusa + messaggio di smistamento)"),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -356,6 +357,18 @@ async function processAndForward(rawBody, env) {
     const changes = entry.changes || [];
     for (const change of changes) {
       const value = change.value || {};
+
+      // CHIAMATE (10/10/2026): webhook «calls» della Calling API. Nessun operatore risponde:
+      // la chiamata viene chiusa subito e chi chiama riceve in chat il messaggio di smistamento.
+      // Gli eventi di chiamata non vanno MAI a Make. Emergenza: variabile CHIAMATE=off (le chiamate
+      // restano senza risposta come prima, nessun messaggio inviato).
+      if (change.field === "calls" || Array.isArray(value.calls)) {
+        if (env.CHIAMATE !== "off" && Array.isArray(value.calls)) {
+          try { await chiamateGestisci(value, env, supabaseUrl, graph, rimossi); } catch (e) {}
+        }
+        continue;
+      }
+
       if (!value.messages || value.messages.length === 0) continue;
 
       if (rimossi.length) {
@@ -459,6 +472,12 @@ async function processAndForward(rawBody, env) {
         // CRONOPROGRAMMA (09/10/2026): risposta ai pulsanti della domanda del venerdì (id «CRONO_<n>_<lettera>»).
         // La registra il database (crono_risposta), la conferma parte da qui, il pacchetto NON va a Make.
         // FAIL-SAFE: database o Meta che non rispondono → il messaggio prosegue come prima (Make lo ignora).
+        // CHIAMATE (10/10/2026): risposta ai pulsanti del messaggio inviato dopo una chiamata (id «CHIAMATA_*»).
+        if (env.CHIAMATE !== "off" && chiamataIdPulsante(msg)) {
+          let presa = false;
+          try { presa = await chiamataRispostaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
         if (env.CRONO !== "off" && cronoIdPulsante(msg)) {
           let presa = false;
           try { presa = await cronoRispostaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
@@ -575,7 +594,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1793,4 +1812,154 @@ async function sitoRoute(request, env, ctx, prefisso) {
   const loc = h.get("location");
   if (loc && loc.startsWith(origine)) h.set("Location", loc.slice(origine.length) || "/");
   return new Response(request.method === "HEAD" ? null : r.body, { status: r.status, headers: h });
+}
+
+// ============================================================================
+// CHIAMATE (10/10/2026) — risponditore in chat, nessun operatore umano.
+// Una chiamata WhatsApp in arrivo (webhook «calls», evento «connect») viene RIFIUTATA subito via
+// Calling API e chi chiama riceve in chat un messaggio con tre pulsanti di smistamento.
+// La chiamata apre la finestra di 24 ore di assistenza: il messaggio e' gratuito e a testo libero.
+// Le risposte ai pulsanti (id «CHIAMATA_*») sono gestite qui e non vanno a Make.
+// Protezioni: stessa chiamata gestita una sola volta; al massimo un messaggio di smistamento ogni
+// 10 minuti per numero; i numeri rimossi dai Tesserini vengono solo rifiutati, senza messaggio.
+// FAIL-SAFE: se Meta non risponde la chiamata finisce comunque come «Nessuna risposta» dopo 30-60 s.
+// ============================================================================
+const _chiamateViste = new Map();   // call_id -> ms
+const _chiamateMenu = new Map();    // telefono -> ms ultimo messaggio di smistamento
+const CHIAMATE_MENU_PAUSA_MS = 10 * 60 * 1000;
+
+const CHIAMATA_TESTO_MENU =
+  "📞 Ciao! Il Giornale Lavori non risponde al telefono: qui in chat è tutto automatico, a qualsiasi ora.\n\n" +
+  "Tocca il pulsante che fa per te 👇";
+
+const CHIAMATA_RISPOSTE = {
+  CHIAMATA_CANTIERE:
+    "👷 Perfetto. Scrivi qui come fai sempre: testi, foto, documenti di trasporto e anche messaggi vocali " +
+    "vengono registrati nel giornale del tuo cantiere.\n\n" +
+    "Dopo ogni messaggio ricevi la conferma ✅: se non arriva, rimandalo tra qualche minuto.",
+  CHIAMATA_INFO:
+    "🏗️ Il Giornale Lavori trasforma i messaggi WhatsApp del cantiere (testi, foto, vocali, DDT) nel " +
+    "giornale dei lavori, giorno per giorno, senza nessuna app da installare per chi lavora in cantiere.\n\n" +
+    "Le persone che scrivono sono illimitate e l'attivazione è automatica.\n\n" +
+    "Il sito www.ilgiornalelavori.it è in arrivo: da lì potrai richiedere il listino.",
+  CHIAMATA_PROBLEMA:
+    "🔧 Prova così:\n" +
+    "1) rimanda qui il messaggio, la foto o il vocale;\n" +
+    "2) attendi qualche minuto la conferma ✅;\n" +
+    "3) se la conferma non arriva ancora, avvisa l'ufficio della tua impresa: sistemerà l'accesso dal pannello del Giornale Lavori."
+};
+
+function chiamataIdPulsante(msg) {
+  if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
+  const it = msg.interactive;
+  const id = String((it.button_reply && it.button_reply.id) || (it.list_reply && it.list_reply.id) || "");
+  return Object.prototype.hasOwnProperty.call(CHIAMATA_RISPOSTE, id) ? id : "";
+}
+
+function chiamateMenuPayload(tel) {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: tel,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: CHIAMATA_TESTO_MENU },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: "CHIAMATA_CANTIERE", title: "Lavoro in cantiere" } },
+          { type: "reply", reply: { id: "CHIAMATA_INFO", title: "Info sul servizio" } },
+          { type: "reply", reply: { id: "CHIAMATA_PROBLEMA", title: "Ho un problema" } }
+        ]
+      }
+    }
+  };
+}
+
+async function chiamateGestisci(value, env, supabaseUrl, graph, rimossi) {
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  const token = env.WHATSAPP_TOKEN;
+  const ora = Date.now();
+  for (const [k, t] of _chiamateViste) if (ora - t > 3600 * 1000) _chiamateViste.delete(k);
+
+  for (const c of value.calls) {
+    if (!c || typeof c !== "object") continue;
+    const evento = String(c.event || "");
+    const callId = String(c.id || "");
+    let tel = String(c.from || "").replace(/[^0-9]/g, "");
+    if (!tel) {
+      try {
+        const ct = (value.contacts || [])[0];
+        tel = String((ct && ct.wa_id) || "").replace(/[^0-9]/g, "");
+      } catch (e) {}
+    }
+
+    if (evento !== "connect" || String(c.direction || "USER_INITIATED") !== "USER_INITIATED") {
+      if (env.SUPABASE_SERVICE_KEY && evento === "terminate") {
+        await chatUnicaLog(env, supabaseUrl, tel || "?", null, "chiamata_fine",
+          callId + " · " + JSON.stringify(c.status || "") + (c.duration ? " · " + c.duration + " s" : ""));
+      }
+      continue;
+    }
+    if (!callId || _chiamateViste.has(callId)) continue;
+    _chiamateViste.set(callId, ora);
+    if (!phoneId || !token) continue;
+
+    // 1) chiudere subito la chiamata
+    let rifiuto = "";
+    try {
+      const r = await graphJson(graph, token, phoneId + "/calls", "POST",
+        { messaging_product: "whatsapp", call_id: callId, action: "reject" });
+      rifiuto = r.ok ? "rifiutata" : "rifiuto non riuscito " + r.status + " " + JSON.stringify(r.dati).slice(0, 200);
+    } catch (e) {
+      rifiuto = "rifiuto non riuscito " + String((e && e.message) || e).slice(0, 200);
+    }
+
+    // 2) messaggio di smistamento (non ai numeri rimossi, non piu' di uno ogni 10 minuti)
+    let esitoMenu = "";
+    if (!tel) {
+      esitoMenu = "numero non disponibile (nome utente WhatsApp): nessun messaggio";
+    } else if (rimossi && rimossi.indexOf(tel) !== -1) {
+      esitoMenu = "numero rimosso: nessun messaggio";
+    } else if (_chiamateMenu.has(tel) && ora - _chiamateMenu.get(tel) < CHIAMATE_MENU_PAUSA_MS) {
+      esitoMenu = "messaggio gia' inviato negli ultimi 10 minuti";
+    } else {
+      try {
+        const inv = await chatUnicaInvia(graph, phoneId, token, chiamateMenuPayload(tel));
+        if (inv.ok) { _chiamateMenu.set(tel, ora); esitoMenu = "smistamento inviato"; }
+        else esitoMenu = "smistamento NON inviato " + inv.status + " " + inv.testo;
+      } catch (e) {
+        esitoMenu = "smistamento NON inviato " + String((e && e.message) || e).slice(0, 200);
+      }
+    }
+    if (env.SUPABASE_SERVICE_KEY) {
+      await chatUnicaLog(env, supabaseUrl, tel || "?", null, "chiamata", callId + " · " + rifiuto + " · " + esitoMenu);
+    }
+  }
+}
+
+async function chiamataRispostaGestisci(msg, value, env, supabaseUrl, graph) {
+  const id = chiamataIdPulsante(msg);
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  const token = env.WHATSAPP_TOKEN;
+  if (!id || !tel || !phoneId || !token) return false;
+  try {
+    await chatUnicaInvia(graph, phoneId, token, { messaging_product: "whatsapp", status: "read", message_id: msg.id });
+  } catch (e) {}
+  let dettaglio = id;
+  try {
+    const inv = await chatUnicaInvia(graph, phoneId, token, {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: tel,
+      type: "text",
+      text: { body: CHIAMATA_RISPOSTE[id], preview_url: false }
+    });
+    dettaglio += inv.ok ? " · risposta inviata" : " · risposta NON inviata " + inv.status + " " + inv.testo;
+  } catch (e) {
+    dettaglio += " · risposta NON inviata " + String((e && e.message) || e).slice(0, 200);
+  }
+  if (env.SUPABASE_SERVICE_KEY) await chatUnicaLog(env, supabaseUrl, tel, msg.id, "chiamata_scelta", dettaglio);
+  return true;
 }
