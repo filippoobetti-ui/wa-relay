@@ -603,7 +603,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-3 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -2136,13 +2136,19 @@ async function voceWebhook(request, env, ctx) {
     // Voce, modello e stile di parlata si cambiano dal database (impostazioni voce_voce, voce_modello,
     // voce_stile) senza ripubblicare il relay; valori non validi → si torna ai predefiniti.
     const vc = await voceConfig(env, supabaseUrl);
-    const r = await voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/accept", {
+    const accetta = (modello) => voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/accept", {
       type: "realtime",
-      model: vc.modello,
+      model: modello,
       instructions: vc.stile ? VOCE_ISTRUZIONI + "\n\n" + vc.stile : VOCE_ISTRUZIONI,
       audio: { output: { voice: vc.voce } }
     });
+    let r = await accetta(vc.modello);
     let det = callId + " · accept " + r.status + (r.ok ? "" : " " + r.testo) + " · voce " + vc.voce + " · " + vc.modello + (vc.stile ? " · con stile" : "");
+    if (!r.ok && vc.modello !== VOCE_MODELLO_BASE) {
+      // Modello scelto non accettato: la chiamata non resta senza risposta, si riprova con quello di base.
+      r = await accetta(VOCE_MODELLO_BASE);
+      det += " · riprovata con " + VOCE_MODELLO_BASE + ": accept " + r.status;
+    }
     if (r.ok) {
       try { await voceSalutoIniziale(env, callId, vc.stile); det += " · saluto inviato"; }
       catch (e) { det += " · saluto NON inviato " + String((e && e.message) || e).slice(0, 150); }
@@ -2153,15 +2159,16 @@ async function voceWebhook(request, env, ctx) {
 }
 
 const VOCE_VOCI = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"];
+const VOCE_MODELLO_BASE = "gpt-realtime-2.1-mini";
 
 async function voceConfig(env, supabaseUrl) {
   let c = {};
   try { c = (await chatUnicaRpc(env, supabaseUrl, "voce_config", {}, 2500)) || {}; } catch (e) { c = {}; }
   const voce = String(c.voce || env.VOCE_VOCE || "marin").trim().toLowerCase();
-  const modello = String(c.modello || env.VOCE_MODELLO || "gpt-realtime-2.1-mini").trim();
+  const modello = String(c.modello || env.VOCE_MODELLO || VOCE_MODELLO_BASE).trim();
   return {
     voce: VOCE_VOCI.includes(voce) ? voce : "marin",
-    modello: /^gpt-realtime[a-z0-9.\-]*$/.test(modello) ? modello : "gpt-realtime-2.1-mini",
+    modello: /^gpt-realtime[a-z0-9.\-]*$/.test(modello) ? modello : VOCE_MODELLO_BASE,
     stile: String(c.stile || "").trim().slice(0, 2000)
   };
 }
