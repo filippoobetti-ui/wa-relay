@@ -1917,13 +1917,13 @@ async function chiamateGestisci(value, env, supabaseUrl, graph, rimossi) {
       } catch (e) {}
     }
 
-    if (evento !== "connect" || String(c.direction || "USER_INITIATED") !== "USER_INITIATED") {
-      if (env.SUPABASE_SERVICE_KEY && evento === "terminate") {
-        await chatUnicaLog(env, supabaseUrl, tel || "?", null, "chiamata_fine",
-          callId + " · " + JSON.stringify(c.status || "") + (c.duration ? " · " + c.duration + " s" : ""));
-      }
-      continue;
+    // Diagnosi (10/10/2026, prova SIP): ogni evento di chiamata finisce nel registro, con eventuali errori di Meta.
+    if (env.SUPABASE_SERVICE_KEY) {
+      const extra = { event: c.event, status: c.status, direction: c.direction, duration: c.duration, errors: value.errors || c.errors };
+      await chatUnicaLog(env, supabaseUrl, tel || "?", null, "chiamata_evento", callId + " · " + JSON.stringify(extra).slice(0, 1500));
     }
+    if (evento !== "connect" || String(c.direction || "USER_INITIATED") !== "USER_INITIATED") continue;
+    if (c.session === undefined && env.CHIAMATE_SIP === "si") continue; // in modalita' SIP la chiamata e' gestita altrove
     if (!callId || _chiamateViste.has(callId)) continue;
     _chiamateViste.set(callId, ora);
     if (!phoneId || !token) continue;
