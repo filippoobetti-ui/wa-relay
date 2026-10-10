@@ -76,8 +76,8 @@ write_files:
       method = TLSv1.2+
       verify_certificate = no
       require_certificate = no
-      private_key = /etc/letsencrypt/live/sip.ilgiornalelavori.it/privkey.pem
-      certificate = /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem
+      private_key = /etc/kamailio/tls/privkey.pem
+      certificate = /etc/kamailio/tls/fullchain.pem
 
       [client:default]
       method = TLSv1.2+
@@ -125,6 +125,65 @@ write_files:
       OnUnitActiveSec=60
       [Install]
       WantedBy=timers.target
+  - path: /usr/local/bin/gl-cert-copia.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Copia il certificato Let's Encrypt in una cartella leggibile dall'utente kamailio e riavvia.
+      mkdir -p /etc/kamailio/tls
+      cp -L /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem /etc/kamailio/tls/fullchain.pem
+      cp -L /etc/letsencrypt/live/sip.ilgiornalelavori.it/privkey.pem /etc/kamailio/tls/privkey.pem
+      chown -R kamailio:kamailio /etc/kamailio/tls && chmod 600 /etc/kamailio/tls/*.pem
+      systemctl restart kamailio
+  - path: /usr/local/bin/gl-sync.py
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      # Ogni minuto: scarica da Supabase la configurazione di Kamailio (solo kamailio.cfg, nient'altro).
+      # Se e' cambiata la verifica con «kamailio -c»: se valida la applica e riavvia, altrimenti tiene la precedente.
+      import json, os, subprocess, urllib.request
+      URL = "https://rvigugiufrjmzedjstuz.supabase.co/rest/v1/rpc/centralino_config"
+      ANON = "__ANON__"
+      TOKEN = "__TOKEN__"
+      LOG = "/usr/local/bin/gl-log.py"
+      try:
+          req = urllib.request.Request(URL, data=json.dumps({"p_token": TOKEN}).encode(),
+              headers={"apikey": ANON, "Authorization": "Bearer " + ANON, "Content-Type": "application/json"})
+          cfg = json.loads(urllib.request.urlopen(req, timeout=10).read().decode())
+      except Exception as e:
+          raise SystemExit(0)
+      if not isinstance(cfg, str) or "#!KAMAILIO" not in cfg:
+          raise SystemExit(0)
+      ip = urllib.request.urlopen("http://169.254.169.254/hetzner/v1/metadata/public-ipv4", timeout=5).read().decode().strip()
+      cfg = cfg.replace("__IP__", ip)
+      attuale = open("/etc/kamailio/kamailio.cfg").read() if os.path.exists("/etc/kamailio/kamailio.cfg") else ""
+      if cfg == attuale:
+          raise SystemExit(0)
+      open("/etc/kamailio/kamailio.cfg.nuovo", "w").write(cfg)
+      chk = subprocess.run(["kamailio", "-c", "-f", "/etc/kamailio/kamailio.cfg.nuovo"], capture_output=True, text=True)
+      if chk.returncode != 0:
+          subprocess.run([LOG, "configurazione NON applicata, errore: " + (chk.stderr or chk.stdout)[-1500:]])
+          raise SystemExit(0)
+      os.replace("/etc/kamailio/kamailio.cfg.nuovo", "/etc/kamailio/kamailio.cfg")
+      subprocess.run(["systemctl", "restart", "kamailio"])
+      st = subprocess.run(["systemctl", "is-active", "kamailio"], capture_output=True, text=True).stdout.strip()
+      subprocess.run([LOG, "configurazione applicata, kamailio " + st])
+  - path: /etc/systemd/system/gl-sync.service
+    content: |
+      [Unit]
+      Description=Sincronizza configurazione centralino
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/gl-sync.py
+  - path: /etc/systemd/system/gl-sync.timer
+    content: |
+      [Unit]
+      Description=Sincronizza configurazione centralino ogni minuto
+      [Timer]
+      OnBootSec=120
+      OnUnitActiveSec=60
+      [Install]
+      WantedBy=timers.target
   - path: /usr/local/bin/gl-avvio.sh
     permissions: '0755'
     content: |
@@ -140,14 +199,16 @@ write_files:
       done
       if [ ! -f /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem ]; then
         certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email \
-          -d sip.ilgiornalelavori.it --deploy-hook "systemctl restart kamailio" >/var/log/gl-certbot.log 2>&1
+          -d sip.ilgiornalelavori.it --deploy-hook /usr/local/bin/gl-cert-copia.sh >/var/log/gl-certbot.log 2>&1
         /usr/local/bin/gl-log.py "certificato: $(tail -n 3 /var/log/gl-certbot.log | tr '\n' ' ')"
       fi
-      systemctl enable kamailio && systemctl restart kamailio
+      /usr/local/bin/gl-cert-copia.sh
+      systemctl enable kamailio
       sleep 3
       /usr/local/bin/gl-log.py "kamailio: $(systemctl is-active kamailio) · $(journalctl -u kamailio -n 8 -o cat --no-pager | tr '\n' ' ' | cut -c1-1500)"
 runcmd:
   - sed -i 's/^#\?RUN_KAMAILIO=.*/RUN_KAMAILIO=yes/' /etc/default/kamailio || true
   - systemctl daemon-reload
   - systemctl enable --now gl-log.timer
+  - systemctl enable --now gl-sync.timer
   - nohup /usr/local/bin/gl-avvio.sh >/var/log/gl-avvio.log 2>&1 &
