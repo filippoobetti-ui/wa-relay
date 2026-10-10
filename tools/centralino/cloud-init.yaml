@@ -1,0 +1,153 @@
+#cloud-config
+# Centralino SIP del Giornale Lavori (10/10/2026) — Kamailio come proxy SIP Meta → OpenAI.
+# Riscrive solo l'indirizzo della chiamata (numero WhatsApp → progetto OpenAI); l'audio va diretto Meta ↔ OpenAI.
+package_update: true
+packages: [kamailio, kamailio-tls-modules, certbot, python3]
+write_files:
+  - path: /etc/kamailio/kamailio.cfg.tpl
+    content: |
+      #!KAMAILIO
+      debug=2
+      log_stderror=no
+      log_facility=LOG_LOCAL0
+      children=4
+      tcp_children=4
+      enable_tls=yes
+      disable_tcp=no
+      auto_aliases=no
+      listen=tls:__IP__:5061 advertise sip.ilgiornalelavori.it:5061
+      alias="sip.ilgiornalelavori.it:5061"
+      tcp_connection_lifetime=3605
+      tcp_accept_no_cl=yes
+      loadmodule "kex.so"
+      loadmodule "corex.so"
+      loadmodule "tm.so"
+      loadmodule "tmx.so"
+      loadmodule "sl.so"
+      loadmodule "rr.so"
+      loadmodule "pv.so"
+      loadmodule "maxfwd.so"
+      loadmodule "textops.so"
+      loadmodule "siputils.so"
+      loadmodule "xlog.so"
+      loadmodule "pike.so"
+      loadmodule "tls.so"
+      modparam("tls", "config", "/etc/kamailio/tls.cfg")
+      modparam("tls", "xavp_cfg", "tls")
+      modparam("rr", "enable_full_lr", 1)
+      modparam("pike", "sampling_time_unit", 2)
+      modparam("pike", "reqs_density_per_unit", 16)
+      modparam("pike", "remove_latency", 4)
+      request_route {
+        if (!mf_process_maxfwd_header("10")) { sl_send_reply("483", "Too Many Hops"); exit; }
+        if (!pike_check_req()) { exit; }
+        if (is_method("OPTIONS") && uri==myself) { sl_send_reply("200", "OK"); exit; }
+        if (has_totag()) {
+          if (loose_route()) {
+            if ($rd =~ "openai") { $xavp(tls=>server_name) = "sip.api.openai.com"; }
+            xlog("L_NOTICE", "GL in-dialog $rm da $si verso $ru\n");
+            t_relay(); exit;
+          }
+          if (is_method("ACK")) { if (t_check_trans()) { t_relay(); } exit; }
+          sl_send_reply("404", "Not here"); exit;
+        }
+        if (is_method("CANCEL")) { if (t_check_trans()) { t_relay(); } exit; }
+        if (!is_method("INVITE")) { sl_send_reply("405", "Method Not Allowed"); exit; }
+        if (!is_present_hf("X-Wa-Meta-Wacid")) {
+          xlog("L_NOTICE", "GL INVITE rifiutato (senza X-Wa-Meta-Wacid) da $si ru=$ru\n");
+          sl_send_reply("403", "Forbidden"); exit;
+        }
+        xlog("L_NOTICE", "GL INVITE da $si ru=$ru wacid=$hdr(X-Wa-Meta-Wacid)\n");
+        remove_hf("X-GL-Centralino");
+        append_hf("X-GL-Centralino: __TOKEN__\r\n");
+        $ru = "sip:__PROJ__@sip.api.openai.com:5061;transport=tls";
+        $xavp(tls=>server_name) = "sip.api.openai.com";
+        record_route();
+        t_on_reply("GL_RISPOSTA");
+        t_on_failure("GL_FALLITA");
+        if (!t_relay()) { xlog("L_NOTICE", "GL t_relay non riuscito\n"); sl_reply_error(); }
+        exit;
+      }
+      onreply_route[GL_RISPOSTA] { xlog("L_NOTICE", "GL risposta $rs $rr da $si\n"); }
+      failure_route[GL_FALLITA] { xlog("L_NOTICE", "GL chiamata fallita codice $T_reply_code\n"); }
+  - path: /etc/kamailio/tls.cfg
+    content: |
+      [server:default]
+      method = TLSv1.2+
+      verify_certificate = no
+      require_certificate = no
+      private_key = /etc/letsencrypt/live/sip.ilgiornalelavori.it/privkey.pem
+      certificate = /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem
+
+      [client:default]
+      method = TLSv1.2+
+      verify_certificate = no
+      require_certificate = no
+  - path: /usr/local/bin/gl-log.py
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      # Invia al registro del Giornale Lavori (Supabase, chat_unica_eventi tipo "centralino") le righe recenti.
+      import json, subprocess, sys, urllib.request
+      URL = "https://rvigugiufrjmzedjstuz.supabase.co/rest/v1/rpc/centralino_log"
+      ANON = "__ANON__"
+      TOKEN = "__TOKEN__"
+      def invia(testo):
+          if not testo.strip(): return
+          req = urllib.request.Request(URL, data=json.dumps({"p_token": TOKEN, "p_testo": testo[:1990]}).encode(),
+              headers={"apikey": ANON, "Authorization": "Bearer " + ANON, "Content-Type": "application/json"})
+          try: urllib.request.urlopen(req, timeout=10)
+          except Exception as e: print(e)
+      if len(sys.argv) > 1:
+          invia(" ".join(sys.argv[1:])); sys.exit(0)
+      out = subprocess.run(["journalctl", "-u", "kamailio", "--since", "-65 seconds", "-o", "cat", "--no-pager"],
+                           capture_output=True, text=True).stdout
+      righe = [r for r in out.splitlines() if r.strip()]
+      blocco = ""
+      for r in righe:
+          if len(blocco) + len(r) > 1900:
+              invia(blocco); blocco = ""
+          blocco += r + "\n"
+      invia(blocco)
+  - path: /etc/systemd/system/gl-log.service
+    content: |
+      [Unit]
+      Description=Invio registro centralino
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/gl-log.py
+  - path: /etc/systemd/system/gl-log.timer
+    content: |
+      [Unit]
+      Description=Invio registro centralino ogni minuto
+      [Timer]
+      OnBootSec=60
+      OnUnitActiveSec=60
+      [Install]
+      WantedBy=timers.target
+  - path: /usr/local/bin/gl-avvio.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Attende che sip.ilgiornalelavori.it punti a questo server, ottiene il certificato e avvia Kamailio.
+      IP=$(curl -s http://169.254.169.254/hetzner/v1/metadata/public-ipv4)
+      sed -e "s/__IP__/$IP/" /etc/kamailio/kamailio.cfg.tpl > /etc/kamailio/kamailio.cfg
+      /usr/local/bin/gl-log.py "avvio server $IP: in attesa del DNS di sip.ilgiornalelavori.it"
+      for i in $(seq 1 240); do
+        R=$(getent ahostsv4 sip.ilgiornalelavori.it | awk '{print $1; exit}')
+        [ "$R" = "$IP" ] && break
+        sleep 30
+      done
+      if [ ! -f /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem ]; then
+        certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email \
+          -d sip.ilgiornalelavori.it --deploy-hook "systemctl restart kamailio" >/var/log/gl-certbot.log 2>&1
+        /usr/local/bin/gl-log.py "certificato: $(tail -n 3 /var/log/gl-certbot.log | tr '\n' ' ')"
+      fi
+      systemctl enable kamailio && systemctl restart kamailio
+      sleep 3
+      /usr/local/bin/gl-log.py "kamailio: $(systemctl is-active kamailio) · $(journalctl -u kamailio -n 8 -o cat --no-pager | tr '\n' ' ' | cut -c1-1500)"
+runcmd:
+  - sed -i 's/^#\?RUN_KAMAILIO=.*/RUN_KAMAILIO=yes/' /etc/default/kamailio || true
+  - systemctl daemon-reload
+  - systemctl enable --now gl-log.timer
+  - nohup /usr/local/bin/gl-avvio.sh >/var/log/gl-avvio.log 2>&1 &
