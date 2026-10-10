@@ -407,29 +407,31 @@
     const yCorpoInizio = y;
 
     // ---------- piede fisso: marchio, sito, QR (mai modificabile)
-    const hF = 9 * u;
+    // 10/10/2026 sera (Filippo): frase e sito su UNA sola riga, piede più basso (da 9 a 6,5 unità) per lasciare spazio ai dati del cantiere
+    const hF = 6.5 * u;
     const yF = H - hF;
     R(0, yF, W, hF, BRAND.bianco, { sfondo: 'piede' });
     R(0, yF, W, 0.3 * u, tema.medio); // riga sopra il piede nel colore scelto (Filippo 09/10/2026)
-    const hLogo = 4.6 * u;
+    const hLogo = 3.6 * u;
     const wLogo = hLogo * LOGO_RAPPORTO;
-    prims.push({ t: 'logo', x: m, y: yF + (hF - hLogo) / 2 + 0.1 * u, h: hLogo, w: wLogo });
-    const qrLato = hF - 1.8 * u;
+    prims.push({ t: 'logo', x: m, y: yF + (hF - hLogo) / 2 + 0.15 * u, h: hLogo, w: wLogo });
+    const qrLato = hF - 1.3 * u;
     const xQr = W - m - qrLato;
     prims.push({ t: 'qr', x: xQr, y: yF + (hF - qrLato) / 2 + 0.15 * u, size: qrLato });
-    const sInq = 1.15 * u;
-    T(xQr - 1.2 * u, yF + hF / 2 - 0.2 * u, 'inquadra il QR', sInq, false, BRAND.grigio, 'right');
-    T(xQr - 1.2 * u, yF + hF / 2 - 0.2 * u + sInq * 1.3, 'e scopri il servizio', sInq, false, BRAND.grigio, 'right');
-    const xT0 = m + wLogo + 3 * u;
-    const xT1 = xQr - 1.2 * u - mis.larghezza('e scopri il servizio', false, sInq) - 3 * u;
+    const sInq = 1.0 * u;
+    T(xQr - 1.0 * u, yF + hF / 2 - 0.05 * u, 'inquadra il QR', sInq, false, BRAND.grigio, 'right');
+    T(xQr - 1.0 * u, yF + hF / 2 - 0.05 * u + sInq * 1.3, 'e scopri il servizio', sInq, false, BRAND.grigio, 'right');
+    const xT0 = m + wLogo + 2.5 * u;
+    const xT1 = xQr - 1.0 * u - mis.larghezza('e scopri il servizio', false, sInq) - 2.5 * u;
     const wT = Math.max(10 * u, xT1 - xT0);
-    const fitSlogan = adatta(mis, dati.abbonato ? SLOGAN_ABBONATO : SLOGAN, true, 2.3 * u, 1.3 * u, wT, 1, null, 1.2);
-    const fitSito = adatta(mis, SITO, true, 2.5 * u, 1.3 * u, wT, 1, null, 1.2);
-    const hPiede = fitSlogan.size * 1.25 + fitSito.size * 1.25;
-    let yP = yF + (hF - hPiede) / 2 + 0.15 * u;
-    T(xT0 + wT / 2, baseline(yP, fitSlogan.size), fitSlogan.righe[0], fitSlogan.size, true, BRAND.scuro, 'center');
-    yP += fitSlogan.size * 1.25;
-    T(xT0 + wT / 2, baseline(yP, fitSito.size), fitSito.righe[0], fitSito.size, true, BRAND.accento, 'center');
+    const frase = (dati.abbonato ? SLOGAN_ABBONATO : SLOGAN) + ' ';
+    const fitRiga = adatta(mis, frase + SITO, true, 2.4 * u, 1.0 * u, wT, 1, null, 1.2);
+    const sRiga = fitRiga.size;
+    const w1 = mis.larghezza(frase, true, sRiga), w2 = mis.larghezza(SITO, true, sRiga);
+    const xR = xT0 + Math.max(0, (wT - (w1 + w2)) / 2);
+    const yR = baseline(yF + (hF - sRiga * 1.2) / 2 + 0.15 * u, sRiga);
+    T(xR, yR, frase.trim(), sRiga, true, BRAND.scuro, 'left');
+    T(xR + w1, yR, SITO, sRiga, true, BRAND.accento, 'left');
 
     // ---------- striscia loghi (facoltativa) sopra il piede
     let yCorpoFine = yF - 2 * u;
