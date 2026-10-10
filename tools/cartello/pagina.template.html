@@ -79,6 +79,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .scelte label.su-misura{grid-column:1/-1}.misure-su{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}.misure-su[hidden]{display:none}.aiuto.errore{color:#8a1c12;font-weight:600}
 .t-sez{font-weight:700;margin-top:4px}.slot-griglia{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media (max-width:620px){.slot-griglia{grid-template-columns:1fr}}.slot{border:1px dashed var(--bordo);border-radius:12px;padding:10px 12px;background:#fafbfa}.slot.pieno{border-style:solid;background:#fff}.slot .t{font-weight:700}.slot .n{font-size:.78rem;color:var(--muto)}.slot-img{margin-top:8px;height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--bordo);border-radius:8px}.slot-img img{max-width:100%;max-height:56px;object-fit:contain}.slot .nome{font-size:.72rem;color:var(--muto);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .ruolo{width:100%;margin-top:8px;font-size:.85rem;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}.slot-azioni{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btn.piccolo{padding:6px 14px;font-size:.85rem;width:auto;min-height:0;height:auto;line-height:1.2;display:inline-flex;align-items:center;justify-content:center}
 .colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
+.testate{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}.testata-op{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:10px;background:#fff}.testata-op input{position:absolute;opacity:0;pointer-events:none}.testata-op:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.testata-op .t{font-weight:700;display:block;font-size:.92rem}.testata-op .n{font-size:.78rem;color:var(--muto)}.testata-op .camp{flex:0 0 auto;width:54px;height:30px;border-radius:7px}
 .con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
 .esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
@@ -129,6 +130,11 @@ footer.piede a{color:var(--verde)}
       <p class="aiuto" id="aiuto-formato"></p>
       <div class="campo" style="margin-top:12px"><span class="eti">Colore del cartello</span>
         <div class="colori" id="colori" role="radiogroup" aria-label="Colore del cartello"></div>
+        <span class="eti" style="margin-top:12px;display:block">Colorazione della testata</span>
+        <div class="testate" id="testate" role="radiogroup" aria-label="Colorazione della testata">
+          <label class="testata-op"><input type="radio" name="testata" value="sfumata"><span class="camp sf"></span><span><span class="t">Sfumata</span><span class="n">bordo più chiaro, centro più scuro</span></span></label>
+          <label class="testata-op"><input type="radio" name="testata" value="piena"><span class="camp pi"></span><span><span class="t">Normale</span><span class="n">tinta unica, uniforme</span></span></label>
+        </div>
         <p class="nota" style="margin:6px 0 0">Tinta piena in testata, tinta più tenue nei dettagli, tinta più scura per titolo e voci del cartello. Il marchio Il Giornale Lavori in fondo resta verde.</p>
       </div>
     </section>
@@ -373,6 +379,19 @@ footer.piede a{color:var(--verde)}
     $('#num-immagini').textContent = numero;
   }
 
+  function campioniTestata() {
+    var t = M.TEMI[stato.colore || 'verde'] || M.TEMI.verde;
+    var sf = document.querySelector('.testata-op .sf'), pi = document.querySelector('.testata-op .pi');
+    if (sf) sf.style.background = 'radial-gradient(ellipse at center, ' + t.testata + ' 35%, ' + t.medio + ' 100%)';
+    if (pi) pi.style.background = t.testata;
+  }
+  function disegnaTestate() {
+    document.querySelectorAll('input[name=testata]').forEach(function (inp) {
+      inp.checked = (stato.testata || 'sfumata') === inp.value;
+      inp.addEventListener('change', function () { if (inp.checked) { stato.testata = inp.value; salvaStato(); ridisegna(); } });
+    });
+    campioniTestata();
+  }
   function disegnaColori() {
     var box = $('#colori'); if (!box) return; box.innerHTML = '';
     Object.keys(M.TEMI).forEach(function (k) {
@@ -380,7 +399,7 @@ footer.piede a{color:var(--verde)}
       var lab = el('label', { class: 'colore', title: t.nome });
       var inp = el('input', { type: 'radio', name: 'colore', value: k });
       if ((stato.colore || 'verde') === k) inp.checked = true;
-      inp.addEventListener('change', function () { if (inp.checked) { stato.colore = k; salvaStato(); ridisegna(); } });
+      inp.addEventListener('change', function () { if (inp.checked) { stato.colore = k; salvaStato(); campioniTestata(); ridisegna(); } });
       lab.appendChild(inp);
       lab.appendChild(el('span', { class: 'cam' }, '<i style="background:' + t.testata + '"></i><i style="background:' + t.medio + '"></i><i style="background:' + t.chiaro + '"></i>'));
       lab.appendChild(el('span', { class: 't' }, esc(t.nome)));
@@ -583,7 +602,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini, abbonato: !!(stato.pagamento && stato.pagamento.abbonato) }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', testata: stato.testata || 'sfumata', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini, abbonato: !!(stato.pagamento && stato.pagamento.abbonato) }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -760,6 +779,7 @@ footer.piede a{color:var(--verde)}
     $('#abbondanza').addEventListener('change', function (e) { stato.abbondanza = Number(e.target.value) || 0; salvaStato(); aggiornaOrientamento(); ridisegna(); });
     disegnaFormati();
     disegnaColori();
+    disegnaTestate();
     disegnaModulo();
     caricaImmagini().then(function () {
       migraLoghi();

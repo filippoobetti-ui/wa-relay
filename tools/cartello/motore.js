@@ -365,7 +365,8 @@
     // concentrici, ognuno un po' più scuro e più interno del precedente; il cuore ha il colore pieno della testata.
     const cChiaro = mescola(tema.medio, '#FFFFFF', 0.1), cScuro = tema.testata;
     const nL = 28, iBanda = prims.length;
-    for (let k = 0; k < nL; k++) R(xB0, yB0, wB, hH, mescola(cChiaro, cScuro, Math.pow(k / (nL - 1), 0.85)), { rx: rT });
+    const tPiena = dati.testata === 'piena'; // scelta del cliente: 'sfumata' (perimetro chiaro → centro scuro) o 'piena' (tinta unica)
+    for (let k = 0; k < nL; k++) R(xB0, yB0, wB, hH, tPiena ? cScuro : mescola(cChiaro, cScuro, Math.pow(k / (nL - 1), 0.85)), { rx: rT });
     const disponiBanda = () => {
       const maxIn = Math.min(hH * 0.42, 4.6 * u);
       for (let k = 0; k < nL; k++) {
