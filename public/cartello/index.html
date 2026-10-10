@@ -345,12 +345,12 @@ footer.piede a{color:var(--verde)}
     privato: ['ufficio', 'titolo', 'titolo_altri', 'proprieta', 'committente', 'importo_progetto', 'date', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze'],
+      'impianti', 'altri_tecnici', 'notifica'],
     pubblico: ['cupcig', 'importo_progetto', 'importo_lavori', 'oneri_sicurezza', 'importo_contratto', 'finanziamento', 'contratto',
       'committente', 'rup', 'date', 'tempo_utile', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze']
+      'impianti', 'altri_tecnici', 'notifica']
   };
 
   // Prefissi automatici (decisione di Filippo 07/10/2026): il cliente scrive solo il nome.
@@ -427,10 +427,6 @@ footer.piede a{color:var(--verde)}
           if (ins) parti.push('Impresa installatrice: ' + ins);
           righe.push({ id: 'imp_' + k, etichetta: nome, valore: parti.join('\n'), forte: false });
         }
-        continue;
-      }
-      if (id === 'emergenze') {
-        righe.push({ id, etichetta: 'Numero unico per le emergenze', valore: '112', forte: true, fisso: true });
         continue;
       }
       if (id === 'cupcig') {
@@ -1447,7 +1443,7 @@ footer.piede a{color:var(--verde)}
     { id: 'soggetti', num: 5, titolo: 'Soggetti e tecnici', sotto: 'I nominativi dei coordinatori per la sicurezza devono comparire sul cartello (art. 90, c. 7, D.Lgs. 81/2008). Le righe vuote non vengono stampate.' },
     { id: 'impresa', num: 6, titolo: 'Impresa esecutrice e subappaltatori', sotto: 'Ragione sociale, sede e partita IVA, con C.C.I.A.A., A.N.C. e S.O.A.; direzione del cantiere e sicurezza; i subappaltatori una per riga.' },
     { id: 'impianti', num: 6, titolo: 'Impianti', sotto: 'Per ogni impianto il progettista e l’impresa installatrice (D.M. 37/2008). Gli impianti lasciati vuoti non vengono stampati.' },
-    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Data di inizio e data contrattuale di ultimazione. Il cartello riporta sempre il numero unico per le emergenze 112 e, in fondo ai dati, in nero e in stampatello, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
+    { id: 'tempi', num: 6, titolo: 'Tempi', sotto: 'Data di inizio e data contrattuale di ultimazione. Il cartello riporta sempre, in fondo ai dati, in nero e in stampatello, la dicitura «Ulteriori informazioni sull’opera possono essere assunte presso l’ufficio competente».' }
   ];
   function visibile(c, tipo) { return c.per === 'entrambi' || c.per === tipo; }
   function obbligatorio(c, tipo) { return c.obbl === true || c.obblPer === tipo; }

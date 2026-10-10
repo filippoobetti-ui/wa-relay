@@ -142,12 +142,12 @@
     privato: ['ufficio', 'titolo', 'titolo_altri', 'proprieta', 'committente', 'importo_progetto', 'date', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze'],
+      'impianti', 'altri_tecnici', 'notifica'],
     pubblico: ['cupcig', 'importo_progetto', 'importo_lavori', 'oneri_sicurezza', 'importo_contratto', 'finanziamento', 'contratto',
       'committente', 'rup', 'date', 'tempo_utile', 'progettista',
       'direttore_cantiere', 'assistente_dc', 'direttore_lavori', 'dl_strutture', 'csp', 'responsabile_lavori', 'cse', 'capocantiere',
       'progettista_strutture', 'calcolatore_ca', 'collaudatore', 'resp_sicurezza', 'impresa', 'subappaltatori', 'n_lavoratori',
-      'impianti', 'altri_tecnici', 'notifica', 'emergenze']
+      'impianti', 'altri_tecnici', 'notifica']
   };
 
   // Prefissi automatici (decisione di Filippo 07/10/2026): il cliente scrive solo il nome.
@@ -224,10 +224,6 @@
           if (ins) parti.push('Impresa installatrice: ' + ins);
           righe.push({ id: 'imp_' + k, etichetta: nome, valore: parti.join('\n'), forte: false });
         }
-        continue;
-      }
-      if (id === 'emergenze') {
-        righe.push({ id, etichetta: 'Numero unico per le emergenze', valore: '112', forte: true, fisso: true });
         continue;
       }
       if (id === 'cupcig') {
