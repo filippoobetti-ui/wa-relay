@@ -1028,6 +1028,20 @@ async function chatUnicaAdmin(request, env) {
     // solo gli id e i permessi: mai il token
     return rispondi({ ok: r.ok, status: r.status, app_id: d.app_id, type: d.type, scopes: d.scopes, granular_scopes: d.granular_scopes, expires_at: d.expires_at, errore: r.dati && r.dati.error });
   }
+  // VOCE (10/10/2026): lettura e scrittura delle impostazioni chiamate/SIP del numero (Graph /settings).
+  if (azione === "impostazioni_leggi") {
+    const r = await graphJson(graph, token, phoneId + "/settings" + (corpo.credenziali === true ? "?include_sip_credentials=true" : ""));
+    if (r.dati && r.dati.calling && r.dati.calling.sip && Array.isArray(r.dati.calling.sip.servers)) {
+      for (const s of r.dati.calling.sip.servers) if (s && s.sip_user_password) s.sip_user_password = "(presente, nascosta)";
+    }
+    return rispondi(r);
+  }
+  if (azione === "impostazioni_scrivi") {
+    if (!corpo.calling || typeof corpo.calling !== "object") return rispondi({ errore: "calling mancante" }, 400);
+    const r = await graphJson(graph, token, phoneId + "/settings", "POST", { calling: corpo.calling });
+    await chatUnicaLog(env, supabaseUrl, "0", null, "admin_impostazioni", JSON.stringify(corpo.calling).slice(0, 900) + " → " + r.status);
+    return rispondi(r);
+  }
   if (azione === "numero") {
     const r = await graphJson(graph, token, phoneId + "?fields=id,display_phone_number,verified_name,quality_rating,name_status");
     return rispondi(r);
