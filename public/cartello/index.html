@@ -552,19 +552,25 @@ footer.piede a{color:var(--verde)}
     R(0, 0, W, H, BRAND.bianco);
 
     // ---------- testata: riquadro con angoli arrotondati e leggera sfumatura (Filippo 10/10/2026 sera)
-    // dal colore della testata (a sinistra) verso il colore medio del tema (a destra, al 55 %),
-    // staccato dal bordo di 1,5 unità; la sfumatura è fatta a strisce verticali, così esce uguale in anteprima e nel PDF CMYK.
+    // staccato dal bordo di 1,5 unità; la sfumatura è fatta con riquadri pieni, così esce uguale in anteprima e nel PDF CMYK.
     let hH = 10 * u;
     const iT = 1.5 * u;                     // distacco dal bordo del cartello
     const xB0 = iT, xB1 = W - iT, yB0 = iT, wB = xB1 - xB0;
     const rT = 2.4 * u;                     // raggio degli angoli
     const mescola = (h1, h2, t) => { const a = hexRgb(h1), b2 = hexRgb(h2); return '#' + a.map((v, i) => Math.round(v + (b2[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
-    const cA = tema.testata, cB = mescola(tema.testata, tema.medio, 0.55);
-    const iBanda = prims.length;
-    R(xB0, yB0, wB, hH, cA, { rx: rT });
-    R(xB1 - 2 * rT, yB0, 2 * rT, hH, cB, { rx: rT });
-    const nStr = 72, xS0 = xB0 + rT, xS1 = xB1 - rT, wS = (xS1 - xS0) / nStr;
-    for (let k = 0; k < nStr; k++) R(xS0 + k * wS, yB0, wS + 0.05 * u, hH, mescola(cA, cB, (k + 0.5) / nStr));
+    // 10/10/2026 sera (Filippo): sfumatura dal perimetro (più chiaro) verso l'interno (più scuro): riquadri arrotondati
+    // concentrici, ognuno un po' più scuro e più interno del precedente; il cuore ha il colore pieno della testata.
+    const cChiaro = mescola(tema.medio, '#FFFFFF', 0.1), cScuro = tema.testata;
+    const nL = 28, iBanda = prims.length;
+    for (let k = 0; k < nL; k++) R(xB0, yB0, wB, hH, mescola(cChiaro, cScuro, Math.pow(k / (nL - 1), 0.85)), { rx: rT });
+    const disponiBanda = () => {
+      const maxIn = Math.min(hH * 0.42, 4.6 * u);
+      for (let k = 0; k < nL; k++) {
+        const p = prims[iBanda + k], ins = maxIn * k / (nL - 1);
+        p.x = xB0 + ins; p.y = yB0 + ins; p.w = wB - 2 * ins; p.h = hH - 2 * ins; p.rx = Math.max(0.5 * u, rT - ins * 0.4);
+      }
+    };
+    disponiBanda();
     let xTesto = m + iT;
     if (img.stemma) {
       const lato = hH - 2.6 * u;
@@ -589,7 +595,7 @@ footer.piede a{color:var(--verde)}
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
     // la testata si allunga se il nome dell'ente va su due righe, così il testo non tocca il bordo arrotondato
     const hNec = Math.max(hBlocco, sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0)) + 2.6 * u;
-    if (hNec > hH) { const dh = hNec - hH; hH = hNec; for (let k = iBanda; k < prims.length; k++) { if (prims[k].t === 'rect') prims[k].h = hH; else if (prims[k].t === 'img') prims[k].y += dh / 2; } }
+    if (hNec > hH) { const dh = hNec - hH; hH = hNec; disponiBanda(); for (let k = iBanda + nL; k < prims.length; k++) { if (prims[k].t === 'img') prims[k].y += dh / 2; } }
     let y = yB0 + (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
     if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
