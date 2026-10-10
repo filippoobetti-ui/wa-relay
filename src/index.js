@@ -171,6 +171,7 @@ export default {
         "RIMOZIONE (persone rimosse dai Tesserini): " + (env.RIMOZIONE === "off" ? "spenta dal Worker" : "accesa (elenco da persone_rimosse_numeri, in memoria 60 s)"),
         "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
         "CHIAMATE (risponditore in chat): " + (env.CHIAMATE === "off" ? "spento dal Worker" : "acceso (chiamata chiusa + messaggio di smistamento)"),
+        "VOCE (assistente vocale OpenAI via SIP): " + (env.VOCE === "off" ? "spenta dal Worker" : "pronta") + " · OPENAI_API_KEY: " + si(env.OPENAI_API_KEY) + " · OPENAI_WEBHOOK_SECRET: " + si(env.OPENAI_WEBHOOK_SECRET) + " · modello " + (env.VOCE_MODELLO || "gpt-realtime-2.1-mini"),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -205,6 +206,14 @@ export default {
     }
 
     // Amministrazione della chat unica (Flow, invii di prova, promemoria): chiave condivisa dal database.
+    // VOCE (10/10/2026): webhook di OpenAI per le chiamate WhatsApp passate via SIP al modello vocale.
+    if (request.method === "POST" && url.pathname === "/voce/openai") {
+      try {
+        return await voceWebhook(request, env, ctx);
+      } catch (e) {
+        return new Response("errore", { status: 500 });
+      }
+    }
     if (request.method === "POST" && url.pathname === "/admin") {
       try { return await chatUnicaAdmin(request, env); }
       catch (e) { return new Response(JSON.stringify({ errore: String((e && e.message) || e).slice(0, 300) }), { status: 500, headers: { "Content-Type": "application/json" } }); }
@@ -594,7 +603,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-1 (assistente vocale OpenAI via SIP, webhook /voce/openai)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1962,4 +1971,141 @@ async function chiamataRispostaGestisci(msg, value, env, supabaseUrl, graph) {
   }
   if (env.SUPABASE_SERVICE_KEY) await chatUnicaLog(env, supabaseUrl, tel, msg.id, "chiamata_scelta", dettaglio);
   return true;
+}
+
+// ============================================================================
+// VOCE (10/10/2026) — assistente vocale AI sulle chiamate WhatsApp, nessun operatore umano.
+// Percorso: chi chiama su WhatsApp → Meta (SIP) → OpenAI Realtime (SIP) → webhook qui
+// «realtime.call.incoming» → accettiamo la chiamata con modello e istruzioni → l'AI saluta per prima.
+// Sicurezza: firma del webhook verificata (Standard Webhooks) con OPENAI_WEBHOOK_SECRET.
+// FAIL-SAFE: chiave o segreto mancanti, firma non valida o interruttore VOCE=off → la chiamata viene
+// rifiutata (se possibile) e l'evento resta nel registro; il resto del relay non e' toccato.
+// ============================================================================
+const VOCE_ISTRUZIONI = [
+  "Sei l'assistente vocale del Giornale Lavori, un servizio italiano per le imprese edili. Rispondi al telefono al posto di un operatore: non esistono operatori umani da passare, non promettere mai richiamate di persone.",
+  "Parla in italiano, con tono cordiale e professionale, frasi brevi e chiare. Se chi chiama parla un'altra lingua, rispondi nella sua lingua.",
+  "Cos'è il Giornale Lavori: chi lavora in cantiere scrive su WhatsApp a questo numero (testi, foto, vocali, documenti di trasporto) e il servizio compila in automatico il giornale dei lavori del cantiere, giorno per giorno. Gli operai non devono installare nessuna app. L'impresa consulta i suoi cantieri da un'app web. Le persone che scrivono sono illimitate. L'attivazione è automatica.",
+  "Prezzi: non dare cifre. Il listino completo si richiede dal sito www.ilgiornalelavori.it, che è in arrivo; nel frattempo invita a scrivere in chat WhatsApp a questo stesso numero.",
+  "Se chi chiama lavora già in cantiere: spiega che basta scrivere qui in chat come sempre, testi, foto, documenti o vocali; dopo ogni messaggio arriva la conferma con la spunta verde. Se la conferma non arriva, rimandare il messaggio dopo qualche minuto; se il problema continua, avvisare l'ufficio della propria impresa.",
+  "Se non conosci la risposta, dillo con semplicità e invita a scrivere la domanda in chat WhatsApp a questo numero. Non inventare mai informazioni, nomi di clienti o cantieri.",
+  "Tieni la chiamata breve: quando la persona ha avuto la risposta, saluta e chiudi la conversazione con cortesia."
+].join("\n\n");
+
+const VOCE_SALUTO = "Saluta dicendo: «Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?» e poi ascolta.";
+
+function b64ToBytes(b64) {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+async function voceVerificaFirma(request, corpo, segreto) {
+  const id = request.headers.get("webhook-id") || "";
+  const ts = request.headers.get("webhook-timestamp") || "";
+  const firme = request.headers.get("webhook-signature") || "";
+  if (!id || !ts || !firme || !segreto) return false;
+  const ora = Math.floor(Date.now() / 1000);
+  if (Math.abs(ora - Number(ts)) > 300) return false;
+  const chiave = await crypto.subtle.importKey("raw", b64ToBytes(segreto.replace(/^whsec_/, "")),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", chiave, new TextEncoder().encode(id + "." + ts + "." + corpo));
+  let atteso = "";
+  const b = new Uint8Array(mac);
+  for (let i = 0; i < b.length; i++) atteso += String.fromCharCode(b[i]);
+  atteso = btoa(atteso);
+  return firme.split(" ").some((f) => {
+    const v = f.split(",")[1] || "";
+    if (v.length !== atteso.length) return false;
+    let d = 0;
+    for (let i = 0; i < v.length; i++) d |= v.charCodeAt(i) ^ atteso.charCodeAt(i);
+    return d === 0;
+  });
+}
+
+function voceChiamante(data) {
+  try {
+    const h = (data && data.sip_headers) || [];
+    const from = (h.find((x) => String(x.name || "").toLowerCase() === "from") || {}).value || "";
+    const m = String(from).match(/\+?([0-9]{8,15})/);
+    return m ? m[1] : "";
+  } catch (e) { return ""; }
+}
+
+async function voceOpenAI(env, percorso, corpo) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch("https://api.openai.com/v1/" + percorso, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.OPENAI_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(corpo || {}),
+      signal: ctrl.signal
+    });
+    const t = await r.text();
+    return { ok: r.ok, status: r.status, testo: t.slice(0, 300) };
+  } finally { clearTimeout(timer); }
+}
+
+async function voceSalutoIniziale(env, callId) {
+  // Apre il canale di controllo della chiamata e chiede all'AI di parlare per prima
+  // (Meta si aspetta che il primo audio parta dal lato business).
+  const r = await fetch("https://api.openai.com/v1/realtime?call_id=" + encodeURIComponent(callId), {
+    headers: { Authorization: "Bearer " + env.OPENAI_API_KEY, Upgrade: "websocket" }
+  });
+  const ws = r.webSocket;
+  if (!ws) throw new Error("websocket non aperto " + r.status);
+  ws.accept();
+  ws.send(JSON.stringify({ type: "response.create", response: { instructions: VOCE_SALUTO } }));
+  await new Promise((ok) => setTimeout(ok, 1500));
+  try { ws.close(1000, "fine"); } catch (e) {}
+}
+
+async function voceWebhook(request, env, ctx) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const corpo = await request.text();
+  let ev = null;
+  try { ev = JSON.parse(corpo); } catch (e) { return new Response("corpo non valido", { status: 400 }); }
+  const data = (ev && ev.data) || {};
+  const callId = String(data.call_id || "");
+  const tel = voceChiamante(data);
+  const log = (tipo, dettaglio) => env.SUPABASE_SERVICE_KEY
+    ? chatUnicaLog(env, supabaseUrl, tel || "?", null, tipo, dettaglio) : Promise.resolve();
+
+  const firmaOk = await voceVerificaFirma(request, corpo, env.OPENAI_WEBHOOK_SECRET || "");
+  if (!firmaOk) {
+    // Senza segreto (fase di prova dell'instradamento) registriamo solo che l'evento e' arrivato.
+    ctx.waitUntil(log("voce_evento_non_verificato", String(ev.type || "?") + " · " + callId + " · segreto " + (env.OPENAI_WEBHOOK_SECRET ? "presente, firma NON valida" : "mancante")));
+    return new Response(env.OPENAI_WEBHOOK_SECRET ? "firma non valida" : "ok", { status: env.OPENAI_WEBHOOK_SECRET ? 400 : 200 });
+  }
+  if (ev.type !== "realtime.call.incoming" || !callId) {
+    ctx.waitUntil(log("voce_evento", String(ev.type || "?") + " · " + callId));
+    return new Response("ok", { status: 200 });
+  }
+  if (env.VOCE === "off" || !env.OPENAI_API_KEY) {
+    ctx.waitUntil((async () => {
+      let esito = "nessuna chiave";
+      if (env.OPENAI_API_KEY) {
+        const r = await voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/reject", { status_code: 486 });
+        esito = "rifiutata " + r.status;
+      }
+      await log("voce_spenta", callId + " · " + esito);
+    })());
+    return new Response("ok", { status: 200 });
+  }
+  ctx.waitUntil((async () => {
+    const r = await voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/accept", {
+      type: "realtime",
+      model: env.VOCE_MODELLO || "gpt-realtime-2.1-mini",
+      instructions: VOCE_ISTRUZIONI,
+      audio: { output: { voice: env.VOCE_VOCE || "marin" } }
+    });
+    let det = callId + " · accept " + r.status + (r.ok ? "" : " " + r.testo);
+    if (r.ok) {
+      try { await voceSalutoIniziale(env, callId); det += " · saluto inviato"; }
+      catch (e) { det += " · saluto NON inviato " + String((e && e.message) || e).slice(0, 150); }
+    }
+    await log(r.ok ? "voce_accettata" : "voce_errore", det);
+  })());
+  return new Response("ok", { status: 200 });
 }
