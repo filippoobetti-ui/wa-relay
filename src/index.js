@@ -117,6 +117,14 @@ export default {
 
     // Portale cliente (08/10/2026): sul dominio dedicato risponde SOLO il portale (mai il webhook WhatsApp);
     // su workers.dev resta raggiungibile sotto /portale/ per collaudo.
+    // Sito www.ilgiornalelavori.it (10/10/2026): chi ha il «lasciapassare» vede il sito completo (quello
+    // dell'anteprima), tutti gli altri la pagina «in arrivo». Su workers.dev si prova sotto /sito-prova/.
+    if (SITO_HOST.has(url.hostname)) {
+      return sitoRoute(request, env, ctx, "");
+    }
+    if (url.pathname === "/sito-prova" || url.pathname.startsWith("/sito-prova/")) {
+      return sitoRoute(request, env, ctx, "/sito-prova");
+    }
     if (url.hostname === (env.PORTALE_HOST || PORTALE_HOST_PREDEFINITO)) {
       return portaleRoute(request, env, "");
     }
@@ -1691,4 +1699,98 @@ async function portaleRoute(request, env, prefisso) {
   return new Response(metodo === "HEAD" ? null : html, {
     status: 200, headers: portaleHtmlHeaders(mov.setCookie ? { "Set-Cookie": mov.setCookie } : null)
   });
+}
+
+
+// ---------------------------------------------------------------------------
+// Sito www.ilgiornalelavori.it (10/10/2026, scelta di Filippo: «Pagina "in arrivo"»).
+// Finché il sito non è pubblico: i visitatori vedono public/sito/in-arrivo.html; chi apre una volta
+// https://www.ilgiornalelavori.it/?lasciapassare=<chiave> riceve un cookie (1 anno) e da lì vede il sito completo,
+// servito dall'anteprima (Worker ilgiornalelavori-anteprima) senza cambiare il modo in cui il sito si carica.
+// /cartello resta sempre pubblico (è un servizio in vendita). La chiave non è nel codice: qui c'è solo la sua impronta.
+// Per aprire il sito a tutti: SITO_PUBBLICO = true (oppure variabile SITO_PUBBLICO="si" nel pannello).
+const SITO_HOST = new Set(["www.ilgiornalelavori.it", "ilgiornalelavori.it"]);
+const SITO_ORIGINE_PREDEFINITA = "https://ilgiornalelavori-anteprima.filippo-obetti.workers.dev";
+const SITO_IMPRONTA_CHIAVE = "f7c98691564e3d89ed20e09c9d342b7d1700cfeb1df787286a4cd2f60d017ae8";
+const SITO_PUBBLICO = false;
+const SITO_COOKIE = "gl_lasciapassare";
+
+async function sitoSha256(t) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function sitoLeggiCookie(request, nome) {
+  const c = request.headers.get("cookie") || "";
+  for (const parte of c.split(";")) {
+    const i = parte.indexOf("=");
+    if (i > 0 && parte.slice(0, i).trim() === nome) return decodeURIComponent(parte.slice(i + 1).trim());
+  }
+  return "";
+}
+
+async function sitoInArrivo(request, env, base) {
+  const r = await env.ASSETS.fetch(new Request(new URL(request.url).origin + "/sito/in-arrivo.html"));
+  const h = new Headers({ "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
+  return new Response(request.method === "HEAD" ? null : await r.text(), { status: 200, headers: h });
+}
+
+async function sitoRoute(request, env, ctx, prefisso) {
+  const url = new URL(request.url);
+  // dominio nudo → www
+  if (url.hostname === "ilgiornalelavori.it") {
+    return Response.redirect("https://www.ilgiornalelavori.it" + url.pathname + url.search, 301);
+  }
+  const sotto = url.pathname.slice(prefisso.length) || "/";
+
+  // il generatore del cartello è sempre pubblico, anche a sito chiuso
+  if (sotto === "/cartello" || sotto.startsWith("/cartello/")) {
+    const u = new URL(request.url); u.pathname = sotto;
+    return cartelloRoute(new Request(u.toString(), request), env);
+  }
+
+  const pubblico = SITO_PUBBLICO || env.SITO_PUBBLICO === "si";
+  let ammesso = pubblico;
+
+  // apertura del lasciapassare: ?lasciapassare=<chiave> → cookie e ritorno alla stessa pagina senza la chiave
+  const proposta = url.searchParams.get("lasciapassare");
+  if (proposta !== null) {
+    if (proposta && (await sitoSha256(proposta)) === SITO_IMPRONTA_CHIAVE) {
+      url.searchParams.delete("lasciapassare");
+      const h = new Headers({ Location: url.pathname + (url.search || ""), "Cache-Control": "no-store" });
+      h.append("Set-Cookie", SITO_COOKIE + "=" + encodeURIComponent(proposta) + "; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax");
+      return new Response(null, { status: 302, headers: h });
+    }
+    if (proposta === "") {   // ?lasciapassare= vuoto: si esce
+      const h = new Headers({ Location: prefisso + "/", "Cache-Control": "no-store" });
+      h.append("Set-Cookie", SITO_COOKIE + "=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax");
+      return new Response(null, { status: 302, headers: h });
+    }
+  }
+  if (!ammesso) {
+    const c = sitoLeggiCookie(request, SITO_COOKIE);
+    ammesso = !!c && (await sitoSha256(c)) === SITO_IMPRONTA_CHIAVE;
+  }
+
+  if (!ammesso) {
+    if (sotto === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+    if (sotto !== "/" && sotto !== "/index.html") return Response.redirect(url.origin + prefisso + "/", 302);
+    return sitoInArrivo(request, env);
+  }
+
+  // sito completo: lo serve l'anteprima, così il sito si continua a caricare come oggi
+  const origine = (env.SITO_ORIGINE || SITO_ORIGINE_PREDEFINITA).replace(/\/+$/, "");
+  const init = { method: request.method, headers: new Headers(request.headers), redirect: "manual" };
+  init.headers.delete("cookie");
+  init.headers.delete("host");
+  if (request.method !== "GET" && request.method !== "HEAD") init.body = await request.arrayBuffer();
+  let r;
+  try { r = await fetch(origine + sotto + url.search, init); }
+  catch (e) { return new Response("Il sito non risponde in questo momento.", { status: 502, headers: { "Content-Type": "text/plain; charset=UTF-8" } }); }
+  const h = new Headers(r.headers);
+  h.set("X-Robots-Tag", "noindex, nofollow");
+  if (!pubblico) h.set("Cache-Control", "private, no-store");
+  const loc = h.get("location");
+  if (loc && loc.startsWith(origine)) h.set("Location", loc.slice(origine.length) || "/");
+  return new Response(request.method === "HEAD" ? null : r.body, { status: r.status, headers: h });
 }
