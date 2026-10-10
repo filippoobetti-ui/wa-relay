@@ -583,7 +583,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini, abbonato: !!(stato.pagamento && stato.pagamento.abbonato) }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -713,9 +713,13 @@ footer.piede a{color:var(--verde)}
     });
   });
   function verificaSessione(id) {
-    return fetch(API + '/verifica?sessione=' + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+    // 10/10/2026: si mandano anche impresa esecutrice e sue partite IVA, per riconoscere le imprese abbonate (frase in fondo al cartello)
+    var testoImp = String((stato.campi && stato.campi.impresa) || '').slice(0, 1500);
+    var pive = (testoImp.match(/\b\d{11}\b/g) || []).slice(0, 5).join(',');
+    return fetch(API + '/verifica?sessione=' + encodeURIComponent(id) + '&piva=' + encodeURIComponent(pive) + '&testo=' + encodeURIComponent(testoImp)).then(function (r) { return r.json(); }).then(function (j) {
       if (j && j.esito === 'pagato') {
-        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '' };
+        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato };
+        try { ridisegna(); } catch (e) { /* l'anteprima si aggiorna comunque al prossimo cambio */ }
         stato.sessione = null; salvaStato();
         mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
         aggiornaPagamento();

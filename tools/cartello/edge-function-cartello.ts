@@ -1,4 +1,4 @@
-// cartello — Il Giornale Lavori (05/10/2026) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
+// cartello — Il Giornale Lavori (05/10/2026) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
 // già esistente (scenario 7490419 → onboarding_completa_da_pagamento → cartello_completa_da_pagamento).
 // Generatore del cartello di cantiere: la PAGINA (public/cartello/index.html del relay wa-relay) si compila
 // e compone il PDF nel browser del cliente (jsPDF + motore condiviso); QUI ci sono solo i passaggi del
@@ -9,7 +9,9 @@
 // Percorsi (dopo /functions/v1/cartello — in pubblico dietro il relay: <cartello_url>/…):
 //   GET  /                        stato del servizio (JSON)
 //   POST /checkout                {formato, orientamento, tipo, oggetto, ubicazione, ritorno} → {id, url}
-//   GET  /verifica?sessione=cs_…  {esito: 'pagato'|'in_attesa'|'non_trovato', formato, oggetto, ubicazione, pagato_il}
+//   GET  /verifica?sessione=cs_…[&piva=…&testo=…]  {esito: 'pagato'|'in_attesa'|'non_trovato', formato, oggetto, ubicazione, pagato_il, abbonato}
+//        abbonato (v6, 10/10/2026): true se chi compra o l'impresa esecutrice scritta sul cartello è un'impresa abbonata con un cantiere attivo
+//        (partita IVA, email o ragione sociale, funzione SQL cartello_abbonato) → in fondo al cartello «Questo cantiere viene gestito con».
 //   POST /scarico                 {sessione} → registra un download del PDF pagato
 //
 // Variabili: STRIPE_SECRET_KEY (segreto Supabase, facoltativo: senza, si passa da Make 7820289), SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (automatiche).
@@ -81,6 +83,12 @@ async function leggiVendita(sessione: string): Promise<Dizionario | null> {
 
 async function aggiornaVendita(sessione: string, patch: Dizionario): Promise<void> {
   await dbFetch(`cartelli_cantiere?session_id=eq.${encodeURIComponent(sessione)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ ...patch, aggiornato_il: new Date().toISOString() }) });
+}
+
+async function abbonato(pive: string[], email: string, testo: string): Promise<boolean> {
+  const r = await dbFetch('rpc/cartello_abbonato', { method: 'POST', body: JSON.stringify({ p_pive: pive.filter(Boolean), p_email: email || null, p_testo: (testo || '').slice(0, 2000) }) });
+  if (!r || !r.ok) return false;
+  try { return (await r.json()) === true; } catch { return false; }
 }
 
 async function registraScarico(sessione: string): Promise<void> {
@@ -212,14 +220,16 @@ async function checkout(req: Request): Promise<Response> {
   return json({ id: r.corpo.id, url: r.corpo.url });
 }
 
-async function verifica(sessione: string): Promise<Response> {
+async function verifica(sessione: string, pivaCartello = '', testoCartello = ''): Promise<Response> {
   if (!RE_SESSIONE.test(sessione)) return json({ esito: 'non_trovato' }, 404);
   const riga = await leggiVendita(sessione);
   if (!riga) return json({ esito: 'non_trovato' }, 404);
   // v4 (09/10/2026): vendita rimborsata o annullata → non si sblocca più, anche se su Stripe la sessione resta «paid»
   if (riga.stato === 'rimborsato' || riga.stato === 'annullato') return json({ esito: String(riga.stato) }, 410);
   if (riga.stato === 'pagato') {
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string) });
+    const ab = await abbonato([String(riga.partita_iva ?? ''), ...pivaCartello.split(',')], String(riga.email ?? ''), testoCartello);
+    if (ab !== riga.abbonato) await aggiornaVendita(sessione, { abbonato: ab });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string), abbonato: ab });
   }
   if (!(await canaleStripe())) return json({ esito: 'in_attesa' });
   const r = await stripe('GET', `checkout/sessions/${encodeURIComponent(sessione)}`);
@@ -231,7 +241,10 @@ async function verifica(sessione: string): Promise<Response> {
     const piva = taxIds.map((t) => `${t.type ?? ''} ${t.value ?? ''}`.trim()).join(', ').slice(0, 80);
     const indirizzo = (cd.address as Dizionario | null) ?? {};
     const quando = new Date().toISOString();
+    const emailCompratore = String(cd.email ?? s.customer_email ?? '').slice(0, 200);
+    const ab = await abbonato([piva, ...pivaCartello.split(',')], emailCompratore, testoCartello);
     await aggiornaVendita(sessione, {
+      abbonato: ab,
       stato: 'pagato', pagato_il: quando,
       email: String(cd.email ?? s.customer_email ?? '').slice(0, 200) || null,
       cliente: String(cd.name ?? '').slice(0, 200) || null,
@@ -241,7 +254,7 @@ async function verifica(sessione: string): Promise<Response> {
       stripe_payment_intent: typeof s.payment_intent === 'string' ? s.payment_intent : null,
       stripe_customer: typeof s.customer === 'string' ? s.customer : null,
     });
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando) });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando), abbonato: ab });
   }
   if (s.status === 'expired') { await aggiornaVendita(sessione, { stato: 'scaduto' }); return json({ esito: 'non_trovato' }, 404); }
   return json({ esito: 'in_attesa' });
@@ -255,7 +268,7 @@ Deno.serve(async (req: Request) => {
   const percorso = (url.pathname.replace(/^\/functions\/v1/, '').replace(/^\/cartello/, '') || '/').replace(/\/+$/, '') || '/';
 
   if (req.method === 'GET' || req.method === 'HEAD') {
-    if (percorso === '/verifica') return await verifica(url.searchParams.get('sessione') ?? '');
+    if (percorso === '/verifica') return await verifica(url.searchParams.get('sessione') ?? '', (url.searchParams.get('piva') ?? '').slice(0, 200), (url.searchParams.get('testo') ?? '').slice(0, 2000));
     if (percorso === '/' || percorso === '/stato') {
       const imp = await impostazioni(['cartello_attivo', 'cartello_prezzo_cent']);
       return json({ servizio: 'cartello', attivo: (imp.cartello_attivo || 'si') !== 'no', prezzo_cent: parseInt(imp.cartello_prezzo_cent || '900', 10) || 900, pagamenti: (await canaleStripe()) ? 'configurati (' + (STRIPE_KEY ? 'chiave diretta' : 'via Make 7820289') + ')' : 'da configurare' });

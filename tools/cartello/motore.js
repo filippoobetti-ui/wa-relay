@@ -15,6 +15,8 @@
   const LOGO_RAPPORTO = 317.78 / 100; // larghezza / altezza del marchio orizzontale
   const SITO = 'www.ilgiornalelavori.it';
   const SLOGAN = 'Cartello realizzato con';
+  // 10/10/2026 (Filippo): sul cartello delle imprese abbonate «Questo cantiere viene gestito con»; per gli altri resta SLOGAN
+  const SLOGAN_ABBONATO = 'Questo cantiere viene gestito con';
   const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
 
   // Colori del cartello scelti dal cliente (Filippo 09/10/2026). Per ogni colore:
@@ -421,7 +423,7 @@
     const xT0 = m + wLogo + 3 * u;
     const xT1 = xQr - 1.2 * u - mis.larghezza('e scopri il servizio', false, sInq) - 3 * u;
     const wT = Math.max(10 * u, xT1 - xT0);
-    const fitSlogan = adatta(mis, SLOGAN, true, 2.3 * u, 1.3 * u, wT, 1, null, 1.2);
+    const fitSlogan = adatta(mis, dati.abbonato ? SLOGAN_ABBONATO : SLOGAN, true, 2.3 * u, 1.3 * u, wT, 1, null, 1.2);
     const fitSito = adatta(mis, SITO, true, 2.5 * u, 1.3 * u, wT, 1, null, 1.2);
     const hPiede = fitSlogan.size * 1.25 + fitSito.size * 1.25;
     let yP = yF + (hF - hPiede) / 2 + 0.15 * u;
@@ -826,5 +828,5 @@
     }
   }
 
-  return { BRAND, QUALIFICHE, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, QUALIFICHE, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, SLOGAN_ABBONATO, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });

@@ -212,6 +212,8 @@ footer.piede a{color:var(--verde)}
   const LOGO_RAPPORTO = 317.78 / 100; // larghezza / altezza del marchio orizzontale
   const SITO = 'www.ilgiornalelavori.it';
   const SLOGAN = 'Cartello realizzato con';
+  // 10/10/2026 (Filippo): sul cartello delle imprese abbonate «Questo cantiere viene gestito con»; per gli altri resta SLOGAN
+  const SLOGAN_ABBONATO = 'Questo cantiere viene gestito con';
   const AVVERTENZA = "ULTERIORI INFORMAZIONI SULL'OPERA POSSONO ESSERE ASSUNTE PRESSO L'UFFICIO COMPETENTE";
 
   // Colori del cartello scelti dal cliente (Filippo 09/10/2026). Per ogni colore:
@@ -618,7 +620,7 @@ footer.piede a{color:var(--verde)}
     const xT0 = m + wLogo + 3 * u;
     const xT1 = xQr - 1.2 * u - mis.larghezza('e scopri il servizio', false, sInq) - 3 * u;
     const wT = Math.max(10 * u, xT1 - xT0);
-    const fitSlogan = adatta(mis, SLOGAN, true, 2.3 * u, 1.3 * u, wT, 1, null, 1.2);
+    const fitSlogan = adatta(mis, dati.abbonato ? SLOGAN_ABBONATO : SLOGAN, true, 2.3 * u, 1.3 * u, wT, 1, null, 1.2);
     const fitSito = adatta(mis, SITO, true, 2.5 * u, 1.3 * u, wT, 1, null, 1.2);
     const hPiede = fitSlogan.size * 1.25 + fitSito.size * 1.25;
     let yP = yF + (hF - hPiede) / 2 + 0.15 * u;
@@ -1023,7 +1025,7 @@ footer.piede a{color:var(--verde)}
     }
   }
 
-  return { BRAND, QUALIFICHE, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
+  return { BRAND, QUALIFICHE, TEMI, controllaMisura, codiceFormato, MISURA_MIN, MISURA_MAX, FORMATI, IMPIANTI, CAMPI, nomeComune, nomeProvincia, titoloLavori, TITOLI_ABILITATIVI, ORDINE_RIGHE, SITO, SLOGAN, SLOGAN_ABBONATO, LOGO_RAPPORTO, costruisciRighe, impagina, svg, pdf, preparaImmaginiCmyk, creaMisuratore, registraFont, dimensioni, pulisci, perTipo };
 });
 </script>
 <script>// Cartello di cantiere — Il Giornale Lavori
@@ -1746,7 +1748,7 @@ footer.piede a{color:var(--verde)}
   // ---------------------------------------------------------------- anteprima
   var timer = null;
   function ridisegnaPiano() { clearTimeout(timer); timer = setTimeout(ridisegna, 160); }
-  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini }; }
+  function datiCorrenti() { return { colore: stato.colore || 'verde', misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: stato.campi, immagini: immagini, abbonato: !!(stato.pagamento && stato.pagamento.abbonato) }; }
   function mostraAvvisi(lista) {
     var box = $('#avvisi'); box.innerHTML = '';
     lista.forEach(function (a) { box.appendChild(el('div', { class: 'avviso' + (a.tipo ? ' ' + a.tipo : '') }, esc(a.testo))); });
@@ -1876,9 +1878,13 @@ footer.piede a{color:var(--verde)}
     });
   });
   function verificaSessione(id) {
-    return fetch(API + '/verifica?sessione=' + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+    // 10/10/2026: si mandano anche impresa esecutrice e sue partite IVA, per riconoscere le imprese abbonate (frase in fondo al cartello)
+    var testoImp = String((stato.campi && stato.campi.impresa) || '').slice(0, 1500);
+    var pive = (testoImp.match(/\b\d{11}\b/g) || []).slice(0, 5).join(',');
+    return fetch(API + '/verifica?sessione=' + encodeURIComponent(id) + '&piva=' + encodeURIComponent(pive) + '&testo=' + encodeURIComponent(testoImp)).then(function (r) { return r.json(); }).then(function (j) {
       if (j && j.esito === 'pagato') {
-        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '' };
+        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato };
+        try { ridisegna(); } catch (e) { /* l'anteprima si aggiorna comunque al prossimo cambio */ }
         stato.sessione = null; salvaStato();
         mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
         aggiornaPagamento();
