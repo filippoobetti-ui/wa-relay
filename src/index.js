@@ -161,6 +161,7 @@ export default {
         "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
         "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
         "RIMOZIONE (persone rimosse dai Tesserini): " + (env.RIMOZIONE === "off" ? "spenta dal Worker" : "accesa (elenco da persone_rimosse_numeri, in memoria 60 s)"),
+        "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -566,7 +567,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-09 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-3 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti in prova con ?movimenti=1) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1476,9 +1477,9 @@ const PORTALE_VISORE = "<style>" +
 // compaiono solo quando c'e' altro da vedere da quella parte, e la sezione scelta resta in vista.
 const PORTALE_FRECCE = "<style>.schede-w{position:sticky;top:0;z-index:2;margin:0 -16px 14px}.schede-w nav.schede{position:static;margin:0}.sch-fr{position:absolute;top:0;bottom:1px;width:56px;border:0;padding:0;cursor:pointer;display:none;align-items:center}.sch-fr.on{display:flex}.sch-fr span{width:34px;height:34px;border-radius:50%;background:#0A7D48;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.6rem;line-height:1;padding-bottom:3px;box-shadow:0 1px 4px rgba(0,0,0,.25)}.sch-fr.sx{left:0;justify-content:flex-start;padding-left:6px;background:linear-gradient(90deg,#fff 50%,rgba(255,255,255,0))}.sch-fr.dx{right:0;justify-content:flex-end;padding-right:6px;background:linear-gradient(270deg,#fff 50%,rgba(255,255,255,0))}<\/style>" + "<script>" + "(function(){try{\nvar n=document.querySelector('nav.schede');if(!n)return;\nvar w=document.createElement('div');w.className='schede-w';n.parentNode.insertBefore(w,n);w.appendChild(n);\nfunction bt(cl,txt,lab,dir){var b=document.createElement('button');b.type='button';b.className='sch-fr '+cl;b.innerHTML='<span>'+txt+'<\/span>';b.setAttribute('aria-label',lab);\n b.addEventListener('click',function(){n.scrollBy({left:dir*Math.max(120,n.clientWidth*0.7),behavior:'smooth'});});w.appendChild(b);return b;}\nvar sx=bt('sx','&lsaquo;','Sezioni precedenti',-1),dx=bt('dx','&rsaquo;','Altre sezioni',1);\nfunction agg(){var m=n.scrollWidth-n.clientWidth;sx.classList.toggle('on',n.scrollLeft>4);dx.classList.toggle('on',n.scrollLeft<m-4);}\nn.addEventListener('scroll',agg,{passive:true});window.addEventListener('resize',agg);\nfunction mostra(){var c=document.querySelector('.tbr:checked');if(!c)return;var l=n.querySelector('label[for=\"'+c.id+'\"]');if(!l)return;\n var r=l.offsetLeft-n.offsetLeft,ww=l.offsetWidth;if(r<n.scrollLeft+40||r+ww>n.scrollLeft+n.clientWidth-40)n.scrollLeft=Math.max(0,r-(n.clientWidth-ww)/2);agg();}\nvar rs=document.querySelectorAll('.tbr');for(var i=0;i<rs.length;i++)rs[i].addEventListener('change',mostra);\nmostra();agg();setTimeout(agg,300);\n}catch(x){}})();\n" + "</script>";
 
-// Movimenti del portale (09/10/2026, IN PROVA): transizioni graduali invece dei cambi di pagina a scatto.
-// Si accendono solo con ?movimenti=1 (che lascia il cookie gl_mov sul telefono) e si spengono con ?movimenti=0:
-// le imprese clienti non vedono nulla finche' Filippo non approva. Quando saranno definitivi basta togliere la condizione.
+// Movimenti del portale (09/10/2026 in prova; ACCESI PER TUTTI dal 10/10/2026, approvati da Filippo): transizioni graduali
+// invece dei cambi di pagina a scatto. Di norma sono accesi; chi non li vuole apre ?movimenti=0 (cookie gl_mov=0 sul telefono,
+// 90 giorni) e li riaccende con ?movimenti=1. Interruttore d'emergenza per tutti: variabile del Worker MOVIMENTI=off.
 // Cosa fanno: (1) la scheda del cantiere toccata si allarga fino a diventare l'intestazione della pagina del cantiere,
 // e si richiude tornando all'elenco (transizioni fra pagine di Chrome, @view-transition); (2) le sezioni del cantiere
 // scivolano di lato nella direzione giusta, la pillola verde corre sulla sezione scelta e si cambia sezione anche
@@ -1562,13 +1563,15 @@ conta();
 }catch(x){}})();
 ` + "</script>";
 
-function portaleMovimenti(request, inUrl, base) {
+function portaleMovimenti(request, inUrl, base, env) {
   const param = inUrl.searchParams.get("movimenti");
-  const cookie = /(?:^|;\s*)gl_mov=1(?:;|$)/.test(request.headers.get("Cookie") || "");
-  const attivi = param === "1" || (param !== "0" && cookie);
+  const cookie = /(?:^|;\s*)gl_mov=([01])(?:;|$)/.exec(request.headers.get("Cookie") || "");
+  const scelta = param === "1" || param === "0" ? param : (cookie ? cookie[1] : "");
+  // Accesi per tutti dal 10/10/2026: si spengono solo con la scelta esplicita di quel telefono (?movimenti=0 -> cookie gl_mov=0)
+  // o con l'interruttore d'emergenza del Worker (MOVIMENTI=off), che vale per tutti e dal telefono non si scavalca.
+  const attivi = !(env && env.MOVIMENTI === "off") && scelta !== "0";
   let setCookie = null;
-  if (param === "1") setCookie = "gl_mov=1; Path=" + base + "/; Max-Age=7776000; SameSite=Lax; Secure";
-  else if (param === "0") setCookie = "gl_mov=; Path=" + base + "/; Max-Age=0; SameSite=Lax; Secure";
+  if (param === "1" || param === "0") setCookie = "gl_mov=" + param + "; Path=" + base + "/; Max-Age=7776000; SameSite=Lax; Secure";
   return { attivi, setCookie };
 }
 
@@ -1673,7 +1676,7 @@ async function portaleRoute(request, env, prefisso) {
 
   // Pagina valida = contiene i collegamenti con il gettone (le pagine di errore non lo riportano mai).
   const valida = html.indexOf("?t=" + token) !== -1;
-  const mov = portaleMovimenti(request, inUrl, base);
+  const mov = portaleMovimenti(request, inUrl, base, env);
   let script = valida
     ? "<script>(function(){try{localStorage.setItem('gl_portale_t','" + token + "')}catch(e){}" + portaleScriptSw(base) + "})();</script>"
     : "<script>(function(){try{if(localStorage.getItem('gl_portale_t')==='" + token + "')localStorage.removeItem('gl_portale_t')}catch(e){}})();</script>";

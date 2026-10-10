@@ -19,6 +19,14 @@ const env = { SUPABASE_SERVICE_KEY: "prova", ASSETS: { fetch: async () => new Re
 
 const server = http.createServer(async (req, res) => {
   try {
+    // comando di prova (esiste solo in questo server): /__prova/movimenti?v=off imposta MOVIMENTI=off, v=on la toglie
+    const cmd = req.url.match(/^\/__prova\/movimenti\?v=(off|on)$/);
+    if (cmd) {
+      if (cmd[1] === "off") env.MOVIMENTI = "off"; else delete env.MOVIMENTI;
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("MOVIMENTI=" + (env.MOVIMENTI || "(non impostata)"));
+      return;
+    }
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
     const request = new Request("https://app.ilgiornalelavori.test" + req.url, { method: req.method, headers });
