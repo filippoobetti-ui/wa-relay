@@ -357,12 +357,13 @@
     // ---------- testata: riquadro con angoli arrotondati e leggera sfumatura (Filippo 10/10/2026 sera)
     // dal colore della testata (a sinistra) verso il colore medio del tema (a destra, al 55 %),
     // staccato dal bordo di 1,5 unità; la sfumatura è fatta a strisce verticali, così esce uguale in anteprima e nel PDF CMYK.
-    const hH = 10 * u;
+    let hH = 10 * u;
     const iT = 1.5 * u;                     // distacco dal bordo del cartello
     const xB0 = iT, xB1 = W - iT, yB0 = iT, wB = xB1 - xB0;
     const rT = 2.4 * u;                     // raggio degli angoli
     const mescola = (h1, h2, t) => { const a = hexRgb(h1), b2 = hexRgb(h2); return '#' + a.map((v, i) => Math.round(v + (b2[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
     const cA = tema.testata, cB = mescola(tema.testata, tema.medio, 0.55);
+    const iBanda = prims.length;
     R(xB0, yB0, wB, hH, cA, { rx: rT });
     R(xB1 - 2 * rT, yB0, 2 * rT, hH, cB, { rx: rT });
     const nStr = 72, xS0 = xB0 + rT, xS1 = xB1 - rT, wS = (xS1 - xS0) / nStr;
@@ -389,6 +390,9 @@
     const sSotto = Math.min(1.9 * u, fitEnte.size * 0.6);
     const fitSotto = enteSotto ? adatta(mis, enteSotto, false, sSotto, 1.3 * u, wSx, 1, null, 1.2) : null;
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
+    // la testata si allunga se il nome dell'ente va su due righe, così il testo non tocca il bordo arrotondato
+    const hNec = Math.max(hBlocco, sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0)) + 2.6 * u;
+    if (hNec > hH) { const dh = hNec - hH; hH = hNec; for (let k = iBanda; k < prims.length; k++) { if (prims[k].t === 'rect') prims[k].h = hH; else if (prims[k].t === 'img') prims[k].y += dh / 2; } }
     let y = yB0 + (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
     if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
