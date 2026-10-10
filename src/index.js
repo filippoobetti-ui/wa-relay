@@ -2096,6 +2096,25 @@ async function voceWebhook(request, env, ctx) {
     ctx.waitUntil(log("voce_evento", String(ev.type || "?") + " · " + callId));
     return new Response("ok", { status: 200 });
   }
+  // Solo le chiamate passate dal nostro centralino (intestazione X-GL-Centralino con il token condiviso)
+  // possono parlare con l'assistente: una chiamata SIP diretta al progetto OpenAI viene rifiutata.
+  let centralinoOk = false;
+  try {
+    const atteso = await chatUnicaRpc(env, supabaseUrl, "centralino_token", {}, 3e3);
+    const h = (data.sip_headers || []).find((x) => String(x.name || "").toLowerCase() === "x-gl-centralino");
+    centralinoOk = !!(atteso && h && String(h.value || "").trim() === String(atteso));
+  } catch (e) { centralinoOk = false; }
+  if (!centralinoOk) {
+    ctx.waitUntil((async () => {
+      let esito = "nessuna chiave";
+      if (env.OPENAI_API_KEY) {
+        const r = await voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/reject", { status_code: 403 });
+        esito = "rifiutata " + r.status;
+      }
+      await log("voce_non_autorizzata", callId + " · senza contrassegno del centralino · " + esito);
+    })());
+    return new Response("ok", { status: 200 });
+  }
   if (env.VOCE === "off" || !env.OPENAI_API_KEY) {
     ctx.waitUntil((async () => {
       let esito = "nessuna chiave";
