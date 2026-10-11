@@ -110,6 +110,11 @@ footer.piede a{color:var(--verde)}
 .btn.secondario{border-color:#8FD3FF}
 header.testata{box-shadow:inset 0 -4px 0 #4FB0E8}
 header.testata .prezzo{background:linear-gradient(180deg,#8FD3FF,#4FB0E8);color:#062A44;border-color:#BDE6FF}
+header.testata .testata-destra{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-end}
+header.testata .slogan{text-align:right;line-height:1.3;max-width:440px}
+header.testata .slogan strong{display:block;font-size:1.02rem;color:#BDE6FF}
+header.testata .slogan span{display:block;font-size:.84rem;color:rgba(255,255,255,.78)}
+@media (max-width:760px){header.testata .testata-destra{justify-content:flex-start}header.testata .slogan{text-align:left}}
 </style>
 </head>
 <body>
@@ -118,7 +123,10 @@ header.testata .prezzo{background:linear-gradient(180deg,#8FD3FF,#4FB0E8);color:
     <a class="marchio" href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener" aria-label="Il Giornale Lavori"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 317.78 100" height="40" role="img" aria-label="Il Giornale Lavori">__LOGO_INTERNO__</svg></a>
     <h1>Cartello di cantiere</h1>
   </div>
-  <div class="prezzo">9,00 € + IVA a cartello</div>
+  <div class="testata-destra">
+    <div class="slogan"><strong>Il tuo cartello di cantiere, pronto in pochi minuti.</strong><span>Compila qui sotto i dati del cantiere, controlla l’anteprima e scarica il file per la tipografia.</span></div>
+    <div class="prezzo">9,00 € + IVA a cartello</div>
+  </div>
 </header>
 
 <main class="app">
