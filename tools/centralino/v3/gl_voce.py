@@ -58,6 +58,7 @@ SIP_PORTA = int(CONF.get("sip_porta", 5070))
 RTP_MIN = int(CONF.get("rtp_min", 41000))
 RTP_MAX = int(CONF.get("rtp_max", 41998))
 MAX_CHIAMATE = int(CONF.get("max_chiamate", 6))
+KAMAILIO = (str(CONF.get("kamailio_ip", "127.0.0.1")), int(CONF.get("kamailio_porta", 5060)))  # unico vicino SIP
 FILE_STATO = str(CONF.get("stato", "/run/gl-voce/attive"))
 
 FRAME = 960                 # 20 ms di PCM 16 bit mono a 24 kHz
@@ -401,6 +402,8 @@ class Chiamata:
         self.porta = None
         self.ip = None
         self.sdp_id = random.randint(10 ** 9, 10 ** 10)
+        self.in_t0 = None          # ora del primo pacchetto: da lì l'audio verso OpenAI deve scorrere senza buchi
+        self.in_campioni = 0       # campioni a 24 kHz consegnati (voce vera + silenzio di riempimento)
         self.ultimo_parlato = time.time()
 
     # -------------------------------------------------------------- avvio
@@ -504,6 +507,8 @@ class Chiamata:
         if off >= fine:
             return
         self.ultimo_rtp = time.time()
+        if self.in_t0 is None:
+            self.in_t0 = self.loop.time()
         if self.ultimo_seq is not None:
             salto = (seq - self.ultimo_seq) & 0xFFFF
             if salto == 0 or salto > 0x8000:
@@ -516,6 +521,7 @@ class Chiamata:
     def accumula(self, pcm):
         if not pcm:
             return
+        self.in_campioni += len(pcm) // 2
         self.accumulo.extend(pcm)
         if len(self.accumulo) >= INVIO_AI:
             pezzo = bytes(self.accumulo)
@@ -536,6 +542,12 @@ class Chiamata:
         in_attesa = False
         while self.attiva:
             prossimo += 0.02
+            if self.in_t0 is not None:
+                # nel silenzio WhatsApp può non mandare pacchetti: si riempie con silenzio vero,
+                # così il riconoscimento del turno di OpenAI capisce subito che la persona ha finito
+                attesi = int((self.loop.time() - self.in_t0) * 24000)
+                if attesi - self.in_campioni > 5 * 480:
+                    self.accumula(b"\0" * ((attesi - 480 - self.in_campioni) * 2))
             pronti = len(self.uscita)
             if in_attesa and (pronti >= 3 * FRAME or (not self.tts_in_corso and self.coda_tts.empty())):
                 in_attesa = False
@@ -688,6 +700,10 @@ class Chiamata:
                 except ValueError:
                     continue
                 self.evento_ai(ev)
+            if self.attiva:   # OpenAI ha chiuso il collegamento: la chiamata non resta senza assistente
+                log(self.call_id[:12], "OpenAI ha chiuso il collegamento")
+                await self.app.evento("errore", self.chiamante, "OpenAI ha chiuso il collegamento")
+                await self.scusa_e_chiudi()
         except Exception as e:
             if self.attiva:
                 log(self.call_id[:12], "OpenAI interrotta", e)
@@ -724,11 +740,11 @@ class Chiamata:
             self.ultima_voce = time.time()
         elif tipo == "response.created":
             self.risp = {"buf": "", "lingua": None, "frasi": 0, "testo": ""}
-        elif tipo == "response.output_text.delta":
+        elif tipo in ("response.output_text.delta", "response.output_audio_transcript.delta"):
             if self.risp is None:
                 self.risp = {"buf": "", "lingua": None, "frasi": 0, "testo": ""}
             self.su_testo(ev.get("delta", ""))
-        elif tipo == "response.output_text.done":
+        elif tipo in ("response.output_text.done", "response.output_audio_transcript.done"):
             self.chiudi_testo()
         elif tipo == "response.function_call_arguments.done":
             if ev.get("name") == "termina_chiamata":
@@ -801,8 +817,8 @@ class Chiamata:
         while self.attiva:
             await asyncio.sleep(1)
             ora = time.time()
-            if ora - self.ultimo_rtp > 25:
-                await self.riaggancia("nessun audio da 25 s", 0)
+            if ora - self.ultimo_rtp > 45:
+                await self.riaggancia("nessun audio da 45 s", 0)
                 return
             if ora - self.inizio > getattr(self, "max_secondi", 900):
                 await self.riaggancia("durata massima", 0)
@@ -861,12 +877,7 @@ class Chiamata:
         righe += ["Route: %s" % r for r in rotte]
         righe += ["User-Agent: GL-Voce/3", "Content-Length: 0"]
         dati = ("\r\n".join(righe) + "\r\n\r\n").encode()
-        dest = (SIP_IP, 5060)
-        if rotte:
-            u = uri_di(rotte[0])
-            m = re.match(r"sips?:(?:[^@]*@)?\[?([0-9a-fA-F.:]+?)\]?(?::(\d+))?(?:;|$)", u)
-            if m:
-                dest = (m.group(1), int(m.group(2) or 5060))
+        dest = KAMAILIO   # le rotte le segue Kamailio: qui si parla solo con lui, in UDP sul server
         self.bye_ok = asyncio.Event()
         attesa = 0.5
         for _ in range(6):

@@ -117,6 +117,7 @@ route[BOT] {
   xlog("L_NOTICE", "GL instradata: assistente nostro\n");
   if ($fU =~ "^\+?(__ALBANESI__)$") { append_hf("X-GL-Lingua: sq\r\n"); }
   $ru = "sip:assistente@127.0.0.1:5070";
+  $fs = "udp:127.0.0.1:5060";
   if (!rtpengine_offer("replace-origin ICE=remove RTP/AVP rtcp-mux-accept rtcp-mux-demux")) {
     xlog("L_NOTICE", "GL rtpengine_offer non riuscito (assistente)\n");
     sl_send_reply("503", "Media non disponibile");
