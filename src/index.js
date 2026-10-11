@@ -603,7 +603,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -2007,6 +2007,11 @@ const VOCE_ISTRUZIONI = [
 
 const VOCE_SALUTO = "Saluta dicendo: «Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?» e poi ascolta.";
 
+// Chiamate instradate dal centralino come albanesi (intestazione X-GL-Lingua: sq, centralino v2):
+// in cantiere molti operai parlano solo albanese. L'accento italiano (voce_stile) non si applica.
+const VOCE_ISTRUZIONI_SQ = "LINGUA DELLA CHIAMATA: chi chiama parla albanese. Parla sempre in albanese (shqip), con frasi brevi, semplici e chiare, come si parla in cantiere. Passa all'italiano o a un'altra lingua solo se chi chiama la usa per primo. Non tradurre il nome «Giornale Lavori».";
+const VOCE_SALUTO_SQ = "Saluta in albanese dicendo: «Përshëndetje, jam asistentja e Giornale Lavori. Si mund t'ju ndihmoj?» e poi ascolta. Continua a parlare in albanese.";
+
 function b64ToBytes(b64) {
   const s = atob(b64);
   const out = new Uint8Array(s.length);
@@ -2061,7 +2066,7 @@ async function voceOpenAI(env, percorso, corpo) {
   } finally { clearTimeout(timer); }
 }
 
-async function voceSalutoIniziale(env, callId, stile) {
+async function voceSalutoIniziale(env, callId, stile, lingua) {
   // Apre il canale di controllo della chiamata e chiede all'AI di parlare per prima
   // (Meta si aspetta che il primo audio parta dal lato business).
   // Le istruzioni di response.create sostituiscono quelle della sessione: lo stile va ripetuto qui.
@@ -2071,7 +2076,8 @@ async function voceSalutoIniziale(env, callId, stile) {
   const ws = r.webSocket;
   if (!ws) throw new Error("websocket non aperto " + r.status);
   ws.accept();
-  ws.send(JSON.stringify({ type: "response.create", response: { instructions: stile ? VOCE_SALUTO + "\n\n" + stile : VOCE_SALUTO } }));
+  const saluto = lingua === "sq" ? VOCE_SALUTO_SQ : (stile ? VOCE_SALUTO + "\n\n" + stile : VOCE_SALUTO);
+  ws.send(JSON.stringify({ type: "response.create", response: { instructions: saluto } }));
   await new Promise((ok) => setTimeout(ok, 1500));
   try { ws.close(1000, "fine"); } catch (e) {}
 }
@@ -2136,21 +2142,27 @@ async function voceWebhook(request, env, ctx) {
     // Voce, modello e stile di parlata si cambiano dal database (impostazioni voce_voce, voce_modello,
     // voce_stile) senza ripubblicare il relay; valori non validi → si torna ai predefiniti.
     const vc = await voceConfig(env, supabaseUrl);
+    // Lingua decisa dal centralino (X-GL-Lingua): "sq" = albanese; assente = italiano come prima.
+    const intestL = Array.isArray(data.sip_headers) ? data.sip_headers : [];
+    const hL = intestL.find((x) => String((x && x.name) || "").toLowerCase() === "x-gl-lingua");
+    const lingua = hL && String(hL.value || "").trim().toLowerCase() === "sq" ? "sq" : "it";
+    const istruzioni = lingua === "sq" ? VOCE_ISTRUZIONI_SQ + "\n\n" + VOCE_ISTRUZIONI
+      : (vc.stile ? VOCE_ISTRUZIONI + "\n\n" + vc.stile : VOCE_ISTRUZIONI);
     const accetta = (modello) => voceOpenAI(env, "realtime/calls/" + encodeURIComponent(callId) + "/accept", {
       type: "realtime",
       model: modello,
-      instructions: vc.stile ? VOCE_ISTRUZIONI + "\n\n" + vc.stile : VOCE_ISTRUZIONI,
+      instructions: istruzioni,
       audio: { output: { voice: vc.voce } }
     });
     let r = await accetta(vc.modello);
-    let det = callId + " · accept " + r.status + (r.ok ? "" : " " + r.testo) + " · voce " + vc.voce + " · " + vc.modello + (vc.stile ? " · con stile" : "");
+    let det = callId + " · lingua " + lingua + " · accept " + r.status + (r.ok ? "" : " " + r.testo) + " · voce " + vc.voce + " · " + vc.modello + (lingua !== "sq" && vc.stile ? " · con stile" : "");
     if (!r.ok && vc.modello !== VOCE_MODELLO_BASE) {
       // Modello scelto non accettato: la chiamata non resta senza risposta, si riprova con quello di base.
       r = await accetta(VOCE_MODELLO_BASE);
       det += " · riprovata con " + VOCE_MODELLO_BASE + ": accept " + r.status;
     }
     if (r.ok) {
-      try { await voceSalutoIniziale(env, callId, vc.stile); det += " · saluto inviato"; }
+      try { await voceSalutoIniziale(env, callId, vc.stile, lingua); det += " · saluto inviato"; }
       catch (e) { det += " · saluto NON inviato " + String((e && e.message) || e).slice(0, 150); }
     }
     await log(r.ok ? "voce_accettata" : "voce_errore", det);

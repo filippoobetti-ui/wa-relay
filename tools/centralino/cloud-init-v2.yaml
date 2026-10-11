@@ -1,0 +1,207 @@
+#cloud-config
+# Centralino SIP del Giornale Lavori — v2 (11/10/2026): Kamailio + rtpengine.
+# Italiano e altre lingue → ElevenLabs (audio WhatsApp Opus/SRTP convertito in G.722/RTP); albanese → OpenAI Realtime.
+# Le configurazioni di Kamailio e rtpengine arrivano da Supabase ogni minuto (RPC centralino_config_v2 e centralino_rtpengine_config).
+# Segnaposto da sostituire prima dell'uso: __ANON__ (chiave anon Supabase), __TOKEN__ (impostazione centralino_token).
+package_update: true
+packages:
+- kamailio
+- kamailio-tls-modules
+- certbot
+- python3
+write_files:
+- path: /etc/kamailio/tls.cfg
+  content: |
+    [server:default]
+    method = TLSv1.2+
+    verify_certificate = no
+    require_certificate = no
+    private_key = /etc/kamailio/tls/privkey.pem
+    certificate = /etc/kamailio/tls/fullchain.pem
+
+    [client:default]
+    method = TLSv1.2+
+    verify_certificate = no
+    require_certificate = no
+- path: /usr/local/bin/gl-log.py
+  permissions: '0755'
+  content: |
+    #!/usr/bin/env python3
+    # Invia al registro del Giornale Lavori (Supabase, chat_unica_eventi tipo "centralino") le righe recenti di Kamailio e rtpengine.
+    import json, subprocess, sys, urllib.request
+    URL = "https://rvigugiufrjmzedjstuz.supabase.co/rest/v1/rpc/centralino_log"
+    ANON = "__ANON__"
+    TOKEN = "__TOKEN__"
+    def invia(testo):
+        if not testo.strip(): return
+        req = urllib.request.Request(URL, data=json.dumps({"p_token": TOKEN, "p_testo": testo[:1990]}).encode(),
+            headers={"apikey": ANON, "Authorization": "Bearer " + ANON, "Content-Type": "application/json"})
+        try: urllib.request.urlopen(req, timeout=10)
+        except Exception as e: print(e)
+    if len(sys.argv) > 1:
+        invia(" ".join(sys.argv[1:])); sys.exit(0)
+    out = subprocess.run(["journalctl", "-u", "kamailio", "-u", "rtpengine-daemon", "--since", "-65 seconds", "-o", "cat", "--no-pager"],
+                         capture_output=True, text=True).stdout
+    righe = [r for r in out.splitlines() if r.strip()]
+    blocco = ""
+    for r in righe:
+        if len(blocco) + len(r) > 1900:
+            invia(blocco); blocco = ""
+        blocco += r + "\n"
+    invia(blocco)
+- path: /etc/systemd/system/gl-log.service
+  content: |
+    [Unit]
+    Description=Invio registro centralino
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/gl-log.py
+- path: /etc/systemd/system/gl-log.timer
+  content: |
+    [Unit]
+    Description=Invio registro centralino ogni minuto
+    [Timer]
+    OnBootSec=60
+    OnUnitActiveSec=60
+    [Install]
+    WantedBy=timers.target
+- path: /usr/local/bin/gl-cert-copia.sh
+  permissions: '0755'
+  content: |
+    #!/bin/bash
+    # Copia il certificato Let's Encrypt in una cartella leggibile dall'utente kamailio e riavvia.
+    mkdir -p /etc/kamailio/tls
+    cp -L /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem /etc/kamailio/tls/fullchain.pem
+    cp -L /etc/letsencrypt/live/sip.ilgiornalelavori.it/privkey.pem /etc/kamailio/tls/privkey.pem
+    chown -R kamailio:kamailio /etc/kamailio/tls && chmod 600 /etc/kamailio/tls/*.pem
+    systemctl restart kamailio
+- path: /usr/local/bin/gl-sync.py
+  permissions: '0755'
+  content: |
+    #!/usr/bin/env python3
+    # Ogni minuto: scarica da Supabase le configurazioni di rtpengine e Kamailio (solo questi due file, nient'altro).
+    # rtpengine: se cambiata la scrive e riavvia il servizio. Kamailio: se cambiata la verifica con «kamailio -c»,
+    # se valida la applica e riavvia, altrimenti tiene la precedente e scrive l'errore nel registro.
+    # Se un servizio risulta fermo prova a riavviarlo. Lo stesso messaggio non viene ripetuto nel registro e una
+    # configurazione gia' scartata non viene riprovata finche' non cambia.
+    import fcntl, hashlib, json, os, subprocess, urllib.request
+    BASE = "https://rvigugiufrjmzedjstuz.supabase.co/rest/v1/rpc/"
+    ANON = "__ANON__"
+    TOKEN = "__TOKEN__"
+    LOG = "/usr/local/bin/gl-log.py"
+    STATO = "/var/lib/gl"
+    os.makedirs(STATO, exist_ok=True)
+    blocco = open(STATO + "/sync.lock", "w")
+    try:
+        fcntl.flock(blocco, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)  # un'altra sincronizzazione e' in corso
+    def log(chiave, testo):
+        f = STATO + "/ultimo-" + chiave
+        prima = open(f).read() if os.path.exists(f) else ""
+        if testo != prima:
+            open(f, "w").write(testo)
+            subprocess.run([LOG, testo])
+    def rpc(nome):
+        req = urllib.request.Request(BASE + nome, data=json.dumps({"p_token": TOKEN}).encode(),
+            headers={"apikey": ANON, "Authorization": "Bearer " + ANON, "Content-Type": "application/json"})
+        return json.loads(urllib.request.urlopen(req, timeout=10).read().decode())
+    def attivo(unita):
+        return subprocess.run(["systemctl", "is-active", unita], capture_output=True, text=True).stdout.strip()
+    def leggi(p):
+        return open(p).read() if os.path.exists(p) else ""
+    if not os.path.exists("/etc/kamailio/tls/fullchain.pem"):
+        raise SystemExit(0)  # certificato non ancora pronto: ci pensa gl-avvio.sh
+    try:
+        ip = urllib.request.urlopen("http://169.254.169.254/hetzner/v1/metadata/public-ipv4", timeout=5).read().decode().strip()
+    except Exception:
+        raise SystemExit(0)
+    # 1) rtpengine (convertitore audio Opus/SRTP di WhatsApp <-> G.722/RTP di ElevenLabs)
+    try:
+        rtp = rpc("centralino_rtpengine_config")
+    except Exception:
+        rtp = None
+    riavviato = False
+    if isinstance(rtp, str) and "[rtpengine]" in rtp:
+        rtp = rtp.replace("__IP__", ip)
+        p = "/etc/rtpengine/rtpengine.conf"
+        if rtp != leggi(p):
+            os.makedirs("/etc/rtpengine", exist_ok=True)
+            open(p, "w").write(rtp)
+            subprocess.run(["systemctl", "restart", "rtpengine-daemon"])
+            riavviato = True
+            log("rtpengine", "rtpengine: configurazione applicata, servizio " + attivo("rtpengine-daemon"))
+    if not riavviato and attivo("rtpengine-daemon") != "active":
+        subprocess.run(["systemctl", "restart", "rtpengine-daemon"])
+        log("rtpengine", "rtpengine: era fermo, riavviato: " + attivo("rtpengine-daemon"))
+    # 2) Kamailio
+    try:
+        cfg = rpc("centralino_config_v2")
+    except Exception:
+        cfg = None
+    riavviato = False
+    if isinstance(cfg, str) and "#!KAMAILIO" in cfg:
+        cfg = cfg.replace("__IP__", ip)
+        p = "/etc/kamailio/kamailio.cfg"
+        impronta = hashlib.sha256(cfg.encode()).hexdigest()
+        if cfg != leggi(p) and impronta != leggi(STATO + "/scartata"):
+            open(p + ".nuovo", "w").write(cfg)
+            chk = subprocess.run(["kamailio", "-c", "-f", p + ".nuovo"], capture_output=True, text=True)
+            if chk.returncode != 0:
+                open(STATO + "/scartata", "w").write(impronta)
+                log("kamailio", "kamailio: configurazione NON applicata (resta la precedente), errore: " + (chk.stderr or chk.stdout)[-1500:])
+            else:
+                os.replace(p + ".nuovo", p)
+                subprocess.run(["systemctl", "restart", "kamailio"])
+                riavviato = True
+                log("kamailio", "kamailio: configurazione applicata, servizio " + attivo("kamailio"))
+    if not riavviato and attivo("kamailio") != "active":
+        subprocess.run(["systemctl", "restart", "kamailio"])
+        log("kamailio", "kamailio: era fermo, riavviato: " + attivo("kamailio"))
+- path: /etc/systemd/system/gl-sync.service
+  content: |
+    [Unit]
+    Description=Sincronizza configurazione centralino
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/gl-sync.py
+- path: /etc/systemd/system/gl-sync.timer
+  content: |
+    [Unit]
+    Description=Sincronizza configurazione centralino ogni minuto
+    [Timer]
+    OnBootSec=120
+    OnUnitActiveSec=60
+    [Install]
+    WantedBy=timers.target
+- path: /usr/local/bin/gl-avvio.sh
+  permissions: '0755'
+  content: |
+    #!/bin/bash
+    # Attende che sip.ilgiornalelavori.it punti a questo server, ottiene il certificato, scarica le configurazioni e avvia tutto.
+    IP=$(curl -s http://169.254.169.254/hetzner/v1/metadata/public-ipv4)
+    /usr/local/bin/gl-log.py "avvio server $IP (centralino v2, Kamailio + rtpengine $(dpkg-query -W -f='${Version}' rtpengine-daemon 2>/dev/null || echo NON-INSTALLATO)): in attesa del DNS di sip.ilgiornalelavori.it"
+    for i in $(seq 1 240); do
+      R=$(getent ahostsv4 sip.ilgiornalelavori.it | awk '{print $1; exit}')
+      [ "$R" = "$IP" ] && break
+      sleep 30
+    done
+    if [ ! -f /etc/letsencrypt/live/sip.ilgiornalelavori.it/fullchain.pem ]; then
+      certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email \
+        -d sip.ilgiornalelavori.it --deploy-hook /usr/local/bin/gl-cert-copia.sh >/var/log/gl-certbot.log 2>&1
+      /usr/local/bin/gl-log.py "certificato: $(tail -n 3 /var/log/gl-certbot.log | tr '\n' ' ')"
+    fi
+    /usr/local/bin/gl-cert-copia.sh
+    /usr/local/bin/gl-sync.py
+    systemctl enable kamailio rtpengine-daemon
+    sleep 3
+    /usr/local/bin/gl-log.py "stato: kamailio $(systemctl is-active kamailio) · rtpengine $(systemctl is-active rtpengine-daemon) · $(journalctl -u kamailio -u rtpengine-daemon -n 10 -o cat --no-pager | tr '\n' ' ' | cut -c1-1500)"
+runcmd:
+- sed -i 's/^#\?RUN_KAMAILIO=.*/RUN_KAMAILIO=yes/' /etc/default/kamailio || true
+- DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rtpengine-daemon > /var/log/gl-rtpengine-install.log 2>&1 || true
+- sed -i 's/^MANAGE_IPTABLES=.*/MANAGE_IPTABLES=no/' /etc/default/rtpengine-daemon || true
+- systemctl disable --now rtpengine-recording-daemon rtpengine-recording-nfs-mount || true
+- systemctl daemon-reload
+- systemctl enable --now gl-log.timer
+- systemctl enable --now gl-sync.timer
+- nohup /usr/local/bin/gl-avvio.sh >/var/log/gl-avvio.log 2>&1 &
