@@ -36,7 +36,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.1 (11/10/2026)"
+VERSIONE = "gl-voce 3.2 (11/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -308,13 +308,33 @@ def leggi_sdp(sdp):
 FINE_FRASE = re.compile(r"[.!?…;:](?=\s)|\n")
 ETICHETTA = re.compile(r"^\s*\[([A-Za-z]{2,3})(?:[-_][A-Za-z]{2,4})?\]\s*")
 ETICHETTE_OVUNQUE = re.compile(r"\[[A-Za-z]{2,3}(?:[-_][A-Za-z]{2,4})?\]")
-PAROLE_SQ = re.compile(r"\b(është|jam|jeni|për|nuk|faleminderit|mirë|shqip|kantier|punëtor|ju lutem|po|si mund)\b", re.I)
+# Riconoscimento della lingua di ogni risposta: l'etichetta dell'AI ([it], [sq]…) da sola non basta
+# (11/10/2026: una risposta italiana è arrivata con l'etichetta «et»). Conta la scelta albanese / non albanese,
+# perché decide la voce: Anila (Azure) per l'albanese, Alexandra (ElevenLabs, multilingue) per il resto.
+SQ_PAROLE = set(("një të në është dhe për nuk unë ju jam jeni keni kemi kanë mund ndihmoj flas flisni shqip "
+                 "faleminderit mirupafshim përshëndetje tani punë punëtor punëtorët kantier kantierin mirë çfarë ku kur "
+                 "edhe por nga tek apo këtu kjo ky këto shumë dua doni duhet bëj bëni shkruani shkruaj mesazh mesazhin "
+                 "numër numrin ditë sot nesër aplikacion shërbim shërbimin").split())
+IT_PAROLE = set(("il lo la le gli che di del della delle dei è per non sono una un con come cosa puoi posso grazie "
+                 "ciao buongiorno scrivi scrivere questo questa qui anche ma più molto sì ogni tua tuo suo sua nel nella").split())
+ETICHETTE_NOTE = {"sq", "it", "en", "fr", "de", "es", "pt", "ro", "ar", "uk", "ru", "pl", "bn", "ur", "pa", "hi", "tr",
+                  "sr", "mk", "bs", "hr", "bg", "zh", "nl", "el", "cs", "sk", "hu", "fa", "ps", "wo", "sw", "tl"}
 
 
-def indovina_lingua(testo, predefinita):
+def lingua_testo(testo, etichetta, predefinita):
     t = testo.lower()
-    if re.search(r"[ëç]", t) or PAROLE_SQ.search(t):
+    parole = re.findall(r"[a-zàèéìíòóùúëç]+", t)
+    sq = 2 * (t.count("ë") + t.count("ç")) + sum(1 for p in parole if p in SQ_PAROLE)
+    it = sum(1 for p in parole if p in IT_PAROLE)
+    etichetta = "sq" if etichetta == "al" else (etichetta if etichetta in ETICHETTE_NOTE else "")
+    if sq >= 2 and sq > it:
         return "sq"
+    if etichetta == "sq":
+        return "sq" if sq >= it else "it"
+    if etichetta:
+        return etichetta
+    if it > sq:
+        return "it"
     return predefinita
 
 
@@ -739,10 +759,10 @@ class Chiamata:
         elif tipo == "input_audio_buffer.speech_stopped":
             self.ultima_voce = time.time()
         elif tipo == "response.created":
-            self.risp = {"buf": "", "lingua": None, "frasi": 0, "testo": ""}
+            self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
         elif tipo in ("response.output_text.delta", "response.output_audio_transcript.delta"):
             if self.risp is None:
-                self.risp = {"buf": "", "lingua": None, "frasi": 0, "testo": ""}
+                self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
             self.su_testo(ev.get("delta", ""))
         elif tipo in ("response.output_text.done", "response.output_audio_transcript.done"):
             self.chiudi_testo()
@@ -773,37 +793,41 @@ class Chiamata:
         r = self.risp
         r["buf"] += delta
         r["testo"] += delta
-        if r["lingua"] is None:
+        if r["etichetta"] is None:
             m = ETICHETTA.match(r["buf"])
             if m:
-                r["lingua"] = m.group(1).lower()[:2]
+                r["etichetta"] = m.group(1).lower()[:2]
                 r["buf"] = r["buf"][m.end():]
             elif len(r["buf"]) >= 12 or (r["buf"].strip() and not r["buf"].lstrip().startswith("[")):
-                r["lingua"] = indovina_lingua(r["buf"], self.lingua)
+                r["etichetta"] = ""
             else:
                 return
-            if r["lingua"] == "al":
-                r["lingua"] = "sq"
-            if r["lingua"] != self.lingua:
-                log(self.call_id[:12], "lingua", self.lingua, "→", r["lingua"])
-            self.lingua = r["lingua"]
-            if r["lingua"] not in self.lingue_usate:
-                self.lingue_usate.append(r["lingua"])
         while True:
             n = taglio(r["buf"], r["frasi"] == 0)
             if n is None:
                 break
             frase, r["buf"] = r["buf"][:n], r["buf"][n:]
+            if r["lingua"] is None:
+                self.decidi_lingua(r, frase + r["buf"])
             self.accoda_frase(frase, r["lingua"])
             r["frasi"] += 1
+
+    def decidi_lingua(self, r, testo):
+        """Una lingua per tutta la risposta, decisa sulla prima frase completa (etichetta + parole)."""
+        lingua = lingua_testo(testo, r["etichetta"] or "", self.lingua)
+        if lingua != self.lingua:
+            log(self.call_id[:12], "lingua", self.lingua, "→", lingua, "(etichetta «%s»)" % (r["etichetta"] or "-"))
+        r["lingua"] = lingua
+        self.lingua = lingua
+        if lingua not in self.lingue_usate:
+            self.lingue_usate.append(lingua)
 
     def chiudi_testo(self):
         r = self.risp
         if not r:
             return
         if r["lingua"] is None:
-            r["lingua"] = indovina_lingua(r["buf"], self.lingua)
-            self.lingua = r["lingua"]
+            self.decidi_lingua(r, r["buf"] or r["testo"])
         if r["buf"].strip():
             self.accoda_frase(r["buf"], r["lingua"])
         testo = pulisci(r["testo"])

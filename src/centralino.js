@@ -26,6 +26,9 @@ const ELEVEN_AGENTE = "agent_3101m4n1bmrdekg98454f8t5v9fx";
 const ELEVEN_VOCE = "kdmDKE6EkgrWrrykO9Qt"; // «Alexandra - Conversational and Natural», scelta da Filippo
 const ELEVEN_MODELLO = "eleven_v4_turbo";
 const MODELLO_BASE = "gpt-realtime-2.1-mini";
+// Assistente nostro: modello completo (11/10/2026), l'albanese del mini era scorretto (senza ë/ç, grammatica debole).
+// Risponde solo per iscritto: circa 0,08 $ a chiamata. Si cambia con la variabile CENTRALINO_MODELLO del relay.
+const BOT_MODELLO = "gpt-realtime-2.1";
 
 // Voci Microsoft: l'albanese sempre (ElevenLabs non lo parla); l'italiano solo come riserva se ElevenLabs non risponde.
 const AZURE_VOCI = {
@@ -57,6 +60,7 @@ function botIstruzioni(promptBase, saluto) {
   return [
     promptBase || BOT_PROMPT_BASE,
     "LINGUE: rispondi sempre nella lingua in cui ti parla la persona. In cantiere moltissimi operai parlano solo albanese: se la persona parla albanese (shqip), rispondi in albanese con frasi brevi, semplici e chiare, come si parla in cantiere. Se la persona cambia lingua a metà chiamata, cambia anche tu. Non tradurre il nome «Giornale Lavori».",
+    "ALBANESE CORRETTO: quando parli albanese usa l'albanese standard con ortografia e grammatica corrette, sempre con le lettere ë e ç dove servono (për, është, një, çfarë…); mai testo senza accenti o con parole italiane.",
     "ETICHETTA DELLA LINGUA (obbligatoria): inizia OGNI risposta con il codice della lingua in cui rispondi, tra parentesi quadre: [it] italiano, [sq] albanese, [ro] rumeno, [ar] arabo, [en] inglese, [fr] francese, [es] spagnolo, [uk] ucraino, [ru] russo, [bn] bengalese, [ur] urdu, [pa] punjabi, [hi] hindi, [tr] turco, [pl] polacco, [sr] serbo, [mk] macedone, [zh] cinese; per le altre lingue il codice ISO a due lettere. L'etichetta non viene letta ad alta voce: non ripeterla mai dentro la frase.",
     "STILE: è una telefonata. Scrivi solo frasi da pronunciare: niente elenchi, simboli, emoji, asterischi, link o abbreviazioni. Risposte brevi: di solito una o due frasi.",
     "CHIUSURA: quando la persona ha avuto la risposta e vi siete salutati, chiama la funzione termina_chiamata subito dopo la frase di saluto.",
@@ -220,8 +224,8 @@ async function centralinoSessione(request, env, aiuti) {
   const lingua = String(corpo.lingua || "") === "sq" ? "sq" : "it";
   const ag = await elevenAgente(env);
   const saluto = lingua === "sq" ? BOT_SALUTI.sq : ((ag && ag.primo) || BOT_SALUTI.it);
-  let modello = MODELLO_BASE;
-  try { modello = (await aiuti.modello()) || MODELLO_BASE; } catch (e) {}
+  let modello = String(env.CENTRALINO_MODELLO || BOT_MODELLO).trim();
+  if (!/^gpt-realtime[a-z0-9.\-]*$/.test(modello)) modello = BOT_MODELLO;
   const conia = async (m) => {
     const r = await conTimeout("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
