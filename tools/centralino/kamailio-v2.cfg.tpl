@@ -49,13 +49,14 @@ request_route {
     if (loose_route()) {
       if (check_route_param("gl=el")) {
         if (is_method("BYE")) {
+          xlog("L_NOTICE", "GL audio della chiamata: $rtpstat\n");
           rtpengine_delete();
         } else if (is_method("INVITE|UPDATE") && has_body("application/sdp")) {
           # re-INVITE/UPDATE: da Meta verso ElevenLabs come la prima offerta; da ElevenLabs verso Meta al contrario (Opus/SRTP)
           if (is_direction("downstream")) {
-            rtpengine_offer("replace-origin replace-session-connection ICE=remove RTP/AVP rtcp-mux-accept rtcp-mux-demux codec-mask-opus codec-transcode-G722 codec-transcode-PCMA codec-transcode-PCMU");
+            rtpengine_offer("replace-origin ICE=remove RTP/AVP rtcp-mux-accept rtcp-mux-demux codec-mask-opus codec-transcode-G722 codec-transcode-PCMA codec-transcode-PCMU");
           } else {
-            rtpengine_offer("replace-origin replace-session-connection ICE=remove RTP/SAVP rtcp-mux-offer codec-mask-G722 codec-mask-PCMA codec-mask-PCMU codec-transcode-opus");
+            rtpengine_offer("replace-origin ICE=remove RTP/SAVP rtcp-mux-offer codec-mask-G722 codec-mask-PCMA codec-mask-PCMU codec-transcode-opus");
           }
           t_on_reply("GL_RISPOSTA_EL");
         }
@@ -111,7 +112,7 @@ route[ELEVENLABS] {
   xlog("L_NOTICE", "GL instradata: ElevenLabs\n");
   $ru = "sip:+393783107501@sip.rtc.elevenlabs.io:5061;transport=tls";
   $xavp(tls=>server_name) = "sip.rtc.elevenlabs.io";
-  if (!rtpengine_offer("replace-origin replace-session-connection ICE=remove RTP/AVP rtcp-mux-accept rtcp-mux-demux codec-mask-opus codec-transcode-G722 codec-transcode-PCMA codec-transcode-PCMU")) {
+  if (!rtpengine_offer("replace-origin ICE=remove RTP/AVP rtcp-mux-accept rtcp-mux-demux codec-mask-opus codec-transcode-G722 codec-transcode-PCMA codec-transcode-PCMU")) {
     xlog("L_NOTICE", "GL rtpengine_offer non riuscito\n");
     sl_send_reply("503", "Media non disponibile");
     exit;
@@ -133,7 +134,7 @@ onreply_route[GL_RISPOSTA_EL] {
   xlog("L_NOTICE", "GL risposta EL $rs $rr da $si\n");
   if (has_body("application/sdp")) {
     # nessun protocollo forzato: rtpengine risponde a Meta con lo stesso che Meta ha offerto (RTP/SAVP o RTP/SAVPF)
-    if (!rtpengine_answer("replace-origin replace-session-connection ICE=remove")) {
+    if (!rtpengine_answer("replace-origin ICE=remove")) {
       xlog("L_NOTICE", "GL rtpengine_answer non riuscito\n");
     }
   }
