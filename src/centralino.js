@@ -195,7 +195,7 @@ async function centralinoTts(request, env, aiuti) {
   if (l === "sq" || (!ELEVEN_LINGUE.has(l) && AZURE_VOCI[l])) {
     tentativi.push(() => ttsAzure(env, testo, AZURE_VOCI[l]));
   } else {
-    tentativi.push(() => ttsEleven(env, testo));
+    if (env.ELEVENLABS_API_KEY) tentativi.push(() => ttsEleven(env, testo));
     tentativi.push(() => ttsAzure(env, testo, AZURE_VOCI[l] || AZURE_VOCI.it)); // riserva: la chiamata non resta muta
   }
   let ultimo = "";
@@ -289,17 +289,41 @@ async function centralinoEvento(request, aiuti) {
   return json({ ok: true });
 }
 
+// Numeri albanesi: stessa regola della funzione SQL centralino_albanesi_regex (+355, persone e utenti della chat
+// con lingua 'sq', impostazione centralino_numeri_albanesi). La funzione non è eseguibile con la chiave del relay
+// (11/10/2026): se la chiamata non riesce, i numeri si leggono dalle tabelle.
+async function centralinoAlbanesi(aiuti) {
+  try {
+    const v = String((await aiuti.rpc("centralino_albanesi_regex", {}, 3000)) || "").trim();
+    if (v && /^[0-9|\[\]+\-]+$/.test(v)) return { regex: v, fonte: "funzione" };
+  } catch (e) {}
+  const numeri = new Set(["355[0-9]+"]);
+  const cifre = (x) => String(x || "").replace(/\D/g, "");
+  let fonte = "tabelle";
+  try {
+    const [p, u, imp] = await Promise.all([
+      aiuti.leggi("persone?select=telefono&lingua=eq.sq&rimosso_il=is.null&telefono=not.is.null", 3000),
+      aiuti.leggi("chat_unica_utenti?select=telefono&lingua=eq.sq&telefono=not.is.null", 3000),
+      aiuti.leggi("impostazioni?select=valore&chiave=eq.centralino_numeri_albanesi", 3000)
+    ]);
+    for (const r of p || []) numeri.add(cifre(r.telefono));
+    for (const r of u || []) numeri.add(cifre(r.telefono));
+    for (const r of imp || []) for (const x of String(r.valore || "").split(",")) numeri.add(cifre(x));
+  } catch (e) { fonte = "solo +355 (tabelle non lette)"; }
+  const regex = [...numeri].filter((n) => /^[0-9\[\]+\-]{4,}$/.test(n)).sort().join("|");
+  return { regex, fonte };
+}
+
 async function centralinoPacchetto(env, aiuti) {
   const modo = centralinoModo(env);
   const token = await tokenCentralino(aiuti);
-  let albanesi = "";
-  try { albanesi = String((await aiuti.rpc("centralino_albanesi_regex", {}, 3000)) || "").trim(); } catch (e) {}
-  if (!albanesi || !/^[0-9|\[\]+\-]+$/.test(albanesi)) albanesi = "355[0-9]+";
+  const alb = await centralinoAlbanesi(aiuti);
+  const albanesi = alb.regex || "355[0-9]+";
   const bot = modo === "fase_b" ? "[0-9]+" : (modo === "fase_a" ? albanesi : "NESSUNO");
   const cfg = KAMAILIO_V3_TPL.split("__BOT__").join(bot).split("__ALBANESI__").join(albanesi)
     .split("__TOKEN__").join(token).split("__PROJ__").join(OPENAI_PROGETTO_SIP);
   return json({
-    versione: CENTRALINO_VERSIONE,
+    versione: CENTRALINO_VERSIONE + " · numeri albanesi: " + (albanesi.split("|").length - 1) + " + prefisso 355 (" + alb.fonte + ")",
     modo,
     kamailio_cfg: cfg,
     rtpengine_conf: RTPENGINE_V3,

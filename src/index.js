@@ -140,6 +140,16 @@ export default {
       const supabaseUrlC = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
       return centralinoGestisci(request, env, url, {
         rpc: (nome, corpo, ms) => chatUnicaRpc(env, supabaseUrlC, nome, corpo, ms),
+        leggi: async (percorso, ms) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), ms || 3000);
+          try {
+            const r = await fetch(supabaseUrlC + "/rest/v1/" + percorso, { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: ctrl.signal });
+            if (!r.ok) throw new Error(percorso.split("?")[0] + " " + r.status);
+            return await r.json();
+          } finally { clearTimeout(timer); }
+        },
         log: (tel, tipo, dettaglio) => env.SUPABASE_SERVICE_KEY
           ? chatUnicaLog(env, supabaseUrlC, tel, null, tipo, dettaglio) : Promise.resolve(),
         modello: async () => (await voceConfig(env, supabaseUrlC)).modello,
