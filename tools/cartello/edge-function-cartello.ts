@@ -1,4 +1,4 @@
-// cartello — Il Giornale Lavori (05/10/2026) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
+// cartello — Il Giornale Lavori (05/10/2026) — v7 (11/10/2026: invio del PDF al tipografo con link da scaricare) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
 // già esistente (scenario 7490419 → onboarding_completa_da_pagamento → cartello_completa_da_pagamento).
 // Generatore del cartello di cantiere: la PAGINA (public/cartello/index.html del relay wa-relay) si compila
 // e compone il PDF nel browser del cliente (jsPDF + motore condiviso); QUI ci sono solo i passaggi del
@@ -13,6 +13,13 @@
 //        abbonato (v6, 10/10/2026): true se chi compra o l'impresa esecutrice scritta sul cartello è un'impresa abbonata con un cantiere attivo
 //        (partita IVA, email o ragione sociale, funzione SQL cartello_abbonato) → in fondo al cartello «Questo cantiere viene gestito con».
 //   POST /scarico                 {sessione} → registra un download del PDF pagato
+//   v7 (11/10/2026) — invio al tipografo, solo per cartelli pagati, al massimo cartello_invio_max volte:
+//   POST /invio-prepara           {sessione, email_cliente, nome_cliente, email_tipografo, nota, byte, base_cm, altezza_cm}
+//                                 → {id, caricamento} (URL firmato: il browser carica il PDF direttamente nell'archivio privato «cartelli-stampa»)
+//   POST /invio-conferma          {id, sessione} → controlla che il file ci sia e manda l'email (scenario Make 7899006, Brevo,
+//                                 mittente «<impresa> tramite Il Giornale Lavori» <info@ilgiornalelavori.it>, Rispondi a = cliente, copia al cliente)
+//   GET  /file?k=…                link dell'email: rimanda a un indirizzo firmato di 10 minuti; scade dopo cartello_invio_giorni (30)
+//   POST /pulizia                 (pg_cron, intestazione x-chiave) cancella i file scaduti e gli invii mai completati
 //
 // Variabili: STRIPE_SECRET_KEY (segreto Supabase, facoltativo: senza, si passa da Make 7820289), SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (automatiche).
 // Impostazioni lette dal database a ogni richiesta: cartello_url, cartello_prezzo_cent, cartello_attivo, stripe_tax_rate_id_iva22.
@@ -39,7 +46,7 @@ type Dizionario = Record<string, unknown>;
 const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, x-chiave',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -229,7 +236,7 @@ async function verifica(sessione: string, pivaCartello = '', testoCartello = '')
   if (riga.stato === 'pagato') {
     const ab = await abbonato([String(riga.partita_iva ?? ''), ...pivaCartello.split(',')], String(riga.email ?? ''), testoCartello);
     if (ab !== riga.abbonato) await aggiornaVendita(sessione, { abbonato: ab });
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string), abbonato: ab });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string), abbonato: ab, email: riga.email ?? '', cliente: riga.cliente ?? '', invii: await contaInvii(sessione) });
   }
   if (!(await canaleStripe())) return json({ esito: 'in_attesa' });
   const r = await stripe('GET', `checkout/sessions/${encodeURIComponent(sessione)}`);
@@ -254,10 +261,220 @@ async function verifica(sessione: string, pivaCartello = '', testoCartello = '')
       stripe_payment_intent: typeof s.payment_intent === 'string' ? s.payment_intent : null,
       stripe_customer: typeof s.customer === 'string' ? s.customer : null,
     });
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando), abbonato: ab });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando), abbonato: ab, email: emailCompratore, cliente: String(cd.name ?? ''), invii: 0 });
   }
   if (s.status === 'expired') { await aggiornaVendita(sessione, { stato: 'scaduto' }); return json({ esito: 'non_trovato' }, 404); }
   return json({ esito: 'in_attesa' });
+}
+
+
+// ------------------------------------------------------------------ v7 (11/10/2026): invio al tipografo
+const BUCKET = 'cartelli-stampa';
+const MAX_BYTE = 50 * 1024 * 1024;
+const RE_EMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const RE_CHIAVE = /^[A-Za-z0-9_-]{30,60}$/;
+
+function esc(t: unknown): string {
+  return String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+function pulito(t: unknown, max: number): string {
+  return String(t ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+function chiaveCasuale(): string {
+  const b = crypto.getRandomValues(new Uint8Array(30));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function storage(percorso: string, init: RequestInit): Promise<Response> {
+  return fetch(`${URL_BASE}/storage/v1/${percorso}`, { ...init, headers: { apikey: CHIAVE, Authorization: `Bearer ${CHIAVE}`, ...(init.headers as Record<string, string> ?? {}) } });
+}
+async function contaInvii(sessione: string): Promise<number> {
+  const r = await dbFetch(`cartelli_invii?select=id&session_id=eq.${encodeURIComponent(sessione)}&stato=in.(inviato,scaduto)`, { method: 'GET', headers: { Prefer: 'count=exact', Range: '0-0' } });
+  const cr = r?.headers.get('content-range') || '';
+  const n = parseInt(cr.split('/')[1] || '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+async function leggiInvio(filtro: string): Promise<Dizionario | null> {
+  const r = await dbFetch(`cartelli_invii?select=*&${filtro}&limit=1`, { method: 'GET' });
+  if (!r || !r.ok) return null;
+  return ((await r.json()) as Dizionario[])[0] ?? null;
+}
+async function aggiornaInvio(id: string, patch: Dizionario): Promise<void> {
+  await dbFetch(`cartelli_invii?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) });
+}
+async function cancellaFile(percorsi: string[]): Promise<void> {
+  if (!percorsi.length) return;
+  try { await storage(`object/${BUCKET}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: percorsi }) }); } catch { /* si riprova alla prossima pulizia */ }
+}
+
+async function invioPrepara(req: Request): Promise<Response> {
+  let d: Dizionario;
+  try { d = (await req.json()) as Dizionario; } catch { return json({ errore: 'richiesta non leggibile' }, 400); }
+  const sessione = String(d.sessione ?? '');
+  if (!RE_SESSIONE.test(sessione)) return json({ errore: 'cartello non riconosciuto' }, 400);
+  const vendita = await leggiVendita(sessione);
+  if (!vendita || vendita.stato !== 'pagato') return json({ errore: 'si possono inviare solo cartelli già pagati' }, 403);
+  const emailCliente = pulito(d.email_cliente, 200).toLowerCase();
+  const emailTip = pulito(d.email_tipografo, 200).toLowerCase();
+  const nome = pulito(d.nome_cliente, 80).replace(/["<>]/g, '');
+  const nota = String(d.nota ?? '').replace(/\r/g, '').trim().slice(0, 600);
+  if (!RE_EMAIL.test(emailCliente)) return json({ errore: 'la tua email non sembra corretta' }, 400);
+  if (!RE_EMAIL.test(emailTip)) return json({ errore: 'l’email del tipografo non sembra corretta' }, 400);
+  if (emailTip === emailCliente) return json({ errore: 'l’email del tipografo è uguale alla tua: per avere il file usa «Scarica»' }, 400);
+  if (!nome) return json({ errore: 'scrivi il tuo nome o quello dell’impresa: il tipografo lo vede come mittente' }, 400);
+  const byte = Number(d.byte ?? 0);
+  if (!(byte > 1000)) return json({ errore: 'file non valido' }, 400);
+  if (byte > MAX_BYTE) return json({ errore: 'il file supera i 50 MB e non si può inviare: scaricalo e mandalo con un servizio come WeTransfer, oppure usa immagini più leggere' }, 413);
+  const b = Math.round(Number(d.base_cm)), h = Math.round(Number(d.altezza_cm));
+  if (!(b >= 40 && b <= 600 && h >= 40 && h <= 600)) return json({ errore: 'misura del cartello non valida' }, 400);
+
+  const imp = await impostazioni(['cartello_invio_max']);
+  const max = Math.max(1, parseInt(imp.cartello_invio_max || '3', 10) || 3);
+  if ((await contaInvii(sessione)) >= max) return json({ errore: `hai già usato i ${max} invii compresi per questo cartello: scarica il PDF e mandalo tu` }, 429);
+  // freno ai tentativi a vuoto: non più di 3×max preparazioni per cartello
+  const rTot = await dbFetch(`cartelli_invii?select=id&session_id=eq.${encodeURIComponent(sessione)}`, { method: 'GET', headers: { Prefer: 'count=exact', Range: '0-0' } });
+  const tot = parseInt((rTot?.headers.get('content-range') || '').split('/')[1] || '0', 10) || 0;
+  if (tot >= max * 3) return json({ errore: 'troppi tentativi di invio per questo cartello: scarica il PDF e mandalo tu' }, 429);
+
+  const id = crypto.randomUUID();
+  const percorso = `${String(vendita.token ?? 'CRT').replace(/[^A-Za-z0-9-]/g, '')}/${id}.pdf`;
+  const nomeFile = `cartello-cantiere-${b}x${h}.pdf`;
+  const rs = await storage(`object/upload/sign/${BUCKET}/${percorso}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (!rs.ok) return json({ errore: 'archivio dei file non disponibile, riprova tra poco' }, 502);
+  const firmato = (await rs.json()) as { url?: string };
+  if (!firmato.url) return json({ errore: 'archivio dei file non disponibile, riprova tra poco' }, 502);
+  const ok = await dbFetch('cartelli_invii', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({
+    id, session_id: sessione, chiave_link: chiaveCasuale(), email_cliente: emailCliente, nome_cliente: nome, email_tipografo: emailTip,
+    nota: nota || null, percorso_file: percorso, nome_file: nomeFile, byte: Math.round(byte), formato: `${b}x${h}`,
+    oggetto: String(vendita.oggetto ?? '').slice(0, 300), ip_hash: await hashIp(req),
+  }) });
+  if (!ok || !ok.ok) return json({ errore: 'invio non registrato, riprova tra poco' }, 502);
+  return json({ id, caricamento: `${URL_BASE}/storage/v1${firmato.url}` });
+}
+
+function htmlEmail(inv: Dizionario, vendita: Dizionario, link: string, scade: string): string {
+  const nome = esc(inv.nome_cliente), emailC = esc(inv.email_cliente);
+  const [b, h] = String(inv.formato ?? '').split('x');
+  const mb = (Number(inv.byte ?? 0) / 1048576).toFixed(1).replace('.', ',');
+  const riga = (k: string, v: string) => v ? `<tr><td style="padding:6px 12px 6px 0;color:#5b6b66;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:6px 0;color:#0b231c">${v}</td></tr>` : '';
+  const nota = String(inv.nota ?? '').trim();
+  return `<!doctype html><html lang="it"><body style="margin:0;padding:0;background:#f2f7f3">
+<div style="max-width:600px;margin:0 auto;padding:24px 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0b231c">
+<div style="background:#ffffff;border:1px solid #d9e6df;border-radius:14px;padding:26px 24px">
+<p style="margin:0 0 14px">Buongiorno,</p>
+<p style="margin:0 0 14px"><strong>${nome}</strong> (<a href="mailto:${emailC}" style="color:#0f7a4a">${emailC}</a>) ti ha inviato il file del suo <strong>cartello di cantiere da stampare</strong>, preparato con Il Giornale Lavori.</p>
+<table style="border-collapse:collapse;margin:6px 0 18px;font-size:14px">
+${riga('Lavori', esc(M_titolo(String(vendita.oggetto ?? ''))))}
+${riga('Ubicazione', esc(vendita.ubicazione ?? ''))}
+${riga('Misura', `base ${esc(b)} × altezza ${esc(h)} cm`)}
+${riga('File', `PDF/X-1a:2001 — CMYK FOGRA39, testi convertiti in tracciati, pronto per la stampa (${mb} MB)`)}
+</table>
+${nota ? `<div style="background:#f2f7f3;border-left:4px solid #1fd277;border-radius:6px;padding:10px 14px;margin:0 0 18px"><div style="font-size:12px;color:#5b6b66;margin-bottom:4px">Messaggio di ${nome}</div>${esc(nota).replace(/\n/g, '<br>')}</div>` : ''}
+<p style="margin:0 0 8px;text-align:center"><a href="${esc(link)}" style="display:inline-block;background:#12b764;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 26px;border-radius:999px">Scarica il file per la stampa</a></p>
+<p style="margin:0 0 18px;text-align:center;font-size:13px;color:#5b6b66">Il link resta valido fino al ${esc(scade)}.</p>
+<p style="margin:0 0 6px">Per domande sulla stampa, tempi o prezzi <strong>rispondi a questa email</strong>: la risposta arriva direttamente a ${nome} (${emailC}).</p>
+</div>
+<div style="padding:16px 8px;font-size:12px;line-height:1.5;color:#5b6b66">
+<p style="margin:0 0 8px"><strong>Chi siamo.</strong> Il Giornale Lavori (www.ilgiornalelavori.it) è il servizio con cui le imprese edili tengono il giornale di cantiere su WhatsApp e creano online il proprio cartello di cantiere.</p>
+<p style="margin:0">Questa email è partita su richiesta di ${nome}, che ha indicato il tuo indirizzo per la stampa del cartello. Non ti abbiamo iscritto a nessuna lista e non riceverai altre email da noi. Il file verrà cancellato dai nostri sistemi dopo la scadenza del link.</p>
+</div></div></body></html>`;
+}
+function M_titolo(oggetto: string): string {
+  const t = oggetto.replace(/^\s*lavori(\s+di)?\s*/i, '').trim();
+  return t ? 'Lavori di ' + t : '';
+}
+
+async function invioConferma(req: Request): Promise<Response> {
+  let d: Dizionario;
+  try { d = (await req.json()) as Dizionario; } catch { return json({ errore: 'richiesta non leggibile' }, 400); }
+  const id = String(d.id ?? ''), sessione = String(d.sessione ?? '');
+  if (!RE_UUID.test(id) || !RE_SESSIONE.test(sessione)) return json({ errore: 'invio non riconosciuto' }, 400);
+  const inv = await leggiInvio(`id=eq.${id}&session_id=eq.${encodeURIComponent(sessione)}`);
+  if (!inv) return json({ errore: 'invio non riconosciuto' }, 404);
+  if (inv.stato === 'inviato') return json({ esito: 'inviato', a: inv.email_tipografo });
+  if (inv.stato !== 'preparato') return json({ errore: 'invio non più valido: riprova da capo' }, 410);
+  const vendita = await leggiVendita(sessione);
+  if (!vendita || vendita.stato !== 'pagato') return json({ errore: 'si possono inviare solo cartelli già pagati' }, 403);
+
+  // il file c'è davvero ed è un PDF della dimensione dichiarata?
+  const percorso = String(inv.percorso_file);
+  const cartella = percorso.split('/')[0], nomeOggetto = percorso.split('/')[1];
+  const rl = await storage(`object/list/${BUCKET}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: cartella + '/', search: nomeOggetto, limit: 1 }) });
+  const elenco = rl.ok ? ((await rl.json()) as { name: string; metadata?: { size?: number } }[]) : [];
+  const ogg = elenco.find((o) => o.name === nomeOggetto);
+  const dimensione = Number(ogg?.metadata?.size ?? 0);
+  if (!ogg || dimensione < 1000) return json({ errore: 'il file non è arrivato: riprova' }, 409);
+
+  const imp = await impostazioni(['cartello_invio_hook_url', 'cartello_invio_hook_chiave', 'cartello_invio_max', 'cartello_invio_giorni', 'cartello_url']);
+  const max = Math.max(1, parseInt(imp.cartello_invio_max || '3', 10) || 3);
+  if ((await contaInvii(sessione)) >= max) return json({ errore: `hai già usato i ${max} invii compresi per questo cartello` }, 429);
+  if (!imp.cartello_invio_hook_url || !imp.cartello_invio_hook_chiave) return json({ errore: 'invio email non configurato' }, 503);
+  const giorni = Math.max(1, parseInt(imp.cartello_invio_giorni || '30', 10) || 30);
+  const scadeIl = new Date(Date.now() + giorni * 86400000);
+  const base = (imp.cartello_url || CARTELLO_URL_DEFAULT).replace(/\/+$/, '');
+  const link = `${base}/file?k=${encodeURIComponent(String(inv.chiave_link))}`;
+  const scade = new Intl.DateTimeFormat('it-IT', { dateStyle: 'long', timeZone: 'Europe/Rome' }).format(scadeIl);
+  const nome = String(inv.nome_cliente ?? '').replace(/["<>\\]/g, '').slice(0, 60);
+  const [b, h] = String(inv.formato ?? '').split('x');
+  const payload = {
+    chiave: imp.cartello_invio_hook_chiave,
+    da: `"${nome} tramite Il Giornale Lavori" <info@ilgiornalelavori.it>`,
+    a: inv.email_tipografo, cc: inv.email_cliente, rispondi_a: inv.email_cliente,
+    oggetto: `Cartello di cantiere da stampare (${b}×${h} cm) — ${nome}`,
+    html: htmlEmail({ ...inv, byte: dimensione }, vendita, link, scade),
+  };
+  let esitoOk = false, motivo = '';
+  try {
+    const r = await fetch(imp.cartello_invio_hook_url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const t = await r.text();
+    try { const j = JSON.parse(t); esitoOk = j.esito === 'inviato'; motivo = j.errore ?? ''; } catch { motivo = t.slice(0, 160); }
+  } catch (e) { motivo = String((e as Error)?.message ?? e).slice(0, 160); }
+  if (!esitoOk) {
+    await aggiornaInvio(id, { stato: 'errore', errore: motivo || 'invio non confermato' });
+    await cancellaFile([percorso]);
+    return json({ errore: 'l’email non è partita' + (motivo ? ' (' + motivo.slice(0, 120) + ')' : '') + ': riprova tra poco' }, 502);
+  }
+  await aggiornaInvio(id, { stato: 'inviato', inviato_il: new Date().toISOString(), scade_il: scadeIl.toISOString(), byte: dimensione });
+  return json({ esito: 'inviato', a: inv.email_tipografo, scade, rimasti: Math.max(0, max - (await contaInvii(sessione))) });
+}
+
+function paginaSemplice(titolo: string, testo: string, stato: number): Response {
+  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(titolo)}</title></head>
+<body style="margin:0;background:#f2f7f3;font-family:Arial,Helvetica,sans-serif;color:#0b231c"><div style="max-width:520px;margin:12vh auto;padding:28px 24px;background:#fff;border:1px solid #d9e6df;border-radius:14px">
+<h1 style="font-size:20px;margin:0 0 10px">${esc(titolo)}</h1><p style="margin:0 0 14px;line-height:1.55">${testo}</p>
+<p style="margin:0;font-size:13px;color:#5b6b66">Il Giornale Lavori — www.ilgiornalelavori.it</p></div></body></html>`;
+  return new Response(html, { status: stato, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+
+async function scaricaFile(k: string): Promise<Response> {
+  if (!RE_CHIAVE.test(k)) return paginaSemplice('Link non valido', 'Il link non è completo. Prova a copiarlo di nuovo dall’email ricevuta.', 404);
+  const inv = await leggiInvio(`chiave_link=eq.${encodeURIComponent(k)}`);
+  if (!inv || inv.stato !== 'inviato') {
+    if (inv && inv.stato === 'scaduto') return paginaSemplice('Link scaduto', 'Il file del cartello non è più disponibile. Chiedi a chi te l’ha inviato di mandarlo di nuovo.', 410);
+    return paginaSemplice('File non disponibile', 'Questo file non è disponibile. Chiedi a chi te l’ha inviato di mandarlo di nuovo.', 404);
+  }
+  if (new Date(String(inv.scade_il)).getTime() < Date.now()) return paginaSemplice('Link scaduto', 'Il file del cartello non è più disponibile. Chiedi a chi te l’ha inviato di mandarlo di nuovo.', 410);
+  const rs = await storage(`object/sign/${BUCKET}/${inv.percorso_file}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 600 }) });
+  const j = rs.ok ? ((await rs.json()) as { signedURL?: string }) : {};
+  if (!j.signedURL) return paginaSemplice('File momentaneamente non disponibile', 'Riprova tra qualche minuto.', 503);
+  await aggiornaInvio(String(inv.id), { scarichi: Number(inv.scarichi ?? 0) + 1, ultimo_scarico_il: new Date().toISOString() });
+  const dest = `${URL_BASE}/storage/v1${j.signedURL}${j.signedURL.includes('?') ? '&' : '?'}download=${encodeURIComponent(String(inv.nome_file))}`;
+  return new Response(null, { status: 302, headers: { Location: dest, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+
+async function pulizia(req: Request): Promise<Response> {
+  const imp = await impostazioni(['cartello_invio_hook_chiave']);
+  if (!imp.cartello_invio_hook_chiave || req.headers.get('x-chiave') !== imp.cartello_invio_hook_chiave) return json({ errore: 'non autorizzato' }, 401);
+  const adesso = new Date().toISOString();
+  const ieri = new Date(Date.now() - 86400000).toISOString();
+  const r1 = await dbFetch(`cartelli_invii?select=id,percorso_file&stato=eq.inviato&scade_il=lt.${adesso}&limit=200`, { method: 'GET' });
+  const scaduti = r1 && r1.ok ? ((await r1.json()) as Dizionario[]) : [];
+  const r2 = await dbFetch(`cartelli_invii?select=id,percorso_file&stato=eq.preparato&creato_il=lt.${ieri}&limit=200`, { method: 'GET' });
+  const abbandonati = r2 && r2.ok ? ((await r2.json()) as Dizionario[]) : [];
+  await cancellaFile([...scaduti, ...abbandonati].map((x) => String(x.percorso_file)));
+  for (const x of scaduti) await aggiornaInvio(String(x.id), { stato: 'scaduto' });
+  for (const x of abbandonati) await aggiornaInvio(String(x.id), { stato: 'errore', errore: 'file mai confermato, cancellato' });
+  return json({ esito: 'ok', scaduti: scaduti.length, abbandonati: abbandonati.length });
 }
 
 // ------------------------------------------------------------------ instradamento
@@ -268,6 +485,7 @@ Deno.serve(async (req: Request) => {
   const percorso = (url.pathname.replace(/^\/functions\/v1/, '').replace(/^\/cartello/, '') || '/').replace(/\/+$/, '') || '/';
 
   if (req.method === 'GET' || req.method === 'HEAD') {
+    if (percorso === '/file') { try { return await scaricaFile(url.searchParams.get('k') ?? ''); } catch { return paginaSemplice('File momentaneamente non disponibile', 'Riprova tra qualche minuto.', 503); } }
     if (percorso === '/verifica') return await verifica(url.searchParams.get('sessione') ?? '', (url.searchParams.get('piva') ?? '').slice(0, 200), (url.searchParams.get('testo') ?? '').slice(0, 2000));
     if (percorso === '/' || percorso === '/stato') {
       const imp = await impostazioni(['cartello_attivo', 'cartello_prezzo_cent']);
@@ -280,6 +498,13 @@ Deno.serve(async (req: Request) => {
     if (percorso === '/checkout') {
       try { return await checkout(req); } catch (e) { return json({ errore: 'errore interno: ' + String((e as Error)?.message ?? e).slice(0, 120) }, 500); }
     }
+    if (percorso === '/invio-prepara') {
+      try { return await invioPrepara(req); } catch (e) { return json({ errore: 'errore interno: ' + String((e as Error)?.message ?? e).slice(0, 120) }, 500); }
+    }
+    if (percorso === '/invio-conferma') {
+      try { return await invioConferma(req); } catch (e) { return json({ errore: 'errore interno: ' + String((e as Error)?.message ?? e).slice(0, 120) }, 500); }
+    }
+    if (percorso === '/pulizia') return await pulizia(req);
     if (percorso === '/scarico') {
       try {
         const d = (await req.json()) as Dizionario;

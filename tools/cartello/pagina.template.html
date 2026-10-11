@@ -91,6 +91,13 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .pagamento .tot small{color:var(--muto)}
 .pagato{background:var(--chiaro);border:1px solid #bfe3cf;border-radius:12px;padding:12px 14px}
 .pagato .t{font-weight:700;color:var(--verde)}
+.invio-tip{margin-top:12px;border:1px solid #bcdcf0;background:#f3f9fd;border-radius:12px;padding:14px}
+.invio-tip .t{font-weight:700;color:#1E7FBF;font-size:1.02rem;margin-bottom:4px}
+.invio-tip .griglia{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.invio-tip .griglia .largo{grid-column:1/-1}
+@media (max-width:560px){.invio-tip .griglia{grid-template-columns:1fr}}
+.invio-tip .rimasti{font-size:.82rem;color:var(--muto);margin-top:6px}
+.invio-tip .esito-invio{margin-top:10px}
 .nota{font-size:.82rem;color:var(--muto);line-height:1.5}
 .conferma{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 footer.piede{color:var(--muto);font-size:.82rem;text-align:center;padding:20px}
@@ -209,6 +216,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
         <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF/X-1a per la stampa</button>
         <p class="motivo-blocco" id="motivo-blocco" hidden></p>
         <div id="pagato-box" hidden></div>
+        <div id="invio-box" hidden></div>
       </div>
       <p class="nota"><b>File di stampa PDF/X-1a:2001</b>, lo standard chiesto dalle tipografie: vettoriale alla dimensione reale, colori in quadricromia (CMYK, condizione di stampa FOGRA39), testi convertiti in tracciati (nessun carattere da installare), immagini in CMYK, TrimBox e, se hai scelto l'abbondanza, BleedBox con crocini di taglio. QR e marchio Il Giornale Lavori sempre presenti.</p>
     </div>
@@ -689,7 +697,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + testo;
     var aggiorna = function (t) { btn.innerHTML = '<span class="spinner"></span>' + t; };
     return new Promise(function (ok) { setTimeout(ok, 30); }).then(function () { return lavoro(aggiorna); })
-      .catch(function (e) { errore('Non sono riuscito a creare il PDF: ' + (e && e.message ? e.message : e)); })
+      .catch(function (e) { var m = (e && e.message ? e.message : e); if (btn.id === 'btn-invia') esitoInvio('Invio non riuscito: ' + m + '.', false); else errore('Non sono riuscito a creare il PDF: ' + m); })
       .then(function () { btn.innerHTML = prima; btn.disabled = false; ridisegna(); });
   }
   $('#btn-anteprima').addEventListener('click', function () {
@@ -705,6 +713,90 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     if (!norm(p.oggetto)) return true;
     return norm(p.oggetto) === norm(stato.campi.oggetto) && (!norm(p.ubicazione) || norm(p.ubicazione) === norm(stato.campi.ubicazione));
   }
+  // 11/10/2026: invio del PDF al tipografo — il PDF si carica nell'archivio privato e il tipografo riceve un'email
+  // con il link da scaricare (30 giorni), mittente «<nome> tramite Il Giornale Lavori», risposte al cliente, copia al cliente.
+  var INVII_MAX = 3;
+  function primoNome() {
+    var t = String((stato.campi && stato.campi.impresa) || '').split(/\n|,|\s+-\s+|\s+P\.?\s?IVA/i)[0];
+    return M.pulisci(t).slice(0, 80);
+  }
+  function mostraInvio(p) {
+    var wrap = $('#invio-box');
+    wrap.hidden = false;
+    stato.invio = stato.invio || {};
+    if (!wrap.firstChild) {
+      wrap.innerHTML = '<div class="invio-tip">' +
+        '<div class="t">✉ Mandalo al tuo tipografo</div>' +
+        '<div class="nota">Il tipografo riceve un’email con il link per scaricare il file pronto per la stampa (valido 30 giorni). Come mittente vede il tuo nome «tramite Il Giornale Lavori» e, se risponde, la risposta arriva a te. Tu ricevi una copia.</div>' +
+        '<div class="griglia">' +
+        '<label class="campo"><span class="eti">Il tuo nome o la tua impresa <b>*</b></span><input id="inv-nome" maxlength="80" autocomplete="organization"></label>' +
+        '<label class="campo"><span class="eti">La tua email <b>*</b></span><input id="inv-email" type="email" maxlength="200" autocomplete="email"></label>' +
+        '<label class="campo largo"><span class="eti">Email del tipografo <b>*</b></span><input id="inv-tip" type="email" maxlength="200" autocomplete="off" placeholder="es. stampa@tipografia.it"></label>' +
+        '<label class="campo largo"><span class="eti">Messaggio per il tipografo (facoltativo)</span><textarea id="inv-nota" maxlength="600" rows="2" placeholder="es. Stampa su forex 5 mm con occhielli agli angoli. Mi serve entro venerdì."></textarea></label>' +
+        '</div>' +
+        '<button class="btn grande" type="button" id="btn-invia">Invia al tipografo</button>' +
+        '<div class="rimasti" id="inv-rimasti"></div>' +
+        '<div class="esito-invio" id="inv-esito" hidden></div></div>';
+      wrap.addEventListener('input', function (e) {
+        e.stopPropagation();
+        stato.invio = { nome: $('#inv-nome').value, email: $('#inv-email').value, tip: $('#inv-tip').value, nota: $('#inv-nota').value };
+        salvaStato();
+      });
+      $('#btn-invia').addEventListener('click', inviaAlTipografo);
+    }
+    if (!$('#inv-nome').value) $('#inv-nome').value = stato.invio.nome || primoNome() || p.cliente || '';
+    if (!$('#inv-email').value) $('#inv-email').value = stato.invio.email || p.email || '';
+    if (!$('#inv-tip').value) $('#inv-tip').value = stato.invio.tip || '';
+    if (!$('#inv-nota').value) $('#inv-nota').value = stato.invio.nota || '';
+    aggiornaRimasti(p);
+  }
+  function aggiornaRimasti(p) {
+    var n = Math.max(0, INVII_MAX - Number(p.invii || 0));
+    $('#inv-rimasti').textContent = n ? 'Invii compresi ancora disponibili per questo cartello: ' + n + ' di ' + INVII_MAX + '.' : 'Hai usato tutti gli invii compresi: scarica il PDF e mandalo tu.';
+    $('#btn-invia').classList.toggle('spento', !n);
+  }
+  function esitoInvio(testo, ok) {
+    var e = $('#inv-esito'); e.hidden = false; e.className = 'esito-invio avviso' + (ok ? ' ok' : ''); e.textContent = testo;
+    e.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function inviaAlTipografo() {
+    var b = this, p = stato.pagamento;
+    if (!p || !p.sessione) return;
+    if (b.classList.contains('spento')) { esitoInvio('Hai usato tutti gli invii compresi per questo cartello: scarica il PDF e mandalo tu.', false); return; }
+    var nome = $('#inv-nome').value.trim(), email = $('#inv-email').value.trim(), tip = $('#inv-tip').value.trim(), nota = $('#inv-nota').value.trim();
+    var reEmail = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!nome) { esitoInvio('Scrivi il tuo nome o quello della tua impresa: il tipografo lo vede come mittente.', false); $('#inv-nome').focus(); return; }
+    if (!reEmail.test(email)) { esitoInvio('Controlla la tua email: serve perché il tipografo possa risponderti.', false); $('#inv-email').focus(); return; }
+    if (!reEmail.test(tip)) { esitoInvio('Controlla l’email del tipografo.', false); $('#inv-tip').focus(); return; }
+    if (tip.toLowerCase() === email.toLowerCase()) { esitoInvio('L’email del tipografo è uguale alla tua: per avere il file usa «Scarica il PDF».', false); return; }
+    var d = M.dimensioni(stato), base = Math.round(d.W / 10), alt = Math.round(d.H / 10);
+    var invio = null, pdf = null;
+    $('#inv-esito').hidden = true;
+    conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
+      return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }).then(function (u8) {
+        pdf = u8;
+        if (u8.length > 50 * 1024 * 1024) throw new Error('il file supera i 50 MB: scaricalo e mandalo con WeTransfer, oppure usa immagini più leggere');
+        aggiorna('Preparo l’invio…');
+        return fetch(API + '/invio-prepara', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessione: p.sessione, nome_cliente: nome, email_cliente: email, email_tipografo: tip, nota: nota, byte: u8.length, base_cm: base, altezza_cm: alt }) });
+      }).then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.id) throw new Error(j.errore || 'invio non avviato'); return j; }); }).then(function (j) {
+        invio = j;
+        aggiorna('Carico il file (' + (pdf.length / 1048576).toFixed(1).replace('.', ',') + ' MB)…');
+        return fetch(j.caricamento, { method: 'PUT', headers: { 'Content-Type': 'application/pdf', 'x-upsert': 'false' }, body: new Blob([pdf], { type: 'application/pdf' }) });
+      }).then(function (r) {
+        if (!r.ok) throw new Error('il file non è stato caricato (errore ' + r.status + '), riprova');
+        aggiorna('Mando l’email al tipografo…');
+        return fetch(API + '/invio-conferma', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: invio.id, sessione: p.sessione }) });
+      }).then(function (r) { return r.json().then(function (j) { if (!r.ok || j.esito !== 'inviato') throw new Error(j.errore || 'email non partita'); return j; }); }).then(function (j) {
+        p.invii = INVII_MAX - (typeof j.rimasti === 'number' ? j.rimasti : Math.max(0, INVII_MAX - Number(p.invii || 0) - 1));
+        if (!M.pulisci(p.oggetto)) { p.oggetto = stato.campi.oggetto; p.ubicazione = stato.campi.ubicazione; }
+        salvaStato(); aggiornaRimasti(p);
+        esitoInvio('✓ Inviato a ' + j.a + '. Il link per scaricare il file vale fino al ' + (j.scade || '') + '. Una copia dell’email è arrivata anche a te.', true);
+      });
+    }).then(function () {
+      // conAttesa mostra già gli errori in alto: qui li ripetiamo vicino al pulsante
+    });
+  }
   function aggiornaPagamento() {
     var box = $('#pagato-box'), btn = $('#btn-acquista');
     var p = stato.pagamento;
@@ -714,6 +806,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
         '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.titoloLavori(p.oggetto || stato.campi.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
         '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button></div>';
       btn.hidden = true;
+      mostraInvio(p);
       $('#btn-scarica').addEventListener('click', function () {
         var b = this;
         conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
@@ -725,6 +818,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
         });
       });
     } else {
+      $('#invio-box').hidden = true;
       box.hidden = !p; btn.hidden = false;
       if (p) box.innerHTML = '<div class="avviso">Il pagamento registrato riguarda un altro cantiere («' + esc(M.pulisci(p.oggetto).slice(0, 60)) + '»). Per questo cartello serve un nuovo acquisto, oppure rimetti oggetto e ubicazione di quello pagato.</div>';
     }
@@ -755,7 +849,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var pive = (testoImp.match(/\b\d{11}\b/g) || []).slice(0, 5).join(',');
     return fetch(API + '/verifica?sessione=' + encodeURIComponent(id) + '&piva=' + encodeURIComponent(pive) + '&testo=' + encodeURIComponent(testoImp)).then(function (r) { return r.json(); }).then(function (j) {
       if (j && j.esito === 'pagato') {
-        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato };
+        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato, email: j.email || '', cliente: j.cliente || '', invii: Number(j.invii || 0) };
         try { ridisegna(); } catch (e) { /* l'anteprima si aggiorna comunque al prossimo cambio */ }
         stato.sessione = null; salvaStato();
         mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);

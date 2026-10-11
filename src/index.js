@@ -628,7 +628,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1276,7 +1276,8 @@ const BADGE_STILE_FUCSIA =
 // /cartello/checkout, /cartello/verifica e /cartello/scarico vanno alla Edge Function Supabase «cartello»
 // (Checkout Stripe da 9,00 € + IVA e registro delle vendite). Il relay non legge e non conserva nulla.
 const CARTELLO_FUNZIONE_URL = "https://rvigugiufrjmzedjstuz.supabase.co/functions/v1/cartello";
-const CARTELLO_API = new Set(["/checkout", "/verifica", "/scarico", "/stato"]);
+// 11/10/2026: /invio-prepara e /invio-conferma (invio del PDF al tipografo) e /file (link dell'email, rimanda al file)
+const CARTELLO_API = new Set(["/checkout", "/verifica", "/scarico", "/stato", "/invio-prepara", "/invio-conferma", "/file"]);
 
 async function cartelloRoute(request, env) {
   const metodo = request.method;
@@ -1310,7 +1311,7 @@ async function cartelloRoute(request, env) {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
   }
   const base = env.CARTELLO_FUNZIONE_URL || CARTELLO_FUNZIONE_URL;
-  const init = { method: metodo, headers: {} };
+  const init = { method: metodo, headers: {}, redirect: "manual" };
   const ip = request.headers.get("cf-connecting-ip");
   if (ip) init.headers["x-forwarded-for"] = ip;
   const ua = request.headers.get("user-agent");
@@ -1336,10 +1337,13 @@ async function cartelloRoute(request, env) {
     });
   }
   clearTimeout(timer);
-  return new Response(r.body, {
-    status: r.status,
-    headers: { "Content-Type": r.headers.get("content-type") || "application/json", "Cache-Control": "no-store" }
-  });
+  // /file: la funzione risponde 302 verso l'indirizzo firmato (10 minuti) dell'archivio privato: si passa il rimando al browser
+  if (r.status >= 300 && r.status < 400 && r.headers.get("location")) {
+    return new Response(null, { status: 302, headers: { Location: r.headers.get("location"), "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" } });
+  }
+  const h = { "Content-Type": r.headers.get("content-type") || "application/json", "Cache-Control": "no-store" };
+  if (sotto === "/file") { h["X-Robots-Tag"] = "noindex"; h["Referrer-Policy"] = "no-referrer"; }
+  return new Response(r.body, { status: r.status, headers: h });
 }
 
 // ============================================================================
