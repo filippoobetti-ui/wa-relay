@@ -628,7 +628,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
+const RELAY_VERSIONE = "wa-relay 2026-10-12 chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1497,8 +1497,9 @@ const PORTALE_COLORE = "#0A7D48";
 const PORTALE_COLORI_SERVIZI = "<style>" +
   'a.cantiere[href*="/ufficio?t="]{border-color:#F04CA6!important;box-shadow:inset 5px 0 0 #D61F84!important;background:#FFF5FA!important}' +
   'a.cantiere[href*="/ufficio?t="] .nome{color:#A3125F!important}' +
-  'a[href*="/cartello"]{border-color:#4FB0E8!important;box-shadow:inset 5px 0 0 #4FB0E8!important}' +
-  'a[href*="/cartello"] .nome{color:#1E7FBF!important}' +
+  // 12/10/2026: solo le schede (a.cantiere); le icone in cima all'elenco (.gl-az) hanno i loro colori.
+  'a.cantiere[href*="/cartello"]{border-color:#4FB0E8!important;box-shadow:inset 5px 0 0 #4FB0E8!important}' +
+  'a.cantiere[href*="/cartello"] .nome{color:#1E7FBF!important}' +
   "@media (prefers-color-scheme:dark){a.cantiere[href*=\"/ufficio?t=\"]{background:#3A1028!important}a.cantiere[href*=\"/ufficio?t=\"] .nome{color:#FF8CC6!important}}" +
   "</style>";
 const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png"]);
@@ -1731,6 +1732,201 @@ async function portaleArea(request, env, base, sotto, inUrl) {
   return new Response("Not Found", { status: 404 });
 }
 
+// ---------------------------------------------------------------------------
+// Nuovo cantiere dall'area riservata (12/10/2026, richiesta di Filippo: «una icona da cliccare per
+// inserire un nuovo cantiere»). L'icona verde in cima all'elenco porta qui: GET /nuovo-cantiere?t=<gettone>.
+// Il database (portale_nuovo_cantiere) prepara il codice di attivazione dell'impresa del gettone — lo stesso
+// meccanismo del «+ Nuovo cantiere» di WhatsApp —, i dati dell'impresa e il testo del costo. La pagina mostra
+// un modulo snello (cantiere e referente; l'impresa e' gia' dentro) che invia GLI STESSI CAMPI del modulo di
+// attivazione pubblico (onboarding_form_v8) direttamente allo scenario Make 7297046: stessa verifica
+// (onboarding_richiedi), stessa catena (cartelle Drive, menu WhatsApp, email al referente). Il relay non scrive
+// nulla. La ragione sociale va nascosta e IDENTICA all'anagrafica: e' il nome con cui il database riconosce
+// l'impresa gia' cliente. Accesso di Filippo (tutte le imprese): prima si sceglie l'impresa (&a=<id>).
+// Se nel modulo pubblico diventa obbligatorio un campo nuovo, va aggiunto anche qui.
+const PORTALE_NC_RICERCA_PIVA = "https://rvigugiufrjmzedjstuz.supabase.co/functions/v1/anagrafica-piva";
+const PORTALE_NC_PRIVACY = "https://wa-relay.filippo-obetti.workers.dev/privacy";
+
+async function portaleNuovoCantiere(request, env, base, inUrl) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  if (!env.SUPABASE_SERVICE_KEY) {
+    return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+  const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
+  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  const tok = m[0].toLowerCase();
+  const az = String(inUrl.searchParams.get("a") || "").replace(/[^0-9a-fA-F-]/g, "").slice(0, 36);
+  const torna = base + "/?t=" + tok;
+  const indietro = '<p class="piede"><a href="' + torna + '">&larr; Torna ai cantieri</a></p>';
+  const d = await portaleRpc(env, "portale_nuovo_cantiere", { p_token: tok, p_azienda: az });
+  if (!d) {
+    return portaleRisposta(portaleFoglio(base, "Nuovo cantiere", "",
+      '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>' + indietro), 503);
+  }
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito === "scegli") {
+    const lista = (Array.isArray(d.aziende) ? d.aziende : []).map((x) =>
+      '<a class="btn" href="' + base + '/nuovo-cantiere?t=' + tok + '&amp;a=' + portaleEsc(x.id) + '">' + portaleEsc(x.nome) + '</a>').join("");
+    return portaleRisposta(portaleFoglio(base, "Nuovo cantiere", "Per quale impresa?", (lista || '<p>Nessuna impresa attiva.</p>') + indietro));
+  }
+  if (d.esito !== "ok") {
+    return portaleRisposta(portaleFoglio(base, "Nuovo cantiere", d.azienda_nome ? portaleEsc(d.azienda_nome) : "",
+      '<p>' + portaleEsc(d.messaggio || "Da qui non è possibile aprire un cantiere.") + '</p>' + indietro));
+  }
+  return new Response(metodo === "HEAD" ? null : portaleNcModulo(base, tok, d), { status: 200, headers: portaleHtmlHeaders() });
+}
+
+function portaleNcModulo(base, tok, d) {
+  const e = portaleEsc;
+  const imp = d.impresa || {};
+  const torna = base + "/?t=" + tok;
+  const nascosto =(n, v) => '<input type="hidden" name="' + n + '" value="' + e(v || "") + '">';
+  let impresa;
+  if (d.impresa_completa === true) {
+    impresa = '<div class="imp"><div class="imp-n">' + e(d.azienda_nome) + '</div><div class="imp-d">P.IVA ' + e(imp.partita_iva) +
+      (imp.codice_sdi ? ' &middot; SDI ' + e(imp.codice_sdi) : (imp.pec ? ' &middot; PEC ' + e(imp.pec) : '')) + '</div></div>' +
+      ["partita_iva", "codice_fiscale", "indirizzo_sede", "cap", "citta", "provincia", "codice_sdi", "pec"].map((k) => nascosto(k, imp[k])).join("");
+  } else {
+    impresa = '<div class="imp"><div class="imp-n">' + e(d.azienda_nome) + '</div>' +
+      '<div class="imp-d">Servono la partita IVA dell\'impresa e il codice SDI oppure la PEC. Li scrivi solo questa volta: dal prossimo cantiere sono già inseriti.</div></div>' +
+      '<div class="riga2"><div><label for="piva">Partita IVA</label>' +
+      '<input id="piva" name="partita_iva" required inputmode="numeric" maxlength="13" placeholder="11 cifre" autocomplete="off" value="' + e(imp.partita_iva) + '"></div>' +
+      '<div><label for="sdi">Codice destinatario SDI</label>' +
+      '<input id="sdi" name="codice_sdi" maxlength="7" placeholder="7 caratteri" autocomplete="off" style="text-transform:uppercase" value="' + e(imp.codice_sdi) + '"></div></div>' +
+      '<div class="ri" id="ri" aria-live="polite"></div>' +
+      '<label for="pec">PEC <small>(se non hai il codice SDI)</small></label>' +
+      '<input id="pec" name="pec" type="email" maxlength="100" placeholder="impresa@pec.it" autocomplete="off" value="' + e(imp.pec) + '">' +
+      ["codice_fiscale", "indirizzo_sede", "cap", "citta", "provincia"].map((k) => nascosto(k, imp[k])).join("");
+  }
+  const logoImpresa = d.logo_impresa
+    ? '<div class="dx"><div class="logo-impresa"><img src="' + e(d.logo_impresa) + '" alt="' + e(d.azienda_nome) + '"></div></div>'
+    : '<div class="dx"></div>';
+  const usati = JSON.stringify(Array.isArray(d.cantieri) ? d.cantieri : []).replace(/</g, "\\u003c");
+  const stile =
+    ':root{--accento:' + PORTALE_COLORE + ';--bordo:#d5dcd8;--sfondo:#F4F6F5}' +
+    '*{box-sizing:border-box}body{margin:0;padding:0 0 40px;background:var(--sfondo);color:#111;line-height:1.45;font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif}' +
+    'header{background:#052A21;color:#fff;padding:16px 20px 18px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;column-gap:16px}' +
+    'header .logo{display:block;height:44px;width:auto}header .marchio{font-weight:800;font-size:1.05rem}' +
+    'header .centro{grid-column:2;grid-row:1;text-align:center}header .centro p{margin:4px 0 0;font-size:.88rem;opacity:.9}' +
+    '@keyframes gl-argento{0%{background-position:0% 50%}100%{background-position:100% 50%}}' +
+    'header h1{margin:0;font-size:clamp(1.4rem,3vw,1.9rem);letter-spacing:-.01em;background:linear-gradient(90deg,#9AA6AB 0%,#E9EEF0 22%,#FFFFFF 38%,#C9D3D6 55%,#F4F7F8 72%,#9AA6AB 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}' +
+    '@media (prefers-reduced-motion:no-preference){header h1{animation:gl-argento 3.5s ease-in-out infinite alternate}}' +
+    'header .dx{grid-column:3;grid-row:1;justify-self:end}' +
+    'header .logo-impresa{display:inline-block;background:#fff;border-radius:12px;padding:8px 14px;box-shadow:0 2px 10px rgba(0,0,0,.12)}' +
+    'header .logo-impresa img{display:block;height:52px;width:auto;max-width:240px;object-fit:contain}' +
+    '@media (max-width:640px){header{grid-template-columns:1fr auto}header .centro{grid-column:1/-1;grid-row:2;margin-top:12px}header .dx{grid-column:2}header .logo{height:36px}header .logo-impresa img{height:40px}}' +
+    'main{max-width:620px;margin:0 auto;padding:16px 16px 0}' +
+    'a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;color:var(--accento);text-decoration:none}' +
+    '.blocco{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:4px 16px 16px;margin-bottom:14px}' +
+    'h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--accento);margin:12px 0 2px}' +
+    'label{display:block;font-weight:600;font-size:.9rem;margin:12px 0 5px;color:#1b1f1d}label small{font-weight:400;color:#666}' +
+    'input,textarea{width:100%;font:inherit;font-size:1rem;color:#111;background:#fff;border:1px solid #c9d1cc;border-radius:8px;padding:10px 12px}' +
+    'input:focus,textarea:focus{outline:2px solid var(--accento);outline-offset:1px;border-color:var(--accento)}textarea{min-height:80px;resize:vertical}' +
+    '.riga2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}@media (max-width:560px){.riga2{grid-template-columns:1fr}}' +
+    '.hint{font-size:.82rem;color:#5b6560;margin:5px 0 0}.cnt{float:right;font-weight:400;color:#666;font-size:.82rem}.cnt.att{color:#b3261e;font-weight:700}' +
+    '.imp{background:#F2FAF5;border:1px solid #A9DCC0;border-radius:10px;padding:10px 12px;margin:10px 0 2px}' +
+    '.imp-n{font-weight:700;color:var(--accento);font-size:1.02rem}.imp-d{font-size:.85rem;color:#4A524E;margin-top:2px}' +
+    '.ri{display:none;margin:8px 0 0;padding:8px 12px;border-radius:0 8px 8px 0;font-size:.85rem}' +
+    '.ri.ok{display:block;background:#F2FAF5;border-left:3px solid var(--accento);color:#14532d}' +
+    '.ri.att{display:block;background:#FFF8E6;border-left:3px solid #E8A317;color:#6B4E07}' +
+    '.ri.info{display:block;background:#F4F5F7;border-left:3px solid #9AA3AD;color:#444}' +
+    '.consenso{display:flex;gap:10px;align-items:flex-start;font-weight:400;font-size:.86rem;color:#333;margin:16px 0 0}' +
+    '.consenso input{width:auto;margin-top:3px;flex-shrink:0}.consenso a{color:var(--accento)}' +
+    '.costo{background:#FFF4DC;border-left:4px solid #E8A317;border-radius:0 10px 10px 0;padding:12px 14px;margin:18px 0 0;font-size:.92rem;color:#5a4206}' +
+    '.errore{display:none;background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;padding:10px 14px;margin:14px 0 0;font-size:.9rem;border-radius:0 8px 8px 0}' +
+    'button{display:block;width:100%;margin-top:16px;font:inherit;font-size:1.05rem;font-weight:700;color:#fff;background:var(--accento);border:0;border-radius:10px;padding:14px;cursor:pointer}' +
+    'button:disabled{background:#9bb5a7;cursor:wait}.nota{font-size:.82rem;color:#5b6560;text-align:center;margin:10px 0 0}' +
+    '.hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}';
+  const script = "<script>var GL_NC_RI=" + JSON.stringify(PORTALE_NC_RICERCA_PIVA) + ",GL_NC_USATI=" + usati + ";" + PORTALE_NC_SCRIPT + "</script>";
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
+    '<title>Nuovo cantiere - ' + e(d.azienda_nome) + '</title>' + portaleTesta(base) +
+    '<style>' + stile + '</style></head><body>' +
+    '<header>' + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    '<div class="centro"><h1>Nuovo cantiere</h1><p>' + e(d.azienda_nome) + '</p></div>' + logoImpresa + '</header>' +
+    '<main><a class="indietro" href="' + torna + '">&larr; Tutti i cantieri</a>' +
+    '<form method="post" action="' + e(d.azione) + '" accept-charset="UTF-8" id="modulo-nc" autocomplete="on" novalidate>' +
+    '<input class="hp" type="text" name="rif_x7" tabindex="-1" autocomplete="off" aria-hidden="true">' +
+    nascosto("piano", "unico") + nascosto("codice", d.codice) + nascosto("azienda_nome", d.azienda_nome) +
+    '<section class="blocco"><h2>Impresa</h2>' + impresa + '</section>' +
+    '<section class="blocco"><h2>Cantiere</h2>' +
+    '<label for="nc">Nome breve del cantiere <span class="cnt" id="cnt">0/24</span></label>' +
+    '<input id="nc" name="nome_cantiere" required maxlength="24" placeholder="Es. Via Roma 12" autocomplete="off">' +
+    '<p class="hint">Massimo 24 caratteri: è il nome che compare nel menu di WhatsApp.</p>' +
+    '<div class="riga2"><div><label for="ub">Ubicazione <small>(indirizzo e comune)</small></label>' +
+    '<input id="ub" name="ubicazione" maxlength="120" placeholder="Es. Via Roma 12, Padova"></div>' +
+    '<div><label for="di">Data di inizio dei lavori</label><input id="di" name="data_inizio" type="date"></div></div>' +
+    '<div class="riga2"><div><label for="co">Committente</label><input id="co" name="committente" maxlength="120"></div>' +
+    '<div><label for="dl">Direttore dei Lavori</label><input id="dl" name="direttore_lavori" maxlength="120" placeholder="Es. ing. Mario Bianchi"></div></div>' +
+    '<label for="ip">Imprese e subappaltatori previsti <small>(facoltativo)</small></label><input id="ip" name="imprese_presenti" maxlength="200">' +
+    '</section>' +
+    '<section class="blocco"><h2>Referente di cantiere</h2>' +
+    '<p class="hint" style="margin-top:8px">Riceve l\'email con le istruzioni per usare il Giornale Lavori su WhatsApp.</p>' +
+    '<label for="rn">Nome e cognome</label><input id="rn" name="referente_nome" required maxlength="80" autocomplete="name">' +
+    '<div class="riga2"><div><label for="re">Email</label><input id="re" name="referente_email" type="email" required maxlength="120" autocomplete="email"></div>' +
+    '<div><label for="rt">Cellulare WhatsApp</label><input id="rt" name="referente_telefono" type="tel" maxlength="30" placeholder="+39 ..." autocomplete="tel"></div></div>' +
+    '<label for="no">Note <small>(facoltative)</small></label><textarea id="no" name="note" maxlength="500"></textarea>' +
+    '</section>' +
+    '<label class="consenso"><input type="checkbox" id="pr" name="privacy" value="si" required>' +
+    '<span>Ho preso visione dell\'<a href="' + PORTALE_NC_PRIVACY + '" target="_blank" rel="noopener">informativa sul trattamento dei dati personali</a> del servizio Il Giornale Lavori (Obetti Filippo, Responsabile del trattamento per conto dell\'Impresa Cliente) e acconsento al trattamento dei dati inseriti per l\'attivazione del servizio.</span></label>' +
+    '<div class="costo">' + e(d.testo_costo || "") + '</div>' +
+    '<div class="errore" id="err" role="alert"></div>' +
+    '<button type="submit" id="invia">' + e(d.bottone || "Attiva il cantiere") + '</button>' +
+    '<p class="nota">Il cantiere compare nel menu di WhatsApp pochi minuti dopo; il referente riceve un\'email con le istruzioni.</p>' +
+    '</form></main>' + script + '</body></html>';
+}
+
+// Controlli del modulo «Nuovo cantiere» (gli stessi del modulo pubblico, piu' il nome gia' usato) e ricerca
+// della partita IVA nel Registro Imprese quando la P.IVA si scrive qui (imprese senza P.IVA in anagrafica):
+// compila solo i campi vuoti di fatturazione e sede, MAI la ragione sociale (resta quella dell'anagrafica).
+const PORTALE_NC_SCRIPT = String.raw`(function(){try{
+var f=document.getElementById('modulo-nc');if(!f)return;
+var b=document.getElementById('invia'),err=document.getElementById('err'),nc=document.getElementById('nc'),cnt=document.getElementById('cnt'),pr=document.getElementById('pr');
+function conta(){var n=nc.value.length;cnt.textContent=n+'/24';cnt.className='cnt'+(n>20?' att':'');}
+nc.addEventListener('input',conta);conta();
+function cifre(s){return (s||'').replace(/[^0-9]/g,'');}
+function pivaOk(s){var v=cifre(s);if(v.length!==11||/^(.)\1{10}$/.test(v))return false;var t=0;for(var i=0;i<10;i++){var d=+v.charAt(i);if(i%2===1){d*=2;if(d>9)d-=9;}t+=d;}return +v.charAt(10)===(10-t%10)%10;}
+function emailOk(s){return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((s||'').trim());}
+function errore(m,el){err.textContent=m;err.style.display='block';if(el&&el.type!=='hidden'){try{el.focus();}catch(x){}}try{err.scrollIntoView({behavior:'smooth',block:'center'});}catch(x){}}
+var usati=(typeof GL_NC_USATI!=='undefined'&&GL_NC_USATI)||[];
+f.addEventListener('submit',function(e){err.style.display='none';
+ var p=f.elements['partita_iva'],s=f.elements['codice_sdi'],q=f.elements['pec'],sv=((s&&s.value)||'').trim(),qv=((q&&q.value)||'').trim();
+ var nome=nc.value.trim(),rn=f.elements['referente_nome'],re=f.elements['referente_email'];
+ if(!nome){e.preventDefault();errore('Scrivi il nome breve del cantiere.',nc);return;}
+ if(nome.length>24){e.preventDefault();errore('Il nome del cantiere può avere al massimo 24 caratteri.',nc);return;}
+ if(usati.indexOf(nome.toLowerCase())!==-1){e.preventDefault();errore('Esiste già un cantiere con questo nome: scegline uno diverso.',nc);return;}
+ if(p&&!pivaOk(p.value)){e.preventDefault();errore('La partita IVA non risulta valida: controlla le 11 cifre.',p);return;}
+ if(!sv&&!qv){e.preventDefault();errore('Serve il codice destinatario SDI oppure la PEC.',s);return;}
+ if(sv&&(sv.length<6||sv.length>7)){e.preventDefault();errore('Il codice SDI deve avere 6 o 7 caratteri: se non lo hai, lascialo vuoto e scrivi la PEC.',s);return;}
+ if(qv&&!emailOk(qv)){e.preventDefault();errore('La PEC non sembra scritta bene.',q);return;}
+ if(!rn.value.trim()){e.preventDefault();errore('Scrivi nome e cognome del referente di cantiere.',rn);return;}
+ if(!emailOk(re.value)){e.preventDefault();errore('L’email del referente non sembra scritta bene.',re);return;}
+ if(!pr.checked){e.preventDefault();errore('Per attivare il cantiere spunta la presa visione dell’informativa privacy.',pr);return;}
+ if(s)s.value=sv.toUpperCase();nc.value=nome;
+ b.disabled=true;b.textContent='Attendi…';
+});
+window.addEventListener('pageshow',function(ev){if(ev.persisted){location.reload();}});
+var p=f.elements['partita_iva'],es=document.getElementById('ri');
+if(p&&p.type!=='hidden'&&es&&typeof GL_NC_RI==='string'){var ult='',corso=false;
+ var CAMPI=['codice_fiscale','indirizzo_sede','cap','citta','provincia','pec','codice_sdi'];
+ var cerca=function(){var v=cifre(p.value);if(!pivaOk(v)||v===ult||corso)return;ult=v;corso=true;es.className='ri info';es.textContent='Cerco l’impresa nel Registro Imprese…';
+  var ctrl=window.AbortController?new AbortController():null,tm=setTimeout(function(){if(ctrl)ctrl.abort();},15000);
+  fetch(GL_NC_RI,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partita_iva:v}),signal:ctrl?ctrl.signal:undefined})
+  .then(function(r){return r.json();}).then(function(j){clearTimeout(tm);corso=false;if(cifre(p.value)!==v)return;
+   if(j&&j.stato==='ok'&&j.dati){var n=0;for(var i=0;i<CAMPI.length;i++){var k=CAMPI[i],el=f.elements[k],val=j.dati[k];if(k==='codice_fiscale'&&cifre(val)===v)continue;
+     if(el&&val&&!String(el.value).trim()){el.value=String(val).slice(0,el.maxLength>0?el.maxLength:200);n++;}}
+    if(j.dati.cessata){es.className='ri att';es.textContent='Attenzione: nel Registro Imprese questa partita IVA risulta non attiva. Controlla di averla scritta giusta.';}
+    else{es.className='ri ok';es.textContent='Trovata: '+String(j.dati.ragione_sociale||'impresa').replace(/\.+$/,'')+'.'+(n?' Abbiamo inserito '+n+(n===1?' dato':' dati')+' dal Registro Imprese.':'');}}
+   else if(j&&j.stato==='non_trovata'){es.className='ri att';es.textContent='Questa partita IVA non risulta nel Registro Imprese: controllala, oppure scrivi a mano SDI o PEC.';}
+   else{es.className='ri';es.textContent='';}})
+  .catch(function(){clearTimeout(tm);corso=false;es.className='ri';es.textContent='';});};
+ p.addEventListener('input',function(){if(cifre(p.value).length===11)cerca();});p.addEventListener('blur',cerca);p.addEventListener('change',cerca);}
+}catch(x){}})();
+`;
+
 const PORTALE_SW = [
   "// Service worker del portale Il Giornale Lavori: nessuna copia dei dati sul telefono,",
   "// solo una pagina di cortesia quando manca la connessione.",
@@ -1879,6 +2075,8 @@ async function portaleRoute(request, env, prefisso) {
   let sotto = inUrl.pathname.slice(prefisso.length) || "/";
   // Area riservata con email e password (11/10/2026): accesso, password dimenticata, nuova password, crea accesso.
   if (PORTALE_AREA.has(sotto)) return portaleArea(request, env, base, sotto, inUrl);
+  // Nuovo cantiere dall'area riservata (12/10/2026): icona verde in cima all'elenco dei cantieri.
+  if (sotto === "/nuovo-cantiere") return portaleNuovoCantiere(request, env, base, inUrl);
   if (metodo !== "GET" && metodo !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   }
