@@ -717,7 +717,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   // con il link da scaricare (30 giorni), mittente «<nome> tramite Il Giornale Lavori», risposte al cliente, copia al cliente.
   var INVII_MAX = 3;
   function primoNome() {
-    var t = String((stato.campi && stato.campi.impresa) || '').split(/\n|,|\s+-\s+|\s+P\.?\s?IVA/i)[0];
+    var t = String((stato.campi && stato.campi.impresa) || '').split(/\n|,|\s+[-\u2013\u2014]\s+|\s+P\.?\s?IVA/i)[0];
     return M.pulisci(t).slice(0, 80);
   }
   function mostraInvio(p) {

@@ -364,7 +364,7 @@ function htmlEmail(inv: Dizionario, vendita: Dizionario, link: string, scade: st
 <p style="margin:0 0 14px">Buongiorno,</p>
 <p style="margin:0 0 14px"><strong>${nome}</strong> (<a href="mailto:${emailC}" style="color:#0f7a4a">${emailC}</a>) ti ha inviato il file del suo <strong>cartello di cantiere da stampare</strong>, preparato con Il Giornale Lavori.</p>
 <table style="border-collapse:collapse;margin:6px 0 18px;font-size:14px">
-${riga('Lavori', esc(M_titolo(String(vendita.oggetto ?? ''))))}
+${riga('Opera', esc(M_titolo(String(vendita.oggetto ?? ''))))}
 ${riga('Ubicazione', esc(vendita.ubicazione ?? ''))}
 ${riga('Misura', `base ${esc(b)} × altezza ${esc(h)} cm`)}
 ${riga('File', `PDF/X-1a:2001 — CMYK FOGRA39, testi convertiti in tracciati, pronto per la stampa (${mb} MB)`)}
