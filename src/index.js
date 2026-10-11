@@ -1221,17 +1221,19 @@ async function badgeProxy(request, env) {
     element(el) { el.append("<style>" + BADGE_STILE_FUCSIA + "</style>", { html: true }); }
   });
   // Documenti stampabili (cartellino, cartello timbrature, report per i controlli): in cima al foglio
-  // il logo dell'impresa a sinistra e il marchio Il Giornale Lavori a destra (11/10/2026).
+  // solo il logo dell'impresa (11/10/2026). Il marchio Il Giornale Lavori resta solo in fondo, in piccolo.
   const doc = inUrl.pathname.replace(/^\/badge/, "");
   if (metodo === "GET" && r.status === 200 && (doc === "/cartellino" || doc === "/cartello" || doc === "/rapporto") && env.SUPABASE_SERVICE_KEY) {
     const q = inUrl.searchParams;
     const l = await portaleRpc(env, "documento_logo_impresa", {
       p_token: (q.get("t") || "").slice(0, 80), p_commessa: (q.get("c") || "").slice(0, 40), p_persona: (q.get("p") || "").slice(0, 40)
     });
-    if (l && l.esito === "ok" && (l.logo_url || l.logo_prodotto)) {
-      const testa = '<div class="loghi-foglio" style="display:flex;align-items:center;justify-content:space-between;gap:8mm;margin:0 0 5mm;padding-bottom:3mm;border-bottom:0.4mm solid #d5dcd8">' +
-        (l.logo_url ? '<img src="' + portaleEsc(l.logo_url) + '" alt="' + portaleEsc(l.nome || "") + '" style="height:16mm;width:auto;max-width:70mm;object-fit:contain">' : '<strong style="font-size:12pt">' + portaleEsc(l.nome || "") + '</strong>') +
-        (l.logo_prodotto ? '<img src="' + portaleEsc(l.logo_prodotto) + '" alt="Il Giornale Lavori" style="height:8mm;width:auto">' : '') + '</div>';
+    riscrittore = riscrittore.on("head", {
+      element(el) { el.append("<style>.attrib img{height:6mm!important;width:auto!important;max-width:none!important}</style>", { html: true }); }
+    });
+    if (l && l.esito === "ok" && (l.logo_url || l.nome)) {
+      const testa = '<div class="loghi-foglio" style="display:flex;align-items:center;justify-content:flex-start;margin:0 0 5mm;padding-bottom:3mm;border-bottom:0.4mm solid #d5dcd8">' +
+        (l.logo_url ? '<img src="' + portaleEsc(l.logo_url) + '" alt="' + portaleEsc(l.nome || "") + '" style="height:16mm;width:auto;max-width:70mm;object-fit:contain">' : '<strong style="font-size:12pt">' + portaleEsc(l.nome || "") + '</strong>') + '</div>';
       riscrittore = riscrittore.on("div.foglio", {
         element(el) { if (!this.fatto) { el.prepend(testa, { html: true }); this.fatto = true; } }
       });
