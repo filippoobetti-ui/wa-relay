@@ -1212,7 +1212,8 @@ const BADGE_STILE_FUCSIA =
   "header{box-shadow:inset 0 -4px 0 #F04CA6}" +
   "form.dati button:not(.rosso),.dati-solo button,a.btn{background:linear-gradient(180deg,#F04CA6,#D61F84)!important;color:#fff!important}" +
   ".piano input{accent-color:#D61F84}.piano:has(input:checked){border-color:#D61F84;box-shadow:0 0 0 3px rgba(214,31,132,.18)}" +
-  "form.inline button.verde{color:#A3125F}.strumenti a.fine{background:#A3125F;border-color:#A3125F}";
+  "form.inline button.verde{color:#A3125F}.strumenti a.fine{background:#A3125F;border-color:#A3125F}" +
+  ".incluso{background:#FFE3F1!important;border-color:#FFB3DA!important;color:#5A0A33!important}";
 
 // ---------------------------------------------------------------------------
 // Cartello di cantiere (05/10/2026) — il generatore del cartello (modulo, anteprima e PDF nel browser).
