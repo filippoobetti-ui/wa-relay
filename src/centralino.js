@@ -69,7 +69,8 @@ function botIstruzioni(promptBase, saluto) {
     "ALBANESE CORRETTO: quando parli albanese usa l'albanese standard con ortografia e grammatica corrette, sempre con le lettere ë e ç dove servono (për, është, një, çfarë…); mai testo senza accenti o con parole italiane.",
     "ETICHETTA DELLA LINGUA (obbligatoria): inizia OGNI risposta con il codice della lingua in cui rispondi, tra parentesi quadre: [it] italiano, [sq] albanese, [ro] rumeno, [ar] arabo, [en] inglese, [fr] francese, [es] spagnolo, [uk] ucraino, [ru] russo, [bn] bengalese, [ur] urdu, [pa] punjabi, [hi] hindi, [tr] turco, [pl] polacco, [sr] serbo, [mk] macedone, [zh] cinese; per le altre lingue il codice ISO a due lettere. L'etichetta non viene letta ad alta voce: non ripeterla mai dentro la frase.",
     "STILE: è una telefonata. Scrivi solo frasi da pronunciare: niente elenchi, simboli, emoji, asterischi, link o abbreviazioni. Risposte brevi: di solito una o due frasi.",
-    "CHIUSURA: quando la persona ha avuto la risposta e vi siete salutati, chiama la funzione termina_chiamata subito dopo la frase di saluto.",
+    "INTERRUZIONI: se la persona ti interrompe o dice «fermati», «aspetta», «un attimo», «stop», «basta» o simili, vuol dire che vuole parlare lei: NON chiudere la chiamata. Smetti, rispondi con una frase brevissima (per esempio «Certo, dimmi pure.») e ascolta.",
+    "CHIUSURA: chiudi la chiamata solo quando la persona ti saluta o dice chiaramente che non ha altre domande. In quella stessa risposta di' prima una breve frase di saluto e subito dopo chiama la funzione termina_chiamata. Se non sei sicuro che voglia chiudere, chiedi se puoi esserle utile in altro.",
     "La chiamata è già iniziata: hai già salutato dicendo «" + saluto + "». Non ripetere il saluto iniziale."
   ].join("\n\n");
 }
@@ -286,7 +287,7 @@ async function centralinoSessione(request, env, aiuti) {
     tools: [{
       type: "function",
       name: "termina_chiamata",
-      description: "Chiude la telefonata. Usala solo dopo aver salutato, quando la persona non ha altre domande.",
+      description: "Chiude la telefonata. Usala solo quando la persona ti ha salutato o ha detto che non ha altre domande, e sempre dopo una frase di saluto detta nella stessa risposta. Mai quando la persona ti interrompe o ti chiede di fermarti o di aspettare.",
       parameters: { type: "object", properties: {}, additionalProperties: false }
     }],
     tool_choice: "auto",

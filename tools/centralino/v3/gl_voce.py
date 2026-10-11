@@ -11,8 +11,10 @@ Per ogni chiamata:
   - ASCOLTA: Opus → PCM 24 kHz → OpenAI Realtime, che risponde SOLO con il testo (nessuna voce OpenAI);
   - PARLA: ogni frase va al relay /centralino/tts, che usa la voce giusta per la lingua
     (Alexandra di ElevenLabs; Anila di Microsoft Azure per l'albanese) → PCM 24 kHz → Opus → RTP;
+  - INIZIO: il saluto parte solo ad audio collegato (ACK + primo audio di Meta + 0,6 s) e non si interrompe;
   - INTERRUZIONI: se chi chiama parla mentre l'assistente parla, l'audio in uscita si ferma subito;
-  - CHIUSURA: quando l'AI chiama la funzione termina_chiamata, la chiamata si chiude dopo l'ultima frase.
+  - CHIUSURA: quando l'AI chiama la funzione termina_chiamata, la chiamata si chiude dopo l'ultima frase,
+    ma solo se in quella risposta l'AI ha salutato (altrimenti la chiusura è rifiutata e l'AI deve rispondere).
 
 Nessuna chiave dei fornitori su questo server: per ogni chiamata il relay consegna una chiave OpenAI
 temporanea e fa da tramite verso le voci. Configurazione: /etc/gl/centralino.json
@@ -36,7 +38,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.4 (11/10/2026)"
+VERSIONE = "gl-voce 3.5 (11/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -65,6 +67,14 @@ FRAME = 960                 # 20 ms di PCM 16 bit mono a 24 kHz
 SILENZIO = b"\0" * FRAME
 PASSO_TS = 960              # l'orologio RTP di Opus è sempre 48 kHz: 20 ms = 960
 INVIO_AI = 4800             # 100 ms di audio per ogni invio a OpenAI
+# Prima di parlare si aspetta che l'audio della chiamata sia davvero collegato (11/10/2026: il saluto partito
+# all'istante della risposta perdeva il «Ciao» iniziale): ACK di Meta + primo pacchetto audio da Meta + margine.
+ATTESA_DOPO_AUDIO = 0.6     # s dopo il primo pacchetto audio di Meta
+ATTESA_MASSIMA = 3.0        # s dopo la risposta: se l'audio di Meta non arriva, si parla comunque
+SALUTI_FINALI = {           # se l'AI chiude per la seconda volta senza aver salutato
+    "it": "Grazie per la chiamata, buona giornata!",
+    "sq": "Faleminderit për telefonatën, ditë të mbarë!",
+}
 SALUTI_PREDEFINITI = {
     "it": "Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?",
     "sq": "Përshëndetje, jam asistentja e Giornale Lavori. Si mund t'ju ndihmoj?",
@@ -432,6 +442,17 @@ class Chiamata:
         self.attese = []
         self.attese_testo = []
         self.voci_usate = {}
+        # inizio della voce: si parla solo ad audio collegato (vedi ATTESA_DOPO_AUDIO)
+        self.t_risposta = None
+        self.pronta = False
+        self.ritardo_audio = None      # s dalla risposta 200 al primo pacchetto audio di Meta
+        self.ritardo_voce = None       # s dalla risposta 200 all'inizio della voce
+        # chiusura: l'AI deve aver detto una frase di saluto nella stessa risposta
+        self.risposta_parlata = False
+        self.funzioni_viste = set()
+        self.chiusure_rifiutate = 0
+        self.chiusura_chiesta = None   # call_id di termina_chiamata nella risposta in corso
+        self.saluto_byte = 0           # byte del saluto iniziale ancora da mandare: il saluto non si interrompe
 
     # -------------------------------------------------------------- avvio
     async def avvia(self):
@@ -452,6 +473,7 @@ class Chiamata:
                   "Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, UPDATE, INFO"],
             sdp, "application/sdp")
         self.app.manda(self.ultima_risposta, self.mittente)
+        self.t_risposta = self.loop.time()
         log(self.call_id[:12], "risposta 200 · chiamante", self.chiamante, "· lingua", self.lingua,
             "· audio", "%s:%d pt %d" % (ip, porta_rem, pt), "· porta", self.porta)
         self.compiti = [
@@ -464,7 +486,8 @@ class Chiamata:
         ]
         saluto = self.app.saluti.get(self.lingua) or (SALUTI_PREDEFINITI.get(self.lingua), b"")
         if saluto and saluto[1]:
-            self.uscita.extend(saluto[1])          # saluto già pronto: parte subito
+            self.uscita.extend(saluto[1])          # saluto già pronto: parte appena l'audio è collegato
+            self.saluto_byte = len(saluto[1])
             self.trascrizione.append("AI: " + saluto[0])
         elif saluto and saluto[0]:
             self.coda_tts.put_nowait((self.generazione, saluto[0], self.lingua))
@@ -536,6 +559,8 @@ class Chiamata:
         self.ultimo_rtp = time.time()
         if self.in_t0 is None:
             self.in_t0 = self.loop.time()
+            if self.t_risposta is not None:
+                self.ritardo_audio = self.in_t0 - self.t_risposta
         if self.ultimo_seq is not None:
             salto = (seq - self.ultimo_seq) & 0xFFFF
             if salto == 0 or salto > 0x8000:
@@ -575,16 +600,29 @@ class Chiamata:
                 attesi = int((self.loop.time() - self.in_t0) * 24000)
                 if attesi - self.in_campioni > 5 * 480:
                     self.accumula(b"\0" * ((attesi - 480 - self.in_campioni) * 2))
-            pronti = len(self.uscita)
+            if not self.pronta:
+                # la voce parte solo ad audio collegato: ACK di Meta + primo audio di Meta + margine
+                ora = self.loop.time()
+                collegata = self.ack and self.in_t0 is not None and ora - self.in_t0 >= ATTESA_DOPO_AUDIO
+                if collegata or (self.t_risposta is not None and ora - self.t_risposta >= ATTESA_MASSIMA):
+                    self.pronta = True
+                    self.ritardo_voce = ora - (self.t_risposta if self.t_risposta is not None else ora)
+                    log(self.call_id[:12], "voce pronta dopo %d ms dalla risposta (audio di Meta dopo %s ms, ACK %s)" % (
+                        self.ritardo_voce * 1000,
+                        "%d" % (self.ritardo_audio * 1000) if self.ritardo_audio is not None else "-",
+                        "sì" if self.ack else "no"))
+            pronti = len(self.uscita) if self.pronta else 0
             if in_attesa and (pronti >= 3 * FRAME or (not self.tts_in_corso and self.coda_tts.empty())):
                 in_attesa = False
             if pronti >= FRAME and not in_attesa:
                 frame = bytes(self.uscita[:FRAME])
                 del self.uscita[:FRAME]
+                self.saluto_byte = max(0, self.saluto_byte - FRAME)
                 self.ultimo_parlato = time.time()
             elif pronti and not in_attesa and not self.tts_in_corso:
                 frame = bytes(self.uscita) + b"\0" * (FRAME - pronti)
                 self.uscita.clear()
+                self.saluto_byte = 0
             else:
                 frame = SILENZIO
                 if pronti == 0 and self.tts_in_corso:
@@ -609,6 +647,8 @@ class Chiamata:
         return bool(self.uscita) or self.tts_in_corso or not self.coda_tts.empty()
 
     def interrompi(self):
+        if self.saluto_byte > 0:
+            return False       # il saluto iniziale non si interrompe: spesso chi risponde dice «pronto?»
         if self.sta_parlando():
             self.generazione += 1
             self.uscita.clear()
@@ -694,6 +734,7 @@ class Chiamata:
         testo = pulisci(testo)
         if not testo or not re.search(r"\w", testo):
             return
+        self.risposta_parlata = True
         self.coda_tts.put_nowait((self.generazione, testo, lingua))
 
     # -------------------------------------------------------------- OpenAI Realtime (solo testo)
@@ -777,6 +818,8 @@ class Chiamata:
             self.fine_parlato = self.fine_parlato_testo = time.time()
         elif tipo == "response.created":
             self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
+            self.risposta_parlata = False
+            self.chiusura_chiesta = None
         elif tipo in ("response.output_text.delta", "response.output_audio_transcript.delta"):
             if self.risp is None:
                 self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
@@ -790,12 +833,11 @@ class Chiamata:
             self.chiudi_testo()
         elif tipo == "response.function_call_arguments.done":
             if ev.get("name") == "termina_chiamata":
-                log(self.call_id[:12], "l'assistente chiude la chiamata")
-                self.chiudi_dopo = True
+                self.chiusura_vista(ev.get("call_id") or "")
         elif tipo == "response.output_item.done":
             item = ev.get("item") or {}
             if item.get("type") == "function_call" and item.get("name") == "termina_chiamata":
-                self.chiudi_dopo = True
+                self.chiusura_vista(item.get("call_id") or "")
         elif tipo == "conversation.item.input_audio_transcription.completed":
             t = str(ev.get("transcript", "")).strip()
             if t:
@@ -804,12 +846,59 @@ class Chiamata:
             r = ev.get("response") or {}
             if r.get("status") == "failed":
                 log(self.call_id[:12], "risposta fallita", json.dumps(r.get("status_details"))[:300])
+            if self.chiusura_chiesta is not None:
+                call_id, self.chiusura_chiesta = self.chiusura_chiesta, None
+                self.decidi_chiusura(call_id, r.get("status") or "")
         elif tipo == "error":
             err = ev.get("error") or {}
             log(self.call_id[:12], "OpenAI errore", err.get("code"), str(err.get("message"))[:300])
             asyncio.ensure_future(self.app.evento("errore", self.chiamante, "OpenAI: %s %s" % (err.get("code"), str(err.get("message"))[:300])))
         elif tipo in ("session.updated",):
             log(self.call_id[:12], "sessione OpenAI impostata")
+
+    # -------------------------------------------------------------- chiusura chiesta dall'AI
+    def chiusura_vista(self, call_id):
+        """termina_chiamata arrivata (lo stesso avviso può arrivare da due eventi): si decide a fine risposta."""
+        if call_id in self.funzioni_viste:
+            return
+        self.funzioni_viste.add(call_id)
+        self.chiusura_chiesta = call_id
+
+    def decidi_chiusura(self, call_id, stato):
+        """La chiamata si chiude solo se nella stessa risposta l'AI ha detto una frase (il saluto).
+        11/10/2026: alla parola «fermati» l'AI ha chiuso subito, senza salutare."""
+        if stato == "cancelled":
+            log(self.call_id[:12], "chiusura annullata: la persona ha ripreso a parlare")
+            return
+        if self.risposta_parlata or self.chiusure_rifiutate >= 1:
+            if not self.risposta_parlata:
+                lingua = self.lingua if self.lingua in SALUTI_FINALI else "it"
+                self.accoda_frase(SALUTI_FINALI[lingua], lingua)
+                self.trascrizione.append("AI: " + SALUTI_FINALI[lingua] + " (saluto finale automatico)")
+            log(self.call_id[:12], "l'assistente chiude la chiamata")
+            self.chiudi_dopo = True
+            return
+        self.chiusure_rifiutate += 1
+        log(self.call_id[:12], "chiusura rifiutata: l'assistente non ha salutato")
+        self.trascrizione.append("(chiusura rifiutata: l'assistente non aveva salutato)")
+        asyncio.ensure_future(self.rifiuta_chiusura(call_id))
+
+    async def rifiuta_chiusura(self, call_id):
+        ws = self.ws
+        if ws is None or not self.attiva or not call_id:
+            return
+        esito = {
+            "esito": "chiamata NON chiusa",
+            "motivo": "Non hai detto nessuna frase di saluto. Se la persona ti ha interrotto o ti ha chiesto di fermarti "
+                      "o di aspettare, vuole parlare lei: dille con una frase brevissima che la ascolti (per esempio "
+                      "«Certo, dimmi pure.»). Se invece vuole davvero chiudere, salutala con una frase breve e poi "
+                      "richiama termina_chiamata. Usa la lingua della conversazione e inizia con l'etichetta della lingua."}
+        try:
+            await ws.send(json.dumps({"type": "conversation.item.create", "item": {
+                "type": "function_call_output", "call_id": call_id, "output": json.dumps(esito, ensure_ascii=False)}}))
+            await ws.send(json.dumps({"type": "response.create"}))
+        except Exception as e:
+            log(self.call_id[:12], "risposta alla chiusura rifiutata non inviata", e)
 
     def su_testo(self, delta):
         r = self.risp
@@ -968,6 +1057,9 @@ class Chiamata:
         def s(x):
             return ("%.1f" % x).replace(".", ",")
         parti = []
+        if self.ritardo_voce is not None:
+            parti.append("saluto dopo %d ms dalla risposta (audio di Meta dopo %s ms)" % (
+                self.ritardo_voce * 1000, "%d" % (self.ritardo_audio * 1000) if self.ritardo_audio is not None else "-"))
         if self.attese:
             parti.append("risposta dopo la persona: media %s s, massimo %s s (%d risposte)" % (
                 s(sum(self.attese) / len(self.attese)), s(max(self.attese)), len(self.attese)))
