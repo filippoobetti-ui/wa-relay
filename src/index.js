@@ -1198,8 +1198,21 @@ async function badgeProxy(request, env) {
   if (metodo === "HEAD" || r.status === 303 || r.status === 302 || r.status === 304) {
     return new Response(null, { status: r.status, headers });
   }
-  return new Response(r.body, { status: r.status, headers });
+  // Colore del servizio Badge = FUCSIA (11/10/2026): stesso stile per tutte le pagine del badge,
+  // aggiunto qui in coda alla <head> senza toccare la funzione Supabase né lo stile comune della dashboard.
+  const risposta = new Response(r.body, { status: r.status, headers });
+  if (typeof HTMLRewriter === "undefined") return risposta;
+  return new HTMLRewriter().on("head", {
+    element(el) { el.append("<style>" + BADGE_STILE_FUCSIA + "</style>", { html: true }); }
+  }).transform(risposta);
 }
+
+const BADGE_STILE_FUCSIA =
+  ":root{--accento:#D61F84}" +
+  "header{box-shadow:inset 0 -4px 0 #F04CA6}" +
+  "form.dati button:not(.rosso),.dati-solo button,a.btn{background:linear-gradient(180deg,#F04CA6,#D61F84)!important;color:#fff!important}" +
+  ".piano input{accent-color:#D61F84}.piano:has(input:checked){border-color:#D61F84;box-shadow:0 0 0 3px rgba(214,31,132,.18)}" +
+  "form.inline button.verde{color:#A3125F}.strumenti a.fine{background:#A3125F;border-color:#A3125F}";
 
 // ---------------------------------------------------------------------------
 // Cartello di cantiere (05/10/2026) — il generatore del cartello (modulo, anteprima e PDF nel browser).
