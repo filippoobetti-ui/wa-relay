@@ -1,3 +1,5 @@
 tools/portale-movimenti/index.mjs
 tools/portale-movimenti/node_modules/
 tools/rimozione/index.mjs
+__pycache__/
+*.pyc
