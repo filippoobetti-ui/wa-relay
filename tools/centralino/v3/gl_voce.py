@@ -36,7 +36,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.0 (11/10/2026)"
+VERSIONE = "gl-voce 3.1 (11/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -1090,6 +1090,15 @@ async def principale():
     trasporto, app = await loop.create_datagram_endpoint(lambda: App(loop), local_addr=(SIP_IP, SIP_PORTA))
     app.scrivi_stato()
     log(VERSIONE, "in ascolto su %s:%d · relay %s" % (SIP_IP, SIP_PORTA, RELAY))
+    # nel registro: quali numeri Kamailio manda a questo assistente (controllo dello smistamento in uso)
+    try:
+        cfg = open("/etc/kamailio/kamailio.cfg", encoding="utf-8").read()
+        m = re.search(r'if \(\$fU =~ "\^\\\+\?\(([^)]*)\)\$"\) \{\s*route\(BOT\)', cfg)
+        smistamento = "numeri all'assistente: " + (m.group(1) if m else "regola non trovata")
+    except OSError as e:
+        smistamento = "kamailio.cfg non leggibile: " + str(e)[:100]
+    log(smistamento)
+    asyncio.ensure_future(app.evento("avvio", "centralino", VERSIONE + " · " + smistamento))
     asyncio.ensure_future(app.prepara_saluti())
     await asyncio.Event().wait()
 
