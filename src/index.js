@@ -1470,7 +1470,7 @@ function portaleScriptSw(base) {
   return "if('serviceWorker' in navigator){try{navigator.serviceWorker.register('" + base + "/sw.js',{scope:'" + base + "/'}).catch(function(){});}catch(e){}}";
 }
 
-function portaleIngresso(base, avviso) {
+function portaleIngresso(base, avviso, emailPrec) {
   const msg = avviso ? '<p class="err">' + avviso + '</p>' : '';
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -1488,14 +1488,23 @@ function portaleIngresso(base, avviso) {
     'input{width:100%;font-size:1rem;padding:12px;border:1px solid var(--l);border-radius:10px;background:var(--b);color:var(--t)}' +
     'button{width:100%;margin-top:12px;font-size:1rem;font-weight:600;padding:12px;border:0;border-radius:10px;background:var(--v);color:#fff}' +
     '.err{color:#b3261e;font-weight:600}.piede{font-size:.85rem;margin-top:16px}' +
+    'a{color:var(--v);font-weight:600}details.wa{margin-top:18px;border-top:1px solid var(--l);padding-top:14px}details.wa summary{cursor:pointer;color:var(--s);font-size:.92rem;text-align:center}details.wa form{margin-top:12px}' +
     '</style></head><body><main><div class="card">' +
     '<img src="' + base + '/icona-192.png" alt="">' +
-    '<h1>Il Giornale Lavori</h1><p>I tuoi cantieri, giorno per giorno.</p>' + msg +
+    '<h1>Area riservata</h1><p>Il Giornale Lavori · i tuoi cantieri, giorno per giorno.</p>' + msg +
+    '<form method="post" action="' + base + '/accedi">' +
+    '<label for="em">Email</label>' +
+    '<input id="em" name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required' + (emailPrec ? ' value="' + portaleEsc(emailPrec) + '"' : '') + '>' +
+    '<label for="pw" style="margin-top:12px">Password</label>' +
+    '<input id="pw" name="password" type="password" autocomplete="current-password" required>' +
+    '<button type="submit">Entra</button></form>' +
+    '<p class="piede"><a href="' + base + '/password-dimenticata">Password dimenticata?</a></p>' +
+    '<details class="wa"><summary>Hai il collegamento ricevuto su WhatsApp?</summary>' +
     '<form method="get" action="' + base + '/" id="f">' +
     '<label for="t">Collegamento o codice d\'accesso</label>' +
     '<input id="t" name="t" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Incolla qui il collegamento ricevuto" required>' +
-    '<button type="submit">Entra</button></form>' +
-    '<p class="piede">Il collegamento te lo ha mandato chi ti ha attivato il servizio. Basta aprirlo una volta: poi l\'app lo ricorda.</p>' +
+    '<button type="submit">Entra con il collegamento</button></form>' +
+    '<p class="piede">Basta aprirlo una volta: poi l\'app lo ricorda. Dentro trovi anche «Crea il tuo accesso con email e password».</p></details>' +
     '</div></main><script>(function(){var B="' + base + '";' +
     'var q=new URLSearchParams(location.search);' +
     'if(q.has("esci")){try{localStorage.removeItem("gl_portale_t")}catch(e){}}' +
@@ -1505,6 +1514,162 @@ function portaleIngresso(base, avviso) {
     'document.getElementById("f").addEventListener("submit",function(ev){var v=document.getElementById("t").value||"";' +
     'var m=v.match(/[0-9a-fA-F]{64}/);if(m){ev.preventDefault();location.href=B+"/?t="+m[0].toLowerCase();}});' +
     portaleScriptSw(base) + '})();</script></body></html>';
+}
+
+const PORTALE_AREA = new Set(["/accedi", "/password-dimenticata", "/imposta", "/crea-accesso"]);
+
+function portaleEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function portaleRpc(env, nome, corpo) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(supabaseUrl + "/rest/v1/rpc/" + nome, {
+      method: "POST",
+      headers: { "apikey": env.SUPABASE_SERVICE_KEY, "Authorization": "Bearer " + env.SUPABASE_SERVICE_KEY,
+        "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(corpo), signal: ctrl.signal
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; } finally { clearTimeout(timer); }
+}
+
+// Pagina semplice con lo stesso aspetto dell'ingresso.
+function portaleFoglio(base, titolo, sottotitolo, corpo) {
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
+    '<title>' + portaleEsc(titolo) + ' - Il Giornale Lavori</title>' + portaleTesta(base) +
+    '<style>' +
+    ':root{--v:' + PORTALE_COLORE + ';--t:#1b1f1d;--s:#5b6560;--b:#f4f6f5;--c:#fff;--l:#dfe5e2}' +
+    '@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531}}' +
+    '*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--b);color:var(--t)}' +
+    'main{max-width:440px;margin:0 auto;padding:48px 16px}' +
+    '.card{background:var(--c);border:1px solid var(--l);border-radius:14px;padding:24px}' +
+    'img{width:64px;height:64px;display:block;margin:0 auto 12px}' +
+    'h1{font-size:1.2rem;text-align:center;margin:0 0 4px}p{color:var(--s);line-height:1.45;margin:0 0 16px;text-align:center}' +
+    'label{display:block;font-weight:600;margin:12px 0 6px}' +
+    'input{width:100%;font-size:1rem;padding:12px;border:1px solid var(--l);border-radius:10px;background:var(--b);color:var(--t)}' +
+    'button,.btn{display:block;width:100%;margin-top:14px;font-size:1rem;font-weight:600;padding:12px;border:0;border-radius:10px;background:var(--v);color:#fff;text-align:center;text-decoration:none}' +
+    '.err{color:#b3261e;font-weight:600}.ok{color:var(--v);font-weight:600}.piede{font-size:.85rem;margin-top:16px}a{color:var(--v);font-weight:600}' +
+    '</style></head><body><main><div class="card">' +
+    '<img src="' + base + '/icona-192.png" alt="">' +
+    '<h1>' + portaleEsc(titolo) + '</h1>' + (sottotitolo ? '<p>' + sottotitolo + '</p>' : '') + corpo +
+    '</div></main></body></html>';
+}
+
+function portaleRisposta(html, stato) {
+  return new Response(html, { status: stato || 200, headers: portaleHtmlHeaders() });
+}
+
+async function portaleArea(request, env, base, sotto, inUrl) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD" && metodo !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+  }
+  if (!env.SUPABASE_SERVICE_KEY) {
+    return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  }
+  let f = new URLSearchParams();
+  if (metodo === "POST") {
+    const testo = await request.text();
+    if (testo.length > 8000) return new Response("Modulo troppo grande.", { status: 413 });
+    f = new URLSearchParams(testo);
+  }
+  const vai = (tok) => new Response(null, { status: 303, headers: { Location: base + "/?t=" + tok, "Cache-Control": "no-store" } });
+  const torna = '<p class="piede"><a href="' + base + '/">&larr; Torna all\'accesso</a></p>';
+  const errore = (m) => '<p class="err">' + m + '</p>';
+
+  // Accesso con email e password
+  if (sotto === "/accedi") {
+    if (metodo !== "POST") return Response.redirect(inUrl.origin + base + "/", 303);
+    const email = (f.get("email") || "").trim().slice(0, 200);
+    const r = await portaleRpc(env, "portale_login", { p_email: email, p_password: (f.get("password") || "").slice(0, 200) });
+    if (r && r.esito === "ok" && /^[0-9a-f]{64}$/.test(r.token || "")) return vai(r.token);
+    let m = "Email o password non corretti.";
+    if (!r) m = "Il servizio non risponde in questo momento. Riprova tra qualche minuto.";
+    else if (r.esito === "bloccato") m = "Troppi tentativi sbagliati: riprova tra " + (r.minuti || 15) + " minuti, oppure usa «Password dimenticata?».";
+    else if (r.esito === "sospeso") m = "L'accesso della tua impresa non è attivo. Scrivici su WhatsApp al +39 378 310 7501.";
+    return portaleRisposta(portaleIngresso(base, m, email), 200);
+  }
+
+  // Password dimenticata
+  if (sotto === "/password-dimenticata") {
+    if (metodo === "POST") {
+      const email = (f.get("email") || "").trim().slice(0, 200);
+      await portaleRpc(env, "portale_reset_richiesta", { p_email: email, p_base: inUrl.origin + base });
+      return portaleRisposta(portaleFoglio(base, "Controlla la tua email", "",
+        '<p>Se <strong>' + portaleEsc(email) + '</strong> è registrata nell\'area riservata, tra pochi minuti ricevi un\'email con il collegamento per scegliere la nuova password (vale 2 ore). Guarda anche nella posta indesiderata.</p>' + torna));
+    }
+    return portaleRisposta(portaleFoglio(base, "Password dimenticata", "Scrivi l'email con cui entri: ti mandiamo il collegamento per sceglierne una nuova.",
+      '<form method="post" action="' + base + '/password-dimenticata"><label for="em">Email</label>' +
+      '<input id="em" name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required>' +
+      '<button type="submit">Mandami il collegamento</button></form>' + torna));
+  }
+
+  // Nuova password (dal collegamento ricevuto per email)
+  if (sotto === "/imposta") {
+    const codice = ((metodo === "POST" ? f.get("r") : inUrl.searchParams.get("r")) || "").replace(/[^0-9a-f]/gi, "").slice(0, 64);
+    const scaduto = portaleFoglio(base, "Collegamento scaduto", "",
+      '<p>Questo collegamento non è più valido (scade dopo poche ore o dopo essere stato usato).</p>' +
+      '<a class="btn" href="' + base + '/password-dimenticata">Chiedi un nuovo collegamento</a>' + torna);
+    const modulo = (email, avviso) => portaleFoglio(base, "Scegli la password", email ? "Per l'accesso di <strong>" + portaleEsc(email) + "</strong>" : "",
+      (avviso ? errore(avviso) : '') +
+      '<form method="post" action="' + base + '/imposta"><input type="hidden" name="r" value="' + codice + '">' +
+      '<input type="hidden" name="email" value="' + portaleEsc(email || "") + '">' +
+      '<label for="p1">Nuova password (almeno 8 caratteri)</label><input id="p1" name="password" type="password" minlength="8" autocomplete="new-password" required>' +
+      '<label for="p2">Ripeti la password</label><input id="p2" name="password2" type="password" minlength="8" autocomplete="new-password" required>' +
+      '<button type="submit">Salva ed entra</button></form>');
+    if (metodo === "POST") {
+      const p1 = f.get("password") || "", p2 = f.get("password2") || "", email = (f.get("email") || "").slice(0, 200);
+      if (p1 !== p2) return portaleRisposta(modulo(email, "Le due password non coincidono."));
+      if (p1.length < 8) return portaleRisposta(modulo(email, "La password deve avere almeno 8 caratteri."));
+      const r = await portaleRpc(env, "portale_reset_conferma", { p_codice: codice, p_password: p1.slice(0, 200) });
+      if (r && r.esito === "ok" && /^[0-9a-f]{64}$/.test(r.token || "")) return vai(r.token);
+      if (r && r.esito === "sospeso") return portaleRisposta(portaleFoglio(base, "Password salvata", "", '<p>La password è salvata, ma l\'accesso della tua impresa non è attivo. Scrivici su WhatsApp al +39 378 310 7501.</p>'));
+      return portaleRisposta(scaduto);
+    }
+    const v = codice ? await portaleRpc(env, "portale_reset_valido", { p_codice: codice }) : null;
+    if (!v || v.esito !== "ok") return portaleRisposta(scaduto);
+    return portaleRisposta(modulo(v.email, ""));
+  }
+
+  // Crea un accesso con email e password (dal portale aperto con il collegamento WhatsApp)
+  if (sotto === "/crea-accesso") {
+    const tGrezzo = (metodo === "POST" ? f.get("t") : inUrl.searchParams.get("t")) || "";
+    const m = String(tGrezzo).match(/[0-9a-fA-F]{64}/);
+    if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+    const tok = m[0].toLowerCase();
+    const modulo = (avviso, nome, email) => portaleFoglio(base, "Crea un accesso", "Chi lo crea entrerà da <strong>www.ilgiornalelavori.it → Area riservata</strong> con la sua email e la sua password. Ogni persona dell'impresa può avere il suo.",
+      (avviso ? errore(avviso) : '') +
+      '<form method="post" action="' + base + '/crea-accesso"><input type="hidden" name="t" value="' + tok + '">' +
+      '<label for="no">Nome e cognome</label><input id="no" name="nome" autocomplete="name" value="' + portaleEsc(nome || "") + '">' +
+      '<label for="em">Email</label><input id="em" name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required value="' + portaleEsc(email || "") + '">' +
+      '<label for="p1">Password (almeno 8 caratteri)</label><input id="p1" name="password" type="password" minlength="8" autocomplete="new-password" required>' +
+      '<label for="p2">Ripeti la password</label><input id="p2" name="password2" type="password" minlength="8" autocomplete="new-password" required>' +
+      '<button type="submit">Crea l\'accesso</button></form>' +
+      '<p class="piede"><a href="' + base + '/?t=' + tok + '">&larr; Torna ai cantieri</a></p>');
+    if (metodo === "POST") {
+      const nome = (f.get("nome") || "").trim().slice(0, 120), email = (f.get("email") || "").trim().slice(0, 200);
+      const p1 = f.get("password") || "", p2 = f.get("password2") || "";
+      if (p1 !== p2) return portaleRisposta(modulo("Le due password non coincidono.", nome, email));
+      const r = await portaleRpc(env, "portale_registra", { p_token: tok, p_email: email, p_password: p1.slice(0, 200), p_nome: nome });
+      const avvisi = { email: "L'email non sembra corretta.", corta: "La password deve avere almeno 8 caratteri.",
+        esiste: "Questa email ha già un accesso: entra da «Area riservata» o usa «Password dimenticata?».",
+        altra: "Questa email è già usata per un'altra impresa. Usa un'altra email.", gettone: "Il collegamento non è più valido." };
+      if (!r) return portaleRisposta(modulo("Il servizio non risponde in questo momento. Riprova tra qualche minuto.", nome, email));
+      if (r.esito !== "ok") return portaleRisposta(modulo(avvisi[r.esito] || "Non è stato possibile creare l'accesso.", nome, email));
+      return portaleRisposta(portaleFoglio(base, "Accesso creato", "",
+        '<p class="ok">Fatto: da ora <strong>' + portaleEsc(email) + '</strong> entra con email e password da www.ilgiornalelavori.it → Area riservata.</p>' +
+        '<a class="btn" href="' + base + '/?t=' + tok + '">Torna ai cantieri</a>'));
+    }
+    return portaleRisposta(modulo("", "", ""));
+  }
+  return new Response("Not Found", { status: 404 });
 }
 
 const PORTALE_SW = [
@@ -1650,12 +1815,14 @@ function portaleMovimenti(request, inUrl, base, env) {
 
 async function portaleRoute(request, env, prefisso) {
   const metodo = request.method;
-  if (metodo !== "GET" && metodo !== "HEAD") {
-    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-  }
   const inUrl = new URL(request.url);
   const base = prefisso; // "" sul dominio dedicato, "/portale" su workers.dev
   let sotto = inUrl.pathname.slice(prefisso.length) || "/";
+  // Area riservata con email e password (11/10/2026): accesso, password dimenticata, nuova password, crea accesso.
+  if (PORTALE_AREA.has(sotto)) return portaleArea(request, env, base, sotto, inUrl);
+  if (metodo !== "GET" && metodo !== "HEAD") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
 
   if (sotto === "/manifest.webmanifest") {
     const manifest = {
@@ -1758,6 +1925,8 @@ async function portaleRoute(request, env, prefisso) {
   if (valida && mov.attivi) script = PORTALE_MOVIMENTI_SCRIPT + script;   // dopo visore e frecce (che vengono anteposti qui sotto)
   if (valida && html.indexOf("<img") !== -1) script = PORTALE_VISORE + script;
   if (valida && html.indexOf('<nav class="schede"') !== -1) script = PORTALE_FRECCE + script;
+  if (valida) script = '<div style="max-width:720px;margin:18px auto 28px;padding:0 16px;text-align:center;font-family:system-ui,-apple-system,sans-serif;font-size:.9rem">' +
+    '<a href="' + base + '/crea-accesso?t=' + token + '" style="color:#0A7D48;font-weight:600">&#128274; Crea o aggiungi un accesso con email e password</a></div>' + script;
   html = html.lastIndexOf("</body>") !== -1
     ? html.slice(0, html.lastIndexOf("</body>")) + script + html.slice(html.lastIndexOf("</body>"))
     : html + script;
