@@ -36,7 +36,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.3 (11/10/2026)"
+VERSIONE = "gl-voce 3.4 (11/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -425,6 +425,13 @@ class Chiamata:
         self.in_t0 = None          # ora del primo pacchetto: da lì l'audio verso OpenAI deve scorrere senza buchi
         self.in_campioni = 0       # campioni a 24 kHz consegnati (voce vera + silenzio di riempimento)
         self.ultimo_parlato = time.time()
+        # tempi di risposta (nel registro di fine chiamata): da quando OpenAI sente che la persona ha finito
+        # di parlare al primo testo della risposta e al primo audio della voce
+        self.fine_parlato = None
+        self.fine_parlato_testo = None
+        self.attese = []
+        self.attese_testo = []
+        self.voci_usate = {}
 
     # -------------------------------------------------------------- avvio
     async def avvia(self):
@@ -626,6 +633,9 @@ class Chiamata:
                     asyncio.ensure_future(self.app.evento("errore", self.chiamante, "voce %s %s %s" % (stato, fornitore, str(info)[:200])))
                 elif isinstance(info, float):
                     log(self.call_id[:12], "voce", lingua, fornitore, "primo audio %.0f ms" % (info * 1000), "·", byte // 48, "ms")
+                    v = self.voci_usate.setdefault(lingua + " " + fornitore.split(" ")[0], [0, 0.0])
+                    v[0] += 1
+                    v[1] += info
             except Exception as e:
                 log(self.call_id[:12], "voce errore", e)
             finally:
@@ -673,6 +683,11 @@ class Chiamata:
 
     def aggiungi_audio(self, gen, pcm):
         if gen == self.generazione and self.attiva:
+            if self.fine_parlato is not None:
+                attesa = time.time() - self.fine_parlato
+                if attesa < 15:            # oltre: non è la risposta a quella frase (es. domanda dopo il silenzio)
+                    self.attese.append(attesa)
+                self.fine_parlato = None
             self.uscita.extend(pcm)
 
     def accoda_frase(self, testo, lingua):
@@ -754,15 +769,22 @@ class Chiamata:
         tipo = ev.get("type", "")
         if tipo == "input_audio_buffer.speech_started":
             self.ultima_voce = time.time()
+            self.fine_parlato = self.fine_parlato_testo = None   # la persona continua: si misura dalla prossima pausa
             if self.interrompi():
                 log(self.call_id[:12], "interrotta dalla persona")
         elif tipo == "input_audio_buffer.speech_stopped":
             self.ultima_voce = time.time()
+            self.fine_parlato = self.fine_parlato_testo = time.time()
         elif tipo == "response.created":
             self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
         elif tipo in ("response.output_text.delta", "response.output_audio_transcript.delta"):
             if self.risp is None:
                 self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
+            if self.fine_parlato_testo is not None:
+                attesa = time.time() - self.fine_parlato_testo
+                if attesa < 15:
+                    self.attese_testo.append(attesa)
+                self.fine_parlato_testo = None
             self.su_testo(ev.get("delta", ""))
         elif tipo in ("response.output_text.done", "response.output_audio_transcript.done"):
             self.chiudi_testo()
@@ -934,11 +956,26 @@ class Chiamata:
             except Exception:
                 pass
         durata = int(time.time() - self.inizio)
-        log(self.call_id[:12], "fine chiamata:", self.motivo, "·", durata, "s")
-        dettaglio = "durata %d s · motivo %s · lingue %s · wacid %s\n%s" % (
-            durata, self.motivo, ",".join(self.lingue_usate) or self.lingua, self.wacid, "\n".join(self.trascrizione))
+        tempi = self.tempi()
+        log(self.call_id[:12], "fine chiamata:", self.motivo, "·", durata, "s", "·", tempi)
+        dettaglio = "durata %d s · motivo %s · lingue %s · wacid %s\n%s\n%s" % (
+            durata, self.motivo, ",".join(self.lingue_usate) or self.lingua, self.wacid, tempi, "\n".join(self.trascrizione))
         asyncio.ensure_future(self.app.evento("fine", self.chiamante, dettaglio[:3800]))
         self.app.chiamata_finita(self.call_id)
+
+    def tempi(self):
+        """Riga dei tempi per il registro: attesa percepita (fine della frase → voce), testo di OpenAI, voci usate."""
+        def s(x):
+            return ("%.1f" % x).replace(".", ",")
+        parti = []
+        if self.attese:
+            parti.append("risposta dopo la persona: media %s s, massimo %s s (%d risposte)" % (
+                s(sum(self.attese) / len(self.attese)), s(max(self.attese)), len(self.attese)))
+        if self.attese_testo:
+            parti.append("testo di OpenAI: media %s s" % s(sum(self.attese_testo) / len(self.attese_testo)))
+        for k, (n, somma) in sorted(self.voci_usate.items()):
+            parti.append("voce %s: %d frasi, primo audio in media %d ms" % (k, n, somma / n * 1000))
+        return "tempi: " + (" · ".join(parti) if parti else "nessuna risposta misurata")
 
 
 # ---------------------------------------------------------------------------- server SIP
@@ -1107,6 +1144,9 @@ class App(asyncio.DatagramProtocol):
                             giusta = not voce or forn.split(" ")[0] == voce.split(" ")[0]
                             self.saluti_voce[lingua] = voce if giusta else ""
                             log("saluto pronto:", lingua, forn, len(pcm) // 48, "ms" if giusta else "ms (voce di riserva, si riprova)")
+                            # nel registro anche via relay (il registro di sistema a volte salta i minuti dei riavvii)
+                            await self.evento("saluto", "centralino", "saluto %s pronto: %s, %d ms%s · «%s»" % (
+                                lingua, forn, len(pcm) // 48, "" if giusta else " (voce di riserva, si riprova)", testo[:120]))
                         else:
                             if not (vecchio and vecchio[0] == testo and vecchio[1]):
                                 self.saluti[lingua] = (testo, b"")   # testo nuovo senza audio: si sintetizza nella chiamata
