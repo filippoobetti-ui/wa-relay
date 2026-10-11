@@ -2,7 +2,7 @@
 # Centralino SIP del Giornale Lavori — v2 (11/10/2026): Kamailio + rtpengine.
 # Italiano e altre lingue → ElevenLabs (audio WhatsApp Opus/SRTP convertito in G.722/RTP); albanese → OpenAI Realtime.
 # Le configurazioni di Kamailio e rtpengine arrivano da Supabase ogni minuto (RPC centralino_config_v2 e centralino_rtpengine_config).
-# Segnaposto da sostituire prima dell'uso: __ANON__ (chiave anon Supabase), __TOKEN__ (impostazione centralino_token).
+# Prima dell'uso sostituire nei due script i segnaposto della chiave anon Supabase e del token del centralino (impostazione centralino_token).
 package_update: true
 packages:
 - kamailio
