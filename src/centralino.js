@@ -13,6 +13,7 @@
 //   v2      = come prima (albanesi → OpenAI, altri → agente ElevenLabs)
 //   fase_a  = albanesi → assistente nostro, altri → agente ElevenLabs
 //   fase_b  = tutti → assistente nostro (l'agente ElevenLabs resta configurato, di riserva)
+// Numeri di prova (NUMERI_PROVA): vanno all'assistente nostro anche in fase_a, con la lingua indicata.
 // ============================================================================
 import GL_VOCE_PY from "../tools/centralino/v3/gl_voce.py";
 import KAMAILIO_V3_TPL from "../tools/centralino/v3/kamailio-v3.cfg.tpl";
@@ -43,6 +44,11 @@ const BOT_SALUTI = {
   it: "Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?",
   sq: "Përshëndetje, jam asistentja e Giornale Lavori. Si mund t'ju ndihmoj?"
 };
+
+// Numeri di prova (11/10/2026, fase B): vanno all'assistente nostro anche in fase_a, con la lingua scelta qui.
+// "it" = come un chiamante italiano (saluto e risposte con Alexandra), "sq" = come un chiamante albanese (Anila).
+// Prevalgono sull'elenco dei numeri albanesi (impostazione centralino_numeri_albanesi).
+const NUMERI_PROVA = { "393775371209": "it" }; // telefono di Filippo
 
 // Copia del prompt dell'agente ElevenLabs (11/10/2026): si usa se il prompt dell'agente non è leggibile.
 const BOT_PROMPT_BASE = [
@@ -117,7 +123,9 @@ let _agente = { v: null, t: 0 };
 async function elevenAgente(env) {
   // Prompt, primo messaggio e voce letti dall'agente ElevenLabs: si modificano dal pannello ElevenLabs.
   if (!env.ELEVENLABS_API_KEY) return null;
-  if (_agente.v && Date.now() - _agente.t < 300000) return _agente.v;
+  // letto ogni 5 minuti; se la lettura non riesce si riprova dopo 1 minuto (nel frattempo valgono i dati di prima)
+  if (Date.now() - _agente.t < (_agente.v ? 300000 : 60000)) return _agente.v;
+  _agente.t = Date.now();
   try {
     const r = await conTimeout("https://api.elevenlabs.io/v1/convai/agents/" + ELEVEN_AGENTE,
       { headers: { "xi-api-key": env.ELEVENLABS_API_KEY } }, 4000);
@@ -128,24 +136,41 @@ async function elevenAgente(env) {
       const ag = cc.agent || {};
       _agente = {
         t: Date.now(),
+        errore: "",
         v: {
           prompt: String((ag.prompt && ag.prompt.prompt) || "").trim(),
           primo: String(ag.first_message || "").trim(),
           voce: String(tts.voice_id || "").trim(),
+          modello: String(tts.model_id || "").trim(),
           stabilita: tts.stability, somiglianza: tts.similarity_boost, velocita: tts.speed
         }
       };
     } else {
-      _agente.t = Date.now();
+      _agente.errore = "ElevenLabs risponde " + r.status;
     }
-  } catch (e) {}
+  } catch (e) {
+    _agente.errore = "lettura non riuscita";
+  }
   return _agente.v;
+}
+
+function voceEleven(ag) {
+  return (ag && /^[A-Za-z0-9]{20}$/.test(ag.voce)) ? ag.voce : ELEVEN_VOCE;
+}
+
+// Voce che /centralino/tts userà per prima per la lingua: il server rifà i saluti quando cambia
+// (chiave ElevenLabs aggiunta o tolta, voce o impostazioni della voce cambiate nell'agente).
+function vocePrevista(env, l, ag) {
+  if (l === "sq" || (!ELEVEN_LINGUE.has(l) && AZURE_VOCI[l])) return "azure " + AZURE_VOCI[l][1];
+  if (!env.ELEVENLABS_API_KEY) return "azure " + (AZURE_VOCI[l] || AZURE_VOCI.it)[1];
+  const imp = ag ? [ag.stabilita, ag.somiglianza, ag.velocita].map((x) => (typeof x === "number" ? x : "-")).join("/") : "-";
+  return "elevenlabs " + voceEleven(ag) + " " + (env.ELEVEN_MODELLO || ELEVEN_MODELLO) + " " + imp;
 }
 
 async function ttsEleven(env, testo) {
   if (!env.ELEVENLABS_API_KEY) return { ok: false, fornitore: "elevenlabs", errore: "chiave assente" };
   const ag = await elevenAgente(env);
-  const voce = (ag && /^[A-Za-z0-9]{20}$/.test(ag.voce)) ? ag.voce : ELEVEN_VOCE;
+  const voce = voceEleven(ag);
   const corpo = { text: testo, model_id: env.ELEVEN_MODELLO || ELEVEN_MODELLO };
   const imp = {};
   if (ag && typeof ag.stabilita === "number") imp.stability = ag.stabilita;
@@ -322,12 +347,18 @@ async function centralinoPacchetto(env, aiuti) {
   const modo = centralinoModo(env);
   const token = await tokenCentralino(aiuti);
   const alb = await centralinoAlbanesi(aiuti);
-  const albanesi = alb.regex || "355[0-9]+";
-  const bot = modo === "fase_b" ? "[0-9]+" : (modo === "fase_a" ? albanesi : "NESSUNO");
+  // numeri di prova: "it" esce dall'elenco albanese (niente X-GL-Lingua: sq), "sq" ci entra; in fase_a vanno all'assistente
+  const prova = Object.keys(NUMERI_PROVA);
+  const provaIt = new Set(prova.filter((n) => NUMERI_PROVA[n] !== "sq"));
+  const unici = (a) => [...new Set(a.filter(Boolean))].sort();
+  const albanesi = unici(String(alb.regex || "355[0-9]+").split("|").filter((n) => !provaIt.has(n))
+    .concat(prova.filter((n) => NUMERI_PROVA[n] === "sq"))).join("|") || "355[0-9]+";
+  const bot = modo === "fase_b" ? "[0-9]+" : (modo === "fase_a" ? unici(albanesi.split("|").concat(prova)).join("|") : "NESSUNO");
   const cfg = KAMAILIO_V3_TPL.split("__BOT__").join(bot).split("__ALBANESI__").join(albanesi)
     .split("__TOKEN__").join(token).split("__PROJ__").join(OPENAI_PROGETTO_SIP);
   return json({
-    versione: CENTRALINO_VERSIONE + " · numeri albanesi: " + (albanesi.split("|").length - 1) + " + prefisso 355 (" + alb.fonte + ")",
+    versione: CENTRALINO_VERSIONE + " · numeri albanesi: " + (albanesi.split("|").length - 1) + " + prefisso 355 (" + alb.fonte + ")" +
+      " · numeri di prova: " + prova.map((n) => "…" + n.slice(-3) + " " + NUMERI_PROVA[n]).join(", "),
     modo,
     kamailio_cfg: cfg,
     rtpengine_conf: RTPENGINE_V3,
@@ -346,7 +377,10 @@ export async function centralinoGestisci(request, env, url, aiuti) {
   if (request.method === "POST" && p === "/centralino/evento") return centralinoEvento(request, aiuti);
   if (request.method === "GET" && p === "/centralino/saluti") {
     const ag = await elevenAgente(env);
-    return json({ saluti: { it: (ag && ag.primo) || BOT_SALUTI.it, sq: BOT_SALUTI.sq } });
+    return json({
+      saluti: { it: (ag && ag.primo) || BOT_SALUTI.it, sq: BOT_SALUTI.sq },
+      voci: { it: vocePrevista(env, "it", ag), sq: vocePrevista(env, "sq", ag) }
+    });
   }
   if (request.method === "GET" && p === "/centralino/pacchetto") return centralinoPacchetto(env, aiuti);
   return json({ errore: "rotta sconosciuta" }, 404);
@@ -366,16 +400,25 @@ export async function centralinoStato(env) {
     } catch (e) { azure = "sì, verifica non riuscita"; }
   }
   let eleven = "NO";
+  let agente = "";
   if (env.ELEVENLABS_API_KEY) {
     try {
       const r = await conTimeout("https://api.elevenlabs.io/v1/voices/" + ELEVEN_VOCE, { headers: { "xi-api-key": env.ELEVENLABS_API_KEY } }, 4000);
       eleven = r.ok ? "sì, accettata da ElevenLabs" : "sì, ma ElevenLabs risponde " + r.status;
     } catch (e) { eleven = "sì, verifica non riuscita"; }
+    // agente ElevenLabs: da lì l'assistente prende istruzioni, saluto e impostazioni della voce (mai la chiave)
+    const ag = await elevenAgente(env);
+    agente = ag
+      ? " · agente ElevenLabs letto: voce " + (ag.voce === ELEVEN_VOCE ? "Alexandra" : (ag.voce || "non indicata")) +
+        ", modello dell'agente " + (ag.modello || "non indicato") + " (assistente: " + (env.ELEVEN_MODELLO || ELEVEN_MODELLO) + ")" +
+        ", istruzioni " + (ag.prompt === BOT_PROMPT_BASE ? "uguali alla copia" : (ag.prompt ? "diverse dalla copia (" + ag.prompt.length + " caratteri)" : "vuote")) +
+        ", saluto «" + (ag.primo || BOT_SALUTI.it).slice(0, 100) + "»"
+      : " · agente ElevenLabs NON letto (" + (_agente.errore || "?") + ")";
   }
   _verifiche = {
     t: Date.now(),
     testo: "CENTRALINO v3 (assistente nostro): " + CENTRALINO_VERSIONE + " · modo " + centralinoModo(env) +
-      " · AZURE_SPEECH_KEY: " + azure + " · ELEVENLABS_API_KEY: " + eleven
+      " · AZURE_SPEECH_KEY: " + azure + " · ELEVENLABS_API_KEY: " + eleven + agente
   };
   return _verifiche.testo;
 }

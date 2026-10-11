@@ -36,7 +36,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.2 (11/10/2026)"
+VERSIONE = "gl-voce 3.3 (11/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -951,6 +951,7 @@ class App(asyncio.DatagramProtocol):
         self.finite = {}
         self.porte_usate = set()
         self.saluti = {}
+        self.saluti_voce = {}
         self.trasporto = None
 
     def connection_made(self, trasporto):
@@ -1086,25 +1087,33 @@ class App(asyncio.DatagramProtocol):
             log("evento non registrato", tipo, e)
 
     async def prepara_saluti(self):
-        """Saluti sintetizzati in anticipo: all'inizio della chiamata la voce parte senza attese."""
+        """Saluti sintetizzati in anticipo: all'inizio della chiamata la voce parte senza attese.
+        Si rifanno quando cambia il testo o la voce prevista dal relay (es. chiave ElevenLabs aggiunta:
+        il saluto italiano passa da Isabella ad Alexandra entro 2 minuti, senza riavviare nulla)."""
         while True:
             try:
                 stato, j = await self.loop.run_in_executor(self.pool, lambda: self.relay.json("GET", "/centralino/saluti", None, 10))
                 if stato == 200:
+                    voci = j.get("voci") or {}
                     for lingua, testo in (j.get("saluti") or {}).items():
+                        voce = str(voci.get(lingua) or "")
                         vecchio = self.saluti.get(lingua)
-                        if vecchio and vecchio[0] == testo and vecchio[1]:
+                        if vecchio and vecchio[0] == testo and vecchio[1] and self.saluti_voce.get(lingua) == voce:
                             continue
                         st, forn, pcm = await self.loop.run_in_executor(self.pool, self.relay.tts_tutto, testo, lingua)
                         if st == 200 and len(pcm) > 4800:
                             self.saluti[lingua] = (testo, pcm[: len(pcm) & ~1])
-                            log("saluto pronto:", lingua, forn, len(pcm) // 48, "ms")
+                            # se ha risposto la voce di riserva, al giro dopo si riprova con quella prevista
+                            giusta = not voce or forn.split(" ")[0] == voce.split(" ")[0]
+                            self.saluti_voce[lingua] = voce if giusta else ""
+                            log("saluto pronto:", lingua, forn, len(pcm) // 48, "ms" if giusta else "ms (voce di riserva, si riprova)")
                         else:
-                            self.saluti[lingua] = (testo, b"")
+                            if not (vecchio and vecchio[0] == testo and vecchio[1]):
+                                self.saluti[lingua] = (testo, b"")   # testo nuovo senza audio: si sintetizza nella chiamata
                             log("saluto NON pronto:", lingua, st, forn)
             except Exception as e:
                 log("saluti non aggiornati", e)
-            await asyncio.sleep(600)
+            await asyncio.sleep(120)
 
 
 async def principale():
