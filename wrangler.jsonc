@@ -12,6 +12,11 @@
   "ai": {
     "binding": "AI"
   },
+  // Centralino v3 (11/10/2026): il programma del server (gl_voce.py) e le configurazioni di Kamailio e rtpengine
+  // sono importati come testo e consegnati al server da /centralino/pacchetto (una sola fonte: questo repository).
+  "rules": [
+    { "type": "Text", "globs": ["**/*.py", "**/*.tpl", "**/*.conf"], "fallthrough": true }
+  ],
   // Cartello di cantiere (05/10/2026): la pagina del generatore e' un file statico in public/cartello/.
   // run_worker_first: il Worker decide sempre lui (il webhook WhatsApp e tutto il resto restano come prima);
   // il file viene letto con env.ASSETS solo dalla rotta /cartello. Niente redirect automatici (html_handling none).

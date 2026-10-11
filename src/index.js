@@ -1,3 +1,5 @@
+import { centralinoGestisci, centralinoStato } from "./centralino.js";
+
 const PRIVACY_HTML = `<!DOCTYPE html>
 <html lang="it">
 <head>
@@ -133,6 +135,18 @@ export default {
       return portaleRoute(request, env, "/portale");
     }
 
+    // Centralino v3 (11/10/2026): rotte usate SOLO dal server del centralino (token X-GL-Centralino).
+    if (url.pathname.startsWith("/centralino/")) {
+      const supabaseUrlC = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+      return centralinoGestisci(request, env, url, {
+        rpc: (nome, corpo, ms) => chatUnicaRpc(env, supabaseUrlC, nome, corpo, ms),
+        log: (tel, tipo, dettaglio) => env.SUPABASE_SERVICE_KEY
+          ? chatUnicaLog(env, supabaseUrlC, tel, null, tipo, dettaglio) : Promise.resolve(),
+        modello: async () => (await voceConfig(env, supabaseUrlC)).modello,
+        attendi: (p) => ctx.waitUntil(p)
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/privacy") {
       return new Response(PRIVACY_HTML, {
         status: 200,
@@ -172,6 +186,7 @@ export default {
         "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
         "CHIAMATE (risponditore in chat): " + (env.CHIAMATE === "off" ? "spento dal Worker" : "acceso (chiamata chiusa + messaggio di smistamento)"),
         "VOCE (assistente vocale OpenAI via SIP): " + (env.VOCE === "off" ? "spenta dal Worker" : "pronta") + " · OPENAI_API_KEY: " + si(env.OPENAI_API_KEY) + " · OPENAI_WEBHOOK_SECRET: " + si(env.OPENAI_WEBHOOK_SECRET) + " · modello " + (env.VOCE_MODELLO || "gpt-realtime-2.1-mini"),
+        await centralinoStato(env),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -603,7 +618,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs)";
+const RELAY_VERSIONE = "wa-relay 2026-10-10 chat-unica-6 + badge-2 + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
