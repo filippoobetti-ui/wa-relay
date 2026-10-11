@@ -1229,7 +1229,17 @@ async function badgeProxy(request, env) {
       p_token: (q.get("t") || "").slice(0, 80), p_commessa: (q.get("c") || "").slice(0, 40), p_persona: (q.get("p") || "").slice(0, 40)
     });
     riscrittore = riscrittore.on("head", {
-      element(el) { el.append("<style>.attrib img{height:11mm!important;width:auto!important;max-width:none!important}</style>", { html: true }); }
+      element(el) { el.append("<style>.attrib img{height:11mm!important;width:auto!important;max-width:none!important}" +
+        ".attrib .attrib{display:flex!important;align-items:center;gap:3mm;width:100%;text-align:left}" +
+        ".attrib .attrib .sito-gl{margin-left:auto;white-space:nowrap}</style>", { html: true }); }
+    });
+    // Riga in fondo su tutta la larghezza: «Documento prodotto con» + marchio a sinistra, www.ilgiornalelavori.it tutto a destra.
+    riscrittore = riscrittore.on(".attrib .attrib", {
+      text(t) {
+        if (t.text.includes("ilgiornalelavori.it")) {
+          t.replace('<span class="sito-gl">www.ilgiornalelavori.it</span>', { html: true });
+        }
+      }
     });
     if (l && l.esito === "ok" && (l.logo_url || l.nome)) {
       const testa = '<div class="loghi-foglio" style="display:flex;align-items:center;justify-content:flex-start;margin:0 0 5mm;padding-bottom:3mm;border-bottom:0.4mm solid #d5dcd8">' +
