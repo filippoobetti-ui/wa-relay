@@ -12,7 +12,7 @@
 // Modo (variabile CENTRALINO_MODO nel pannello, altrimenti MODO_PREDEFINITO):
 //   v2      = come prima (albanesi → OpenAI, altri → agente ElevenLabs)
 //   fase_a  = albanesi → assistente nostro, altri → agente ElevenLabs
-//   fase_b  = tutti → assistente nostro (l'agente ElevenLabs resta configurato, di riserva)
+//   fase_b  = tutti → assistente nostro (l'agente ElevenLabs resta configurato, di riserva) — IN USO dall'11/10/2026 23:40
 // Numeri di prova (NUMERI_PROVA): vanno all'assistente nostro anche in fase_a, con la lingua indicata.
 // ============================================================================
 import GL_VOCE_PY from "../tools/centralino/v3/gl_voce.py";
@@ -20,7 +20,9 @@ import KAMAILIO_V3_TPL from "../tools/centralino/v3/kamailio-v3.cfg.tpl";
 import RTPENGINE_V3 from "../tools/centralino/v3/rtpengine-v3.conf";
 
 export const CENTRALINO_VERSIONE = "centralino-3";
-const MODO_PREDEFINITO = "fase_a";
+// 11/10/2026 23:40: fase_b per tutti, decisa da Filippo dopo la prova delle 23:34 («Ha funzionato tutto correttamente»).
+// Per tornare indietro: "fase_a" (o "v2") qui, oppure la variabile CENTRALINO_MODO nel pannello Cloudflare.
+const MODO_PREDEFINITO = "fase_b";
 const AZURE_REGIONE = "swedencentral";
 const OPENAI_PROGETTO_SIP = "proj_YeRqukJfU9TY6JUNXI7Maf5B";
 const ELEVEN_AGENTE = "agent_3101m4n1bmrdekg98454f8t5v9fx";
