@@ -1433,6 +1433,15 @@ async function rimossoGestisci(msg, value, env, supabaseUrl, graph) {
 // Il relay non conserva nulla: il gettone resta solo nel telefono del cliente (localStorage).
 const PORTALE_HOST_PREDEFINITO = "app.ilgiornalelavori.it";
 const PORTALE_COLORE = "#0A7D48";
+// Colori dei servizi (11/10/2026, scelta A di Filippo): il portale resta verde (marchio);
+// solo la voce dei Tesserini (badge) è fucsia e quella del cartello, se presente, azzurra.
+const PORTALE_COLORI_SERVIZI = "<style>" +
+  'a.cantiere[href*="/ufficio?t="]{border-color:#F04CA6!important;box-shadow:inset 5px 0 0 #D61F84!important;background:#FFF5FA!important}' +
+  'a.cantiere[href*="/ufficio?t="] .nome{color:#A3125F!important}' +
+  'a[href*="/cartello"]{border-color:#4FB0E8!important;box-shadow:inset 5px 0 0 #4FB0E8!important}' +
+  'a[href*="/cartello"] .nome{color:#1E7FBF!important}' +
+  "@media (prefers-color-scheme:dark){a.cantiere[href*=\"/ufficio?t=\"]{background:#3A1028!important}a.cantiere[href*=\"/ufficio?t=\"] .nome{color:#FF8CC6!important}}" +
+  "</style>";
 const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png"]);
 
 function portaleHtmlHeaders(extra) {
@@ -1744,7 +1753,7 @@ async function portaleRoute(request, env, prefisso) {
   let script = valida
     ? "<script>(function(){try{localStorage.setItem('gl_portale_t','" + token + "')}catch(e){}" + portaleScriptSw(base) + "})();</script>"
     : "<script>(function(){try{if(localStorage.getItem('gl_portale_t')==='" + token + "')localStorage.removeItem('gl_portale_t')}catch(e){}})();</script>";
-  const testa = portaleTesta(base) + (valida && mov.attivi ? PORTALE_MOVIMENTI_STILE : "");
+  const testa = portaleTesta(base) + PORTALE_COLORI_SERVIZI + (valida && mov.attivi ? PORTALE_MOVIMENTI_STILE : "");
   html = html.indexOf("</head>") !== -1 ? html.replace("</head>", testa + "</head>") : html;
   if (valida && mov.attivi) script = PORTALE_MOVIMENTI_SCRIPT + script;   // dopo visore e frecce (che vengono anteposti qui sotto)
   if (valida && html.indexOf("<img") !== -1) script = PORTALE_VISORE + script;
