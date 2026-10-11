@@ -1221,7 +1221,7 @@ async function badgeProxy(request, env) {
     element(el) { el.append("<style>" + BADGE_STILE_FUCSIA + "</style>", { html: true }); }
   });
   // Documenti stampabili (cartellino, cartello timbrature, report per i controlli): in cima al foglio
-  // solo il logo dell'impresa (11/10/2026). Il marchio Il Giornale Lavori resta solo in fondo, in piccolo.
+  // solo il logo dell'impresa, centrato (11/10/2026). Il marchio Il Giornale Lavori resta solo in fondo, in piccolo.
   const doc = inUrl.pathname.replace(/^\/badge/, "");
   if (metodo === "GET" && r.status === 200 && (doc === "/cartellino" || doc === "/cartello" || doc === "/rapporto") && env.SUPABASE_SERVICE_KEY) {
     const q = inUrl.searchParams;
@@ -1242,7 +1242,7 @@ async function badgeProxy(request, env) {
       }
     });
     if (l && l.esito === "ok" && (l.logo_url || l.nome)) {
-      const testa = '<div class="loghi-foglio" style="display:flex;align-items:center;justify-content:flex-start;margin:0 0 5mm;padding-bottom:3mm;border-bottom:0.4mm solid #d5dcd8">' +
+      const testa = '<div class="loghi-foglio" style="display:flex;align-items:center;justify-content:center;margin:0 0 5mm;padding-bottom:3mm;border-bottom:0.4mm solid #d5dcd8">' +
         (l.logo_url ? '<img src="' + portaleEsc(l.logo_url) + '" alt="' + portaleEsc(l.nome || "") + '" style="height:16mm;width:auto;max-width:70mm;object-fit:contain">' : '<strong style="font-size:12pt">' + portaleEsc(l.nome || "") + '</strong>') + '</div>';
       riscrittore = riscrittore.on("div.foglio", {
         element(el) { if (!this.fatto) { el.prepend(testa, { html: true }); this.fatto = true; } }
