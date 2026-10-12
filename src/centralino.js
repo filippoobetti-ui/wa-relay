@@ -904,14 +904,14 @@ async function testiRiepilogo(aiuti, tel, rif) {
 }
 
 // PRIVACY (12/10/2026): il vocale con cui si detta una correzione è già stato salvato dalla cattura dei media del
-// relay (bucket wa-media, registro media_ricevuti). Trascritto, non serve più: si cancellano file e riga, così
-// resta solo il testo della correzione (voce_bot_correzione, 90 giorni). Se la trascrizione non riesce il file resta.
+// relay (bucket wa-media, registro media_ricevuti). Letto, non serve più: si cancellano file e riga in ogni caso,
+// così resta solo il testo della correzione (voce_bot_correzione, 90 giorni).
 async function cancellaVocaleCorrezione(aiuti, tel, msg) {
   const p = String((msg && msg.audio && msg.audio.storage_path) || "");
-  let file = false, righe = 0, errore = "";
+  let file = !p, righe = 0, errore = ""; // senza percorso la cattura non ha salvato il file: niente da cancellare
   try {
-    if (aiuti.cancellaFile && /^audio\/\d{4}\/\d{2}\/\d{2}\/[A-Za-z0-9._\-]+$/.test(p)) file = await aiuti.cancellaFile("wa-media", p);
-    else errore = "percorso del file assente";
+    if (p && aiuti.cancellaFile && /^audio\/\d{4}\/\d{2}\/\d{2}\/[A-Za-z0-9._\-]+$/.test(p)) file = await aiuti.cancellaFile("wa-media", p);
+    else if (p) errore = "percorso non riconosciuto: " + p.slice(0, 80);
   } catch (e) { errore = String((e && e.message) || e).slice(0, 120); }
   try {
     if (msg && msg.id) righe = await aiuti.elimina("media_ricevuti?message_id=eq." + encodeURIComponent(String(msg.id)));
@@ -956,8 +956,15 @@ export async function centralinoMessaggio(msg, env, aiuti) {
       let corr = msg.type === "text" ? String((msg.text && msg.text.body) || "").trim() : "";
       if (msg.type === "audio") {
         try { corr = String((await aiuti.trascrivi(msg)) || "").trim(); } catch (e) { corr = ""; }
-        if (corr) await cancellaVocaleCorrezione(aiuti, tel, msg);
-        else corr = "(messaggio vocale non trascritto)";
+        await cancellaVocaleCorrezione(aiuti, tel, msg); // il file audio non si tiene, trascritto o no
+        if (!corr) {
+          // vocale non capito: si richiede la correzione; la richiesta resta aperta fino alla sua scadenza
+          _correzioni.mappa.set(tel, { rif: attesa.rif, scade: attesa.scade, creata: Date.now() });
+          await aiuti.log(tel, "voce_bot_errore", "rif " + attesa.rif + " · vocale della correzione non trascritto: correzione richiesta di nuovo");
+          const t0 = await testiRiepilogo(aiuti, tel, attesa.rif);
+          await aiuti.invia(messaggioTesto(tel, t0.correggi || "✏️ Scrivi qui in un solo messaggio, anche vocale, cosa correggere o aggiungere."));
+          return true;
+        }
       }
       await aiuti.log(tel, "voce_bot_correzione", "rif " + attesa.rif + " · " + corr.slice(0, 1700));
       const t = await testiRiepilogo(aiuti, tel, attesa.rif);
