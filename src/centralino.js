@@ -252,19 +252,26 @@ async function cancellaStoriaEleven(env, aiuti, id, attese) {
 // cronologia ElevenLabs le voci di Ledda rimaste: voce dell'assistente, create dopo l'11/10/2026 alle 23:00 (quando il
 // relay ha iniziato a sintetizzare: prima la cronologia non conteneva voci del servizio), più vecchie di 10 minuti.
 // Massimo 25 per giro. Servono i permessi della chiave «speech_history_read» e «speech_history_write».
+// Il turno si decide dall'orologio (minuti 0, 10, 20… UTC) e non da una variabile in memoria: il server chiama ogni
+// minuto e ogni chiamata può finire su un'istanza diversa del Worker. Errori nel registro solo al minuto 0 (1 volta l'ora).
 const STORIA_DAL = Date.parse("2026-10-11T21:00:00Z") / 1000;
-let _storiaGiro = 0;
+let _storiaTurno = "";
 async function pulisciStoriaEleven(env, aiuti) {
   if (!env.ELEVENLABS_API_KEY || env.CENTRALINO_STORIA_ELEVEN === "tieni") return 0;
-  if (Date.now() - _storiaGiro < 600000) return 0;
-  _storiaGiro = Date.now();
+  const ora = new Date();
+  if (ora.getUTCMinutes() % 10 !== 0) return 0;
+  const turno = ora.toISOString().slice(0, 16);
+  if (_storiaTurno === turno) return 0; // già fatto in questo minuto da questa istanza
+  _storiaTurno = turno;
+  const registra = ora.getUTCMinutes() === 0;
   const voce = voceEleven(await elevenAgente(env));
   const chiave = { "xi-api-key": env.ELEVENLABS_API_KEY };
   let n = 0;
   try {
     const r = await conTimeout("https://api.elevenlabs.io/v1/history?page_size=100&voice_id=" + voce, { headers: chiave }, 8000);
     if (!r.ok) {
-      await storiaElevenErrore(aiuti, "elenco della cronologia non letto (" + r.status + " " + (await r.text()).slice(0, 160) + ")");
+      const t = (await r.text()).slice(0, 160);
+      if (registra) await aiuti.log("centralino", "voce_bot_errore", "cronologia ElevenLabs: elenco della cronologia non letto (" + r.status + " " + t + ")");
       return 0;
     }
     const j = await r.json();
@@ -275,7 +282,8 @@ async function pulisciStoriaEleven(env, aiuti) {
       const d = await conTimeout("https://api.elevenlabs.io/v1/history/" + h.history_item_id, { method: "DELETE", headers: chiave }, 5000);
       if (d.ok) { n++; _storiaConta.ok++; }
       else if (d.status === 401 || d.status === 403) {
-        await storiaElevenErrore(aiuti, "pulizia della cronologia non riuscita (" + d.status + " " + (await d.text()).slice(0, 160) + ")");
+        const t = (await d.text()).slice(0, 160);
+        if (registra) await aiuti.log("centralino", "voce_bot_errore", "cronologia ElevenLabs: pulizia non riuscita (" + d.status + " " + t + ")");
         break;
       }
     }
