@@ -20,7 +20,7 @@ import GL_VOCE_PY from "../tools/centralino/v3/gl_voce.py";
 import KAMAILIO_V3_TPL from "../tools/centralino/v3/kamailio-v3.cfg.tpl";
 import RTPENGINE_V3 from "../tools/centralino/v3/rtpengine-v3.conf";
 
-export const CENTRALINO_VERSIONE = "centralino-4";
+export const CENTRALINO_VERSIONE = "centralino-4.1";
 // 11/10/2026 23:40: fase_b per tutti, decisa da Filippo dopo la prova delle 23:34 («Ha funzionato tutto correttamente»).
 // Per tornare indietro: "fase_a" (o "v2") qui, oppure la variabile CENTRALINO_MODO nel pannello Cloudflare.
 const MODO_PREDEFINITO = "fase_b";
@@ -163,7 +163,9 @@ async function elevenAgente(env) {
           primo: String(ag.first_message || "").trim(),
           voce: String(tts.voice_id || "").trim(),
           modello: String(tts.model_id || "").trim(),
-          stabilita: tts.stability, somiglianza: tts.similarity_boost, velocita: tts.speed
+          stabilita: tts.stability, somiglianza: tts.similarity_boost, velocita: tts.speed,
+          // impostazioni di privacy dell'agente (conservazione delle conversazioni): solo per /stato e per il kit legale
+          privacy: (j.platform_settings && j.platform_settings.privacy) || null
         }
       };
     } else {
@@ -205,10 +207,45 @@ async function ttsEleven(env, testo) {
       body: JSON.stringify(corpo)
     }, 8000);
     if (!r.ok) return { ok: false, fornitore: "elevenlabs", errore: r.status + " " + (await r.text()).slice(0, 200) };
-    return { ok: true, fornitore: "elevenlabs", body: r.body };
+    return { ok: true, fornitore: "elevenlabs", body: r.body, storia: String(r.headers.get("history-item-id") || "").trim() };
   } catch (e) {
     return { ok: false, fornitore: "elevenlabs", errore: String((e && e.message) || e).slice(0, 200) };
   }
+}
+
+// PRIVACY (12/10/2026): ElevenLabs salva ogni sintesi fatta via API nella cronologia dell'account (testo e audio
+// delle risposte di Ledda), salvo la «conservazione zero», riservata ai clienti enterprise. Appena la voce è stata
+// inviata al centralino la cancelliamo (DELETE /v1/history/{id}): il servizio non tiene copie delle risposte.
+// L'id arriva nell'intestazione «history-item-id»; la voce compare in cronologia con qualche secondo di ritardo,
+// quindi si aspetta 3 s e, se non riesce, si riprova una volta dopo altri 8 s. Errori nel registro al massimo 1 volta l'ora.
+let _storiaErrore = 0;
+const _storiaConta = { ok: 0, ko: 0 };
+async function storiaElevenErrore(aiuti, testo) {
+  _storiaConta.ko++;
+  if (Date.now() - _storiaErrore < 3600000) return;
+  _storiaErrore = Date.now();
+  try { await aiuti.log("centralino", "voce_bot_errore", "cronologia ElevenLabs: " + testo); } catch (e) {}
+}
+async function cancellaStoriaEleven(env, aiuti, id, attese) {
+  if (!/^[A-Za-z0-9]{8,64}$/.test(String(id || ""))) {
+    await storiaElevenErrore(aiuti, "la sintesi non ha restituito l'intestazione history-item-id, voce non cancellata");
+    return false;
+  }
+  let ultimo = "";
+  for (const attesa of (attese || [3000, 8000])) {
+    if (attesa) await new Promise((ok) => setTimeout(ok, attesa));
+    try {
+      const r = await conTimeout("https://api.elevenlabs.io/v1/history/" + id,
+        { method: "DELETE", headers: { "xi-api-key": env.ELEVENLABS_API_KEY } }, 5000);
+      if (r.ok) { _storiaConta.ok++; return true; }
+      ultimo = r.status + " " + (await r.text()).slice(0, 160);
+      if (r.status === 401 || r.status === 403) break; // permessi della chiave: inutile riprovare
+    } catch (e) {
+      ultimo = String((e && e.message) || e).slice(0, 160);
+    }
+  }
+  await storiaElevenErrore(aiuti, "voce " + id + " non cancellata (" + ultimo + ")");
+  return false;
 }
 
 async function ttsAzure(env, testo, voce) {
@@ -252,7 +289,15 @@ async function centralinoTts(request, env, aiuti) {
   for (const t of tentativi) {
     const r = await t();
     if (r.ok) {
-      return new Response(r.body, {
+      let body = r.body;
+      if (r.fornitore === "elevenlabs" && env.CENTRALINO_STORIA_ELEVEN !== "tieni") {
+        // la voce passa al centralino senza attese; quando lo stream finisce (o chi ascolta lo interrompe) si cancella
+        const { readable, writable } = new TransformStream();
+        aiuti.attendi(r.body.pipeTo(writable).catch(() => {})
+          .then(() => cancellaStoriaEleven(env, aiuti, r.storia)).catch(() => {}));
+        body = readable;
+      }
+      return new Response(body, {
         status: 200,
         headers: { "Content-Type": "audio/L16; rate=24000; channels=1", "X-GL-Fornitore": r.fornitore, "Cache-Control": "no-store" }
       });
@@ -443,8 +488,22 @@ export async function centralinoStato(env, aiuti) {
       ? " · agente ElevenLabs letto: voce " + (ag.voce === ELEVEN_VOCE ? "Alexandra" : (ag.voce || "non indicata")) +
         ", modello dell'agente " + (ag.modello || "non indicato") + " (assistente: " + (env.ELEVEN_MODELLO || ELEVEN_MODELLO) + ")" +
         ", istruzioni " + (ag.prompt === BOT_PROMPT_BASE ? "uguali alla copia" : (ag.prompt ? "diverse dalla copia (" + ag.prompt.length + " caratteri)" : "vuote")) +
-        ", primo messaggio dell'agente «" + (ag.primo || "-").slice(0, 100) + "» (non usato)"
+        ", primo messaggio dell'agente «" + (ag.primo || "-").slice(0, 100) + "» (non usato)" +
+        ", privacy dell'agente " + (ag.privacy ? JSON.stringify(ag.privacy).slice(0, 300) : "non indicata")
       : " · agente ElevenLabs NON letto (" + (_agente.errore || "?") + ")";
+    // cronologia delle sintesi: la chiave può cancellarla? (DELETE di un id inesistente: non cancella nulla)
+    let permesso = "verifica non riuscita";
+    try {
+      const r = await conTimeout("https://api.elevenlabs.io/v1/history/GLVERIFICAPERMESSO0000",
+        { method: "DELETE", headers: { "xi-api-key": env.ELEVENLABS_API_KEY } }, 4000);
+      const t = (await r.text()).slice(0, 160);
+      permesso = (r.status === 401 || r.status === 403)
+        ? "NO, la chiave non ha il permesso di cancellare la cronologia (" + r.status + " " + t + ")"
+        : "sì (prova su una voce inesistente: " + r.status + ")";
+    } catch (e) {}
+    agente += " · cronologia ElevenLabs: cancellazione dopo ogni sintesi " +
+      (env.CENTRALINO_STORIA_ELEVEN === "tieni" ? "SPENTA (CENTRALINO_STORIA_ELEVEN=tieni)" : "accesa") +
+      ", permesso della chiave: " + permesso + ", in questa istanza voci cancellate " + _storiaConta.ok + ", non cancellate " + _storiaConta.ko;
   }
   let riepilogo = env.CENTRALINO_RIEPILOGO === "off" ? "spento" : "acceso (avvisi a …" + numeroAvvisi(env).slice(-3) + ", conservazione " + CONSERVAZIONE_GIORNI + " giorni)";
   if (env.CENTRALINO_RIEPILOGO !== "off" && aiuti && aiuti.graph) {
@@ -806,6 +865,25 @@ async function testiRiepilogo(aiuti, tel, rif) {
   } catch (e) { return {}; }
 }
 
+// PRIVACY (12/10/2026): il vocale con cui si detta una correzione è già stato salvato dalla cattura dei media del
+// relay (bucket wa-media, registro media_ricevuti). Trascritto, non serve più: si cancellano file e riga, così
+// resta solo il testo della correzione (voce_bot_correzione, 90 giorni). Se la trascrizione non riesce il file resta.
+async function cancellaVocaleCorrezione(aiuti, tel, msg) {
+  const p = String((msg && msg.audio && msg.audio.storage_path) || "");
+  let file = false, righe = 0, errore = "";
+  try {
+    if (aiuti.cancellaFile && /^audio\/\d{4}\/\d{2}\/\d{2}\/[A-Za-z0-9._\-]+$/.test(p)) file = await aiuti.cancellaFile("wa-media", p);
+    else errore = "percorso del file assente";
+  } catch (e) { errore = String((e && e.message) || e).slice(0, 120); }
+  try {
+    if (msg && msg.id) righe = await aiuti.elimina("media_ricevuti?message_id=eq." + encodeURIComponent(String(msg.id)));
+  } catch (e) { errore = (errore ? errore + "; " : "") + String((e && e.message) || e).slice(0, 120); }
+  if (!file) {
+    try { await aiuti.log(tel, "voce_bot_errore", "vocale della correzione non cancellato (" + (errore || "file non trovato") + ") · righe del registro dei media eliminate: " + righe); } catch (e) {}
+  }
+  return { file, righe };
+}
+
 function idPulsante(msg) {
   if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
   const it = msg.interactive;
@@ -840,7 +918,8 @@ export async function centralinoMessaggio(msg, env, aiuti) {
       let corr = msg.type === "text" ? String((msg.text && msg.text.body) || "").trim() : "";
       if (msg.type === "audio") {
         try { corr = String((await aiuti.trascrivi(msg)) || "").trim(); } catch (e) { corr = ""; }
-        if (!corr) corr = "(messaggio vocale non trascritto)";
+        if (corr) await cancellaVocaleCorrezione(aiuti, tel, msg);
+        else corr = "(messaggio vocale non trascritto)";
       }
       await aiuti.log(tel, "voce_bot_correzione", "rif " + attesa.rif + " · " + corr.slice(0, 1700));
       const t = await testiRiepilogo(aiuti, tel, attesa.rif);
