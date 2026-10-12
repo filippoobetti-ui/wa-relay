@@ -1,4 +1,4 @@
-import { centralinoGestisci, centralinoStato } from "./centralino.js";
+import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia } from "./centralino.js";
 
 const PRIVACY_HTML = `<!DOCTYPE html>
 <html lang="it">
@@ -137,24 +137,7 @@ export default {
 
     // Centralino v3 (11/10/2026): rotte usate SOLO dal server del centralino (token X-GL-Centralino).
     if (url.pathname.startsWith("/centralino/")) {
-      const supabaseUrlC = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
-      return centralinoGestisci(request, env, url, {
-        rpc: (nome, corpo, ms) => chatUnicaRpc(env, supabaseUrlC, nome, corpo, ms),
-        leggi: async (percorso, ms) => {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), ms || 3000);
-          try {
-            const r = await fetch(supabaseUrlC + "/rest/v1/" + percorso, { headers: { apikey: env.SUPABASE_SERVICE_KEY,
-              Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: ctrl.signal });
-            if (!r.ok) throw new Error(percorso.split("?")[0] + " " + r.status);
-            return await r.json();
-          } finally { clearTimeout(timer); }
-        },
-        log: (tel, tipo, dettaglio) => env.SUPABASE_SERVICE_KEY
-          ? chatUnicaLog(env, supabaseUrlC, tel, null, tipo, dettaglio) : Promise.resolve(),
-        modello: async () => (await voceConfig(env, supabaseUrlC)).modello,
-        attendi: (p) => ctx.waitUntil(p)
-      });
+      return centralinoGestisci(request, env, url, centralinoAiuti(env, ctx));
     }
 
     if (request.method === "GET" && url.pathname === "/privacy") {
@@ -196,7 +179,7 @@ export default {
         "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
         "CHIAMATE (risponditore in chat): " + (env.CHIAMATE === "off" ? "spento dal Worker" : "acceso (chiamata chiusa + messaggio di smistamento)"),
         "VOCE (assistente vocale OpenAI via SIP): " + (env.VOCE === "off" ? "spenta dal Worker" : "pronta") + " · OPENAI_API_KEY: " + si(env.OPENAI_API_KEY) + " · OPENAI_WEBHOOK_SECRET: " + si(env.OPENAI_WEBHOOK_SECRET) + " · modello " + (env.VOCE_MODELLO || "gpt-realtime-2.1-mini"),
-        await centralinoStato(env),
+        await centralinoStato(env, centralinoAiuti(env, ctx)),
         "Promemoria serale (cron): 15:30 e 16:30 UTC, invio solo dalle 17 di Roma"
       ];
       return new Response(righe.join("\n") + "\n", {
@@ -253,7 +236,7 @@ export default {
         return new Response("Invalid signature", { status: 403 });
       }
 
-      ctx.waitUntil(processAndForward(rawBody, env));
+      ctx.waitUntil(processAndForward(rawBody, env, ctx));
 
       return new Response("OK", { status: 200 });
     }
@@ -281,6 +264,12 @@ export default {
       }));
       return;
     }
+    // CENTRALINO (12/10/2026): conservazione di 90 giorni delle telefonate, sullo stesso cron giornaliero
+    ctx.waitUntil(centralinoPulizia(env, centralinoAiuti(env, ctx)).then((n) => {
+      console.log(JSON.stringify({ centralino_pulizia: n, cron }));
+    }).catch((e) => {
+      console.log(JSON.stringify({ centralino_pulizia_errore: String((e && e.message) || e) }));
+    }));
     ctx.waitUntil(chatUnicaPromemoria(env, false).then((r) => {
       console.log(JSON.stringify({ promemoria: r, cron }));
     }).catch((e) => {
@@ -288,6 +277,53 @@ export default {
     }));
   },
 };
+
+// Aiuti del centralino (rotte /centralino/*, messaggi in arrivo, cron): database, registro, WhatsApp e Graph.
+// Il token WhatsApp e la chiave di Supabase restano qui: il modulo centralino.js non li vede mai.
+function centralinoAiuti(env, ctx) {
+  const supabaseUrlC = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  const svc = env.SUPABASE_SERVICE_KEY;
+  const rest = async (percorso, init, ms) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms || 3000);
+    try {
+      const h = Object.assign({ apikey: svc, Authorization: "Bearer " + svc }, (init && init.headers) || {});
+      return await fetch(supabaseUrlC + "/rest/v1/" + percorso, Object.assign({}, init || {}, { headers: h, signal: ctrl.signal }));
+    } finally { clearTimeout(timer); }
+  };
+  return {
+    rpc: (nome, corpo, ms) => chatUnicaRpc(env, supabaseUrlC, nome, corpo, ms),
+    leggi: async (percorso, ms) => {
+      const r = await rest(percorso, null, ms);
+      if (!r.ok) throw new Error(percorso.split("?")[0] + " " + r.status);
+      return await r.json();
+    },
+    elimina: async (percorso) => {
+      const r = await rest(percorso, { method: "DELETE", headers: { Prefer: "return=minimal, count=exact" } }, 15000);
+      if (!r.ok) throw new Error("eliminazione " + r.status + " " + (await r.text()).slice(0, 200));
+      const n = parseInt(String(r.headers.get("content-range") || "").split("/")[1], 10);
+      return isNaN(n) ? 0 : n;
+    },
+    log: (tel, tipo, dettaglio) => svc ? chatUnicaLog(env, supabaseUrlC, tel, null, tipo, dettaglio) : Promise.resolve(),
+    modello: async () => (await voceConfig(env, supabaseUrlC)).modello,
+    attendi: (p) => { if (ctx && ctx.waitUntil) ctx.waitUntil(p); },
+    invia: async (payload) => {
+      const cfg = await chatUnicaConfig(env, supabaseUrlC);
+      if (!cfg.phone_number_id || !env.WHATSAPP_TOKEN) return { ok: false, status: 0, testo: "phone_number_id o WHATSAPP_TOKEN mancanti" };
+      return chatUnicaInvia(graph, cfg.phone_number_id, env.WHATSAPP_TOKEN, payload);
+    },
+    graph: (percorso, metodo, corpo) => env.WHATSAPP_TOKEN
+      ? graphJson(graph, env.WHATSAPP_TOKEN, percorso, metodo, corpo) : Promise.resolve({ ok: false, status: 0, dati: null }),
+    rimossi: () => rimossiNumeri(env, supabaseUrlC),
+    trascrivi: async (msg) => {
+      if (!env.AI || !msg || !msg.audio || !msg.audio.link) return "";
+      const cfg = await chatUnicaConfig(env, supabaseUrlC);
+      const tr = await chatUnicaTrascrivi(env, msg.audio.link, Date.now(), cfg.glossario);
+      return (tr && tr.testo) || "";
+    }
+  };
+}
 
 async function verifySignature(rawBody, signatureHeader, appSecret) {
   if (!signatureHeader.startsWith("sha256=")) return false;
@@ -354,8 +390,9 @@ async function forwardToMake(rawBody, makeWebhookUrl) {
 // La vecchia forwardToMake resta definita ma non è più chiamata.
 // ============================================================================
 
-async function processAndForward(rawBody, env) {
+async function processAndForward(rawBody, env, ctx) {
   let payload;
+  let aiutiC = null; // aiuti del centralino, creati solo se servono
   try {
     payload = JSON.parse(rawBody);
   } catch (e) {
@@ -507,6 +544,13 @@ async function processAndForward(rawBody, env) {
         // La registra il database (crono_risposta), la conferma parte da qui, il pacchetto NON va a Make.
         // FAIL-SAFE: database o Meta che non rispondono → il messaggio prosegue come prima (Make lo ignora).
         // CHIAMATE (10/10/2026): risposta ai pulsanti del messaggio inviato dopo una chiamata (id «CHIAMATA_*»).
+        // CENTRALINO (12/10/2026): pulsanti del riepilogo di fine chiamata («Tutto giusto» / «Correggi») e correzione
+        // attesa dopo «Correggi» (vedi centralino.js). FAIL-SAFE: errore → il messaggio prosegue come prima.
+        if (env.CENTRALINO_RIEPILOGO !== "off") {
+          let presa = false;
+          try { presa = await centralinoMessaggio(msg, env, aiutiC || (aiutiC = centralinoAiuti(env, ctx))); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
         if (env.CHIAMATE !== "off" && chiamataIdPulsante(msg)) {
           let presa = false;
           try { presa = await chiamataRispostaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
@@ -628,7 +672,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-12 chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token)";
+const RELAY_VERSIONE = "wa-relay 2026-10-12 chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {

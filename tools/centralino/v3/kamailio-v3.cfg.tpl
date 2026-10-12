@@ -5,6 +5,7 @@
 #                            → ElevenLabs (agente di riserva, audio convertito da rtpengine Opus → G.722)
 #                            → OpenAI Realtime (strada albanese della v2, di riserva)
 # Segnaposto: indirizzo pubblico (messo dal server); numeri per l'assistente, numeri albanesi, token e progetto OpenAI (messi dal relay)
+# Registro (12/10/2026): del numero di chi chiama si scrivono solo le ultime 3 cifre (telefonate conservate 90 giorni)
 debug=2
 log_stderror=no
 log_facility=LOG_LOCAL0
@@ -79,7 +80,7 @@ request_route {
       }
       if ($rd =~ "openai") { $xavp(tls=>server_name) = "sip.api.openai.com"; }
       else if ($rd =~ "elevenlabs") { $xavp(tls=>server_name) = "sip.rtc.elevenlabs.io"; }
-      xlog("L_NOTICE", "GL in-dialog $rm da $si verso $ru\n");
+      xlog("L_NOTICE", "GL in-dialog $rm da $si verso $(ru{uri.host})\n");
       t_relay();
       exit;
     }
@@ -98,7 +99,7 @@ request_route {
     sl_send_reply("403", "Forbidden");
     exit;
   }
-  xlog("L_NOTICE", "GL INVITE da $si chiamante=$fU wacid=$hdr(X-Wa-Meta-Wacid)\n");
+  xlog("L_NOTICE", "GL INVITE da $si chiamante=...$(fU{s.substr,-3,0}) wacid=$hdr(X-Wa-Meta-Wacid)\n");
   remove_hf("X-GL-Centralino");
   remove_hf("X-GL-Lingua");
 

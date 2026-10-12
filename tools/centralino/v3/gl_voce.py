@@ -14,7 +14,11 @@ Per ogni chiamata:
   - INIZIO: il saluto parte solo ad audio collegato (ACK + primo audio di Meta + 0,6 s) e non si interrompe;
   - INTERRUZIONI: se chi chiama parla mentre l'assistente parla, l'audio in uscita si ferma subito;
   - CHIUSURA: quando l'AI chiama la funzione termina_chiamata, la chiamata si chiude dopo l'ultima frase,
-    ma solo se in quella risposta l'AI ha salutato (altrimenti la chiusura è rifiutata e l'AI deve rispondere).
+    ma solo se in quella risposta l'AI ha salutato (altrimenti la chiusura è rifiutata e l'AI deve rispondere);
+  - RIEPILOGO (12/10/2026): a chiamata finita, se la persona ha parlato, la stessa sessione OpenAI scrive il
+    riepilogo (risposta fuori conversazione, funzione salva_riepilogo) e lo passa al relay, che lo manda su
+    WhatsApp a chi ha chiamato e avvisa Filippo per le richieste concrete.
+Nel registro di sistema del server il numero di chi chiama compare solo con le ultime 3 cifre.
 
 Nessuna chiave dei fornitori su questo server: per ogni chiamata il relay consegna una chiave OpenAI
 temporanea e fa da tramite verso le voci. Configurazione: /etc/gl/centralino.json
@@ -38,7 +42,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-VERSIONE = "gl-voce 3.5 (11/10/2026)"
+VERSIONE = "gl-voce 3.6 (12/10/2026)"
 
 try:  # websockets >= 13 (Debian 13: python3-websockets)
     from websockets.asyncio.client import connect as ws_connect
@@ -75,10 +79,17 @@ SALUTI_FINALI = {           # se l'AI chiude per la seconda volta senza aver sal
     "it": "Grazie per la chiamata, buona giornata!",
     "sq": "Faleminderit për telefonatën, ditë të mbarë!",
 }
-SALUTI_PREDEFINITI = {
-    "it": "Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?",
-    "sq": "Përshëndetje, jam asistentja e Giornale Lavori. Si mund t'ju ndihmoj?",
+SALUTI_PREDEFINITI = {   # riserva: i saluti veri arrivano dal relay (12/10/2026: Ledda, assistente virtuale)
+    "it": "Ciao, sono Ledda, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
+    "sq": "Përshëndetje, jam Ledda, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?",
 }
+RIEPILOGO_ATTESA = 20       # s al massimo per il riepilogo di fine chiamata
+
+
+def mascherato(numero):
+    """Numero di telefono per il registro di sistema: solo le ultime 3 cifre."""
+    n = str(numero or "")
+    return ("…" + n[-3:]) if len(n) > 3 else n
 
 
 # ---------------------------------------------------------------------------- Opus (libopus via ctypes)
@@ -452,6 +463,13 @@ class Chiamata:
         self.funzioni_viste = set()
         self.chiusure_rifiutate = 0
         self.chiusura_chiesta = None   # call_id di termina_chiamata nella risposta in corso
+        # riepilogo di fine chiamata
+        self.compito_ai = None
+        self.cfg_riepilogo = None      # istruzioni e funzione, dal relay (/centralino/sessione)
+        self.parlato = 0               # frasi della persona (fine del parlato secondo OpenAI)
+        self.in_chiusura = False       # chiamata finita, sessione OpenAI ancora aperta per il riepilogo
+        self.futuro_riepilogo = None
+        self.risposta_attiva = False
         self.saluto_byte = 0           # byte del saluto iniziale ancora da mandare: il saluto non si interrompe
 
     # -------------------------------------------------------------- avvio
@@ -474,13 +492,13 @@ class Chiamata:
             sdp, "application/sdp")
         self.app.manda(self.ultima_risposta, self.mittente)
         self.t_risposta = self.loop.time()
-        log(self.call_id[:12], "risposta 200 · chiamante", self.chiamante, "· lingua", self.lingua,
+        log(self.call_id[:12], "risposta 200 · chiamante", mascherato(self.chiamante), "· lingua", self.lingua,
             "· audio", "%s:%d pt %d" % (ip, porta_rem, pt), "· porta", self.porta)
         self.compiti = [
             asyncio.ensure_future(self.ritrasmetti_200()),
             asyncio.ensure_future(self.trasmetti()),
             asyncio.ensure_future(self.sintesi()),
-            asyncio.ensure_future(self.ai()),
+            self.avvia_ai(),
             asyncio.ensure_future(self.invia_ai()),
             asyncio.ensure_future(self.sorveglia()),
         ]
@@ -494,6 +512,10 @@ class Chiamata:
             self.trascrizione.append("AI: " + saluto[0])
         asyncio.ensure_future(self.app.evento("inizio", self.chiamante, "lingua " + self.lingua + " · wacid " + self.wacid))
         return True
+
+    def avvia_ai(self):
+        self.compito_ai = asyncio.ensure_future(self.ai())
+        return self.compito_ai
 
     async def apri_rtp(self):
         porte = list(range(RTP_MIN, RTP_MAX, 2))
@@ -752,6 +774,7 @@ class Chiamata:
             return
         oa = ses["openai"]
         self.max_secondi = int(ses.get("max_secondi") or 900)
+        self.cfg_riepilogo = ses.get("riepilogo") if isinstance(ses.get("riepilogo"), dict) else None
         try:
             self.ws = await asyncio.wait_for(
                 ws_connect(oa["url"], max_size=None, ping_interval=20, open_timeout=10,
@@ -769,7 +792,7 @@ class Chiamata:
             self.prima_della_ai = []
             log(self.call_id[:12], "OpenAI collegata", ses.get("modello", ""))
             async for grezzo in self.ws:
-                if not self.attiva:
+                if not self.attiva and not self.in_chiusura:
                     break
                 try:
                     ev = json.loads(grezzo)
@@ -815,8 +838,12 @@ class Chiamata:
                 log(self.call_id[:12], "interrotta dalla persona")
         elif tipo == "input_audio_buffer.speech_stopped":
             self.ultima_voce = time.time()
+            self.parlato += 1
             self.fine_parlato = self.fine_parlato_testo = time.time()
         elif tipo == "response.created":
+            self.risposta_attiva = True
+            if self.in_chiusura:
+                return          # riepilogo di fine chiamata: niente voce
             self.risp = {"buf": "", "etichetta": None, "lingua": None, "frasi": 0, "testo": ""}
             self.risposta_parlata = False
             self.chiusura_chiesta = None
@@ -844,6 +871,10 @@ class Chiamata:
                 self.trascrizione.append("Persona: " + t)
         elif tipo == "response.done":
             r = ev.get("response") or {}
+            self.risposta_attiva = False
+            if (r.get("metadata") or {}).get("scopo") == "riepilogo":
+                self.riepilogo_arrivato(r)
+                return
             if r.get("status") == "failed":
                 log(self.call_id[:12], "risposta fallita", json.dumps(r.get("status_details"))[:300])
             if self.chiusura_chiesta is not None:
@@ -852,6 +883,9 @@ class Chiamata:
         elif tipo == "error":
             err = ev.get("error") or {}
             log(self.call_id[:12], "OpenAI errore", err.get("code"), str(err.get("message"))[:300])
+            f = self.futuro_riepilogo
+            if self.in_chiusura and f is not None and not f.done():
+                f.set_exception(RuntimeError("OpenAI %s %s" % (err.get("code"), str(err.get("message"))[:120])))
             asyncio.ensure_future(self.app.evento("errore", self.chiamante, "OpenAI: %s %s" % (err.get("code"), str(err.get("message"))[:300])))
         elif tipo in ("session.updated",):
             log(self.call_id[:12], "sessione OpenAI impostata")
@@ -867,6 +901,8 @@ class Chiamata:
     def decidi_chiusura(self, call_id, stato):
         """La chiamata si chiude solo se nella stessa risposta l'AI ha detto una frase (il saluto).
         11/10/2026: alla parola «fermati» l'AI ha chiuso subito, senza salutare."""
+        if not self.attiva:
+            return
         if stato == "cancelled":
             log(self.call_id[:12], "chiusura annullata: la persona ha ripreso a parlare")
             return
@@ -1028,10 +1064,13 @@ class Chiamata:
             return
         self.attiva = False
         self.motivo = self.motivo or motivo
+        # riepilogo: serve se la persona ha parlato e la sessione OpenAI è ancora aperta
+        self.in_chiusura = bool(self.ws is not None and self.parlato > 0 and self.cfg_riepilogo)
         for t in self.compiti:
-            t.cancel()
+            if t is not self.compito_ai or not self.in_chiusura:
+                t.cancel()
         self.coda_ai.put_nowait(None)
-        if self.ws is not None:
+        if self.ws is not None and not self.in_chiusura:
             asyncio.ensure_future(self.ws.close())
         for t in (self.trasporto_rtp, self.trasporto_rtcp):
             if t:
@@ -1044,13 +1083,85 @@ class Chiamata:
                 self.tts_conn.close()
             except Exception:
                 pass
-        durata = int(time.time() - self.inizio)
+        asyncio.ensure_future(self.chiusura_finale(int(time.time() - self.inizio)))
+
+    async def chiusura_finale(self, durata):
+        """Dopo la chiamata: riepilogo dalla sessione OpenAI (se serve), registro di fine, riepilogo al relay."""
+        riepilogo, errore = None, ""
+        if self.in_chiusura:
+            try:
+                riepilogo = await asyncio.wait_for(self.chiedi_riepilogo(), RIEPILOGO_ATTESA)
+            except asyncio.TimeoutError:
+                errore = "riepilogo non arrivato in %d s" % RIEPILOGO_ATTESA
+            except Exception as e:
+                errore = "riepilogo non riuscito: " + str(e)[:150]
+            if errore:
+                log(self.call_id[:12], errore)
+        self.in_chiusura = False
+        ws, self.ws = self.ws, None
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        if self.compito_ai is not None:
+            self.compito_ai.cancel()
         tempi = self.tempi()
-        log(self.call_id[:12], "fine chiamata:", self.motivo, "·", durata, "s", "·", tempi)
+        log(self.call_id[:12], "fine chiamata:", self.motivo, "·", durata, "s", "·", tempi,
+            "· riepilogo", "sì" if riepilogo else ("no: " + errore if errore else "non serve"))
         dettaglio = "durata %d s · motivo %s · lingue %s · wacid %s\n%s\n%s" % (
             durata, self.motivo, ",".join(self.lingue_usate) or self.lingua, self.wacid, tempi, "\n".join(self.trascrizione))
-        asyncio.ensure_future(self.app.evento("fine", self.chiamante, dettaglio[:3800]))
-        self.app.chiamata_finita(self.call_id)
+        try:
+            await self.app.evento("fine", self.chiamante, dettaglio[:3800])
+            if self.parlato > 0:
+                corpo = {"chiamante": self.chiamante, "wacid": self.wacid, "durata": durata, "lingua": self.lingua,
+                         "motivo": self.motivo, "riepilogo": riepilogo, "errore": errore,
+                         "trascrizione": "\n".join(self.trascrizione)[:12000]}
+                stato, j = await self.loop.run_in_executor(
+                    self.app.pool, lambda: self.app.relay.json("POST", "/centralino/riepilogo", corpo, 40))
+                log(self.call_id[:12], "riepilogo al relay:", stato, str(j.get("inviato", j.get("errore", "")))[:120],
+                    "· avviso", str(j.get("avviso", ""))[:80])
+        except Exception as e:
+            log(self.call_id[:12], "riepilogo al relay non riuscito", e)
+        finally:
+            self.app.chiamata_finita(self.call_id)
+
+    async def chiedi_riepilogo(self):
+        """Risposta fuori conversazione: la stessa AI che ha ascoltato la chiamata compila salva_riepilogo."""
+        ws = self.ws
+        if ws is None or not self.cfg_riepilogo:
+            return None
+        self.futuro_riepilogo = self.loop.create_future()
+        if self.risposta_attiva:
+            await ws.send(json.dumps({"type": "response.cancel"}))
+            for _ in range(20):            # al massimo 2 s per chiudere la risposta in corso
+                if not self.risposta_attiva:
+                    break
+                await asyncio.sleep(0.1)
+        # niente nuove risposte automatiche: l'audio non arriva più
+        await ws.send(json.dumps({"type": "session.update", "session": {"type": "realtime", "audio": {"input": {"turn_detection": None}}}}))
+        await ws.send(json.dumps({"type": "response.create", "response": {
+            "conversation": "none",
+            "metadata": {"scopo": "riepilogo"},
+            "output_modalities": ["text"],
+            "instructions": str(self.cfg_riepilogo.get("istruzioni") or ""),
+            "tools": [self.cfg_riepilogo.get("strumento")],
+            "tool_choice": {"type": "function", "name": "salva_riepilogo"},
+            "max_output_tokens": 2000}}))
+        return await self.futuro_riepilogo
+
+    def riepilogo_arrivato(self, r):
+        f = self.futuro_riepilogo
+        if f is None or f.done():
+            return
+        for item in r.get("output") or []:
+            if item.get("type") == "function_call" and item.get("name") == "salva_riepilogo":
+                try:
+                    f.set_result(json.loads(item.get("arguments") or "{}"))
+                except ValueError:
+                    f.set_exception(RuntimeError("argomenti del riepilogo non leggibili"))
+                return
+        f.set_exception(RuntimeError("riepilogo senza funzione (stato %s)" % r.get("status")))
 
     def tempi(self):
         """Riga dei tempi per il registro: attesa percepita (fine della frase → voce), testo di OpenAI, voci usate."""
