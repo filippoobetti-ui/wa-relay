@@ -867,10 +867,11 @@ export async function centralinoMessaggio(msg, env, aiuti) {
 // ---------------------------------------------------------------------------- conservazione (90 giorni)
 // Cancella dal registro le righe delle telefonate più vecchie di 90 giorni: trascrizioni, riepiloghi, correzioni,
 // avvisi (voce_*), registro tecnico del centralino e eventi di chiamata di Meta. La lancia il cron giornaliero.
+// chiamata_fine: tipo delle prime prove del 10/10 (il codice attuale non lo scrive più), compreso perché quelle righe scadano.
 export async function centralinoPulizia(env, aiuti) {
   const limite = new Date(Date.now() - CONSERVAZIONE_GIORNI * 86400000).toISOString();
   const n = await aiuti.elimina("chat_unica_eventi?creato_il=lt." + encodeURIComponent(limite) +
-    "&or=(tipo.like.voce_*,tipo.in.(centralino,chiamata_evento,chiamata,chiamata_scelta))");
+    "&or=(tipo.like.voce_*,tipo.in.(centralino,chiamata_evento,chiamata,chiamata_fine,chiamata_scelta))");
   if (n > 0) await aiuti.log("centralino", "voce_bot_pulizia", "eliminate " + n + " righe di telefonate più vecchie di " + CONSERVAZIONE_GIORNI + " giorni");
   return n;
 }
