@@ -248,6 +248,42 @@ async function cancellaStoriaEleven(env, aiuti, id, attese) {
   return false;
 }
 
+// Rete di sicurezza (12/10/2026): ogni 10 minuti, su richiesta del server (/centralino/pacchetto), si cancellano dalla
+// cronologia ElevenLabs le voci di Ledda rimaste: voce dell'assistente, create dopo l'11/10/2026 alle 23:00 (quando il
+// relay ha iniziato a sintetizzare: prima la cronologia non conteneva voci del servizio), più vecchie di 10 minuti.
+// Massimo 25 per giro. Servono i permessi della chiave «speech_history_read» e «speech_history_write».
+const STORIA_DAL = Date.parse("2026-10-11T21:00:00Z") / 1000;
+let _storiaGiro = 0;
+async function pulisciStoriaEleven(env, aiuti) {
+  if (!env.ELEVENLABS_API_KEY || env.CENTRALINO_STORIA_ELEVEN === "tieni") return 0;
+  if (Date.now() - _storiaGiro < 600000) return 0;
+  _storiaGiro = Date.now();
+  const voce = voceEleven(await elevenAgente(env));
+  const chiave = { "xi-api-key": env.ELEVENLABS_API_KEY };
+  let n = 0;
+  try {
+    const r = await conTimeout("https://api.elevenlabs.io/v1/history?page_size=100&voice_id=" + voce, { headers: chiave }, 8000);
+    if (!r.ok) {
+      await storiaElevenErrore(aiuti, "elenco della cronologia non letto (" + r.status + " " + (await r.text()).slice(0, 160) + ")");
+      return 0;
+    }
+    const j = await r.json();
+    const limite = Date.now() / 1000 - 600;
+    const voci = (j.history || []).filter((h) => h && h.voice_id === voce && /^[A-Za-z0-9]{8,64}$/.test(String(h.history_item_id || "")) &&
+      Number(h.date_unix) >= STORIA_DAL && Number(h.date_unix) < limite).slice(0, 25);
+    for (const h of voci) {
+      const d = await conTimeout("https://api.elevenlabs.io/v1/history/" + h.history_item_id, { method: "DELETE", headers: chiave }, 5000);
+      if (d.ok) { n++; _storiaConta.ok++; }
+      else if (d.status === 401 || d.status === 403) {
+        await storiaElevenErrore(aiuti, "pulizia della cronologia non riuscita (" + d.status + " " + (await d.text()).slice(0, 160) + ")");
+        break;
+      }
+    }
+    if (n) await aiuti.log("centralino", "voce_bot_pulizia", "cronologia ElevenLabs: cancellate " + n + " voci di Ledda rimaste");
+  } catch (e) {}
+  return n;
+}
+
 async function ttsAzure(env, testo, voce) {
   if (!env.AZURE_SPEECH_KEY) return { ok: false, fornitore: "azure", errore: "chiave assente" };
   const [lingua, nome] = voce;
@@ -457,6 +493,8 @@ export async function centralinoGestisci(request, env, url, aiuti) {
   if (request.method === "GET" && p === "/centralino/pacchetto") {
     // il server la chiama ogni minuto: si controlla (e se manca si crea) il modello Meta per gli avvisi a Filippo
     if (env.CENTRALINO_RIEPILOGO !== "off" && aiuti.graph) aiuti.attendi(modelloAvviso(env, aiuti, true).catch(() => {}));
+    // e, al massimo ogni 10 minuti, si ripulisce la cronologia ElevenLabs dalle voci di Ledda rimaste
+    aiuti.attendi(pulisciStoriaEleven(env, aiuti).catch(() => {}));
     return centralinoPacchetto(env, aiuti);
   }
   return json({ errore: "rotta sconosciuta" }, 404);
