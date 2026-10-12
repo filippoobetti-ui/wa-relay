@@ -18,7 +18,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <body>
 
 <h1>Informativa sul trattamento dei dati personali</h1>
-<p class="updated">Ultimo aggiornamento: 6 settembre 2026</p>
+<p class="updated">Ultimo aggiornamento: 12 ottobre 2026</p>
 
 <p>La presente informativa descrive le modalità di trattamento dei dati personali raccolti tramite il sistema di comunicazione WhatsApp Business denominato "Giornale Lavori digitale", utilizzato per la gestione digitale delle attività di cantiere, ai sensi del Regolamento (UE) 2016/679 (GDPR).</p>
 
@@ -33,7 +33,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 Obetti Filippo — ditta individuale<br>
 Sede: Via Bassa II, 57 — 35011 Campodarsego (PD), Italia<br>
 P.IVA: IT05289060286<br>
-PEC: obettifilippo@pec.it — Email: info@obettifilippo.com
+PEC: obettifilippo@pec.it — Email: info@ilgiornalelavori.it
 </div>
 
 <h2>3. Dati personali raccolti</h2>
@@ -64,6 +64,18 @@ PEC: obettifilippo@pec.it — Email: info@obettifilippo.com
 <h2>7. Diritti dell'interessato</h2>
 <p>In qualità di interessato, hai diritto di ottenere, nei casi previsti, l'accesso ai tuoi dati personali, la rettifica o la cancellazione degli stessi, la limitazione del trattamento, la portabilità dei dati, nonché di opporti al trattamento (artt. 15-22 GDPR). Hai inoltre diritto di proporre reclamo all'Autorità Garante per la protezione dei dati personali (www.garanteprivacy.it).</p>
 <p>Poiché l'Impresa Cliente di appartenenza è Titolare del trattamento, ti invitiamo a rivolgere tali richieste in primo luogo a quest'ultima. In alternativa, puoi contattare il Responsabile del trattamento ai recapiti indicati al punto 2, che inoltrerà la richiesta all'Impresa Cliente competente.</p>
+
+<h2>8. Telefonate al numero WhatsApp del servizio (assistente virtuale «Ledda»)</h2>
+<p>Questo punto riguarda le chiamate WhatsApp al numero del servizio, +39 378 310 7501. Per i dati delle telefonate il Titolare del trattamento è Obetti Filippo, ditta individuale, ai recapiti indicati al punto 2.</p>
+<ul>
+  <li><strong>Chi risponde.</strong> Al telefono risponde Ledda, un'assistente virtuale realizzata con intelligenza artificiale: non è una persona, e lo dice all'inizio della chiamata. Le risposte sono generate automaticamente e possono contenere errori. L'assistente fornisce solo informazioni e non prende decisioni che ti riguardano.</li>
+  <li><strong>Dati trattati.</strong> Il numero di telefono WhatsApp; la voce, elaborata in tempo reale per capire la richiesta (il servizio non conserva registrazioni audio della chiamata); la trascrizione testuale della conversazione; il riepilogo della chiamata con i dati che comunichi (per esempio nome, impresa, cantiere e richiesta); le eventuali correzioni al riepilogo; data, ora e durata della chiamata.</li>
+  <li><strong>Riepilogo su WhatsApp.</strong> Al termine della chiamata ricevi in chat, sullo stesso numero, un riepilogo scritto con i pulsanti per confermarlo o correggerlo. Se la telefonata contiene una richiesta da seguire (per esempio un'impresa interessata al servizio o un problema non risolto), il Titolare riceve un avviso con il riepilogo.</li>
+  <li><strong>Finalità e base giuridica.</strong> Rispondere alle tue domande e dare seguito alle tue richieste, anche prima di un eventuale contratto (art. 6, par. 1, lett. b, GDPR); inviarti il riepilogo, avvisare il Titolare delle richieste da seguire e garantire la sicurezza e il corretto funzionamento del servizio, sulla base del legittimo interesse del Titolare (art. 6, par. 1, lett. f, GDPR).</li>
+  <li><strong>Fornitori.</strong> La chiamata passa da un centralino del servizio su server di Hetzner Online GmbH in Germania. La voce è trasformata in testo e compresa con i modelli di intelligenza artificiale di OpenAI; le risposte sono pronunciate con le voci sintetiche di ElevenLabs e di Microsoft (servizio Azure, regione Svezia). Le richieste ai fornitori passano dall'infrastruttura cloud del servizio (Cloudflare); il registro delle telefonate è conservato presso il fornitore di database cloud del servizio (Supabase), su server situati nell'Unione europea (Irlanda); il riepilogo è inviato tramite WhatsApp Business Platform. I fornitori agiscono come responsabili del trattamento secondo i propri accordi sul trattamento dei dati; OpenAI ed ElevenLabs possono trattare i dati negli Stati Uniti, sulla base delle garanzie previste dagli artt. 44 e seguenti del GDPR.</li>
+  <li><strong>Conservazione.</strong> Trascrizioni, riepiloghi, correzioni e registro tecnico delle telefonate sono cancellati automaticamente dopo 90 giorni. Nel registro di sistema del centralino il numero di chi chiama compare solo con le ultime tre cifre. Il messaggio di riepilogo resta nella tua chat WhatsApp finché non lo cancelli.</li>
+  <li><strong>Diritti.</strong> Puoi esercitare i diritti indicati al punto 7 scrivendo a info@ilgiornalelavori.it o alla PEC; per individuare la telefonata indica il numero da cui hai chiamato, il giorno e l'ora approssimativa.</li>
+</ul>
 
 <footer>
 Giornale Lavori Digitale — sistema di gestione automatizzata delle comunicazioni di cantiere, fornito da Obetti Filippo (ditta individuale) alle imprese edili clienti.
@@ -100,8 +112,10 @@ const DATA_DELETION_HTML = `<!DOCTYPE html>
 <div class="box">
 Obetti Filippo — ditta individuale<br>
 PEC: obettifilippo@pec.it<br>
-Email: info@obettifilippo.com
+Email: info@ilgiornalelavori.it
 </div>
+
+<p>Per le telefonate al numero WhatsApp del servizio (assistente virtuale «Ledda») il Titolare del trattamento è Obetti Filippo: scrivi ai recapiti qui sopra indicando il numero da cui hai chiamato, il giorno e l'ora approssimativa. In ogni caso trascrizioni e riepiloghi delle telefonate sono cancellati automaticamente dopo 90 giorni.</p>
 
 <p>La richiesta sarà evasa entro 30 giorni dal ricevimento, salvo proroghe previste dalla normativa applicabile (art. 12 GDPR), e comporterà la cancellazione o l'anonimizzazione dei dati personali associati al numero di telefono indicato, fatti salvi gli obblighi di conservazione previsti dalla legge (es. documentazione contabile, fiscale e di sicurezza sul lavoro).</p>
 
