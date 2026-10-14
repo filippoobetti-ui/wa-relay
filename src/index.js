@@ -706,7 +706,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-14 agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-14 portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1839,11 +1839,13 @@ async function portaleArea(request, env, base, sotto, inUrl) {
 // Il database (portale_nuovo_cantiere) prepara il codice di attivazione dell'impresa del gettone — lo stesso
 // meccanismo del «+ Nuovo cantiere» di WhatsApp —, i dati dell'impresa e il testo del costo. La pagina mostra
 // un modulo snello (cantiere e referente; l'impresa e' gia' dentro) che invia GLI STESSI CAMPI del modulo di
-// attivazione pubblico (onboarding_form_v8) direttamente allo scenario Make 7297046: stessa verifica
+// attivazione pubblico (onboarding_form_v9) direttamente allo scenario Make 7297046: stessa verifica
 // (onboarding_richiedi), stessa catena (cartelle Drive, menu WhatsApp, email al referente). Il relay non scrive
 // nulla. La ragione sociale va nascosta e IDENTICA all'anagrafica: e' il nome con cui il database riconosce
 // l'impresa gia' cliente. Accesso di Filippo (tutte le imprese): prima si sceglie l'impresa (&a=<id>).
 // Se nel modulo pubblico diventa obbligatorio un campo nuovo, va aggiunto anche qui.
+// 14/10/2026 (portale-6): importo contrattuale, CUP e CIG facoltativi come nel modulo pubblico v9; li legge
+// onboarding_richiedi_form_v2 (modulo 4 di 7297046) e finiscono sulla commessa, poi nella testata del rapportino.
 const PORTALE_NC_RICERCA_PIVA = "https://rvigugiufrjmzedjstuz.supabase.co/functions/v1/anagrafica-piva";
 const PORTALE_NC_PRIVACY = "https://wa-relay.filippo-obetti.workers.dev/privacy";
 
@@ -1926,6 +1928,7 @@ function portaleNcModulo(base, tok, d) {
     'input,textarea{width:100%;font:inherit;font-size:1rem;color:#111;background:#fff;border:1px solid #c9d1cc;border-radius:8px;padding:10px 12px}' +
     'input:focus,textarea:focus{outline:2px solid var(--accento);outline-offset:1px;border-color:var(--accento)}textarea{min-height:80px;resize:vertical}' +
     '.riga2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}@media (max-width:560px){.riga2{grid-template-columns:1fr}}' +
+    '.riga3{display:grid;grid-template-columns:1.25fr 1.25fr 1fr;gap:0 14px;align-items:end}@media (max-width:620px){.riga3{grid-template-columns:1fr}}' +
     '.hint{font-size:.82rem;color:#5b6560;margin:5px 0 0}.cnt{float:right;font-weight:400;color:#666;font-size:.82rem}.cnt.att{color:#b3261e;font-weight:700}' +
     '.imp{background:#F2FAF5;border:1px solid #A9DCC0;border-radius:10px;padding:10px 12px;margin:10px 0 2px}' +
     '.imp-n{font-weight:700;color:var(--accento);font-size:1.02rem}.imp-d{font-size:.85rem;color:#4A524E;margin-top:2px}' +
@@ -1962,6 +1965,11 @@ function portaleNcModulo(base, tok, d) {
     '<div><label for="di">Data di inizio dei lavori</label><input id="di" name="data_inizio" type="date"></div></div>' +
     '<div class="riga2"><div><label for="co">Committente</label><input id="co" name="committente" maxlength="120"></div>' +
     '<div><label for="dl">Direttore dei Lavori</label><input id="dl" name="direttore_lavori" maxlength="120" placeholder="Es. ing. Mario Bianchi"></div></div>' +
+    '<div class="riga3"><div><label for="ic">Importo contrattuale <small>(&euro;)</small></label>' +
+    '<input id="ic" name="importo_contrattuale" inputmode="decimal" maxlength="20" placeholder="Es. 125.000,00" autocomplete="off"></div>' +
+    '<div><label for="cup">CUP</label><input id="cup" name="cup" maxlength="20" placeholder="15 caratteri" autocomplete="off" style="text-transform:uppercase"></div>' +
+    '<div><label for="cig">CIG</label><input id="cig" name="cig" maxlength="14" placeholder="10 caratteri" autocomplete="off" style="text-transform:uppercase"></div></div>' +
+    '<p class="hint">Facoltativi, per i lavori pubblici: importo, CUP e CIG compaiono nella testata del rapportino di ogni sera. Se non li hai sotto mano lasciali vuoti e mandali più tardi a info@ilgiornalelavori.it.</p>' +
     '<label for="ip">Imprese e subappaltatori previsti <small>(facoltativo)</small></label><input id="ip" name="imprese_presenti" maxlength="200">' +
     '</section>' +
     '<section class="blocco"><h2>Referente di cantiere</h2>' +
@@ -1991,6 +1999,7 @@ nc.addEventListener('input',conta);conta();
 function cifre(s){return (s||'').replace(/[^0-9]/g,'');}
 function pivaOk(s){var v=cifre(s);if(v.length!==11||/^(.)\1{10}$/.test(v))return false;var t=0;for(var i=0;i<10;i++){var d=+v.charAt(i);if(i%2===1){d*=2;if(d>9)d-=9;}t+=d;}return +v.charAt(10)===(10-t%10)%10;}
 function emailOk(s){return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((s||'').trim());}
+function importoOk(s){var t=String(s||'').replace(/€|euro|eur|\s/gi,'');if(!t)return false;if(t.indexOf(',')>=0){t=t.replace(/\./g,'');if(t.split(',').length!==2)return false;t=t.replace(',','.');}else if(/^\d{1,3}(\.\d{3})+$/.test(t)){t=t.replace(/\./g,'');}if(!/^\d+(\.\d{1,2})?$/.test(t))return false;var n=parseFloat(t);return n>0&&n<1e10;}
 function errore(m,el){err.textContent=m;err.style.display='block';if(el&&el.type!=='hidden'){try{el.focus();}catch(x){}}try{err.scrollIntoView({behavior:'smooth',block:'center'});}catch(x){}}
 var usati=(typeof GL_NC_USATI!=='undefined'&&GL_NC_USATI)||[];
 f.addEventListener('submit',function(e){err.style.display='none';
@@ -2003,10 +2012,15 @@ f.addEventListener('submit',function(e){err.style.display='none';
  if(!sv&&!qv){e.preventDefault();errore('Serve il codice destinatario SDI oppure la PEC.',s);return;}
  if(sv&&(sv.length<6||sv.length>7)){e.preventDefault();errore('Il codice SDI deve avere 6 o 7 caratteri: se non lo hai, lascialo vuoto e scrivi la PEC.',s);return;}
  if(qv&&!emailOk(qv)){e.preventDefault();errore('La PEC non sembra scritta bene.',q);return;}
+ var cu=f.elements['cup'],ci=f.elements['cig'],im=f.elements['importo_contrattuale'];
+ var cuv=cu?cu.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase():'',civ=ci?ci.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase():'';
+ if(cuv&&cuv.length!==15){e.preventDefault();errore('Il CUP deve avere 15 caratteri, lettere e cifre. Se non lo hai sotto mano, lascia il campo vuoto.',cu);return;}
+ if(civ&&civ.length!==10){e.preventDefault();errore('Il CIG deve avere 10 caratteri, lettere e cifre. Se non lo hai sotto mano, lascia il campo vuoto.',ci);return;}
+ if(im&&im.value.trim()&&!importoOk(im.value)){e.preventDefault();errore('Scrivi l’importo contrattuale in euro, per esempio 125.000,00. Se non lo hai sotto mano, lascia il campo vuoto.',im);return;}
  if(!rn.value.trim()){e.preventDefault();errore('Scrivi nome e cognome del referente di cantiere.',rn);return;}
  if(!emailOk(re.value)){e.preventDefault();errore('L’email del referente non sembra scritta bene.',re);return;}
  if(!pr.checked){e.preventDefault();errore('Per attivare il cantiere spunta la presa visione dell’informativa privacy.',pr);return;}
- if(s)s.value=sv.toUpperCase();nc.value=nome;
+ if(s)s.value=sv.toUpperCase();nc.value=nome;if(cu)cu.value=cuv;if(ci)ci.value=civ;
  b.disabled=true;b.textContent='Attendi…';
 });
 window.addEventListener('pageshow',function(ev){if(ev.persisted){location.reload();}});
