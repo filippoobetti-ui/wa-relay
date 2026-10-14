@@ -351,7 +351,7 @@ function disegna(r){
   h+='<div><b>'+esc(r.nome_file||'File')+'</b></div><div class="num"><div><b>'+esc(s.attivita)+'</b><small>lavorazioni</small></div><div><b>'+esc(s.cardini)+'</b><small>traguardi</small></div><div><b>'+esc(s.gruppi)+'</b><small>gruppi</small></div></div>';
   if(s.inizio)h+='<div>Lavori dal <b>'+dIt(s.inizio)+'</b> al <b>'+dIt(s.fine)+'</b></div>';
   (r.avvisi||[]).forEach(function(a){h+='<div class="av">'+esc(a)+'</div>'});
-  if(s.versione_in_uso)h+='<p class="nota" style="margin-top:8px">Sostituisce la versione '+esc(s.versione_in_uso)+' ('+esc(s.righe_in_uso)+' righe).'+(s.registrate_in_uso?' '+esc(s.riportabili)+' delle '+esc(s.registrate_in_uso)+' lavorazioni già registrate tengono date reali e avanzamento.':'')+'</p>';
+  if(s.versione_in_uso)h+='<p class="nota" style="margin-top:8px">Sostituisce la versione '+esc(s.versione_in_uso)+' ('+esc(s.righe_in_uso)+' righe).'+(s.registrate_in_uso?(s.riportabili===s.registrate_in_uso?(s.registrate_in_uso===1?' La lavorazione già registrata tiene date reali e avanzamento.':' Le '+esc(s.registrate_in_uso)+' lavorazioni già registrate tengono date reali e avanzamento.'):' '+esc(s.riportabili)+' delle '+esc(s.registrate_in_uso)+' lavorazioni già registrate tengono date reali e avanzamento; le altre hanno cambiato nome e ripartono da zero.'):'')+'</p>';
   h+=tabella(righe.slice(0,25));
   if(righe.length>25)h+='<details class="tutte"><summary>Mostra tutte le '+righe.length+' righe</summary>'+tabella(righe.slice(25))+'</details>';
   h+='<div class="az"><button type="button" class="si" id="b-si">✅ Conferma e carica</button><button type="button" class="no" id="b-no">Annulla</button></div></div>';
