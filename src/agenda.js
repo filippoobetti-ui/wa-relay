@@ -78,6 +78,32 @@ export async function agendaConferma(env, id, h) {
   return esito;
 }
 
+// Promemoria della sera prima al referente del cantiere (fase 3): lista e testi dal database (agenda_sera_prima_lista,
+// solo all'ora impostata e una volta per appuntamento), invio da qui. Lo chiama il database via /admin (pg_cron orario).
+export async function agendaSeraPrima(env, forza, h) {
+  const esito = { inviati: 0, errori: 0, saltato: "" };
+  if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.AGENDA === "off") { esito.saltato = "configurazione"; return esito; }
+  const cfg = await h.config(env);
+  if (!cfg.phone_number_id) { esito.saltato = "phone_number_id"; return esito; }
+  let lista = [];
+  try { lista = await h.rpc(env, "agenda_sera_prima_lista", { p_forza: forza === true }, 10000); }
+  catch (e) { esito.saltato = "lista: " + String((e && e.message) || e); return esito; }
+  for (const r of (Array.isArray(lista) ? lista : []).slice(0, 100)) {
+    const tel = String(r.telefono || "").replace(/[^0-9]/g, "");
+    if (!tel || !r.payload || typeof r.payload !== "object") continue;
+    const payload = r.payload;
+    payload.messaging_product = "whatsapp";
+    payload.to = tel;
+    let ok = false, dettaglio = "";
+    try { const inv = await h.invia(cfg.phone_number_id, env.WHATSAPP_TOKEN, payload); ok = inv.ok; dettaglio = inv.status + " " + inv.testo; }
+    catch (e) { dettaglio = String((e && e.message) || e); }
+    if (ok) esito.inviati++; else esito.errori++;
+    try { await h.rpc(env, "agenda_avviso_segna", { p_id: Number(r.id), p_telefono: tel, p_livello: "sera_prima", p_versione: Number(r.versione) || 1, p_ok: ok, p_dettaglio: dettaglio.slice(0, 250) }, 5000); } catch (e) {}
+    await h.log(env, tel, null, ok ? "agenda_sera_prima" : "agenda_sera_prima_errore", "#" + r.id + " · " + dettaglio.slice(0, 250));
+  }
+  return esito;
+}
+
 // Risposta ai pulsanti [Giusto]/[Correggi] (id «AG_OK_<n>» / «AG_NO_<n>»): la registra il database (agenda_risposta),
 // la risposta parte da qui, il pacchetto NON va a Make. Ritorna true se preso in carico.
 export function agendaIdPulsante(msg) {
@@ -114,6 +140,10 @@ export async function agendaAdmin(azione, corpo, env, h) {
   }
   if (azione === "agenda_conferma") {
     const r = await agendaConferma(env, corpo.id, h);
+    return { ok: true, esito: r };
+  }
+  if (azione === "agenda_sera_prima") {
+    const r = await agendaSeraPrima(env, corpo.forza === true, h);
     return { ok: true, esito: r };
   }
   // Modelli Meta (per avvisare anche chi non ha scritto nelle ultime 24 ore): creazione e lettura.
@@ -160,6 +190,17 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   }
   const sotto = inUrl.pathname.slice(base.length);
+  // Calendario del cantiere (fase 3): /agenda/ics/<chiave>.ics — chiave propria del cantiere (commesse.agenda_ics_chiave),
+  // mai il gettone del portale. Si aggiunge a Google Calendar / Samsung Calendar come calendario da URL.
+  const mIcs = /^\/agenda\/ics\/([0-9a-f]{32})\.ics$/.exec(sotto);
+  if (mIcs) {
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    const ics = await h.rpc(env, "agenda_ics", { p_chiave: mIcs[1] }, 15000).catch(() => null);
+    if (typeof ics !== "string" || !ics) return new Response("Not Found", { status: 404 });
+    return new Response(request.method === "HEAD" ? null : ics, { status: 200, headers: {
+      "Content-Type": "text/calendar; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow",
+      "Content-Disposition": 'inline; filename="agenda-cantiere.ics"' } });
+  }
   if (sotto === "/agenda/crea" || sotto === "/agenda/azione") {
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
     const b = await leggiCorpo(request);
@@ -208,7 +249,7 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
   }
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return Response.redirect(inUrl.origin + torna, 303);
-  return new Response(metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, h), { status: 200, headers: h.headers() });
+  return new Response(metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, Object.assign({ origine: inUrl.origin }, h)), { status: 200, headers: h.headers() });
 }
 
 // ---------------------------------------------------------------------------- pagina
@@ -246,6 +287,8 @@ function rigaApp(x, e, oggi) {
     '<div class="o">' + ora + fine + '</div><div class="corpo"><div class="t">' + e(x.titolo) + pill + "</div>" + note +
     '<div class="k">' + k + "</div>" + bott + "</div></div>";
 }
+
+function inUrlOrigin(h) { return h.origine || "https://app.ilgiornalelavori.it"; }
 
 export function paginaAgenda(base, tok, c, d, h) {
   const e = h.esc;
@@ -285,6 +328,11 @@ export function paginaAgenda(base, tok, c, d, h) {
     (d.avvisi_attivi === false ? '<p class="nota">Gli avvisi WhatsApp sono spenti in questo momento: gli appuntamenti restano in agenda.</p>' : "") +
     futuri +
     (np ? '<details class="pass-box"><summary>Appuntamenti passati (ultimi 30 giorni): ' + np + "</summary>" + passati + "</details>" : "") +
+    (d.ics_chiave && /^[0-9a-f]{32}$/.test(String(d.ics_chiave)) ?
+      '<details class="ics-box"><summary>&#128198; Aggiungi questa agenda al tuo calendario</summary>' +
+      '<p>Questo indirizzo è un calendario che si aggiorna da solo (formato ICS). In Google Calendar: <b>Altri calendari → + → Da URL</b>; sul telefono Samsung o iPhone: <b>Aggiungi calendario da URL / Calendario con sottoscrizione</b>.</p>' +
+      '<div class="ics-riga"><input type="text" readonly id="ics-url" value="' + e(inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics") + '"><button type="button" id="ics-copia">Copia</button></div>' +
+      '<p class="piccolo">Chi ha questo indirizzo vede gli appuntamenti del cantiere: condividilo solo con chi deve averli.</p></details>' : "") +
     '<p class="nota">Ogni appuntamento arriva su WhatsApp a chi lavora in questo cantiere (' + avvisoChi + '), nella sua lingua. ' +
     'Chi non ha scritto al Giornale Lavori nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso.</p>' +
     "<noscript><p class=\"nota\"><b>Per aggiungere o modificare gli appuntamenti serve JavaScript attivo nel browser.</b></p></noscript>" +
@@ -340,6 +388,9 @@ const STILE =
   ".vuoto{background:#fff;border:1px dashed #B9C3BE;border-radius:12px;padding:16px;color:#4A524E;font-size:.92rem}" +
   "details.pass-box{margin-top:16px}details.pass-box summary{cursor:pointer;color:#4A524E;font-size:.9rem;margin-bottom:8px}" +
   ".nota{font-size:.82rem;color:#5b6560;margin:16px 2px 0;line-height:1.5}" +
+  "details.ics-box{margin-top:18px;background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:10px 14px}details.ics-box summary{cursor:pointer;font-weight:700;color:var(--accento)}" +
+  "details.ics-box p{font-size:.86rem;color:#444;margin:8px 0}.ics-riga{display:flex;gap:8px}.ics-riga input{flex:1;min-width:0;font:inherit;font-size:.82rem;padding:8px 10px;border:1px solid var(--bordo);border-radius:8px;background:#F4F6F5;color:#111}" +
+  ".ics-riga button{min-height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--accento);background:#fff;color:var(--accento);font:inherit;font-weight:700;cursor:pointer}.piccolo{font-size:.78rem!important;color:#5b6560!important}" +
   "dialog{border:0;border-radius:16px;padding:0;width:min(480px,calc(100vw - 24px));max-height:calc(100vh - 24px);box-shadow:0 18px 50px rgba(0,0,0,.28);color:#111}" +
   "dialog::backdrop{background:rgba(5,20,15,.55)}dialog form{margin:0}" +
   ".dl-t{background:var(--ar-c);border-bottom:1px solid var(--ar-b);padding:14px 18px 10px}" +
@@ -407,6 +458,9 @@ function azione(b){var az=b.getAttribute('data-az'),id=Number(b.getAttribute('da
   alert(j.messaggio||'Non sono riuscito a salvare: riprova tra poco.');for(var i=0;i<bs.length;i++)bs[i].disabled=false;
  }).catch(function(){alert('Il servizio non risponde: riprova tra poco.');for(var i=0;i<bs.length;i++)bs[i].disabled=false;});}
 var tutti=document.querySelectorAll('.az button[data-az]');for(var k=0;k<tutti.length;k++)tutti[k].addEventListener('click',function(){azione(this);});
+var ic=document.getElementById('ics-copia');if(ic)ic.addEventListener('click',function(){var u=document.getElementById('ics-url');try{u.select();}catch(x){}
+ var fatto=function(){ic.textContent='Copiato';setTimeout(function(){ic.textContent='Copia';},1500);};
+ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.value).then(fatto,function(){try{document.execCommand('copy');fatto();}catch(x){}});}else{try{document.execCommand('copy');fatto();}catch(x){}}});
 window.addEventListener('pageshow',function(ev){if(ev.persisted)location.reload();});
 }catch(x){}})();
 `;
