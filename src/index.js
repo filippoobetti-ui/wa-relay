@@ -1,6 +1,7 @@
 import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia } from "./centralino.js";
 import { portaleDataCerta } from "./data-certa.js";
 import { portaleAgenda, agendaAdmin, agendaIdPulsante, agendaRispostaGestisci } from "./agenda.js";
+import { cronoImportCandidato, cronoImportGestisci, cronoImportIdPulsante, cronoImportRispostaGestisci, cronoImportAvvisa, portaleCronoprogramma } from "./crono-import.js";
 
 const PRIVACY_HTML = `<!DOCTYPE html>
 <html lang="it">
@@ -595,6 +596,18 @@ async function processAndForward(rawBody, env, ctx) {
           try { presa = await cronoRispostaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
           if (presa) continue;
         }
+        // CRONOPROGRAMMA DA FILE (14/10/2026): pulsanti «Conferma / Annulla» (id «CRONO_IMP_<n>_OK/_NO») e file del
+        // cronoprogramma mandati in chat (src/crono-import.js). FAIL-SAFE: errore → il messaggio prosegue come prima.
+        if (env.CRONO_IMPORT !== "off" && cronoImportIdPulsante(msg)) {
+          let presa = false;
+          try { presa = await cronoImportRispostaGestisci(msg, value, env, agendaAiuti(env)); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
+        if (env.CRONO_IMPORT !== "off" && cronoImportCandidato(msg)) {
+          let presa = false;
+          try { presa = await cronoImportGestisci(msg, value, env, agendaAiuti(env)); } catch (e) { presa = false; }
+          if (presa) continue;
+        }
         if (env.TIMBRATURE !== "off" && msg.type === "text" && timbraturaParola(msg.text && msg.text.body)) {
           let presa = false;
           try { presa = await timbraturaGestisci(msg, value, env, supabaseUrl, graph); } catch (e) { presa = false; }
@@ -706,7 +719,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-14 portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-14 crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1231,6 +1244,11 @@ async function chatUnicaAdmin(request, env) {
   }
   if (azione === "crono_settimana") {
     const r = await cronoSettimana(env, corpo.forza === true);
+    return rispondi(r);
+  }
+  // CRONOPROGRAMMA DA FILE (14/10/2026): riepilogo da confermare a chi ha mandato il file (chiamata dal database).
+  if (azione === "crono_import_avvisa") {
+    const r = await cronoImportAvvisa(env, corpo.id, agendaAiuti(env));
     return rispondi(r);
   }
   // AGENDA (14/10/2026): avvisi di un appuntamento (chiamata anche dal database via pg_net) e modelli Meta.
@@ -2195,6 +2213,10 @@ async function portaleRoute(request, env, prefisso) {
   // Agenda di cantiere (14/10/2026): appuntamenti del cantiere con avviso WhatsApp (src/agenda.js).
   if (sotto === "/agenda" || sotto.startsWith("/agenda/")) {
     return portaleAgenda(request, env, base, inUrl, agendaAiuti(env));
+  }
+  // Cronoprogramma da file (14/10/2026): caricamento, lettura e conferma dall'area riservata (src/crono-import.js).
+  if (sotto === "/cronoprogramma" || sotto.startsWith("/cronoprogramma/")) {
+    return portaleCronoprogramma(request, env, base, inUrl, agendaAiuti(env));
   }
   // Data certa con marca temporale (13/10/2026): icona indaco, pagina e conferma (src/data-certa.js).
   if (sotto === "/data-certa" || sotto.startsWith("/data-certa/")) {
