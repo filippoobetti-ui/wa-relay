@@ -54,10 +54,66 @@ export async function agendaAvvisa(env, id, forza, h) {
   return esito;
 }
 
+// Conferma a chi ha scritto (fase 2): «📅 Segno in agenda: … Giusto? [✅ Giusto] [✏️ Correggi]».
+// Il testo e i pulsanti li prepara il database (agenda_conferma_payload); id della coda, non dell'appuntamento.
+export async function agendaConferma(env, id, h) {
+  const esito = { id: Number(id) || 0, inviato: false, dettaglio: "" };
+  if (!esito.id) { esito.dettaglio = "id"; return esito; }
+  if (!env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.AGENDA === "off") { esito.dettaglio = "configurazione"; return esito; }
+  const cfg = await h.config(env);
+  if (!cfg.phone_number_id) { esito.dettaglio = "phone_number_id"; return esito; }
+  let r = null;
+  try { r = await h.rpc(env, "agenda_conferma_payload", { p_id: esito.id }, 8000); } catch (e) { esito.dettaglio = "payload: " + String((e && e.message) || e); return esito; }
+  const tel = r && String(r.telefono || "").replace(/[^0-9]/g, "");
+  if (!r || !tel || !r.payload || typeof r.payload !== "object") { esito.dettaglio = "niente da mandare"; return esito; }
+  const payload = r.payload;
+  payload.messaging_product = "whatsapp";
+  payload.to = tel;
+  try {
+    const inv = await h.invia(cfg.phone_number_id, env.WHATSAPP_TOKEN, payload);
+    esito.inviato = inv.ok; esito.dettaglio = inv.status + " " + inv.testo;
+  } catch (e) { esito.dettaglio = String((e && e.message) || e); }
+  try { await h.rpc(env, "agenda_conferma_segna", { p_id: esito.id, p_ok: esito.inviato, p_dettaglio: esito.dettaglio.slice(0, 250) }, 5000); } catch (e) {}
+  await h.log(env, tel, null, esito.inviato ? "agenda_conferma" : "agenda_conferma_errore", "#" + esito.id + " · " + esito.dettaglio.slice(0, 250));
+  return esito;
+}
+
+// Risposta ai pulsanti [Giusto]/[Correggi] (id «AG_OK_<n>» / «AG_NO_<n>»): la registra il database (agenda_risposta),
+// la risposta parte da qui, il pacchetto NON va a Make. Ritorna true se preso in carico.
+export function agendaIdPulsante(msg) {
+  if (!msg || msg.type !== "interactive" || !msg.interactive) return "";
+  const it = msg.interactive;
+  const id = String((it.button_reply && it.button_reply.id) || (it.list_reply && it.list_reply.id) || "");
+  return /^AG_(OK|NO)_[0-9]+$/.test(id) ? id : "";
+}
+
+export async function agendaRispostaGestisci(msg, value, env, h) {
+  const id = agendaIdPulsante(msg);
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  if (!id || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.AGENDA === "off") return false;
+  const r = await h.rpc(env, "agenda_risposta", { p_telefono: tel, p_id_pulsante: id }, 6000);
+  if (!r || r.esito === "non_mio" || r.esito === "errore") return false;
+  if (r.testo) {
+    try {
+      await h.invia(phoneId, env.WHATSAPP_TOKEN, {
+        messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+        context: { message_id: msg.id }, text: { body: String(r.testo).slice(0, 1000), preview_url: false }
+      });
+    } catch (e) {}
+  }
+  await h.log(env, tel, msg.id, "agenda_risposta", id + " → " + String(r.esito));
+  return true;
+}
+
 // Azioni di amministrazione (POST /admin, chiave gia' verificata da chi chiama).
 export async function agendaAdmin(azione, corpo, env, h) {
   if (azione === "agenda_avvisa") {
     const r = await agendaAvvisa(env, corpo.id, corpo.forza === true, h);
+    return { ok: true, esito: r };
+  }
+  if (azione === "agenda_conferma") {
+    const r = await agendaConferma(env, corpo.id, h);
     return { ok: true, esito: r };
   }
   // Modelli Meta (per avvisare anche chi non ha scritto nelle ultime 24 ore): creazione e lettura.
