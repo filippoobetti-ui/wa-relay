@@ -1,5 +1,6 @@
 import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia } from "./centralino.js";
 import { portaleDataCerta } from "./data-certa.js";
+import { portaleAgenda, agendaAdmin, agendaAvvisa } from "./agenda.js";
 
 const PRIVACY_HTML = `<!DOCTYPE html>
 <html lang="it">
@@ -191,6 +192,7 @@ export default {
         "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
         "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
         "RIMOZIONE (persone rimosse dai Tesserini): " + (env.RIMOZIONE === "off" ? "spenta dal Worker" : "accesa (elenco da persone_rimosse_numeri, in memoria 60 s)"),
+        "AGENDA (appuntamenti di cantiere): " + (env.AGENDA === "off" ? "avvisi spenti dal Worker" : "accesa (interruttori: impostazioni.agenda_attiva, agenda_avvisi)"),
         "MOVIMENTI (portale cliente): " + (env.MOVIMENTI === "off" ? "spenti dal Worker" : "accesi per tutti (su un telefono si spengono con ?movimenti=0)"),
         "CHIAMATE (risponditore in chat): " + (env.CHIAMATE === "off" ? "spento dal Worker" : "acceso (chiamata chiusa + messaggio di smistamento)"),
         "VOCE (assistente vocale OpenAI via SIP): " + (env.VOCE === "off" ? "spenta dal Worker" : "pronta") + " · OPENAI_API_KEY: " + si(env.OPENAI_API_KEY) + " · OPENAI_WEBHOOK_SECRET: " + si(env.OPENAI_WEBHOOK_SECRET) + " · modello " + (env.VOCE_MODELLO || "gpt-realtime-2.1-mini"),
@@ -698,7 +700,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-13 data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-14 agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (Ledda assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce di Ledda cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1225,7 +1227,28 @@ async function chatUnicaAdmin(request, env) {
     const r = await cronoSettimana(env, corpo.forza === true);
     return rispondi(r);
   }
+  // AGENDA (14/10/2026): avvisi di un appuntamento (chiamata anche dal database via pg_net) e modelli Meta.
+  if (azione === "agenda_avvisa" || azione === "template_lista" || azione === "template_crea") {
+    const r = await agendaAdmin(azione, corpo, env, agendaAiuti(env));
+    if (!r) return rispondi({ errore: "azione sconosciuta" }, 400);
+    return rispondi(r, r.stato || 200);
+  }
   return rispondi({ errore: "azione sconosciuta" }, 400);
+}
+
+// Aiuti dell'agenda di cantiere (src/agenda.js): database, invio WhatsApp, Graph, registro e pagine del portale.
+// Il token WhatsApp e la chiave di Supabase restano qui.
+function agendaAiuti(env) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
+  return {
+    rpc: (e, nome, corpo, ms) => chatUnicaRpc(e, supabaseUrl, nome, corpo, ms || 10000),
+    config: (e) => chatUnicaConfig(e, supabaseUrl),
+    invia: (phoneId, token, payload) => chatUnicaInvia(graph, phoneId, token, payload),
+    graph: (token, percorso, metodo, corpo) => graphJson(graph, token, percorso, metodo, corpo),
+    log: (e, tel, mid, tipo, dett) => chatUnicaLog(e, supabaseUrl, tel, mid, tipo, dett),
+    esc: portaleEsc, testa: portaleTesta, foglio: portaleFoglio, risposta: portaleRisposta, headers: portaleHtmlHeaders
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2147,6 +2170,10 @@ async function portaleRoute(request, env, prefisso) {
   if (PORTALE_AREA.has(sotto)) return portaleArea(request, env, base, sotto, inUrl);
   // Nuovo cantiere dall'area riservata (12/10/2026): icona verde in cima all'elenco dei cantieri.
   if (sotto === "/nuovo-cantiere") return portaleNuovoCantiere(request, env, base, inUrl);
+  // Agenda di cantiere (14/10/2026): appuntamenti del cantiere con avviso WhatsApp (src/agenda.js).
+  if (sotto === "/agenda" || sotto.startsWith("/agenda/")) {
+    return portaleAgenda(request, env, base, inUrl, agendaAiuti(env));
+  }
   // Data certa con marca temporale (13/10/2026): icona indaco, pagina e conferma (src/data-certa.js).
   if (sotto === "/data-certa" || sotto.startsWith("/data-certa/")) {
     return portaleDataCerta(request, env, base, inUrl, {
