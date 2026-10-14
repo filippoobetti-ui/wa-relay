@@ -1601,7 +1601,9 @@ const PORTALE_COLORI_SERVIZI = "<style>" +
   'a.cantiere[href*="/cartello"] .nome{color:#1E7FBF!important}' +
   "@media (prefers-color-scheme:dark){a.cantiere[href*=\"/ufficio?t=\"]{background:#3A1028!important}a.cantiere[href*=\"/ufficio?t=\"] .nome{color:#FF8CC6!important}}" +
   "</style>";
-const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png"]);
+// 14/10/2026: icone con il marchio Ledda; /marchio-ledda.svg e /marchio-ledda.png sono il marchio pubblico usato dal database
+// (impostazioni logo_prodotto_svg_url / logo_prodotto_png_url: tesserini e documenti del badge).
+const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png", "/marchio-ledda.svg", "/marchio-ledda.png"]);
 
 function portaleHtmlHeaders(extra) {
   const h = new Headers({
