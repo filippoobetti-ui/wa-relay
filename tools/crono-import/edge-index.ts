@@ -144,6 +144,18 @@ async function estraiConAi(contenuto: any[], modello: string, nota: string): Pro
   return { righe, data_documento: typeof v.data_documento === "string" ? v.data_documento : null };
 }
 
+// Testo del PDF con le posizioni (unpdf = pdf.js per ambienti senza browser), pagina per pagina
+async function testoPdf(bytes: Uint8Array) {
+  const { getDocumentProxy } = await import("npm:unpdf@0.12.1");
+  const pdf = await getDocumentProxy(new Uint8Array(bytes));
+  const pagine: any[] = [];
+  for (let n = 1; n <= Math.min(pdf.numPages, 60); n++) {
+    const tc = await (await pdf.getPage(n)).getTextContent();
+    pagine.push(tc.items.map((i: any) => ({ s: i.str, a: i.transform[4], b: i.transform[5], f: i.fontName })));
+  }
+  return L.leggiPdfTesto(pagine);
+}
+
 // PDF lunghi: parti da 3 pagine lette in parallelo (al massimo 3 per volta), poi riunite nell'ordine
 async function leggiPdf(bytes: Uint8Array, modello: string, nota: string) {
   let pagine = 0;
@@ -243,7 +255,17 @@ async function leggiFile(bytes: Uint8Array, nomeFile: string, mime: string, mode
   if (formato === "xml_altro") throw new Error("è un file XML che non viene da MS Project né da Primavera");
   if (formato === "sconosciuto") throw new Error("non riconosco il tipo di file: mandalo in PDF, Excel o XML di Project");
   if (formato === "pdf") {
-    const r = await leggiPdf(bytes, modello, nota); grezze = r.righe; dataDoc = r.data_documento;
+    // 1) PDF con il testo (stampa di Project e simili): righe, date e rientri letti come sono stampati, senza AI
+    let t: any = null;
+    try { t = await testoPdf(bytes); } catch (e) { console.log(JSON.stringify({ testo_pdf: String(e).slice(0, 150) })); t = null; }
+    if (t && t.righe.length >= 5 && t.copertura >= 0.8) {
+      grezze = t.righe; formatoFinale = "pdf";
+      const m = /(20\d\d)[-_. ](\d\d)[-_. ](\d\d)/.exec(nomeFile) || null;
+      dataDoc = m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+    } else {
+      // 2) PDF scansionato o impaginato in modo diverso: lettura con Claude
+      const r = await leggiPdf(bytes, modello, nota); grezze = r.righe; dataDoc = r.data_documento;
+    }
   } else if (formato === "immagine") {
     if (bytes.length > 4.5 * 1024 * 1024) throw new Error("la foto è troppo grande: mandala compressa (come foto, non come documento)");
     const tipo = bytes[0] === 0x89 ? "image/png" : bytes[0] === 0x52 ? "image/webp" : bytes[0] === 0x47 ? "image/gif" : "image/jpeg";
@@ -301,16 +323,6 @@ Deno.serve(async (req: Request) => {
   try { valida = await rpc("crono_import_verifica", { p_chiave: chiave }) === true; } catch (_e) { valida = false; }
   if (!valida) return new Response(JSON.stringify({ esito: "chiave_errata" }), { status: 403 });
 
-  if (corpo?.impronta) { // controllo che i file pubblicati siano quelli collaudati
-    const imp: Record<string, string> = {};
-    for (const f of ["index.ts", "leggi.js"]) {
-      try {
-        const b = await Deno.readFile(new URL("./" + f, import.meta.url));
-        imp[f] = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", b)), (x) => x.toString(16).padStart(2, "0")).join("");
-      } catch (e) { imp[f] = "non leggibile: " + String(e).slice(0, 80); }
-    }
-    return new Response(JSON.stringify(imp), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
   if (corpo?.prova?.b64) {
     try {
       const bytes = decodeBase64(String(corpo.prova.b64));

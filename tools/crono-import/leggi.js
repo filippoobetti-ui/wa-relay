@@ -364,6 +364,92 @@ export function creaLettore({ XMLParser, XLSX }) {
     throw new Error("formato non previsto: " + formato);
   }
 
+  // ------------------------------------------------------------------ PDF con testo (stampa di MS Project e simili)
+  // pagine: [[{s, a, b, f}]] con a, b = coordinate del testo nella pagina (transform[4], transform[5]) e f = carattere.
+  // Cerca l'intestazione della tabella (Nome attività / Durata / Inizio / Fine), ricostruisce le righe e ricava il
+  // livello dal rientro del nome: le date e i livelli si leggono così come sono stampati, senza interpretazioni.
+  // Restituisce {righe, copertura} oppure null se la pagina non ha una tabella riconoscibile.
+  const H_NOME = /^(nome attivit[aà]|nome|task name|name|attivit[aà]|descrizione( attivit[aà]| lavorazion[ei])?|lavorazion[ei]|activity name)$/i;
+  const H_DUR = /^(durata|duration|dur\.?|gg)$/i, H_INI = /^(inizio|start|data inizio|dal)$/i, H_FIN = /^(fine|finish|data fine|al)$/i;
+  function leggiPdfTesto(pagine) {
+    let schema = null; // {asseRiga: 'a'|'b', verso, colId, colNome, colDur, colIni, colFin}
+    const righe = [];
+    for (const voci of pagine) {
+      const it = voci.filter((v) => v.s && v.s.trim());
+      // intestazione nella pagina (se manca si riusa quella della pagina precedente)
+      let hn = null;
+      for (const cand of it.filter((v) => H_NOME.test(v.s.trim()))) {
+        for (const asse of ["a", "b"]) {
+          if (hn) break;
+          const altro = asse === "a" ? "b" : "a";
+          const stessaRiga = it.filter((v) => Math.abs(v[asse] - cand[asse]) < 3);
+          const d = stessaRiga.find((v) => H_DUR.test(v.s.trim())), i = stessaRiga.find((v) => H_INI.test(v.s.trim())), f = stessaRiga.find((v) => H_FIN.test(v.s.trim()));
+          if (d && i && f && d[altro] > cand[altro] && i[altro] > d[altro] && f[altro] > i[altro]) {
+            hn = cand;
+            const sotto = it.filter((v) => /^\d{1,5}$/.test(v.s.trim()) && v[altro] < hn[altro] && Math.abs(v[asse] - hn[asse]) > 5);
+            const verso = sotto.length && sotto.filter((v) => v[asse] > hn[asse]).length >= sotto.length / 2 ? 1 : -1;
+            schema = { asse, altro, verso, rigaH: hn[asse], colNome: hn[altro], colDur: d[altro], colIni: i[altro], colFin: f[altro] };
+          }
+        }
+      }
+      if (!schema || !hn) continue; // pagine senza intestazione: di solito solo le barre del Gantt
+      const { asse, altro, verso } = schema;
+      const dati = it.filter((v) => (v[asse] - schema.rigaH) * verso > 4)
+        .sort((x, y) => (x[asse] - y[asse]) * verso || x[altro] - y[altro]);
+      // linee: voci con la stessa coordinata di riga (tolleranza 5)
+      const linee = [];
+      for (const v of dati) {
+        const l = linee[linee.length - 1];
+        if (l && Math.abs(v[asse] - l.r) <= 5) l.voci.push(v); else linee.push({ r: v[asse], voci: [v] });
+      }
+      const fineTab = schema.colFin + 1.3 * (schema.colFin - schema.colIni);
+      let ultima = null;
+      for (const l of linee) {
+        const cella = (da, a) => l.voci.filter((v) => v[altro] >= da && v[altro] < a).sort((x, y) => x[altro] - y[altro]);
+        const id = cella(-1e9, schema.colNome - 8).map((v) => v.s.trim()).find((s) => /^\d{1,5}$/.test(s));
+        const nomeV = cella(schema.colNome - 8, schema.colDur - 4);
+        const nome = nomeV.map((v) => v.s).join(" ").replace(/\s+/g, " ").trim();
+        const dur = cella(schema.colDur - 4, schema.colIni - 4).map((v) => v.s).join(" ").trim();
+        const ini = cella(schema.colIni - 4, schema.colFin - 4).map((v) => v.s).join(" ").trim();
+        const fin = cella(schema.colFin - 4, fineTab).map((v) => v.s).join(" ").trim();
+        if (id !== undefined) {
+          if (!nome || !/[A-Za-zÀ-ú]{2}/.test(nome)) { ultima = null; continue; } // riga vuota
+          ultima = { id: Number(id), nome, rientro: nomeV[0][altro], grassetto: nomeV[0].f || "", durataTesto: dur,
+            durata: durataGiorni(dur, 8), inizio: data(ini), fine: data(fin) };
+          righe.push(ultima);
+        } else if (ultima && nome && !dur && !ini) {
+          ultima.nome += " " + nome; // nome che va a capo
+        }
+      }
+    }
+    if (righe.length < 3) return null;
+    // livelli dal rientro: posizioni diverse ordinate (tolleranza 2)
+    const pos = [...righe.map((r) => r.rientro)].sort((x, y) => x - y);
+    const gradini = [];
+    for (const p of pos) if (!gradini.length || p - gradini[gradini.length - 1] > 2) gradini.push(p);
+    for (const r of righe) {
+      let k = 0; while (k + 1 < gradini.length && r.rientro > gradini[k] + 2) k++;
+      r.livello = k + 1;
+    }
+    // titoli di sezione non rientrati: una riga scritta con il carattere dei gruppi (grassetto) seguita da righe con lo
+    // stesso rientro ma carattere normale le contiene (es. «MILESTONE» con sotto i traguardi allo stesso rientro)
+    const conFigli = righe.filter((r, i) => righe[i + 1] && righe[i + 1].livello > r.livello);
+    const conta = new Map(); for (const r of conFigli) conta.set(r.grassetto, (conta.get(r.grassetto) || 0) + 1);
+    const fGruppi = [...conta.entries()].sort((x, y) => y[1] - x[1]).map((x) => x[0])[0];
+    if (fGruppi) {
+      for (let i = 0; i < righe.length; i++) {
+        const r = righe[i];
+        if (r.grassetto !== fGruppi || (r.durata !== 0 && r.durata !== null) || !righe[i + 1] || righe[i + 1].livello !== r.livello || righe[i + 1].grassetto === fGruppi) continue;
+        let j = i + 1;
+        while (j < righe.length && righe[j].livello === r.livello && righe[j].grassetto !== fGruppi) { righe[j].sezione = (righe[j].sezione || 0) + 1; j++; }
+      }
+      for (const r of righe) if (r.sezione) r.livello += r.sezione;
+    }
+    const conDate = righe.filter((r) => r.inizio && r.fine).length;
+    return { righe: righe.map((r) => ({ id: r.id, livello: r.livello, nome: r.nome, durata: r.durata, inizio: r.inizio, fine: r.fine,
+      cardine: r.durata === 0 ? true : null, riepilogo: null, carattere: r.grassetto })), copertura: conDate / righe.length };
+  }
+
   // ------------------------------------------------------------------ normalizzazione comune
   function maiuscolo(n) { return n === n.toUpperCase() && /[A-Z]/.test(n) ? n.charAt(0) + n.slice(1).toLowerCase() : n; }
   function abbrevia(nome) {
@@ -463,5 +549,5 @@ export function creaLettore({ XMLParser, XLSX }) {
     return { righe: out, avvisi: (opz && opz.avvisi ? opz.avvisi : []).concat(avvisi) };
   }
 
-  return { riconosci, testoDa, leggiStrutturato, normalizza, abbrevia, data, giorniLavorativi, comeTesto };
+  return { riconosci, testoDa, leggiStrutturato, leggiPdfTesto, normalizza, abbrevia, data, giorniLavorativi, comeTesto };
 }
