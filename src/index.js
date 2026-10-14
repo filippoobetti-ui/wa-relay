@@ -2262,6 +2262,15 @@ async function portaleRoute(request, env, prefisso) {
     });
   }
 
+  // Caratteri della scheda Cronoprogramma (14/10/2026, scelta di Filippo «A · Relazione»): Source Serif 4 e Source Sans 3,
+  // serviti da qui e non da Google Fonts (nessun dato del visitatore a terzi).
+  if (/^\/caratteri\/[a-z0-9-]+\.woff2$/.test(sotto)) {
+    const r = await env.ASSETS.fetch(new Request(inUrl.origin + "/portale" + sotto));
+    if (!r.ok) return new Response("Not Found", { status: 404 });
+    return new Response(metodo === "HEAD" ? null : r.body, { status: 200, headers: {
+      "Content-Type": "font/woff2", "Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*" } });
+  }
+
   if (PORTALE_ICONE.has(sotto)) {
     const r = await env.ASSETS.fetch(new Request(inUrl.origin + "/portale" + sotto));
     if (!r.ok) return new Response("Not Found", { status: 404 });
