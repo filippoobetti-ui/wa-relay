@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="120 262 1756 694"><title>TIX</title><path d="M 130 682 L 178 636 C 208 608 248 612 268 640 L 343 746 C 515 500 700 328 962 270 C 760 365 598 560 434 878 C 404 936 334 948 296 902 Z" fill="#F26A10"/><path d="M 838 503 L 1218 503 L 1200 605 L 1078 605 L 1018 925 L 890 925 L 950 605 L 752 605 Z" fill="#FFFFFF"/><path d="M 1268 503 L 1392 503 L 1312 925 L 1188 925 Z" fill="#FFFFFF"/><path d="M 1410 503 L 1550 503 L 1828 925 L 1688 925 Z M 1728 503 L 1868 503 L 1492 925 L 1352 925 Z" fill="#F26A10"/>
+<line x1="1615" y1="708" x2="1516" y2="558" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
+<line x1="1615" y1="708" x2="1749" y2="558" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
+<line x1="1615" y1="708" x2="1471" y2="870" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
+<line x1="1615" y1="708" x2="1722" y2="870" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
+<circle cx="1516" cy="558" r="22" fill="#1B2F4A"/>
+<circle cx="1749" cy="558" r="22" fill="#1B2F4A"/>
+<circle cx="1471" cy="870" r="22" fill="#1B2F4A"/>
+<circle cx="1722" cy="870" r="22" fill="#1B2F4A"/>
+<circle cx="1615" cy="708" r="34" fill="#1B2F4A"/></svg>

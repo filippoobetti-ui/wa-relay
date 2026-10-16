@@ -1623,7 +1623,7 @@ const PORTALE_COLORI_SERVIZI = "<style>" +
 // sono il marchio pubblico usato dal database (impostazioni logo_prodotto_svg_url / logo_prodotto_png_url: tesserini e documenti del badge).
 // /marchio-ledda.* restano serviti finche' le impostazioni logo_prodotto_* del database puntano ancora a loro
 // (il passaggio del database a TIX attende la conferma di Filippo); poi si tolgono.
-const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png", "/marchio-tix.svg", "/marchio-tix.png", "/marchio-ledda.svg", "/marchio-ledda.png"]);
+const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png", "/marchio-tix.svg", "/marchio-tix.png", "/marchio-tix-negativo.svg", "/marchio-tix-documenti.b64.txt", "/marchio-tix-email.b64.txt", "/marchio-ledda.svg", "/marchio-ledda.png"]);
 
 function portaleHtmlHeaders(extra) {
   const h = new Headers({
