@@ -195,7 +195,7 @@ export function paginaDataCerta(base, tok, az, d, h) {
     '<main><a class="indietro" href="' + torna + '">&larr; Tutti i cantieri</a>' +
     '<section class="intro"><span class="ic" aria-hidden="true">' + DATA_CERTA_ICONA + '</span><div>' +
     '<h2>Data certa con marca temporale</h2>' +
-    '<p>Marca temporale qualificata (eIDAS) sul rapportino di ogni sera e sulla lista settimanale: dimostra che il documento esisteva in quella forma alla data e all\'ora indicate.</p>' +
+    '<p>Marca temporale qualificata (eIDAS) sul diario di cantiere di ogni sera e sul rapportino settimanale delle ore in economia: dimostra che il documento esisteva in quella forma alla data e all\'ora indicate.</p>' +
     comePaghi + '</div></section>' +
     '<h3 class="tit">I tuoi cantieri attivi</h3>' + elenco +
     '<p class="nota">La accendi e la spegni tu, cantiere per cantiere. Ogni accensione e spegnimento viene registrato con data, ora e indirizzo IP. ' +
@@ -299,7 +299,7 @@ si.addEventListener('click',function(){if(!cor||occupato)return;occupato=true;va
  riq('info',az==='accendi'&&!D.compresa?'Pagamento in corso: non chiudere la pagina…':'Un momento…');
  post('cambia',az).then(function(j){fatto=true;occupato=false;no.disabled=false;si.hidden=true;no.textContent='Chiudi';
   if(j.esito==='ok'||j.esito==='fatto'){
-   if(az==='accendi')riq('ok','<b>Data certa accesa.</b> Da adesso il rapportino serale e la lista settimanale di questo cantiere ricevono la marca temporale.'+(Number(j.importo_eur)>0?' Pagati '+eur(j.importo_eur)+' € + IVA.':''));
+   if(az==='accendi')riq('ok','<b>Data certa accesa.</b> Da adesso il diario di cantiere di ogni sera e il rapportino settimanale delle ore in economia di questo cantiere ricevono la marca temporale.'+(Number(j.importo_eur)>0?' Pagati '+eur(j.importo_eur)+' € + IVA.':''));
    else riq('ok','<b>Data certa spenta.</b>'+(Number(j.importo_eur)<0?' '+eur(j.importo_eur)+' € + IVA verranno detratti dalla prossima fattura.':''));
   }else if(j.esito==='gia'){riq('info','Era già '+(j.stato==='attiva'?'accesa':'spenta')+'.');}
   else if(j.esito==='rifiutato'){riq('ko','<b>Pagamento non riuscito:</b> la data certa resta spenta. Controlla la carta dell’abbonamento e riprova.');}
