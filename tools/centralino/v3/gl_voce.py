@@ -79,9 +79,9 @@ SALUTI_FINALI = {           # se l'AI chiude per la seconda volta senza aver sal
     "it": "Grazie per la chiamata, buona giornata!",
     "sq": "Faleminderit për telefonatën, ditë të mbarë!",
 }
-SALUTI_PREDEFINITI = {   # riserva: i saluti veri arrivano dal relay (12/10/2026: Ledda, assistente virtuale)
-    "it": "Ciao, sono Ledda, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
-    "sq": "Përshëndetje, jam Ledda, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?",
+SALUTI_PREDEFINITI = {   # riserva: i saluti veri arrivano dal relay (12/10/2026: Ledda, dal 16/10/2026 Tix, assistente virtuale)
+    "it": "Ciao, sono Tix, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
+    "sq": "Përshëndetje, jam Tix, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?",
 }
 RIEPILOGO_ATTESA = 20       # s al massimo per il riepilogo di fine chiamata
 

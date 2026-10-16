@@ -43,12 +43,12 @@ const AZURE_VOCI = {
 const ELEVEN_LINGUE = new Set(("af am ar hy as az be bn bs bg my ca hr cs da nl en et tl fil fi fr ff gl ka de el gu ha he hi hu is id it ja jv kn kk ko ky lo lv " +
   "ln lt lg lb mk ms ml mt zh mi mr mn ne no nb oc or ps fa pl pt pa ro ru sr sn sd sk sl so ku es sw sv tg ta te th tr uk ur uz vi cy wo zu").split(" "));
 
-// Saluti (12/10/2026, decisione di Filippo): l'assistente si chiama Ledda, come il volto IA del sito, e dice subito
+// Saluti (12/10/2026, decisione di Filippo; 16/10/2026: Ledda diventa Tix): l'assistente si chiama Tix (si scrive TIX, si pronuncia «Tix»), e dice subito
 // di essere un'assistente virtuale (AI Act, art. 50: chi parla con un'intelligenza artificiale deve saperlo).
 // Valgono questi, non il primo messaggio dell'agente ElevenLabs (rimasto solo di riserva).
 const BOT_SALUTI = {
-  it: "Ciao, sono Ledda, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
-  sq: "Përshëndetje, jam Ledda, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?"
+  it: "Ciao, sono Tix, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
+  sq: "Përshëndetje, jam Tix, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?"
 };
 
 // Numeri di prova (11/10/2026, fase B): vanno all'assistente nostro anche in fase_a, con la lingua scelta qui.
@@ -82,7 +82,7 @@ const BOT_PER_CHI = "PER CHI È: il Giornale Lavori è per chi lavora in cantier
 function botIstruzioni(promptBase, saluto) {
   return [
     promptBase || BOT_PROMPT_BASE,
-    "IDENTITÀ: ti chiami Ledda e sei l'assistente virtuale del Giornale Lavori, realizzata con intelligenza artificiale: non sei una persona. Se te lo chiedono, dillo con chiarezza; non fingere mai di essere una persona.",
+    "IDENTITÀ: ti chiami Tix (si scrive TIX) e sei l'assistente virtuale del Giornale Lavori, realizzata con intelligenza artificiale: non sei una persona. Se te lo chiedono, dillo con chiarezza; non fingere mai di essere una persona.",
     BOT_PER_CHI,
     "RIEPILOGO SU WHATSAPP: alla fine della telefonata chi chiama riceve in automatico, in questa stessa chat WhatsApp, un riepilogo scritto della chiamata, con un pulsante per confermarlo o correggerlo. Puoi dirlo, per esempio «a fine chiamata ti arriva un riepilogo qui su WhatsApp». Per il riepilogo questa regola sostituisce quanto detto in «Cosa non puoi fare»: i dati detti al telefono finiscono nel riepilogo e non serve riscriverli in chat. È l'unico invio che avviene: niente email, documenti, richiamate o altri messaggi. Se chi chiama ha una richiesta concreta (un'impresa interessata al servizio, un'attivazione, un problema da risolvere), chiedi con naturalezza, una cosa per volta, il nome, l'impresa e, se c'entra, il cantiere; poi ripeti i dati principali per conferma. Non chiedere dati che non servono.",
     "LINGUE: rispondi sempre nella lingua in cui ti parla la persona. In cantiere moltissimi operai parlano solo albanese: se la persona parla albanese (shqip), rispondi in albanese con frasi brevi, semplici e chiare, come si parla in cantiere. Se la persona cambia lingua a metà chiamata, cambia anche tu. Non tradurre il nome «Giornale Lavori».",
@@ -214,7 +214,7 @@ async function ttsEleven(env, testo) {
 }
 
 // PRIVACY (12/10/2026): ElevenLabs salva ogni sintesi fatta via API nella cronologia dell'account (testo e audio
-// delle risposte di Ledda), salvo la «conservazione zero», riservata ai clienti enterprise. Appena la voce è stata
+// delle risposte di Tix), salvo la «conservazione zero», riservata ai clienti enterprise. Appena la voce è stata
 // inviata al centralino la cancelliamo (DELETE /v1/history/{id}): il servizio non tiene copie delle risposte.
 // L'id arriva nell'intestazione «history-item-id»; la voce compare in cronologia con qualche secondo di ritardo,
 // quindi si aspetta 3 s e, se non riesce, si riprova una volta dopo altri 8 s. Errori nel registro al massimo 1 volta l'ora.
@@ -249,7 +249,7 @@ async function cancellaStoriaEleven(env, aiuti, id, attese) {
 }
 
 // Rete di sicurezza (12/10/2026): ogni 10 minuti, su richiesta del server (/centralino/pacchetto), si cancellano dalla
-// cronologia ElevenLabs le voci di Ledda rimaste: voce dell'assistente, create dopo l'11/10/2026 alle 23:00 (quando il
+// cronologia ElevenLabs le voci di Tix rimaste: voce dell'assistente, create dopo l'11/10/2026 alle 23:00 (quando il
 // relay ha iniziato a sintetizzare: prima la cronologia non conteneva voci del servizio), più vecchie di 10 minuti.
 // Massimo 25 per giro. Servono i permessi della chiave «speech_history_read» e «speech_history_write».
 // Il turno si decide dall'orologio (minuti 0, 10, 20… UTC) e non da una variabile in memoria: il server chiama ogni
@@ -287,7 +287,7 @@ async function pulisciStoriaEleven(env, aiuti) {
         break;
       }
     }
-    if (n) await aiuti.log("centralino", "voce_bot_pulizia", "cronologia ElevenLabs: cancellate " + n + " voci di Ledda rimaste");
+    if (n) await aiuti.log("centralino", "voce_bot_pulizia", "cronologia ElevenLabs: cancellate " + n + " voci di Tix rimaste");
   } catch (e) {}
   return n;
 }
@@ -501,7 +501,7 @@ export async function centralinoGestisci(request, env, url, aiuti) {
   if (request.method === "GET" && p === "/centralino/pacchetto") {
     // il server la chiama ogni minuto: si controlla (e se manca si crea) il modello Meta per gli avvisi a Filippo
     if (env.CENTRALINO_RIEPILOGO !== "off" && aiuti.graph) aiuti.attendi(modelloAvviso(env, aiuti, true).catch(() => {}));
-    // e, al massimo ogni 10 minuti, si ripulisce la cronologia ElevenLabs dalle voci di Ledda rimaste
+    // e, al massimo ogni 10 minuti, si ripulisce la cronologia ElevenLabs dalle voci di Tix rimaste
     aiuti.attendi(pulisciStoriaEleven(env, aiuti).catch(() => {}));
     return centralinoPacchetto(env, aiuti);
   }
