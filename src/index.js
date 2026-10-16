@@ -1621,8 +1621,9 @@ const PORTALE_COLORI_SERVIZI = "<style>" +
   "</style>";
 // 16/10/2026: icone e marchio TIX (arancione #F26A10 + blu #1B2F4A, scelta di Filippo). /marchio-tix.svg e /marchio-tix.png
 // sono il marchio pubblico usato dal database (impostazioni logo_prodotto_svg_url / logo_prodotto_png_url: tesserini e documenti del badge).
-// Il marchio Ledda (abbandonato) e' stato tolto: i suoi file non sono piu' serviti.
-const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png", "/marchio-tix.svg", "/marchio-tix.png"]);
+// /marchio-ledda.* restano serviti finche' le impostazioni logo_prodotto_* del database puntano ancora a loro
+// (il passaggio del database a TIX attende la conferma di Filippo); poi si tolgono.
+const PORTALE_ICONE = new Set(["/icona-192.png", "/icona-512.png", "/icona-maskable-192.png", "/icona-maskable-512.png", "/apple-touch-icon.png", "/marchio-tix.svg", "/marchio-tix.png", "/marchio-ledda.svg", "/marchio-ledda.png"]);
 
 function portaleHtmlHeaders(extra) {
   const h = new Headers({
