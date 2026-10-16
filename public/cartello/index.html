@@ -1070,7 +1070,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     return mappa;
   }
 
-  // Marchio TIX in tracciati vettoriali (coordinate 0..256.34 × 0..100; dal 16/10/2026, prima Ledda 331.66 × 100 e Il Giornale Lavori 317.78 × 100).
+  // Marchio TIX in tracciati vettoriali (coordinate 0..256.34 × 0..100; dal 16/10/2026, prima il marchio precedente 331.66 × 100 e Il Giornale Lavori 317.78 × 100).
   function disegnaLogoPdf(doc, tracciati, x, y, h, fill) {
     const s = h / 100;
     for (const tr of tracciati) {
@@ -1105,8 +1105,8 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   const CMYK_MARCHIO = {
     '#F26A10': [0.00, 0.68, 1.00, 0.00], // marchio TIX: arancione (16/10/2026)
     '#1B2F4A': [0.90, 0.72, 0.38, 0.40], // marchio TIX: blu cantiere
-    '#0A3C2E': [0.85, 0.35, 0.75, 0.55], // ex marchio Ledda: verde scuro
-    '#0D1F1A': [0.70, 0.40, 0.60, 0.85], // ex marchio Ledda: scritta
+    '#0A3C2E': [0.85, 0.35, 0.75, 0.55], // ex marchio precedente: verde scuro
+    '#0D1F1A': [0.70, 0.40, 0.60, 0.85], // ex marchio precedente: scritta
     '#052A21': [0.90, 0.55, 0.70, 0.70],
     '#0A7D48': [0.85, 0.15, 0.80, 0.20],
     '#12B764': [0.75, 0.00, 0.75, 0.00],

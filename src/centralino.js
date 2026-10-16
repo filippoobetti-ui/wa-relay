@@ -43,7 +43,7 @@ const AZURE_VOCI = {
 const ELEVEN_LINGUE = new Set(("af am ar hy as az be bn bs bg my ca hr cs da nl en et tl fil fi fr ff gl ka de el gu ha he hi hu is id it ja jv kn kk ko ky lo lv " +
   "ln lt lg lb mk ms ml mt zh mi mr mn ne no nb oc or ps fa pl pt pa ro ru sr sn sd sk sl so ku es sw sv tg ta te th tr uk ur uz vi cy wo zu").split(" "));
 
-// Saluti (12/10/2026, decisione di Filippo; 16/10/2026: Ledda diventa Tix): l'assistente si chiama Tix (si scrive TIX, si pronuncia «Tix»), e dice subito
+// Saluti (12/10/2026, decisione di Filippo; 16/10/2026: nome precedente sostituito da Tix): l'assistente si chiama Tix (si scrive TIX, si pronuncia «Tix»), e dice subito
 // di essere un'assistente virtuale (AI Act, art. 50: chi parla con un'intelligenza artificiale deve saperlo).
 // Valgono questi, non il primo messaggio dell'agente ElevenLabs (rimasto solo di riserva).
 const BOT_SALUTI = {
