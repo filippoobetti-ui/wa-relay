@@ -1385,7 +1385,11 @@ const BADGE_STILE_FUCSIA =
   "form.dati button:not(.rosso),.dati-solo button,a.btn{background:linear-gradient(180deg,#F04CA6,#D61F84)!important;color:#fff!important}" +
   ".piano input{accent-color:#D61F84}.piano:has(input:checked){border-color:#D61F84;box-shadow:0 0 0 3px rgba(214,31,132,.18)}" +
   "form.inline button.verde{color:#A3125F}.strumenti a.fine{background:#A3125F;border-color:#A3125F}" +
-  ".incluso{background:#FFE3F1!important;border-color:#FFB3DA!important;color:#5A0A33!important}";
+  ".incluso{background:#FFE3F1!important;border-color:#FFB3DA!important;color:#5A0A33!important}" +
+  // 16/10/2026: navy del marchio TIX al posto del verde scuro della funzione badge (testata, barra, scheda scelta, codice, prezzi)
+  "header,.barra{background:#1B2F4A!important}.barra button{background:#F26A10!important;border-color:#F26A10!important;color:#1B2F4A!important}" +
+  "[style*=\"#052A21\"]{background:#1B2F4A!important;border-color:#1B2F4A!important}" +
+  ".codice-grande,.piano .prezzo,.btn.chiaro{color:#1B2F4A!important}";
 
 // ---------------------------------------------------------------------------
 // Cartello di cantiere (05/10/2026) — il generatore del cartello (modulo, anteprima e PDF nel browser).
