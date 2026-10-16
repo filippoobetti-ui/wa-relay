@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#052A21">
+<meta name="theme-color" content="#1B2F4A">
 <title>Cartello di cantiere — Il Giornale Lavori</title>
 <meta name="description" content="Crea il cartello di cantiere a norma, con render e loghi, e scarica il PDF/X-1a per la stampa (CMYK, testi in tracciati) nei formati 100×100, 100×200, 150×300 e 200×300 cm. 9,00 € + IVA a cartello.">
 <style>
 /* Layout: modulo a sinistra, anteprima fissa a destra; su telefono anteprima in alto e modulo sotto. */
 :root{
-  --verde-scuro:#052A21; --verde:#0A7D48; --verde-vivo:#12B764; --fondo:#F4F6F5; --carta:#FFFFFF;
-  --bordo:#D5DCD8; --testo:#111111; --muto:#5B6763; --chiaro:#E6F4EC;
+  --verde-scuro:#1B2F4A; --verde:#1E7FBF; --verde-vivo:#4FB0E8; --fondo:#F5F6F8; --carta:#FFFFFF;
+  --bordo:#D9DEE5; --testo:#111111; --muto:#5A6573; --chiaro:#E8F6FF;
   --avviso-bg:#FFF3DF; --avviso:#8A5A00; --errore:#A11C1C; --errore-bg:#FDECEC;
   --font:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
@@ -19,8 +19,8 @@
 html,body{margin:0;background:var(--fondo);color:var(--testo);font-family:var(--font);font-size:15px;line-height:1.45}
 button,input,select,textarea{font:inherit;color:inherit}
 header.testata{background:var(--verde-scuro);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-header.testata .marchio svg{height:40px;width:auto;display:block}
-header.testata .marchio svg [fill="#0A7D48"]{fill:#fff}
+header.testata .marchio{display:inline-flex;background:#fff;border-radius:10px;padding:6px 12px;box-shadow:0 4px 14px -6px rgba(0,0,0,.45)}
+header.testata .marchio svg{height:36px;width:auto;display:block} /* 16/10/2026: marchio TIX unico (versione A) su targhetta bianca */
 header.testata h1{font-size:1.05rem;margin:0;font-weight:600;letter-spacing:.01em}
 header.testata .prezzo{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;font-weight:700;white-space:nowrap}
 main.app{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;padding:20px;max-width:1500px;margin:0 auto;align-items:start}
@@ -80,7 +80,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .t-sez{font-weight:700;margin-top:4px}.slot-griglia{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media (max-width:620px){.slot-griglia{grid-template-columns:1fr}}.slot{border:1px dashed var(--bordo);border-radius:12px;padding:10px 12px;background:#fafbfa}.slot.pieno{border-style:solid;background:#fff}.slot .t{font-weight:700}.slot .n{font-size:.78rem;color:var(--muto)}.slot-img{margin-top:8px;height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--bordo);border-radius:8px}.slot-img img{max-width:100%;max-height:56px;object-fit:contain}.slot .nome{font-size:.72rem;color:var(--muto);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .ruolo{width:100%;margin-top:8px;font-size:.85rem;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;box-sizing:border-box}.slot-azioni{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btn.piccolo{padding:6px 14px;font-size:.85rem;width:auto;min-height:0;height:auto;line-height:1.2;display:inline-flex;align-items:center;justify-content:center}
 .colori{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}.colore{border:1px solid var(--bordo);border-radius:10px;padding:8px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}.colore input{position:absolute;opacity:0;pointer-events:none}.colore:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.colore .cam{display:flex;border-radius:6px;overflow:hidden;flex:0 0 auto}.colore .cam i{display:block;width:14px;height:24px}.colore .t{font-weight:600;font-size:.9rem}@media (max-width:520px){.colori{grid-template-columns:repeat(2,1fr)}}
 .testate{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}.testata-op{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:10px;background:#fff}.testata-op input{position:absolute;opacity:0;pointer-events:none}.testata-op:has(input:checked){border-color:var(--verde);box-shadow:inset 0 0 0 1px var(--verde);background:var(--chiaro)}.testata-op .t{font-weight:700;display:block;font-size:.92rem}.testata-op .n{font-size:.78rem;color:var(--muto)}.testata-op .camp{flex:0 0 auto;width:54px;height:30px;border-radius:7px}
-.con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#052A21;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
+.con-prefisso{display:flex;align-items:flex-start;gap:8px}.con-prefisso .prefisso{padding-top:10px;font-weight:700;color:#1B2F4A;white-space:nowrap}.con-prefisso textarea{flex:1;min-width:0}
 .carica .ammessi{margin-top:6px;font-size:12.5px;color:#55625b}
 .esito-file{margin:6px 0 0;padding:7px 10px;border-radius:8px;background:#fdecea;color:#8a1c12;font-size:13.5px;line-height:1.35}
 .campo .data3{display:flex;align-items:center;gap:6px}.campo .data3 input{width:auto;flex:0 0 3.6em;min-width:0;text-align:center;padding-left:4px;padding-right:4px}.campo .data3 input.anno{flex-basis:5.4em}.campo .data3 .sep{color:#8a958f;font-weight:600}.campo .data3.errata input{border-color:#c0392b;background:#fdecea}
@@ -133,7 +133,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
 <body>
 <header class="testata">
   <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <a class="marchio" href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener" aria-label="TIX — l’assistente digitale di cantiere"><svg xmlns="http://www.w3.org/2000/svg" height="40" role="img" aria-label="TIX — l’assistente digitale di cantiere" viewBox="120 262 1756 694"><path d="M 130 682 L 178 636 C 208 608 248 612 268 640 L 343 746 C 515 500 700 328 962 270 C 760 365 598 560 434 878 C 404 936 334 948 296 902 Z" fill="#F26A10"/><path d="M 838 503 L 1218 503 L 1200 605 L 1078 605 L 1018 925 L 890 925 L 950 605 L 752 605 Z" fill="#FFFFFF"/><path d="M 1268 503 L 1392 503 L 1312 925 L 1188 925 Z" fill="#FFFFFF"/><path d="M 1410 503 L 1550 503 L 1828 925 L 1688 925 Z M 1728 503 L 1868 503 L 1492 925 L 1352 925 Z" fill="#F26A10"/>
+    <a class="marchio" href="https://www.ilgiornalelavori.it" target="_blank" rel="noopener" aria-label="TIX — l’assistente digitale di cantiere"><svg xmlns="http://www.w3.org/2000/svg" height="40" role="img" aria-label="TIX — l’assistente digitale di cantiere" viewBox="120 262 1756 694"><path d="M 130 682 L 178 636 C 208 608 248 612 268 640 L 343 746 C 515 500 700 328 962 270 C 760 365 598 560 434 878 C 404 936 334 948 296 902 Z" fill="#F26A10"/><path d="M 838 503 L 1218 503 L 1200 605 L 1078 605 L 1018 925 L 890 925 L 950 605 L 752 605 Z" fill="#1B2F4A"/><path d="M 1268 503 L 1392 503 L 1312 925 L 1188 925 Z" fill="#1B2F4A"/><path d="M 1410 503 L 1550 503 L 1828 925 L 1688 925 Z M 1728 503 L 1868 503 L 1492 925 L 1352 925 Z" fill="#F26A10"/>
 <line x1="1615" y1="708" x2="1516" y2="558" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
 <line x1="1615" y1="708" x2="1749" y2="558" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
 <line x1="1615" y1="708" x2="1471" y2="870" stroke="#1B2F4A" stroke-width="11.0" stroke-linecap="round"/>
@@ -247,7 +247,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   'use strict';
 
   const BRAND = {
-    scuro: '#052A21', accento: '#0A7D48', vivo: '#12B764', fondo: '#F4F6F5', bordo: '#D5DCD8',
+    scuro: '#1B2F4A', accento: '#F26A10', vivo: '#12B764', fondo: '#F4F6F5', bordo: '#D5DCD8',
     testo: '#111111', grigio: '#555555', bianco: '#FFFFFF', avviso: '#A11C1C'
   };
   const LOGO_RAPPORTO = 256.34 / 100; // larghezza / altezza del marchio orizzontale
@@ -897,7 +897,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   function filigranaSvg(W, H) {
     const testo = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.ilgiornalelavori.it';
     const size = Math.min(W, H) / 22;
-    let s = '<g opacity="0.14" fill="#052A21" font-weight="700">';
+    let s = '<g opacity="0.14" fill="#1B2F4A" font-weight="700">';
     const passo = size * 5;
     for (let yy = -H; yy < H * 2; yy += passo) {
       s += `<text x="${W / 2}" y="${yy}" font-size="${size}" text-anchor="middle" transform="rotate(-30 ${W / 2} ${H / 2})">${testo}</text>`;
@@ -1032,10 +1032,10 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
             if (c.op === 'c') return { op: 'c', c: [...r(c.c[0], c.c[1]), ...r(c.c[2], c.c[3]), ...r(c.c[4], c.c[5])] };
             return { op: c.op, c: r(c.c[0], c.c[1]) };
           });
-          fill('#052A21'); doc.path(linee); doc.fill();
+          fill('#1B2F4A'); doc.path(linee); doc.fill();
         }
       } else {
-        doc.setFont('Roboto', 'bold'); doc.setFontSize(ptDaMm(size)); colore('#052A21', 'setTextColor');
+        doc.setFont('Roboto', 'bold'); doc.setFontSize(ptDaMm(size)); colore('#1B2F4A', 'setTextColor');
         for (let yy = -H; yy < H * 2; yy += passo) doc.text(t, ox + W / 2, oy + yy, { align: 'center', angle: 30 });
       }
       doc.restoreGraphicsState();
