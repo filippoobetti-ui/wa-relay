@@ -36,8 +36,9 @@ export async function portaleCestino(request, env, rpc) {
   } else {
     const tipo = String(b.tipo || "");
     const ref = String(b.ref || "").slice(0, 300);
-    if ((tipo !== "voce" && tipo !== "timbratura") || !ref) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
+    if ((tipo !== "voce" && tipo !== "timbratura" && tipo !== "agenda") || !ref) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
     if (tipo === "timbratura" && !UUID.test(ref)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
+    if (tipo === "agenda" && !/^[0-9]{1,15}$/.test(ref)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
     corpo = { p_token: t, p_commessa: c, p_tipo: tipo, p_ref: ref };
     if (b.azione === "sposta") corpo.p_motivo = String(b.motivo || "").slice(0, 200);
   }
@@ -82,7 +83,7 @@ function finestra(){var ov=el('div','gl-ct-ov'),bx=el('div','gl-ct-bx');ov.appen
 function anteprimaDi(n){var t=(n.innerText||n.textContent||'').replace(/\uD83D\uDDD1/g,'').replace(/\s+/g,' ').trim();if(!t&&n.querySelector('img'))t='Foto';return t.length>160?t.slice(0,160)+'…':t;}
 function conferma(tipo,ref,nodi){
  var w=finestra(),bx=w.bx;
- bx.innerHTML='<h3>Spostare nel cestino?</h3><p>Verrà tolto da giornale, rapportini, DDT, foto e documenti. Non viene cancellato: dal <b>Cestino</b> in fondo alla pagina potrai ripristinarlo.</p>'+
+ bx.innerHTML='<h3>Spostare nel cestino?</h3><p>'+(tipo==='agenda'?'Verrà tolto dall\'agenda e dal calendario. Non partirà nessun avviso WhatsApp.':'Verrà tolto da giornale, rapportini, DDT, foto e documenti.')+' Non viene cancellato: dal <b>Cestino</b> in fondo alla pagina potrai ripristinarlo.</p>'+
   '<div class="anteprima">'+esc(anteprimaDi(nodi[0]))+'</div>'+
   '<label for="gl-ct-mot">Motivo (facoltativo)</label><input type="text" id="gl-ct-mot" maxlength="150" placeholder="es. foto di prova">'+
   '<div class="gl-ct-err" style="display:none"></div><div class="gl-ct-az"><button type="button" class="an">Annulla</button><button type="button" class="pr">Sposta nel cestino</button></div>';
@@ -93,9 +94,10 @@ function conferma(tipo,ref,nodi){
   chiama({azione:'sposta',tipo:tipo,ref:ref,motivo:bx.querySelector('#gl-ct-mot').value}).then(function(r){
    if(r&&r.esito==='ok'){
     nodi.forEach(function(n){n.style.display='none';});
-    var avv=r.consolidato_gia_emesso;
-    if(avv&&(avv===true||(Array.isArray(avv)&&avv.length)||typeof avv==='object')){
-     bx.innerHTML='<h3>Spostato nel cestino</h3><div class="gl-ct-avv"><b>Attenzione:</b> il giornale di quel giorno era già stato emesso in PDF. Il PDF già emesso non cambia: va rigenerato dall\'ufficio prima di inviarlo alla Direzione Lavori.</div><div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
+    var avv=r.consolidato_gia_emesso, ncr=Number(r.crono_effetti)||0;
+    var haAvv=avv&&(avv===true||(Array.isArray(avv)&&avv.length)||typeof avv==='object');
+    if(haAvv||ncr>0){
+     bx.innerHTML='<h3>Spostato nel cestino</h3>'+(haAvv?'<div class="gl-ct-avv"><b>Attenzione:</b> il giornale di quel giorno era già stato emesso in PDF. Il PDF già emesso non cambia: va rigenerato dall\'ufficio prima di inviarlo alla Direzione Lavori.</div>':'')+(ncr>0?'<div class="gl-ct-avv"><b>Cronoprogramma:</b> questa voce aveva aggiornato l\'avanzamento ('+ncr+(ncr===1?' registrazione':' registrazioni')+'). Le date reali e le percentuali del cronoprogramma non sono state toccate: se non sono corrette, vanno sistemate dall\'ufficio.</div>':'')+'<div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
      bx.querySelector('.pr').onclick=function(){chiudi(w.ov);};
     }else chiudi(w.ov);
    }else{
@@ -108,14 +110,14 @@ function conferma(tipo,ref,nodi){
 }
 function aggiungiPulsanti(){
  var gia={};
- document.querySelectorAll('[data-mid],[data-tid]').forEach(function(n){
-  var tipo=n.hasAttribute('data-tid')?'timbratura':'voce';
-  var ref=n.getAttribute(tipo==='timbratura'?'data-tid':'data-mid');
+ document.querySelectorAll('[data-mid],[data-tid],.ag[data-id]').forEach(function(n){
+  var tipo=n.hasAttribute('data-tid')?'timbratura':(n.hasAttribute('data-mid')?'voce':'agenda');
+  var ref=n.getAttribute(tipo==='timbratura'?'data-tid':(tipo==='voce'?'data-mid':'data-id'));
   if(!ref||n.querySelector(':scope > .gl-ct-b'))return;
   n.classList.add('gl-ct-p');
   var b=el('button','gl-ct-b','&#128465;');b.type='button';b.title='Sposta nel cestino';b.setAttribute('aria-label','Sposta nel cestino');
   b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
-   var sel=tipo==='timbratura'?'[data-tid="'+ref.replace(/"/g,'')+'"]':'[data-mid="'+ref.replace(/"/g,'')+'"]';
+   var sel=tipo==='timbratura'?'[data-tid="'+ref.replace(/"/g,'')+'"]':(tipo==='agenda'?'.ag[data-id="'+ref.replace(/"/g,'')+'"]':'[data-mid="'+ref.replace(/"/g,'')+'"]');
    conferma(tipo,ref,Array.prototype.slice.call(document.querySelectorAll(sel)));});
   n.appendChild(b);
  });

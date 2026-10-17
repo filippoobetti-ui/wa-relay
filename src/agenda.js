@@ -14,6 +14,8 @@
 // Il relay non conserva nulla. Il nome dell'impresa non compare mai nei messaggi (solo il nome del cantiere).
 // ============================================================================
 
+import { cestinoIniezione } from "./cestino.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
 const TIPI = { consegna: "Consegna", fornitore: "Fornitore", sopralluogo: "Sopralluogo", collaudo: "Collaudo", riunione: "Riunione", altro: "Altro" };
@@ -249,7 +251,13 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
   }
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return Response.redirect(inUrl.origin + torna, 303);
-  return new Response(metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, Object.assign({ origine: inUrl.origin }, h)), { status: 200, headers: h.headers() });
+  let pagina = metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, Object.assign({ origine: inUrl.origin }, h));
+  // Cestino (17/10/2026): pulsante su ogni appuntamento e sezione «Cestino» (src/cestino.js)
+  if (pagina && d.chiuso !== true && pagina.lastIndexOf("</body>") !== -1) {
+    const i = pagina.lastIndexOf("</body>");
+    pagina = pagina.slice(0, i) + cestinoIniezione(base, tok, c) + pagina.slice(i);
+  }
+  return new Response(pagina, { status: 200, headers: h.headers() });
 }
 
 // ---------------------------------------------------------------------------- pagina
