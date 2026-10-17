@@ -372,7 +372,7 @@ const STILE =
   "header .logo-impresa img{display:block;height:52px;width:auto;max-width:240px;object-fit:contain}" +
   "@media (max-width:640px){header{grid-template-columns:1fr auto}header .centro{grid-column:1/-1;grid-row:2;margin-top:12px}header .dx{grid-column:2}header .logo{height:36px}header .logo-impresa img{height:40px}}" +
   "main{max-width:620px;margin:0 auto;padding:16px 16px 0}" +
-  "a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;color:var(--accento);text-decoration:none}" +
+  "a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;font-weight:800;color:#0A7D48;text-decoration:none}" +
   ".avviso{background:#fff;border-left:4px solid var(--ar);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:.92rem}" +
   ".ag-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:10px;min-height:54px;margin:0 0 16px;border:0;border-radius:12px;background:var(--ar);color:#fff;font:inherit;font-weight:700;font-size:1.02rem;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)}" +
   ".ag-btn .ic{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center}.ag-btn svg{width:20px;height:20px}" +

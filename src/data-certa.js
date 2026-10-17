@@ -225,7 +225,7 @@ const STILE =
   '@media (max-width:640px){header{grid-template-columns:1fr auto}header .centro{grid-column:1/-1;grid-row:2;margin-top:12px}header .dx{grid-column:2}header .logo{height:36px}header .logo-impresa img{height:40px}}' +
   'main{max-width:620px;margin:0 auto;padding:16px 16px 0}' +
   'a.indietro .sott{padding-bottom:2px;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 100%/200% 2px repeat-x;animation:gl-arg 3.2s linear infinite}@keyframes gl-arg{to{background-position:-200% 100%}}@media (prefers-reduced-motion:reduce){a.indietro .sott{animation:none}}' +
-  'a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;color:var(--accento);text-decoration:none}' +
+  'a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;font-weight:800;color:#0A7D48;text-decoration:none}' +
   '.intro{display:flex;gap:14px;align-items:flex-start;background:var(--ind-c);border:1px solid var(--ind-b);border-radius:14px;padding:14px 16px;margin:0 0 18px}' +
   '.intro .ic{flex-shrink:0;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#8B93F8,#4F46E5 55%,#3730A3);box-shadow:0 2px 6px rgba(0,0,0,.18)}' +
   '.intro .ic svg{width:25px;height:25px;display:block}' +

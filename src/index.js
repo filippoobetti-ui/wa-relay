@@ -1616,6 +1616,7 @@ const PORTALE_COLORE = "#1B2F4A"; // 16/10/2026: navy TIX (Proposta B), prima ve
 // Colori dei servizi (11/10/2026, scelta A di Filippo): il portale usa il navy del marchio TIX (dal 16/10/2026; prima verde);
 // solo la voce dei Tesserini (badge) è fucsia e quella del cartello, se presente, azzurra.
 const PORTALE_COLORI_SERVIZI = "<style>" +
+  'a.indietro{color:#0A7D48!important;font-weight:800!important}@media (prefers-color-scheme:dark){a.indietro{color:#4ADE80!important}}' +
   'a.indietro{position:relative}a.indietro::after{content:"";position:absolute;left:0;right:12px;top:calc(50% + 11px);height:2px;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 0/200% 100%;animation:gl-arg 3.2s linear infinite}' +
   'a.cantiere .nome{width:fit-content;max-width:100%;padding-bottom:3px;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 100%/200% 3px repeat-x;animation:gl-arg 3.2s linear infinite}a.indietro .sott{padding-bottom:2px;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 100%/200% 2px repeat-x;animation:gl-arg 3.2s linear infinite}@keyframes gl-arg{to{background-position:-200% 100%}}@media (prefers-reduced-motion:reduce){a.cantiere .nome,a.indietro .sott,a.indietro::after{animation:none}}' +
   'a.cantiere[href*="/ufficio?t="]{border-color:#F04CA6!important;box-shadow:inset 5px 0 0 #D61F84!important;background:#FFF5FA!important}' +
@@ -1949,7 +1950,7 @@ function portaleNcModulo(base, tok, d) {
     '@media (max-width:640px){header{grid-template-columns:1fr auto}header .centro{grid-column:1/-1;grid-row:2;margin-top:12px}header .dx{grid-column:2}header .logo{height:36px}header .logo-impresa img{height:40px}}' +
     'main{max-width:620px;margin:0 auto;padding:16px 16px 0}' +
     'a.indietro .sott{padding-bottom:2px;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 100%/200% 2px repeat-x;animation:gl-arg 3.2s linear infinite}@keyframes gl-arg{to{background-position:-200% 100%}}@media (prefers-reduced-motion:reduce){a.indietro .sott{animation:none}}' +
-    'a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;color:var(--accento);text-decoration:none}' +
+    'a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;font-weight:800;color:#0A7D48;text-decoration:none}' +
     '.blocco{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:4px 16px 16px;margin-bottom:14px}' +
     'h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--accento);margin:12px 0 2px}' +
     'label{display:block;font-weight:600;font-size:.9rem;margin:12px 0 5px;color:#1b1f1d}label small{font-weight:400;color:#666}' +
