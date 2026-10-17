@@ -51,11 +51,11 @@ export async function portaleCestino(request, env, rpc) {
 export function cestinoIniezione(base, token, commessa) {
   const cfg = JSON.stringify({ u: base + "/cestino", t: token, c: commessa });
   const stile = "<style>" +
-    ".gl-ct-b{position:absolute;top:6px;right:6px;z-index:3;width:30px;height:30px;border-radius:50%;border:1px solid #c9d1cd;background:rgba(255,255,255,.94);color:#8a2b2b;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-size:15px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.2)}" +
+    ".gl-ct-b{position:absolute;top:6px;right:6px;z-index:3;width:30px!important;height:30px!important;min-width:0!important;min-height:0!important;padding:0!important;border-radius:50%;border:1px solid #c9d1cd;background:rgba(255,255,255,.94);color:#8a2b2b;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-size:15px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.2)}" +
     ".gl-ct-b:hover,.gl-ct-b:focus-visible{background:#fff1f1;border-color:#c0392b;outline:none}" +
     ".gl-ct-p{position:relative}" +
     ".gl-ct-vai{display:block;max-width:720px;margin:14px auto 0;padding:0 16px;text-align:center;font-family:system-ui,-apple-system,sans-serif;font-size:.9rem}" +
-    ".gl-ct-vai button{background:#fdecec;border:2px solid #c62828;border-radius:999px;padding:10px 22px;color:#c62828;font-family:inherit;font-size:1.1rem;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(198,40,40,.25)}.gl-ct-vai button:hover,.gl-ct-vai button:focus-visible{background:#c62828;color:#fff;outline:none}" +
+    ".gl-ct-vai button{display:inline-block!important;width:auto!important;min-width:0!important;max-width:max-content!important;min-height:0!important;flex:none!important;margin:0!important;background:#fdecec;border:2px solid #c62828;border-radius:999px;padding:4px 14px!important;color:#c62828;font-family:inherit;font-size:1.1rem;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(198,40,40,.25)}.gl-ct-vai button:hover,.gl-ct-vai button:focus-visible{background:#c62828;color:#fff;outline:none}" +
     ".gl-ct-ov{position:fixed;inset:0;z-index:9999;background:rgba(10,18,28,.55);display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
     ".gl-ct-bx{background:#fff;color:#1b1f1d;border-radius:14px;max-width:460px;width:100%;max-height:86vh;overflow:auto;padding:20px 20px 16px;box-shadow:0 10px 40px rgba(0,0,0,.35)}" +
     ".gl-ct-bx h3{margin:0 0 8px;font-size:1.1rem;color:#1B2F4A}.gl-ct-bx p{margin:0 0 12px;font-size:.92rem;line-height:1.45}" +
