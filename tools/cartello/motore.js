@@ -378,31 +378,24 @@
       prims.push({ t: 'img', x: m + iT, y: yB0 + (hH - d.h) / 2, w: d.w, h: d.h, img: img.stemma });
       xTesto = m + iT + d.w + 2 * u;
     }
-    // blocco a destra: «CARTELLO DI CANTIERE» + riferimento normativo
+    // 17/10/2026 (Filippo): «CARTELLO DI CANTIERE» e il riferimento normativo non stanno più in alto a destra: vanno sotto la dicitura finale
     const normativa = tipo === 'privato'
       ? 'art. 27, c. 4, D.P.R. 380/2001 · art. 90, c. 7, D.Lgs. 81/2008'
       : 'Circ. Min. LL.PP. n. 1729/UL del 1/6/1990 · art. 90, c. 7, D.Lgs. 81/2008';
-    let sEti = 2.5 * u, sNorm = 1.3 * u;
-    let wDx = Math.max(mis.larghezza('CARTELLO DI CANTIERE', true, sEti), mis.larghezza(normativa, false, sNorm));
+    const wDx = 0;
     const ente = (tipo === 'privato' ? nomeComune(c.ente) : pulisci(c.ente)) || (tipo === 'privato' ? 'Comune di …' : 'Stazione appaltante');
     const enteSotto = tipo === 'privato' ? nomeProvincia(c.ente_sotto) : pulisci(c.ente_sotto);
-    let wSx = W - m - iT - xTesto - wDx - 3 * u;
-    let mostraNorm = true;
-    if (wSx < W * 0.4) { mostraNorm = false; sEti = 2.1 * u; wDx = mis.larghezza('CARTELLO DI CANTIERE', true, sEti); wSx = W - m - iT - xTesto - wDx - 3 * u; }
+    const wSx = W - m - iT - xTesto - wDx - 2 * u;
     const fitEnte = adatta(mis, ente.toUpperCase(), true, 3.4 * u, 2.0 * u, wSx, 2, null, 1.12);
     const sSotto = Math.min(1.9 * u, fitEnte.size * 0.6);
     const fitSotto = enteSotto ? adatta(mis, enteSotto, false, sSotto, 1.3 * u, wSx, 1, null, 1.2) : null;
     const hBlocco = fitEnte.h + (fitSotto ? fitSotto.h + 0.4 * u : 0);
     // la testata si allunga se il nome dell'ente va su due righe, così il testo non tocca il bordo arrotondato
-    const hNec = Math.max(hBlocco, sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0)) + 2.6 * u;
+    const hNec = hBlocco + 2.6 * u;
     if (hNec > hH) { const dh = hNec - hH; hH = hNec; disponiBanda(); for (let k = iBanda + nL; k < prims.length; k++) { if (prims[k].t === 'img') prims[k].y += dh / 2; } }
     let y = yB0 + (hH - hBlocco) / 2;
     for (const r of fitEnte.righe) { T(xTesto, baseline(y, fitEnte.size), r, fitEnte.size, true, BRAND.bianco); y += fitEnte.size * 1.12; }
     if (fitSotto) { y += 0.4 * u; T(xTesto, baseline(y, fitSotto.size), fitSotto.righe[0], fitSotto.size, false, tema.chiaro); }
-    const hDx = sEti * 1.1 + (mostraNorm ? sNorm * 1.3 + 0.3 * u : 0);
-    let yDx = yB0 + (hH - hDx) / 2;
-    T(W - m - iT, baseline(yDx, sEti), 'CARTELLO DI CANTIERE', sEti, true, BRAND.bianco, 'right');
-    if (mostraNorm) { yDx += sEti * 1.1 + 0.3 * u; T(W - m - iT, baseline(yDx, sNorm), normativa, sNorm, false, tema.chiaro, 'right'); }
 
     // ---------- titolo (oggetto dei lavori) e ubicazione
     y = yB0 + hH + 2.4 * u;
@@ -481,11 +474,18 @@
       const wA = W - 2 * m - 3 * u;
       let fitA = adatta(mis, AVVERTENZA, false, 1.0 * u, 0.8 * u, wA, 1, null, 1.2);
       if (fitA.troncato) fitA = adatta(mis, AVVERTENZA, false, 1.0 * u, 0.8 * u, wA, 2, null, 1.2);
-      const passo = fitA.size * 1.2;
-      const hA = Math.max(2.4 * u, fitA.righe.length * passo + 1.2 * u);
+      // 17/10/2026 (Filippo): sotto l'avvertenza, la riga «Cartello di cantiere» con i riferimenti normativi (prima stava in alto a destra)
+      const DICIT_NORM = 'Cartello di cantiere · ' + normativa;
+      let fitN = adatta(mis, DICIT_NORM, false, 1.0 * u, 0.7 * u, wA, 1, null, 1.2);
+      if (fitN.troncato) fitN = adatta(mis, DICIT_NORM, false, 1.0 * u, 0.7 * u, wA, 2, null, 1.2);
+      const passoA = fitA.size * 1.2, passoN = fitN.size * 1.2;
+      const hTesti = fitA.righe.length * passoA + fitN.righe.length * passoN;
+      const hA = Math.max(3.6 * u, hTesti + 1.8 * u);
       const yA = yCorpoFine - hA;
-      const y0 = yA + hA / 2 - (fitA.righe.length - 1) * passo / 2 + fitA.size * 0.36;
-      fitA.righe.forEach((r, i) => T(W / 2, y0 + i * passo, r, fitA.size, false, BRAND.testo, 'center'));
+      let yy = yA + (hA - hTesti) / 2;
+      fitA.righe.forEach((r) => { T(W / 2, yy + fitA.size * 0.9, r, fitA.size, false, BRAND.testo, 'center'); yy += passoA; });
+      yy += 0.2 * u;
+      fitN.righe.forEach((r) => { T(W / 2, yy + fitN.size * 0.9, r, fitN.size, false, BRAND.testo, 'center'); yy += passoN; });
       yCorpoFine = yA - 2 * u;
     }
 
