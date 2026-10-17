@@ -1,5 +1,6 @@
 import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia } from "./centralino.js";
 import { portaleDataCerta } from "./data-certa.js";
+import { portaleCestino, cestinoIniezione } from "./cestino.js";
 import { portaleAgenda, agendaAdmin, agendaIdPulsante, agendaRispostaGestisci } from "./agenda.js";
 import { cronoImportCandidato, cronoImportGestisci, cronoImportIdPulsante, cronoImportRispostaGestisci, cronoImportAvvisa, portaleCronoprogramma } from "./crono-import.js";
 
@@ -2236,6 +2237,8 @@ async function portaleRoute(request, env, prefisso) {
       risposta: portaleRisposta, headers: portaleHtmlHeaders
     });
   }
+  // Cestino dell'area riservata (17/10/2026): sposta/elenca/ripristina voci, foto, DDT, rapportini e presenze (src/cestino.js).
+  if (sotto === "/cestino") return portaleCestino(request, env, portaleRpc);
   if (metodo !== "GET" && metodo !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   }
@@ -2350,6 +2353,9 @@ async function portaleRoute(request, env, prefisso) {
   if (valida && mov.attivi) script = PORTALE_MOVIMENTI_SCRIPT + script;   // dopo visore e frecce (che vengono anteposti qui sotto)
   if (valida && html.indexOf("<img") !== -1) script = PORTALE_VISORE + script;
   if (valida && html.indexOf('<nav class="schede"') !== -1) script = PORTALE_FRECCE + script;
+  if (valida && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(commessa) && (html.indexOf('data-mid="') !== -1 || html.indexOf('data-tid="') !== -1)) {
+    script = cestinoIniezione(base, token, commessa.toLowerCase()) + script;
+  }
   if (valida) script = '<div style="max-width:720px;margin:18px auto 28px;padding:0 16px;text-align:center;font-family:system-ui,-apple-system,sans-serif;font-size:.9rem">' +
     '<a href="' + base + '/crea-accesso?t=' + token + '" style="color:#1B2F4A;font-weight:600">&#128274; Crea o aggiungi un accesso con email e password</a></div>' + script;
   html = html.lastIndexOf("</body>") !== -1
