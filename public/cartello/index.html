@@ -154,10 +154,10 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   <div class="colonna" id="modulo">
     <section class="pannello">
       <h2><span class="num">1</span>Formato</h2>
-      <p class="sotto">Le misure sono quelle del cartello finito. Il file esce alla dimensione reale in PDF/X-1a, pronto per la tipografia.</p>
+      <p class="sotto">Scrivi base e altezza del cartello finito, in centimetri (da 40 a 600 cm per lato): il disegno e il file si costruiscono da soli. Il file esce alla dimensione reale in PDF/X-1a, pronto per la tipografia.</p>
       <div class="scelte" id="formati"></div>
       <div class="riga-opzioni">
-        <label class="campo"><span class="eti">Orientamento</span>
+        <label class="campo" style="display:none"><span class="eti">Orientamento</span>
           <select id="orientamento"><option value="verticale">Verticale</option><option value="orizzontale">Orizzontale</option></select></label>
         <label class="campo"><span class="eti">Abbondanza per il taglio</span>
           <select id="abbondanza"><option value="0">Nessuna (file al formato finito)</option><option value="5">5 mm — pannelli rigidi</option><option value="10">10 mm</option><option value="50">50 mm — striscioni con orlo e occhielli</option></select></label>
@@ -1635,18 +1635,15 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   }
   function disegnaFormati() {
     var box = $('#formati'); box.innerHTML = '';
-    M.FORMATI.forEach(function (f) {
-      var lab = el('label');
-      var inp = el('input', { type: 'radio', name: 'formato', value: f.id });
-      if (stato.formato === f.id) inp.checked = true;
-      inp.addEventListener('change', function () { if (inp.checked) { stato.formato = f.id; aggiornaOrientamento(); salvaStato(); ridisegna(); } });
-      lab.appendChild(inp);
-      lab.appendChild(el('span', { class: 't', 'data-formato': f.id }, esc(f.nome)));
-      lab.appendChild(el('span', { class: 'n' }, esc(f.nota)));
-      box.appendChild(lab);
-    });
+    // 17/10/2026 (Filippo): tolte le quattro misure predefinite; resta solo base e altezza scritte dal cliente
+    if (stato.formato !== 'su_misura') {
+      var d0 = M.dimensioni(stato);
+      stato.misura = { b: String(Math.round(d0.W / 10)), h: String(Math.round(d0.H / 10)) };
+      stato.formato = 'su_misura';
+    }
+    stato.orientamento = 'verticale';
     // misure personalizzate
-    var labP = el('label', { class: 'su-misura' });
+    var labP = el('label', { class: 'su-misura', style: 'display:none' });
     var inpP = el('input', { type: 'radio', name: 'formato', value: 'su_misura' });
     if (stato.formato === 'su_misura') inpP.checked = true;
     inpP.addEventListener('change', function () { if (inpP.checked) { stato.formato = 'su_misura'; aggiornaOrientamento(); salvaStato(); ridisegna(); } });
@@ -1676,12 +1673,11 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     if (su && M.controllaMisura(stato)) { box.hidden = true; box.innerHTML = ''; return; }
     box.hidden = false;
     var d = M.dimensioni(stato), wc = d.W / 10, hc = d.H / 10, ab = Number(stato.abbondanza) || 0;
-    var sc = Math.min(272 / wc, 152 / hc), w = wc * sc, h = hc * sc;
+    var sc = Math.min(250 / wc, 152 / hc), w = wc * sc, h = hc * sc;
     var mv = ab > 0 ? Math.max(7, ab / 10 * sc) : 0;            // margine di abbondanza disegnato (ingrandito per vederlo)
-    var x = 44 + (292 - w) / 2, y = 30 + (172 - h) / 2, cx = x + w / 2;
+    var x = 80 + (250 - w) / 2, y = 30 + (172 - h) / 2, cx = x + w / 2;
     var tema = (M.TEMI && M.TEMI[stato.colore || 'verde']) || { testata: '#1f6b3a' };
-    var s = '<svg viewBox="0 0 360 250" role="img" aria-label="Disegno del cartello: base ' + wc + ' cm, altezza ' + hc + ' cm">';
-    s += '<text x="' + cx + '" y="14" text-anchor="middle" font-size="13" font-weight="700" fill="#1b2f4a">Altezza ' + hc + ' cm</text>';
+    var s = '<svg viewBox="0 0 380 250" role="img" aria-label="Disegno del cartello: base ' + wc + ' cm, altezza ' + hc + ' cm">';
     if (mv) s += '<rect x="' + (x - mv) + '" y="' + (y - mv) + '" width="' + (w + 2 * mv) + '" height="' + (h + 2 * mv) + '" fill="#f3f4f6" stroke="#8a93a0" stroke-dasharray="4 3"/>';
     s += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="#fff" stroke="' + tema.testata + '" stroke-width="2"/>';
     s += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + Math.max(8, h * 0.11) + '" fill="' + tema.testata + '"/>';
@@ -1692,6 +1688,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var ax = x - mv - 14;
     s += '<line x1="' + ax + '" y1="' + (y - mv) + '" x2="' + ax + '" y2="' + (y + h + mv) + '" stroke="#1b2f4a" stroke-width="1.4"/>';
     s += '<path d="M' + (ax - 4) + ' ' + (y - mv + 7) + 'L' + ax + ' ' + (y - mv) + 'L' + (ax + 4) + ' ' + (y - mv + 7) + 'M' + (ax - 4) + ' ' + (y + h + mv - 7) + 'L' + ax + ' ' + (y + h + mv) + 'L' + (ax + 4) + ' ' + (y + h + mv - 7) + '" fill="none" stroke="#1b2f4a" stroke-width="1.4"/>';
+    s += '<text transform="rotate(-90 ' + (ax - 7) + ' ' + (y + h / 2) + ')" x="' + (ax - 7) + '" y="' + (y + h / 2) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#1b2f4a">Altezza ' + hc + ' cm</text>';
     // freccia della base, sotto
     var by = y + h + mv + 12;
     s += '<line x1="' + (x - mv) + '" y1="' + by + '" x2="' + (x + w + mv) + '" y2="' + by + '" stroke="#1b2f4a" stroke-width="1.4"/>';
