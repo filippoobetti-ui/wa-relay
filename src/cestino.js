@@ -55,7 +55,7 @@ export function cestinoIniezione(base, token, commessa) {
     ".gl-ct-b:hover,.gl-ct-b:focus-visible{background:#fff1f1;border-color:#c0392b;outline:none}" +
     ".gl-ct-p{position:relative}" +
     ".gl-ct-vai{display:block;max-width:720px;margin:14px auto 0;padding:0 16px;text-align:center;font-family:system-ui,-apple-system,sans-serif;font-size:.9rem}" +
-    ".gl-ct-vai button{background:none;border:0;color:#8a2b2b;font-weight:600;cursor:pointer;font:inherit;text-decoration:underline}" +
+    ".gl-ct-vai button{background:#fdecec;border:2px solid #c62828;border-radius:999px;padding:10px 22px;color:#c62828;font-family:inherit;font-size:1.1rem;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(198,40,40,.25)}.gl-ct-vai button:hover,.gl-ct-vai button:focus-visible{background:#c62828;color:#fff;outline:none}" +
     ".gl-ct-ov{position:fixed;inset:0;z-index:9999;background:rgba(10,18,28,.55);display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
     ".gl-ct-bx{background:#fff;color:#1b1f1d;border-radius:14px;max-width:460px;width:100%;max-height:86vh;overflow:auto;padding:20px 20px 16px;box-shadow:0 10px 40px rgba(0,0,0,.35)}" +
     ".gl-ct-bx h3{margin:0 0 8px;font-size:1.1rem;color:#1B2F4A}.gl-ct-bx p{margin:0 0 12px;font-size:.92rem;line-height:1.45}" +
@@ -70,7 +70,7 @@ export function cestinoIniezione(base, token, commessa) {
     ".gl-ct-el{border-top:1px solid #e3e8e5;padding:10px 0;display:flex;gap:10px;align-items:flex-start}.gl-ct-el:first-of-type{border-top:0}" +
     ".gl-ct-el .tx{flex:1;font-size:.88rem;word-break:break-word}.gl-ct-el .tx small{display:block;color:#5b6560;margin-top:2px}" +
     ".gl-ct-el button{padding:7px 12px;border-radius:8px;border:1px solid #1B2F4A;background:#fff;color:#1B2F4A;font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap}" +
-    "@media (prefers-color-scheme:dark){.gl-ct-b{background:rgba(26,32,29,.94);border-color:#3a4540;color:#ff9a9a}.gl-ct-b:hover{background:#3a1c1c}.gl-ct-bx{background:#1a201d;color:#eef2f0}.gl-ct-bx h3{color:#cfe0ff}.gl-ct-bx .anteprima{background:#232b27}.gl-ct-bx input[type=text]{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-ct-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ct-az button.pr{background:#b23b3b;border-color:#b23b3b;color:#fff}.gl-ct-avv{background:#3a2f12;border-color:#7a6320}.gl-ct-el{border-color:#2c3531}.gl-ct-el button{background:#232b27;color:#cfe0ff;border-color:#5c7aa8}.gl-ct-vai button{color:#ff9a9a}}" +
+    "@media (prefers-color-scheme:dark){.gl-ct-b{background:rgba(26,32,29,.94);border-color:#3a4540;color:#ff9a9a}.gl-ct-b:hover{background:#3a1c1c}.gl-ct-bx{background:#1a201d;color:#eef2f0}.gl-ct-bx h3{color:#cfe0ff}.gl-ct-bx .anteprima{background:#232b27}.gl-ct-bx input[type=text]{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-ct-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ct-az button.pr{background:#b23b3b;border-color:#b23b3b;color:#fff}.gl-ct-avv{background:#3a2f12;border-color:#7a6320}.gl-ct-el{border-color:#2c3531}.gl-ct-el button{background:#232b27;color:#cfe0ff;border-color:#5c7aa8}.gl-ct-vai button{background:#3a1c1c;border-color:#ff6b6b;color:#ff8a8a}.gl-ct-vai button:hover,.gl-ct-vai button:focus-visible{background:#ff6b6b;color:#1a0f0f}}" +
     "</style>";
   const script = "<script>" + String.raw`(function(){try{
 var CFG=` + cfg + String.raw`;
