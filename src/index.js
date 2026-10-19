@@ -470,6 +470,12 @@ async function processAndForward(rawBody, env, ctx) {
         continue;
       }
 
+      // DIETA DEI MESSAGGI (18/10/2026): gli stati Meta (sent/delivered/read/failed, con "pricing") dei
+      // messaggi in uscita vanno nel contatore wa_uscita di Supabase, compresi quelli mandati da Make.
+      // Non vanno a Make (costerebbero operazioni). Emergenza: variabile DIETA_STATI=off.
+      if (Array.isArray(value.statuses) && value.statuses.length && env.SUPABASE_SERVICE_KEY && env.DIETA_STATI !== "off") {
+        try { await chatUnicaRpc(env, supabaseUrl, "wa_uscita_stato", { p: value.statuses }, 8000); } catch (e) {}
+      }
       if (!value.messages || value.messages.length === 0) continue;
 
       if (rimossi.length) {
@@ -720,7 +726,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-18 dieta-1 (contatore dei messaggi in uscita: stati Meta con pricing in wa_uscita via wa_uscita_stato, etichetta biz_opaque_callback_data con la funzione chiamante su ogni invio del relay; DIETA_STATI=off spegne gli stati) \u00B7 wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -766,7 +772,32 @@ async function chatUnicaLog(env, supabaseUrl, telefono, messageId, tipo, dettagl
   } catch (e) {}
 }
 
-async function chatUnicaInvia(graph, phoneId, token, payload) {
+// DIETA DEI MESSAGGI (18/10/2026): ogni messaggio vero (non "letto" / "sta scrivendo") parte con
+// biz_opaque_callback_data "relay|<funzione chiamante>|<tipo>|", che Meta restituisce negli stati e che
+// finisce in wa_uscita (sorgente e motivo del messaggio). Se Meta rifiutasse il campo, si rimanda una volta senza.
+async function chatUnicaInvia(graph, phoneId, token, payload, etichetta) {
+  const conEtichetta = dietaEtichetta(payload, etichetta);
+  const esito = await chatUnicaInviaGraph(graph, phoneId, token, conEtichetta);
+  if (!esito.ok && esito.status === 400 && conEtichetta !== payload && /biz_opaque_callback_data/i.test(esito.testo || "")) {
+    return chatUnicaInviaGraph(graph, phoneId, token, payload);
+  }
+  return esito;
+}
+
+function dietaEtichetta(payload, etichetta) {
+  if (!payload || !payload.type || payload.status || payload.biz_opaque_callback_data) return payload;
+  let chi = "";
+  if (!etichetta) {
+    const salta = ["dietaEtichetta", "chatUnicaInvia", "chatUnicaInviaGraph", "invia", "new", "Promise", "all"];
+    for (const riga of String(new Error().stack || "").split("\n").slice(1)) {
+      const m = riga.trim().match(/^at (?:async )?(?:[\w$]+\.)*([\w$]+) /);
+      if (m && salta.indexOf(m[1]) === -1) { chi = m[1]; break; }
+    }
+  }
+  return { ...payload, biz_opaque_callback_data: String(etichetta || ("relay|" + (chi || "?") + "|" + payload.type + "|")).slice(0, 512) };
+}
+
+async function chatUnicaInviaGraph(graph, phoneId, token, payload) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
