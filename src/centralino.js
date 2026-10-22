@@ -813,7 +813,9 @@ async function finestraAperta(aiuti, tel) {
   return Array.isArray(righe) && righe.length > 0;
 }
 
-async function avvisaFilippo(env, aiuti, a) {
+// a.senzaModello (ingresso Make, 21/10/2026): avvisi che non sono telefonate. Niente modello «avviso_telefonata»:
+// testo se la finestra di 24 ore e' aperta, altrimenti l'avviso aspetta il primo messaggio di Filippo.
+export async function avvisaFilippo(env, aiuti, a) {
   const dest = numeroAvvisi(env);
   const note = [];
   try {
@@ -826,7 +828,11 @@ async function avvisaFilippo(env, aiuti, a) {
     }
   } catch (e) { note.push("finestra non verificata"); }
   let stato = "";
-  try { stato = await modelloAvviso(env, aiuti, false); } catch (e) { stato = "non verificato"; }
+  if (a.senzaModello) {
+    stato = "non usato per questo avviso";
+  } else {
+    try { stato = await modelloAvviso(env, aiuti, false); } catch (e) { stato = "non verificato"; }
+  }
   if (stato.indexOf("APPROVED") === 0) {
     const pulisci = (t, n) => String(t || "").replace(/[\r\n\t]+/g, " · ").replace(/ {4,}/g, " ").trim().slice(0, n) || "-";
     try {

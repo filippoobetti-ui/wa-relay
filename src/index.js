@@ -1,4 +1,4 @@
-import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia } from "./centralino.js";
+import { centralinoGestisci, centralinoStato, centralinoMessaggio, centralinoPulizia, avvisaFilippo } from "./centralino.js";
 import { portaleDataCerta } from "./data-certa.js";
 import { portaleCestino, cestinoIniezione } from "./cestino.js";
 import { portaleAgenda, agendaAdmin, agendaIdPulsante, agendaRispostaGestisci } from "./agenda.js";
@@ -190,6 +190,7 @@ export default {
         "META_VERIFY_TOKEN: " + si(env.META_VERIFY_TOKEN),
         "MAKE_WEBHOOK_URL: " + si(env.MAKE_WEBHOOK_URL),
         "MAKE_WEBHOOK_URL_MEDIA: " + si(env.MAKE_WEBHOOK_URL_MEDIA),
+        "INGRESSO_MAKE (registro e reinvio dei messaggi per Make): " + (env.INGRESSO_MAKE === "off" ? "spento dal Worker" : "acceso (interruttore: impostazioni.ingresso_make_attivo; reinvii da pg_cron ingresso_make_sveglia)"),
         "AI (trascrizione vocali): " + si(env.AI),
         "CHAT_UNICA: " + (env.CHAT_UNICA === "off" ? "spenta" : "accesa"),
         "TIMBRATURE (ENTRO/ESCO): " + (env.TIMBRATURE === "off" ? "spente dal Worker" : "accese (l'interruttore vero e' impostazioni.timbrature_attive)"),
@@ -428,20 +429,10 @@ async function processAndForward(rawBody, env, ctx) {
   } catch (e) {
     return;
   }
-  const makeWebhookUrl = env.MAKE_WEBHOOK_URL;
   const canCapture = !!(env.WHATSAPP_TOKEN && env.SUPABASE_SERVICE_KEY);
   const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
   const graph = "https://graph.facebook.com/" + (env.GRAPH_VERSION || "v21.0");
   const MEDIA_TYPES = ["image", "audio", "video", "document", "sticker"];
-
-  // PUNTO 47 — instradamento dei media verso lo scenario "Foto e DDT" (fail-safe).
-  // MAKE_WEBHOOK_URL_MEDIA assente  -> tutto al monolite, come prima.
-  // MEDIA_SOLO_DA (numeri separati da virgola, facoltativo) -> accensione graduale:
-  //   solo i media di quei mittenti vanno al nuovo scenario, gli altri restano al monolite.
-  // Per tornare indietro basta rimuovere MAKE_WEBHOOK_URL_MEDIA: nessun deploy necessario.
-  const mediaWebhookUrl = env.MAKE_WEBHOOK_URL_MEDIA || "";
-  const ROUTE_MEDIA_TYPES = ["image", "document"];
-  const soloDa = String(env.MEDIA_SOLO_DA || "").split(",").map((s) => s.replace(/[^0-9]/g, "")).filter(Boolean);
 
   // RIMOZIONE (09/10/2026): numeri delle persone rimosse dal Giornale Lavori (pagina Tesserini > «Cancella»),
   // letti dal database e tenuti in memoria 60 s. Un messaggio da un numero rimosso si ferma QUI: niente
@@ -540,25 +531,9 @@ async function processAndForward(rawBody, env, ctx) {
       let cu = { numeri: [], url: "", chiave: "" };
       try { cu = await chatUnicaConfig(env, supabaseUrl); } catch (e) {}
 
-      // Inoltro a Make di un pacchetto (quello originale o uno costruito dalla chat unica):
-      // foto e documenti allo scenario «Foto e DDT», tutto il resto al monolite. Stessa regola di sempre.
-      const inoltraAMake = async (bundle) => {
-        const m = bundle && Array.isArray(bundle.messages) ? bundle.messages[0] : null;
-        if (!m) return false;
-        const alMedia = !!mediaWebhookUrl
-          && ROUTE_MEDIA_TYPES.indexOf(m.type) !== -1
-          && (soloDa.length === 0 || soloDa.indexOf(String(m.from || "")) !== -1);
-        const url = alMedia ? mediaWebhookUrl : makeWebhookUrl;
-        if (!url) return false;
-        try {
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(bundle)
-          });
-          return true;
-        } catch (e) { return false; }
-      };
+      // Inoltro a Make di un pacchetto (quello originale o uno costruito dalla chat unica): stessa regola di
+      // sempre per la destinazione, ora con registro, controllo della risposta e reinvio (inoltraAMake, INGRESSO MAKE).
+      const inoltra = (bundle, origine) => inoltraAMake(env, bundle, origine);
 
       // Un invio per OGNI messaggio, in ordine: gli scenari leggono solo messages[1],
       // quindi se Meta raggruppa più messaggi in una notifica nessuno va perso.
@@ -622,13 +597,133 @@ async function processAndForward(rawBody, env, ctx) {
         }
         if (cu.numeri.length && cu.numeri.indexOf(String(msg.from || "")) !== -1) {
           let presa = false;
-          try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu, bundle, inoltraAMake); } catch (e) { presa = false; }
+          try { presa = await chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cu, bundle, inoltra); } catch (e) { presa = false; }
           if (presa) continue; // gestito dalla chat unica (prova o produzione): il pacchetto originale NON va a Make
         }
-        await inoltraAMake(bundle);
+        await inoltra(bundle, "relay");
       }
     }
   }
+}
+
+// ============================================================================
+// INGRESSO MAKE (21/10/2026, piano del listino §6.4 intervento 1): nessun messaggio perso tra il relay e Make.
+// Ogni pacchetto per Make si registra in Supabase (ingresso_make, chiave = id del messaggio) PRIMA dell'invio e
+// si guarda la risposta di Make: 2xx = arrivato; un rifiuto (coda piena, limite, errore) resta da rimandare.
+// I reinvii li fa /admin ingresso_reinvia, chiamata ogni minuto da pg_cron (ingresso_make_sveglia) solo quando
+// serve: in ordine di arrivo, con attese crescenti, avviso a Filippo oltre la soglia di tentativi.
+// Doppioni: un id gia' registrato non riparte dal giro normale (Meta che riconsegna, reinvio in corso); se la
+// risposta di Make si perde (rete, tempo scaduto) il pacchetto si rimanda solo se Make non l'ha letto
+// (contesto_messaggio segna make_visto_il).
+// FAIL-SAFE: se Supabase non risponde il pacchetto parte lo stesso, come prima.
+// Spegnimento senza deploy: impostazioni.ingresso_make_attivo = 'no'; dal Worker: variabile INGRESSO_MAKE=off.
+// ============================================================================
+const INGRESSO_TIMEOUT_MS = 15000;
+
+// PUNTO 47 — foto e documenti allo scenario «Foto e DDT» (MAKE_WEBHOOK_URL_MEDIA), tutto il resto al monolite.
+// MAKE_WEBHOOK_URL_MEDIA assente -> tutto al monolite. MEDIA_SOLO_DA (numeri separati da virgola, facoltativo):
+// solo i media di quei mittenti vanno al nuovo scenario. Per tornare indietro basta rimuovere MAKE_WEBHOOK_URL_MEDIA.
+function makeDestinazione(env, bundle) {
+  const m = bundle && Array.isArray(bundle.messages) ? bundle.messages[0] : null;
+  if (!m) return null;
+  const soloDa = String(env.MEDIA_SOLO_DA || "").split(",").map((s) => s.replace(/[^0-9]/g, "")).filter(Boolean);
+  const alMedia = !!env.MAKE_WEBHOOK_URL_MEDIA
+    && ["image", "document"].indexOf(m.type) !== -1
+    && (soloDa.length === 0 || soloDa.indexOf(String(m.from || "")) !== -1);
+  const url = alMedia ? env.MAKE_WEBHOOK_URL_MEDIA : env.MAKE_WEBHOOK_URL;
+  return url ? { nome: alMedia ? "media" : "principale", url } : null;
+}
+
+// Un invio a Make. ok = Make l'ha preso (2xx); rifiutato = ha risposto con un errore (non l'ha preso);
+// incerto = nessuna risposta (rete o tempo scaduto): forse l'ha preso, forse no.
+async function makePosta(url, bundle) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), INGRESSO_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bundle), signal: ctrl.signal
+    });
+    let t = "";
+    try { t = (await r.text()).slice(0, 200); } catch (e) {}
+    if (r.ok) return { esito: "ok", http: r.status, errore: null };
+    return { esito: "rifiutato", http: r.status, errore: ("HTTP " + r.status + " " + t).trim() };
+  } catch (e) {
+    return { esito: "incerto", http: null, errore: String((e && e.message) || e).slice(0, 200) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Ritorna true se il pacchetto e' arrivato a Make o e' in carico al registro (sara' rimandato).
+// prova = true (solo collaudo): il primo invio va a un indirizzo inesistente, cosi' Make lo rifiuta davvero.
+async function inoltraAMake(env, bundle, origine, prova) {
+  const dest = makeDestinazione(env, bundle);
+  if (!dest) return false;
+  const id = String(bundle.messages[0].id || "");
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  let registro = !!(env.SUPABASE_SERVICE_KEY && env.INGRESSO_MAKE !== "off" && id);
+  if (registro) {
+    try {
+      const r = await chatUnicaRpc(env, supabaseUrl, "ingresso_make_registra",
+        { p_message_id: id, p_destinazione: dest.nome, p_pacchetto: bundle, p_origine: origine || "relay" }, 3000);
+      if (r && r.invia === false) return true; // doppione, o in coda dietro messaggi fermi dello stesso numero
+      registro = !!(r && r.stato);              // registro spento o pacchetto non registrabile: si manda come prima
+    } catch (e) {
+      registro = false;                         // database fermo: si manda come prima, senza registro
+    }
+  }
+  const x = await makePosta(prova ? dest.url + "-collaudo-rifiuto" : dest.url, bundle);
+  if (registro) {
+    await ingressoEsito(env, supabaseUrl, id, x);
+    return true;
+  }
+  if (x.esito !== "ok") console.log(JSON.stringify({ ingresso_make_senza_registro: id, esito: x.esito, errore: x.errore }));
+  return x.esito === "ok";
+}
+
+async function ingressoEsito(env, supabaseUrl, id, x) {
+  let r = null;
+  try {
+    r = await chatUnicaRpc(env, supabaseUrl, "ingresso_make_esito",
+      { p_message_id: id, p_esito: x.esito, p_http: x.http, p_errore: x.errore }, 3000);
+  } catch (e) {
+    return null; // la riga resta «in invio»: dopo 3 minuti il database la tratta come incerta
+  }
+  if (r && r.avvisa && r.testo) {
+    try {
+      await avvisaFilippo(env, centralinoAiuti(env, null),
+        { testo: r.testo, chiave: "ingresso" + Date.now().toString(36), senzaModello: true });
+    } catch (e) {}
+  }
+  return r;
+}
+
+// Reinvio (pg_cron → ingresso_make_sveglia → /admin ingresso_reinvia): al massimo 25 pacchetti e 15 secondi per giro.
+// Se un invio non riesce, i pacchetti successivi dello stesso numero aspettano il giro dopo (ordine di arrivo).
+async function ingressoReinvia(env) {
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const inizio = Date.now();
+  let righe;
+  try {
+    righe = await chatUnicaRpc(env, supabaseUrl, "ingresso_make_da_reinviare", { p_limite: 25 }, 5000);
+  } catch (e) {
+    return { errore: String((e && e.message) || e).slice(0, 200) };
+  }
+  const conti = { righe: 0, ok: 0, rifiutato: 0, incerto: 0, rimandato: 0 };
+  const fermi = new Set();
+  for (const r of Array.isArray(righe) ? righe : []) {
+    conti.righe++;
+    const gruppo = String(r.telefono || "") + "|" + r.destinazione;
+    const url = r.destinazione === "media" ? (env.MAKE_WEBHOOK_URL_MEDIA || env.MAKE_WEBHOOK_URL) : env.MAKE_WEBHOOK_URL;
+    let x = { esito: "rimandato", http: null, errore: null };
+    if (url && !fermi.has(gruppo) && Date.now() - inizio < 15000) x = await makePosta(url, r.pacchetto);
+    if (x.esito !== "ok") fermi.add(gruppo);
+    conti[x.esito]++;
+    await ingressoEsito(env, supabaseUrl, r.message_id, x);
+  }
+  return conti;
 }
 
 async function captureMedia(mediaId, tipo, msg, env, supabaseUrl, graph) {
@@ -726,7 +821,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-21 listino-v2-testi-1 (testi informativi col listino per persone attive: cantieri illimitati, prova gratuita di 30 giorni, si pagano le persone che scrivono, in Info sul servizio e nelle istruzioni della voce) \u00B7 wa-relay 2026-10-19 dieta-2 (D6: timbrature riuscite solo con la spunta di lettura quando il database lo indica; D4: niente reazioni) \u00B7 wa-relay 2026-10-18 dieta-1 (contatore dei messaggi in uscita: stati Meta con pricing in wa_uscita via wa_uscita_stato, etichetta biz_opaque_callback_data con la funzione chiamante su ogni invio del relay; DIETA_STATI=off spegne gli stati) \u00B7 wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-22 ingresso-make-1 (nessun messaggio perso tra relay e Make: ogni pacchetto registrato in ingresso_make prima dell'invio, risposta di Make controllata, reinvio dei non arrivati da /admin ingresso_reinvia ogni minuto via pg_cron, nessun doppione, avviso a Filippo oltre la soglia di tentativi; INGRESSO_MAKE=off lo spegne) · wa-relay 2026-10-21 listino-v2-testi-1 (testi informativi col listino per persone attive: cantieri illimitati, prova gratuita di 30 giorni, si pagano le persone che scrivono, in Info sul servizio e nelle istruzioni della voce) \u00B7 wa-relay 2026-10-19 dieta-2 (D6: timbrature riuscite solo con la spunta di lettura quando il database lo indica; D4: niente reazioni) \u00B7 wa-relay 2026-10-18 dieta-1 (contatore dei messaggi in uscita: stati Meta con pricing in wa_uscita via wa_uscita_stato, etichetta biz_opaque_callback_data con la funzione chiamante su ogni invio del relay; DIETA_STATI=off spegne gli stati) \u00B7 wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -979,7 +1074,7 @@ async function chatUnicaGestisci(msg, value, env, supabaseUrl, graph, cfg, bundl
     if (!b || typeof b !== "object" || !Array.isArray(b.messages) || !b.messages.length) continue;
     // mittente sempre quello vero: nessun pacchetto puo' «parlare» a nome di un altro numero
     b.messages[0].from = tel;
-    try { if (await inoltraAMake(b)) inoltrati++; } catch (e) {}
+    try { if (await inoltraAMake(b, "chat_unica")) inoltrati++; } catch (e) {}
   }
   await chatUnicaLog(env, supabaseUrl, tel, msg.id, "presa",
     destinazione + " " + (instr.evento || "messaggio") + " " + (msg.type || "?") + " · risposte " + invii.length
@@ -1290,6 +1385,25 @@ async function chatUnicaAdmin(request, env) {
     const r = await agendaAdmin(azione, corpo, env, agendaAiuti(env));
     if (!r) return rispondi({ errore: "azione sconosciuta" }, 400);
     return rispondi(r, r.stato || 200);
+  }
+  // INGRESSO MAKE (21/10/2026): reinvio dei pacchetti che Make non ha preso (chiamata da pg_cron via ingresso_make_sveglia).
+  if (azione === "ingresso_reinvia") {
+    return rispondi(await ingressoReinvia(env));
+  }
+  // Collaudo dell'ingresso: un messaggio finto da un numero di collaudo (390000000xxx), di tipo «unsupported», che lo
+  // scenario 7264624 scarta al primo filtro. Con rifiuta = true il primo invio va a un indirizzo inesistente (Make
+  // risponde 404) e il messaggio deve arrivare una volta sola col reinvio. Lo stesso id una seconda volta non riparte.
+  if (azione === "ingresso_prova") {
+    const da = /^390000000\d{3}$/.test(String(corpo.da || "")) ? String(corpo.da) : "390000000049";
+    const id = "COLLAUDO_INGRESSO_" + (String(corpo.id || "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) || Date.now().toString(36));
+    const ora = Math.floor(Date.now() / 1e3);
+    const bundle = { id: "collaudo", time: ora, field: "messages",
+      metadata: { display_phone_number: "collaudo", phone_number_id: cfg.phone_number_id || "" },
+      messages: [{ from: da, id, timestamp: String(ora), type: "unsupported",
+        errors: [{ code: 131051, title: "Collaudo ingresso Make: messaggio finto, da scartare" }] }],
+      contacts: [] };
+    const preso = await inoltraAMake(env, bundle, "collaudo", corpo.rifiuta === true);
+    return rispondi({ id, preso });
   }
   return rispondi({ errore: "azione sconosciuta" }, 400);
 }
