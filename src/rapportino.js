@@ -43,6 +43,11 @@ function pulisciDati(d) {
     o.manodopera = d.manodopera.slice(0, 30).filter((r) => r && typeof r === "object")
       .map((r) => ({ squadra: t(r.squadra, 120), qualifica: t(r.qualifica, 20), operai: t(r.operai, 5), ore: t(r.ore, 6) }));
   }
+  // Cronoprogramma (23/10/2026, pacchetto B): attività eseguite con l'esito
+  if (Array.isArray(d.crono)) {
+    o.crono = d.crono.filter((r) => r && typeof r === "object" && UUID.test(String(r.attivita_id || "").toLowerCase())).slice(0, 15)
+      .map((r) => ({ attivita_id: String(r.attivita_id).toLowerCase(), esito: String(r.esito || "").slice(0, 12), pct: String(r.pct == null ? "" : r.pct).slice(0, 3) }));
+  }
   return o;
 }
 
@@ -175,8 +180,10 @@ export function paginaRapportino(base, tok, c, d, g, h) {
   }
   const dati = JSON.stringify({
     base: base, t: tok, c: c, oggi: d.oggi, min: min, max: max, mese: mese, g: g, chiuso: d.chiuso === true,
-    giorni: giorni, diari: Array.isArray(d.diari) ? d.diari : [], rapportini: Array.isArray(d.rapportini) ? d.rapportini : []
+    giorni: giorni, diari: Array.isArray(d.diari) ? d.diari : [], rapportini: Array.isArray(d.rapportini) ? d.rapportini : [],
+    crono: Array.isArray(d.crono) ? d.crono : []
   }).replace(/</g, "\\u003c");
+  const conCrono = Array.isArray(d.crono) && d.crono.length > 0;
   const opzQ = '<option value="">Qualifica</option><option value="comune">Operaio comune</option><option value="qualificato">Operaio qualificato</option>' +
     '<option value="specializzato">Operaio specializzato</option><option value="capo_squadra">Capo squadra</option>';
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
@@ -197,6 +204,8 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<form id="mo-form" novalidate>' +
     '<label>Giorno a cui si riferisce<input type="date" id="f-data" min="' + e(min) + '" max="' + e(max) + '" required></label>' +
     '<label>Lavorazioni eseguite<textarea id="f-lav" rows="4" maxlength="4000" placeholder="es. Posa di casseri e ferri del solaio del piano 1"></textarea></label>' +
+    (conCrono ? '<div class="et">Attività del cronoprogramma <small>(facoltativo: scegli quelle lavorate e com’è andata)</small></div>' +
+      '<input type="search" id="f-cr-q" placeholder="Cerca un’attività" autocomplete="off"><div class="cr-l" id="f-cr"></div>' : "") +
     '<label>Dove <small>(facoltativo)</small><input type="text" id="f-luogo" maxlength="200" placeholder="es. Piano 1, blocco B"></label>' +
     '<div class="et">Manodopera</div><div id="f-mano"></div>' +
     '<button type="button" class="piccolo-b" id="f-agg">+ Aggiungi una riga</button><p class="tot" id="f-tot"></p>' +
@@ -280,6 +289,12 @@ const STILE =
   ".riga-m .m-op{grid-column:1;grid-row:3}.riga-m .m-ore{grid-column:2/4;grid-row:3}}" +
   ".piccolo-b{min-height:38px;padding:0 12px;border-radius:8px;border:1px dashed var(--ar);background:#fff;color:var(--ar-s);font:inherit;font-weight:700;font-size:.88rem;cursor:pointer}" +
   ".tot{font-size:.9rem;font-weight:700;color:var(--ar-s);margin:8px 0 0}.tot:empty{display:none}" +
+  ".cr-l{max-height:260px;overflow:auto;border:1px solid var(--bordo);border-radius:10px;margin-top:6px;background:#fff}" +
+  ".cr-i{border-bottom:1px solid #EEF0EF;padding:7px 10px}.cr-i.sel{background:#FFF7EA}" +
+  ".pannello label.cr-n{display:flex;align-items:flex-start;gap:8px;margin:0;font-weight:500;font-size:.88rem;cursor:pointer}" +
+  ".pannello label.cr-n input{display:inline-block;width:auto;margin:3px 0 0;flex:none}.cr-n small{display:block;color:#5b6560;font-weight:400;font-size:.76rem}" +
+  ".cr-e{display:flex;gap:8px;margin:6px 0 2px 26px}.pannello .cr-e select{flex:1;margin-top:0;padding:7px}.pannello .cr-e input{width:90px;flex:none;margin-top:0;padding:7px}" +
+  ".cr-vuoto{padding:8px 10px;font-size:.84rem;color:#5b6560}" +
   ".msg{font-size:.9rem;margin:12px 0 0;min-height:1.2em}.msg.ko{color:#8c1d18;font-weight:600}.msg.ok{color:#0B5E37;font-weight:600}.msg:empty{display:none}.msg a{color:inherit}" +
   ".bott{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.bott button{flex:1 1 120px;min-height:48px;font:inherit;font-weight:700;font-size:1rem;border-radius:10px;cursor:pointer}" +
   ".bott .no{background:#fff;color:#333;border:1px solid #c9d1cc}.bott .sec{background:#fff;color:var(--ar-s);border:1px solid var(--ar)}.bott .si{background:var(--ar);color:#fff;border:1px solid var(--ar)}.bott button:disabled{opacity:.5;cursor:wait}" +
@@ -299,6 +314,7 @@ var pan=q('#giorno'),mod=q('#modulo'),form=q('#mo-form'),tit=q('#mo-tit'),msg=q(
 var fdata=q('#f-data'),flav=q('#f-lav'),fluogo=q('#f-luogo'),fmano=q('#f-mano'),ftot=q('#f-tot'),fmezzi=q('#f-mezzi'),fnote=q('#f-note'),fmot=q('#f-motivo'),fautore=q('#f-autore');
 var bChiudi=q('#mo-chiudi'),bBozza=q('#mo-bozza'),bReg=q('#mo-reg'),tpl=q('#riga-m');
 var NOMI=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+var ESITI={iniziata:'iniziata',in_corso:'in corso',finita:'finita'};
 var stato={modo:'nuovo',id:null,occupato:false,sporco:false,salvato:false,ricarica:false};
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function dIt(s){var p=String(s||'').split('-');if(p.length!==3)return '';var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));return NOMI[d.getUTCDay()]+' '+p[2]+'/'+p[1]+'/'+p[0];}
@@ -325,6 +341,7 @@ function scheda(x){
  h+='<div class="rp'+(ann?' ann':'')+'"><div class="t">Rapportino n. '+x.numero+(x.versione>1?' <span class="pl mov">versione '+x.versione+'</span>':'')+(ann?' <span class="pl ann">annullato</span>':'')+'</div>';
  if(x.lavorazioni)h+='<div class="n">'+esc(x.lavorazioni.slice(0,240))+(x.lavorazioni.length>240?'…':'')+'</div>';
  h+='<div class="k">'+ore(num(x.ore_totali))+' &middot; registrato il '+esc(x.registrato_il)+' da '+esc(x.autore)+(x.motivo?' &middot; motivo: '+esc(x.motivo):'')+'</div>';
+ if(x.crono&&x.crono.length)h+='<div class="k">&#128202; Cronoprogramma: '+x.crono.map(function(c){return esc(c.nome)+' ('+esc(ESITI[c.esito]||c.esito)+(c.pct!=null&&c.esito!=='finita'?' '+c.pct+'%':'')+')';}).join(', ')+'</div>';
  h+='<div class="az"><a href="'+esc(docLink(x.id))+'" target="_blank" rel="noopener noreferrer">Apri il documento</a>';
  if(!ann&&!D.chiuso)h+='<button type="button" data-az="correggi" data-id="'+x.id+'">Correggi</button><button type="button" class="rosso" data-az="annulla" data-id="'+x.id+'">Annulla</button>';
  h+='</div>';
@@ -362,8 +379,27 @@ function totale(){var t=0,a=righe();for(var i=0;i<a.length;i++)t+=num(a[i].opera
 fmano.addEventListener('input',function(){totale();});
 q('#f-agg').addEventListener('click',function(){nuovaRiga();stato.sporco=true;});
 form.addEventListener('input',function(){stato.sporco=true;});
+/* cronoprogramma (pacchetto B): attività lavorate con l'esito e la percentuale */
+var CR=D.crono||[],crSel={},crL=q('#f-cr'),crQ=q('#f-cr-q');
+function crTrova(id){for(var i=0;i<CR.length;i++)if(CR[i].id===id)return CR[i];return null;}
+function crRender(){if(!crL)return;var qq=(crQ.value||'').toLowerCase().trim(),h='',n=0,lista=[];
+ for(var i=0;i<CR.length;i++)if(crSel[CR[i].id])lista.push(CR[i]);
+ for(var j=0;j<CR.length;j++){var a=CR[j];if(crSel[a.id])continue;if(qq&&(a.nome+' '+a.fase).toLowerCase().indexOf(qq)===-1)continue;if(n>=80)break;n++;lista.push(a);}
+ for(var k=0;k<lista.length;k++){var b=lista[k],s=crSel[b.id];
+  h+='<div class="cr-i'+(s?' sel':'')+'" data-id="'+esc(b.id)+'"><label class="cr-n"><input type="checkbox"'+(s?' checked':'')+'><span>'+esc(b.nome)+'<small>'+
+   [b.fase,(b.ip?'prevista '+dIt(b.ip).replace(/^[a-zà-ù]+ /i,'')+(b.fp&&b.fp!==b.ip?' – '+dIt(b.fp).replace(/^[a-zà-ù]+ /i,''):''):''),(b.pct!=null?Math.round(b.pct)+'% fatto':'')].filter(Boolean).map(esc).join(' · ')+'</small></span></label>'+
+   (s?'<div class="cr-e"><select class="cr-s"><option value="in_corso"'+(s.esito==='in_corso'?' selected':'')+'>In corso</option><option value="iniziata"'+(s.esito==='iniziata'?' selected':'')+'>Iniziata</option><option value="finita"'+(s.esito==='finita'?' selected':'')+'>Finita</option></select>'+
+    '<input type="number" class="cr-p" min="0" max="100" step="5" inputmode="numeric" placeholder="%" value="'+(s.pct!=null&&s.pct!==''?esc(s.pct):'')+'"'+(s.esito==='finita'?' style="display:none"':'')+'></div>':'')+'</div>';}
+ crL.innerHTML=h||'<div class="cr-vuoto">Nessuna attività con queste parole.</div>';}
+if(crL){crQ.addEventListener('input',crRender);
+ crL.addEventListener('change',function(ev){var t=ev.target,r=t.closest('.cr-i');if(!r)return;var id=r.getAttribute('data-id');stato.sporco=true;
+  if(t.type==='checkbox'){if(t.checked){if(Object.keys(crSel).length>=15){t.checked=false;return;}crSel[id]={esito:'in_corso',pct:''};var a=crTrova(id);if(a&&!flav.value.trim())flav.value=a.nome;}else delete crSel[id];crRender();return;}
+  if(t.classList.contains('cr-s')&&crSel[id]){crSel[id].esito=t.value;var p=r.querySelector('.cr-p');if(p)p.style.display=t.value==='finita'?'none':'';}});
+ crL.addEventListener('input',function(ev){var t=ev.target,r=t.closest('.cr-i');if(r&&t.classList.contains('cr-p')&&crSel[r.getAttribute('data-id')])crSel[r.getAttribute('data-id')].pct=t.value.trim();});}
+function crDati(){var a=[];for(var id in crSel)a.push({attivita_id:id,esito:crSel[id].esito,pct:crSel[id].esito==='finita'?'':crSel[id].pct});return a;}
 function riempi(x,g){fdata.value=x?x.data:g;flav.value=x?x.lavorazioni:'';fluogo.value=x?x.luogo:'';fmezzi.value=x?x.mezzi:'';fnote.value=x?x.note:'';fmot.value='';
  fautore.value=(x&&x.autore&&x.stato==='bozza')?x.autore:autoreSalvato();
+ crSel={};var cc=(x&&x.crono)||[];for(var c=0;c<cc.length;c++)crSel[cc[c].attivita_id]={esito:cc[c].esito,pct:cc[c].pct==null?'':String(cc[c].pct)};if(crQ)crQ.value='';crRender();
  fmano.innerHTML='';var mm=(x&&x.manodopera)||[];for(var i=0;i<mm.length;i++)nuovaRiga(mm[i]);if(!mm.length)nuovaRiga();totale();}
 function apriModulo(modo,x,g){stato.modo=modo;stato.id=x?x.id:null;stato.sporco=false;stato.salvato=false;
  riempi(x,g);q('#l-motivo').hidden=modo!=='correggi';bBozza.hidden=modo==='correggi';bReg.hidden=false;bReg.disabled=false;bBozza.disabled=false;
@@ -372,7 +408,7 @@ function apriModulo(modo,x,g){stato.modo=modo;stato.id=x?x.id:null;stato.sporco=
  mod.hidden=false;mod.scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){try{flav.focus();}catch(e){}},300);}
 function chiudiModulo(silenzioso){if(stato.occupato)return false;mod.hidden=true;if(stato.ricarica&&!silenzioso){location.href=link(D.g);}return true;}
 bChiudi.addEventListener('click',function(){if(stato.sporco&&!confirm('Chiudere senza salvare le ultime modifiche?'))return;if(stato.ricarica){location.href=link(D.g);return;}chiudiModulo();});
-function datiModulo(){return {id:stato.id,data:fdata.value,lavorazioni:flav.value.trim(),luogo:fluogo.value.trim(),manodopera:righe(),mezzi:fmezzi.value.trim(),note:fnote.value.trim(),autore:fautore.value.trim(),motivo:fmot.value.trim()};}
+function datiModulo(){return {id:stato.id,data:fdata.value,lavorazioni:flav.value.trim(),luogo:fluogo.value.trim(),manodopera:righe(),mezzi:fmezzi.value.trim(),note:fnote.value.trim(),autore:fautore.value.trim(),motivo:fmot.value.trim(),crono:crDati()};}
 function controlla(reg){var d=datiModulo();
  if(!d.data){return 'Indica il giorno a cui si riferisce il rapportino.';}
  if(d.data<D.min||d.data>D.max){return 'Scegli un giorno tra il '+D.min.split('-').reverse().join('/')+' e il '+D.max.split('-').reverse().join('/')+'.';}

@@ -187,6 +187,12 @@ function pulisciDati(d) {
   s("luogo", 120); s("chi", 200);
   for (const k of ["avvisa", "visibile_cliente", "avviso_sera_prima", "valore"]) if (typeof d[k] === "boolean") o[k] = d[k];
   if (Array.isArray(d.persone)) o.persone = d.persone.map((x) => String(x).toLowerCase()).filter((x) => UUID.test(x)).slice(0, 30);
+  // Cronoprogramma (23/10/2026, pacchetto B): attività collegate e, dopo «Avvenuto», com'è andata
+  if (Array.isArray(d.attivita)) o.attivita = d.attivita.map((x) => String(x).toLowerCase()).filter((x) => UUID.test(x)).slice(0, 10);
+  if (Array.isArray(d.esiti)) {
+    o.esiti = d.esiti.filter((x) => x && typeof x === "object" && UUID.test(String(x.attivita_id || "").toLowerCase())).slice(0, 10)
+      .map((x) => ({ attivita_id: String(x.attivita_id).toLowerCase(), esito: String(x.esito || "").slice(0, 12), pct: String(x.pct == null ? "" : x.pct).slice(0, 3) }));
+  }
   return o;
 }
 
@@ -228,7 +234,11 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     }
     const id = Number(b.id);
     const az = String(b.azione || "");
-    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
+    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna", "crono_esito"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
+    if (az === "crono_esito") {
+      const r = await h.rpc(env, "agenda_crono_esito", { p_token: tok, p_id: id, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
+      return r ? json(r) : json({ esito: "incerto" });
+    }
     const r = await h.rpc(env, "agenda_modifica", { p_token: tok, p_id: id, p_azione: az, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
     if (!r) return json({ esito: "incerto" });
     if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
@@ -280,7 +290,9 @@ function rigaApp(x, e, oggi) {
   const ora = x.tutto_il_giorno ? "giorno" : e(x.ora || "");
   const fine = x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "";
   const note = (x.note ? '<div class="n">' + e(x.note) + "</div>" : "") +
-    (x.luogo || x.chi ? '<div class="n">' + [x.luogo ? "📍 " + e(x.luogo) : "", x.chi ? "👷 " + e(x.chi) : ""].filter(Boolean).join(" &middot; ") + "</div>" : "");
+    (x.luogo || x.chi ? '<div class="n">' + [x.luogo ? "📍 " + e(x.luogo) : "", x.chi ? "👷 " + e(x.chi) : ""].filter(Boolean).join(" &middot; ") + "</div>" : "") +
+    (Array.isArray(x.attivita) && x.attivita.length ? '<div class="n">📊 ' + x.attivita.map((a) => e(a.nome)).join(", ") + "</div>" : "");
+  const att = Array.isArray(x.attivita) && x.attivita.length ? ' data-att="' + e(JSON.stringify(x.attivita.map((a) => ({ id: a.id, nome: a.nome })))) + '"' : "";
   const nAv = Number(x.avvisi_ok) || 0, nNo = Number(x.avvisi_no) || 0;
   let avv = "";
   if (x.avvisa === false) avv = "senza avviso";
@@ -290,7 +302,7 @@ function rigaApp(x, e, oggi) {
   const attivo = st !== "annullato" && st !== "avvenuto";
   const bott = '<div class="az">' +
     (st !== "annullato" ? '<button type="button" data-az="sposta" data-id="' + x.id + '" data-g="' + e(x.giorno) + '" data-o="' + e(x.ora) + '" data-f="' + e(x.ora_fine) + '">Sposta</button>' : "") +
-    (attivo ? '<button type="button" data-az="avvenuto" data-id="' + x.id + '">Avvenuto</button>' : "") +
+    (attivo ? '<button type="button" data-az="avvenuto" data-id="' + x.id + '"' + att + '>Avvenuto</button>' : "") +
     (attivo ? '<button type="button" class="rosso" data-az="annulla" data-id="' + x.id + '">Annulla</button>' : "") +
     (!attivo ? '<button type="button" data-az="riapri" data-id="' + x.id + '">Riapri</button>' : "") +
     '<button type="button" data-az="cliente" data-id="' + x.id + '" data-v="' + (x.visibile_cliente ? "0" : "1") + '">' + (x.visibile_cliente ? "Nascondi al cliente" : "Mostra al cliente") + "</button>" +
@@ -325,7 +337,8 @@ export function paginaAgenda(base, tok, c, d, h) {
   if (!nf) futuri = '<div class="vuoto">Nessun appuntamento in programma. Tocca «Nuovo appuntamento» per segnare una consegna, un fornitore, un sopralluogo, un collaudo o le lavorazioni da fare: chi lavora in cantiere lo riceve su WhatsApp.</div>';
   const persone = Number(d.persone_n) || 0;
   const avvisoChi = persone ? persone + (persone === 1 ? " persona registrata" : " persone registrate") : "nessuna persona registrata";
-  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true }).replace(/</g, "\\u003c");
+  const crono = Array.isArray(d.crono) ? d.crono : [];
+  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono }).replace(/</g, "\\u003c");
   const opzTipo = Object.keys(TIPI).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
   const pers = Array.isArray(d.persone) ? d.persone : [];
   const sceltaChi = pers.length
@@ -364,6 +377,8 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<label id="l-tipo">Tipo<select id="f-tipo">' + opzTipo + "</select></label></div>" +
     '<label id="l-titolo"><span id="t-titolo">Cosa succede</span><input type="text" id="f-t" maxlength="140" placeholder="es. Consegna solaio – autotrasportatore" required></label>' +
     '<div id="l-lav" style="display:none">' +
+    (crono.length ? '<div class="chi-t">Attività del cronoprogramma <small>(facoltativo)</small></div>' +
+      '<input type="search" id="f-cr-q" placeholder="Cerca un’attività" autocomplete="off"><div class="cr-l" id="f-cr"></div><p class="cr-avv" id="f-cr-avv"></p>' : "") +
     '<label>Dove <small>(facoltativo)</small><input type="text" id="f-luogo" maxlength="120" placeholder="es. Piano 1, blocco B"></label>' +
     '<div class="chi-t">Chi <small>(le persone scelte ricevono l’avviso)</small></div><div class="chi-l">' + sceltaChi + "</div>" +
     '<label>Altre squadre o imprese <small>(facoltativo)</small><input type="text" id="f-chi" maxlength="200" placeholder="es. Impresa Bianchi, betonpompa"></label>' +
@@ -376,6 +391,13 @@ export function paginaAgenda(base, tok, c, d, h) {
     "</div>" +
     '<p class="msg" id="ag-msg" aria-live="polite"></p></div>' +
     '<div class="dl-b"><button type="button" class="no" id="ag-no">Annulla</button><button type="submit" class="si" id="ag-si">Segna in agenda</button></div>' +
+    "</form></dialog>" +
+    // «Com'è andata?» dopo «Avvenuto» per le lavorazioni collegate al cronoprogramma (pacchetto B)
+    '<dialog id="ag-es" aria-labelledby="es-tit"><form method="dialog" id="es-form">' +
+    '<div class="dl-t"><h2 id="es-tit">Com’è andata?</h2><p id="es-sub"></p></div>' +
+    '<div class="dl-c"><p class="piccolo">Per ogni attività scegli com’è andata: il cronoprogramma aggiorna le date reali e la percentuale (le date previste non cambiano).</p>' +
+    '<div id="es-l"></div><p class="msg" id="es-msg" aria-live="polite"></p></div>' +
+    '<div class="dl-b"><button type="button" class="no" id="es-no">Annulla</button><button type="submit" class="si" id="es-si">Segna avvenuto</button></div>' +
     "</form></dialog>" +
     "<script>var GL_AG=" + dati + ";" + SCRIPT + "</script></body></html>";
 }
@@ -427,7 +449,13 @@ const STILE =
   ".dl-b .no{background:#fff;color:#333;border:1px solid #c9d1cc}.dl-b .si{background:var(--ar);color:#fff;border:1px solid var(--ar)}.dl-b .si:disabled{opacity:.5;cursor:wait}" +
   ".chi-t{font-weight:600;font-size:.9rem;margin:8px 0 0}.chi-t small{font-weight:400;color:#666}.chi-l{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}" +
   ".dl-c .chi-l label.pc{display:inline-flex;align-items:center;gap:6px;margin:0;padding:6px 10px;border:1px solid var(--bordo);border-radius:999px;font-weight:500;font-size:.88rem;background:#fff;cursor:pointer}" +
-  ".dl-c .chi-l label.pc input{display:inline-block;width:auto;margin:0}.dl-c .chi-l .piccolo{margin:0}";
+  ".dl-c .chi-l label.pc input{display:inline-block;width:auto;margin:0}.dl-c .chi-l .piccolo{margin:0}" +
+  ".cr-l{max-height:230px;overflow:auto;border:1px solid var(--bordo);border-radius:10px;margin-top:6px;background:#fff}" +
+  ".dl-c label.cr-i{display:flex;align-items:flex-start;gap:8px;margin:0;padding:7px 10px;border-bottom:1px solid #EEF0EF;font-weight:500;font-size:.88rem;cursor:pointer}" +
+  ".dl-c label.cr-i input{display:inline-block;width:auto;margin:3px 0 0;flex:none}.cr-i small{display:block;color:#5b6560;font-weight:400;font-size:.76rem}.cr-i.sel{background:#FFF7EA}" +
+  ".cr-vuoto{padding:8px 10px;font-size:.84rem;color:#5b6560}.cr-avv{font-size:.84rem;color:#7A5300;margin:6px 0 0}.cr-avv:empty{display:none}" +
+  ".es-r{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;margin:8px 0 0}.es-r b{display:block;font-size:.9rem;overflow-wrap:anywhere}" +
+  ".es-r .es-c{display:flex;gap:8px;margin-top:6px}.dl-c .es-r select{flex:1;margin-top:0}.dl-c .es-r input{width:90px;flex:none;margin-top:0}";
 
 const SCRIPT = String.raw`(function(){try{
 var D=GL_AG,dlg=document.getElementById('ag-dlg'),form=document.getElementById('ag-form');
@@ -446,6 +474,24 @@ function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo==='nuovo');
  tavv.textContent=l?'Avvisa su WhatsApp le persone scelte in «Chi»':tavv.getAttribute('data-tutti');
  if(l&&!fpers.length)favv.checked=false;}
 ftipo.addEventListener('change',aggiornaTipo);
+/* cronoprogramma (pacchetto B): elenco con ricerca, avviso se il giorno è fuori dalle date previste */
+var CR=D.crono||[],crSel={},crL=document.getElementById('f-cr'),crQ=document.getElementById('f-cr-q'),crAvv=document.getElementById('f-cr-avv');
+function dIt(s){var p=String(s||'').split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:'';}
+function crTrova(id){for(var i=0;i<CR.length;i++)if(CR[i].id===id)return CR[i];return null;}
+function crRender(){if(!crL)return;var q=(crQ.value||'').toLowerCase().trim(),h='',n=0;
+ for(var i=0;i<CR.length;i++){var a=CR[i],sel=!!crSel[a.id];
+  if(!sel&&q&&(a.nome+' '+a.fase).toLowerCase().indexOf(q)===-1)continue;
+  if(!sel&&n>=80)continue;n++;
+  h+='<label class="cr-i'+(sel?' sel':'')+'"><input type="checkbox" value="'+esc(a.id)+'"'+(sel?' checked':'')+'><span>'+esc(a.nome)+'<small>'+
+   [a.fase,(a.ip?'prevista '+dIt(a.ip)+(a.fp&&a.fp!==a.ip?' – '+dIt(a.fp):''):''),(a.pct!=null?Math.round(a.pct)+'% fatto':'')].filter(Boolean).map(esc).join(' · ')+'</small></span></label>';}
+ crL.innerHTML=h||'<div class="cr-vuoto">Nessuna attività con queste parole.</div>';crAvvisa();}
+function crAvvisa(){if(!crAvv)return;var t=[],g=fg.value;
+ for(var id in crSel){var a=crTrova(id);if(a&&g&&a.ip&&a.fp&&(g<a.ip||g>a.fp))t.push('«'+a.nome+'» nel cronoprogramma è prevista '+(a.ip===a.fp?'il '+dIt(a.ip):'dal '+dIt(a.ip)+' al '+dIt(a.fp))+'.');}
+ crAvv.textContent=t.join(' ');}
+if(crL){crQ.addEventListener('input',crRender);fg.addEventListener('change',crAvvisa);
+ crL.addEventListener('change',function(ev){var c=ev.target;if(!c||c.type!=='checkbox')return;
+  if(c.checked){if(Object.keys(crSel).length>=10){c.checked=false;return;}crSel[c.value]=1;var a=crTrova(c.value);if(a&&!ft.value.trim())ft.value=a.nome.slice(0,140);}
+  else delete crSel[c.value];crRender();});}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function m(cl,t){msg.className='msg '+cl;msg.textContent=t;}
 function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=v?'':'none';}
@@ -453,6 +499,7 @@ function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{
 function apriNuovo(){modo='nuovo';cur=null;fatto=false;tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
  fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='consegna';favv.checked=true;fcli.checked=false;fsera.checked=false;
  fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
+ crSel={};if(crQ)crQ.value='';crRender();
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
 function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
  fg.value=b.getAttribute('data-g')||D.oggi;fo.value=b.getAttribute('data-o')||'';ff.value=b.getAttribute('data-f')||'';
@@ -465,7 +512,7 @@ form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)retu
  occupato=true;si.disabled=true;no.disabled=true;m('','Un momento…');
  var pr;
  if(modo==='nuovo'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
-  if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();}
+  if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();dati.attivita=Object.keys(crSel).slice(0,10);}
   pr=post('crea',{t:D.t,c:D.c,dati:dati});}
  else{pr=post('azione',{t:D.t,id:Number(cur),azione:'sposta',dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value}});}
  pr.then(function(j){occupato=false;no.disabled=false;
@@ -483,8 +530,30 @@ no.addEventListener('click',function(){if(occupato)return;dlg.close();});
 dlg.addEventListener('cancel',function(ev){if(occupato)ev.preventDefault();});
 dlg.addEventListener('close',function(){var f=fatto;fatto=false;si.hidden=false;no.textContent='Annulla';if(f)location.reload();});
 var nb=document.getElementById('ag-nuovo');if(nb)nb.addEventListener('click',apriNuovo);
+/* «Com'è andata?» dopo «Avvenuto» (pacchetto B) */
+var es=document.getElementById('ag-es'),esL=document.getElementById('es-l'),esMsg=document.getElementById('es-msg'),esSi=document.getElementById('es-si'),esNo=document.getElementById('es-no'),esId=0,esOcc=false;
+function apriEsito(b){var att=[];try{att=JSON.parse(b.getAttribute('data-att'))||[];}catch(x){att=[];}
+ var r=b.closest('.ag');esId=Number(b.getAttribute('data-id'));document.getElementById('es-sub').textContent=r?r.getAttribute('data-titolo'):'';
+ var h='';for(var i=0;i<att.length;i++){h+='<div class="es-r" data-att="'+esc(att[i].id)+'"><b>'+esc(att[i].nome)+'</b><div class="es-c">'+
+  '<select class="es-e"><option value="in_corso">In corso</option><option value="iniziata">Iniziata</option><option value="finita">Finita</option><option value="non_fatta">Non fatta</option></select>'+
+  '<input type="number" class="es-p" min="0" max="100" step="5" inputmode="numeric" placeholder="%"></div></div>';}
+ esL.innerHTML=h;esMsg.className='msg';esMsg.textContent='';esSi.disabled=false;esNo.disabled=false;
+ esL.querySelectorAll('.es-e').forEach(function(s){s.addEventListener('change',function(){var p=s.parentNode.querySelector('.es-p');p.style.display=(s.value==='finita'||s.value==='non_fatta')?'none':'';});});
+ es.showModal();}
+document.getElementById('es-form').addEventListener('submit',function(ev){ev.preventDefault();if(esOcc)return;var esiti=[];
+ esL.querySelectorAll('.es-r').forEach(function(r){var e=r.querySelector('.es-e').value,p=r.querySelector('.es-p').value;
+  if(e!=='non_fatta')esiti.push({attivita_id:r.getAttribute('data-att'),esito:e,pct:(e==='finita'?'':p)});});
+ for(var i=0;i<esiti.length;i++){var pv=esiti[i].pct;if(pv!==''&&(isNaN(Number(pv))||Number(pv)<0||Number(pv)>100)){esMsg.className='msg ko';esMsg.textContent='La percentuale va da 0 a 100.';return;}}
+ esOcc=true;esSi.disabled=true;esNo.disabled=true;esMsg.className='msg';esMsg.textContent='Un momento…';
+ post('azione',{t:D.t,id:esId,azione:'crono_esito',dati:{esiti:esiti}}).then(function(j){esOcc=false;
+  if(j.esito==='ok'){location.reload();return;}if(j.esito==='gettone'){location.href=D.base+'/';return;}
+  esSi.disabled=false;esNo.disabled=false;esMsg.className='msg ko';esMsg.textContent=j.messaggio||(j.esito==='incerto'?'Non ho avuto risposta: ricarica la pagina tra un minuto.':'Non sono riuscito a salvare: riprova tra poco.');
+ }).catch(function(){esOcc=false;esSi.disabled=false;esNo.disabled=false;esMsg.className='msg ko';esMsg.textContent='Il servizio non risponde: riprova tra poco.';});});
+esNo.addEventListener('click',function(){if(!esOcc)es.close();});
+es.addEventListener('cancel',function(ev){if(esOcc)ev.preventDefault();});
 function azione(b){var az=b.getAttribute('data-az'),id=Number(b.getAttribute('data-id')),r=b.closest('.ag'),titolo=r?r.getAttribute('data-titolo'):'';
  if(az==='sposta'){apriSposta(b);return;}
+ if(az==='avvenuto'&&b.getAttribute('data-att')){apriEsito(b);return;}
  var dati={};
  if(az==='annulla'){if(!confirm('Annullare «'+titolo+'»? Chi lavora in cantiere riceve l’avviso su WhatsApp.'))return;}
  if(az==='cliente'){dati.valore=b.getAttribute('data-v')==='1';}
