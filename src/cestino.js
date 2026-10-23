@@ -97,7 +97,7 @@ function conferma(tipo,ref,nodi){
     var avv=r.consolidato_gia_emesso, ncr=Number(r.crono_effetti)||0;
     var haAvv=avv&&(avv===true||(Array.isArray(avv)&&avv.length)||typeof avv==='object');
     if(haAvv||ncr>0){
-     bx.innerHTML='<h3>Spostato nel cestino</h3>'+(haAvv?'<div class="gl-ct-avv"><b>Attenzione:</b> il giornale di quel giorno era già stato emesso in PDF. Il PDF già emesso non cambia: va rigenerato dall\'ufficio prima di inviarlo alla Direzione Lavori.</div>':'')+(ncr>0?'<div class="gl-ct-avv"><b>Cronoprogramma:</b> questa voce aveva aggiornato l\'avanzamento ('+ncr+(ncr===1?' registrazione':' registrazioni')+'). Le date reali e le percentuali del cronoprogramma non sono state toccate: se non sono corrette, vanno sistemate dall\'ufficio.</div>':'')+'<div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
+     bx.innerHTML='<h3>Spostato nel cestino</h3>'+(haAvv?'<div class="gl-ct-avv"><b>Attenzione:</b> il diario di quel giorno era già chiuso e resta com\'è, con la sua impronta. La voce tolta resta archiviata con il motivo e compare nell\'email del sabato.</div>':'')+(ncr>0?'<div class="gl-ct-avv"><b>Cronoprogramma:</b> questa voce aveva aggiornato l\'avanzamento ('+ncr+(ncr===1?' registrazione':' registrazioni')+'). Le date reali e le percentuali del cronoprogramma non sono state toccate: se non sono corrette, vanno sistemate dall\'ufficio.</div>':'')+'<div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
      bx.querySelector('.pr').onclick=function(){chiudi(w.ov);};
     }else chiudi(w.ov);
    }else{
