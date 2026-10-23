@@ -312,7 +312,7 @@ function rigaApp(x, e, oggi) {
     '<div class="k">' + k + "</div>" + bott + "</div></div>";
 }
 
-function inUrlOrigin(h) { return h.origine || "https://app.ilgiornalelavori.it"; }
+function inUrlOrigin(h) { return h.origine || "https://app.tixcantiere.it"; }
 
 export function paginaAgenda(base, tok, c, d, h) {
   const e = h.esc;

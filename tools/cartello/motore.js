@@ -13,7 +13,7 @@
     testo: '#111111', grigio: '#555555', bianco: '#FFFFFF', avviso: '#A11C1C'
   };
   const LOGO_RAPPORTO = 317.78 / 100; // larghezza / altezza del marchio orizzontale
-  const SITO = 'www.ilgiornalelavori.it';
+  const SITO = 'www.tixcantiere.it';
   const SLOGAN = 'Cartello realizzato con';
   // 10/10/2026 (Filippo): sul cartello delle imprese abbonate «Questo cantiere viene gestito con»; per gli altri resta SLOGAN
   const SLOGAN_ABBONATO = 'Questo cantiere viene gestito con';
@@ -657,7 +657,7 @@
   }
 
   function filigranaSvg(W, H) {
-    const testo = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.ilgiornalelavori.it';
+    const testo = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.tixcantiere.it';
     const size = Math.min(W, H) / 22;
     let s = '<g opacity="0.14" fill="#052A21" font-weight="700">';
     const passo = size * 5;
@@ -710,7 +710,7 @@
     const doc = new jsPDFctor({ unit: 'mm', format: [pw, ph], orientation: pw >= ph ? 'l' : 'p', compress: true, putOnlyUsedFonts: true, floatPrecision: 3 });
     if (!tracciati) registraFont(doc, ris.font);
     const titolo = opz.titolo || `Cartello di cantiere ${esito.formato.nome.replace(/\u00d7/g, 'x')} - Il Giornale Lavori`;
-    doc.setProperties({ title: titolo, subject: 'Cartello di cantiere', creator: 'Il Giornale Lavori — www.ilgiornalelavori.it', author: 'Il Giornale Lavori' });
+    doc.setProperties({ title: titolo, subject: 'Cartello di cantiere', creator: 'Il Giornale Lavori — www.tixcantiere.it', author: 'Il Giornale Lavori' });
     if (typeof doc.setFileId === 'function') doc.setFileId(Array.from({ length: 32 }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join(''));
     // riquadri di pagina: TrimBox = formato finito, BleedBox = foglio con abbondanza (in punti)
     try {
@@ -778,7 +778,7 @@
     }
 
     if (opz.filigrana) {
-      const t = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.ilgiornalelavori.it';
+      const t = 'ANTEPRIMA · NON VALIDA PER LA STAMPA · www.tixcantiere.it';
       const size = Math.min(W, H) / 22;
       doc.saveGraphicsState();
       doc.setGState(new doc.GState({ opacity: 0.14 }));
