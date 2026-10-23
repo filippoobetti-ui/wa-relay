@@ -18,7 +18,8 @@ import { cestinoIniezione } from "./cestino.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
-const TIPI = { consegna: "Consegna", fornitore: "Fornitore", sopralluogo: "Sopralluogo", collaudo: "Collaudo", riunione: "Riunione", altro: "Altro" };
+// «Lavorazioni» (22/10/2026, decisioni 1-3 di Filippo): con «Dove» e «Chi»; l'avviso WhatsApp va solo alle persone scelte.
+const TIPI = { consegna: "Consegna", fornitore: "Fornitore", sopralluogo: "Sopralluogo", collaudo: "Collaudo", riunione: "Riunione", lavorazione: "Lavorazioni", altro: "Altro" };
 
 export const AGENDA_ICONA =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -183,7 +184,9 @@ function pulisciDati(d) {
   if (!d || typeof d !== "object") return o;
   const s = (k, n) => { if (d[k] !== undefined && d[k] !== null) o[k] = String(d[k]).slice(0, n); };
   s("giorno", 10); s("ora", 5); s("ora_fine", 5); s("tipo", 20); s("titolo", 140); s("note", 600); s("motivo", 200);
+  s("luogo", 120); s("chi", 200);
   for (const k of ["avvisa", "visibile_cliente", "avviso_sera_prima", "valore"]) if (typeof d[k] === "boolean") o[k] = d[k];
+  if (Array.isArray(d.persone)) o.persone = d.persone.map((x) => String(x).toLowerCase()).filter((x) => UUID.test(x)).slice(0, 30);
   return o;
 }
 
@@ -276,7 +279,8 @@ function rigaApp(x, e, oggi) {
     st === "avvenuto" ? '<span class="pl ok">avvenuto</span>' : "";
   const ora = x.tutto_il_giorno ? "giorno" : e(x.ora || "");
   const fine = x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "";
-  const note = x.note ? '<div class="n">' + e(x.note) + "</div>" : "";
+  const note = (x.note ? '<div class="n">' + e(x.note) + "</div>" : "") +
+    (x.luogo || x.chi ? '<div class="n">' + [x.luogo ? "📍 " + e(x.luogo) : "", x.chi ? "👷 " + e(x.chi) : ""].filter(Boolean).join(" &middot; ") + "</div>" : "");
   const nAv = Number(x.avvisi_ok) || 0, nNo = Number(x.avvisi_no) || 0;
   let avv = "";
   if (x.avvisa === false) avv = "senza avviso";
@@ -318,11 +322,15 @@ export function paginaAgenda(base, tok, c, d, h) {
     }
     futuri += rigaApp(x, e, oggi);
   }
-  if (!nf) futuri = '<div class="vuoto">Nessun appuntamento in programma. Tocca «Nuovo appuntamento» per segnare una consegna, un fornitore, un sopralluogo o un collaudo: chi lavora in cantiere lo riceve su WhatsApp.</div>';
+  if (!nf) futuri = '<div class="vuoto">Nessun appuntamento in programma. Tocca «Nuovo appuntamento» per segnare una consegna, un fornitore, un sopralluogo, un collaudo o le lavorazioni da fare: chi lavora in cantiere lo riceve su WhatsApp.</div>';
   const persone = Number(d.persone_n) || 0;
   const avvisoChi = persone ? persone + (persone === 1 ? " persona registrata" : " persone registrate") : "nessuna persona registrata";
   const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true }).replace(/</g, "\\u003c");
   const opzTipo = Object.keys(TIPI).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
+  const pers = Array.isArray(d.persone) ? d.persone : [];
+  const sceltaChi = pers.length
+    ? pers.map((p) => '<label class="pc"><input type="checkbox" class="f-pers" value="' + e(p.id) + '"> ' + e(p.nome) + "</label>").join("")
+    : '<p class="piccolo">Nessuna persona registrata: scrivi qui sotto la squadra o l’impresa.</p>';
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
@@ -342,7 +350,8 @@ export function paginaAgenda(base, tok, c, d, h) {
       '<div class="ics-riga"><input type="text" readonly id="ics-url" value="' + e(inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics") + '"><button type="button" id="ics-copia">Copia</button></div>' +
       '<p class="piccolo">Chi ha questo indirizzo vede gli appuntamenti del cantiere: condividilo solo con chi deve averli.</p></details>' : "") +
     '<p class="nota">Ogni appuntamento arriva su WhatsApp a chi lavora in questo cantiere (' + avvisoChi + '), nella sua lingua. ' +
-    'Chi non ha scritto al Giornale Lavori nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso.</p>' +
+    'Chi non ha scritto al Giornale Lavori nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso. ' +
+    'Le «Lavorazioni» arrivano solo alle persone scelte in «Chi».</p>' +
     "<noscript><p class=\"nota\"><b>Per aggiungere o modificare gli appuntamenti serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main>" +
     // modulo nuovo / sposta
@@ -353,10 +362,15 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<label>Ora <small>(vuota = tutto il giorno)</small><input type="time" id="f-o" step="300"></label></div>' +
     '<div class="riga2"><label>Fine <small>(facoltativa)</small><input type="time" id="f-f" step="300"></label>' +
     '<label id="l-tipo">Tipo<select id="f-tipo">' + opzTipo + "</select></label></div>" +
-    '<label id="l-titolo">Cosa succede<input type="text" id="f-t" maxlength="140" placeholder="es. Consegna solaio – autotrasportatore" required></label>' +
+    '<label id="l-titolo"><span id="t-titolo">Cosa succede</span><input type="text" id="f-t" maxlength="140" placeholder="es. Consegna solaio – autotrasportatore" required></label>' +
+    '<div id="l-lav" style="display:none">' +
+    '<label>Dove <small>(facoltativo)</small><input type="text" id="f-luogo" maxlength="120" placeholder="es. Piano 1, blocco B"></label>' +
+    '<div class="chi-t">Chi <small>(le persone scelte ricevono l’avviso)</small></div><div class="chi-l">' + sceltaChi + "</div>" +
+    '<label>Altre squadre o imprese <small>(facoltativo)</small><input type="text" id="f-chi" maxlength="200" placeholder="es. Impresa Bianchi, betonpompa"></label>' +
+    "</div>" +
     '<label id="l-note">Note <small>(facoltative)</small><textarea id="f-n" maxlength="600" rows="2" placeholder="es. serve la gru, tenere libero il piazzale"></textarea></label>' +
     '<div id="l-opz" class="opz">' +
-    '<label class="ck"><input type="checkbox" id="f-avv" checked> Avvisa su WhatsApp chi lavora in cantiere (' + e(avvisoChi) + ")</label>" +
+    '<label class="ck"><input type="checkbox" id="f-avv" checked> <span id="t-avv" data-tutti="' + e("Avvisa su WhatsApp chi lavora in cantiere (" + avvisoChi + ")") + '">Avvisa su WhatsApp chi lavora in cantiere (' + e(avvisoChi) + ")</span></label>" +
     '<label class="ck"><input type="checkbox" id="f-cli"> Visibile anche al cliente</label>' +
     '<label class="ck"><input type="checkbox" id="f-sera"> Promemoria la sera prima al referente</label>' +
     "</div>" +
@@ -410,7 +424,10 @@ const STILE =
   ".msg{font-size:.88rem;margin:10px 0 0;min-height:1.2em}.msg.ko{color:#8c1d18;font-weight:600}.msg.ok{color:#0B5E37;font-weight:600}.msg:empty{display:none}" +
   ".dl-b{display:flex;gap:10px;padding:14px 18px 18px}" +
   ".dl-b button{flex:1;min-height:46px;font:inherit;font-weight:700;font-size:1rem;border-radius:10px;cursor:pointer}" +
-  ".dl-b .no{background:#fff;color:#333;border:1px solid #c9d1cc}.dl-b .si{background:var(--ar);color:#fff;border:1px solid var(--ar)}.dl-b .si:disabled{opacity:.5;cursor:wait}";
+  ".dl-b .no{background:#fff;color:#333;border:1px solid #c9d1cc}.dl-b .si{background:var(--ar);color:#fff;border:1px solid var(--ar)}.dl-b .si:disabled{opacity:.5;cursor:wait}" +
+  ".chi-t{font-weight:600;font-size:.9rem;margin:8px 0 0}.chi-t small{font-weight:400;color:#666}.chi-l{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}" +
+  ".dl-c .chi-l label.pc{display:inline-flex;align-items:center;gap:6px;margin:0;padding:6px 10px;border:1px solid var(--bordo);border-radius:999px;font-weight:500;font-size:.88rem;background:#fff;cursor:pointer}" +
+  ".dl-c .chi-l label.pc input{display:inline-block;width:auto;margin:0}.dl-c .chi-l .piccolo{margin:0}";
 
 const SCRIPT = String.raw`(function(){try{
 var D=GL_AG,dlg=document.getElementById('ag-dlg'),form=document.getElementById('ag-form');
@@ -420,24 +437,36 @@ if(!dlg||typeof dlg.showModal!=='function'){var nb=document.getElementById('ag-n
 var tit=document.getElementById('ag-tit'),sub=document.getElementById('ag-sub'),msg=document.getElementById('ag-msg'),no=document.getElementById('ag-no'),si=document.getElementById('ag-si');
 var fg=document.getElementById('f-g'),fo=document.getElementById('f-o'),ff=document.getElementById('f-f'),ft=document.getElementById('f-t'),fn=document.getElementById('f-n'),ftipo=document.getElementById('f-tipo'),
  favv=document.getElementById('f-avv'),fcli=document.getElementById('f-cli'),fsera=document.getElementById('f-sera');
+var fluogo=document.getElementById('f-luogo'),fchi=document.getElementById('f-chi'),ttit=document.getElementById('t-titolo'),tavv=document.getElementById('t-avv'),fpers=document.querySelectorAll('.f-pers');
 var modo='nuovo',cur=null,occupato=false,fatto=false;
+function lav(){return ftipo.value==='lavorazione';}
+function scelte(){var a=[];for(var i=0;i<fpers.length;i++)if(fpers[i].checked)a.push(fpers[i].value);return a;}
+function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo==='nuovo');
+ ttit.textContent=l?'Quali lavorazioni':'Cosa succede';ft.placeholder=l?'es. Getto del solaio del piano 1':'es. Consegna solaio – autotrasportatore';
+ tavv.textContent=l?'Avvisa su WhatsApp le persone scelte in «Chi»':tavv.getAttribute('data-tutti');
+ if(l&&!fpers.length)favv.checked=false;}
+ftipo.addEventListener('change',aggiornaTipo);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function m(cl,t){msg.className='msg '+cl;msg.textContent=t;}
 function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=v?'':'none';}
 function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(corpo)}).then(function(r){return r.json();});}
 function apriNuovo(){modo='nuovo';cur=null;fatto=false;tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
  fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='consegna';favv.checked=true;fcli.checked=false;fsera.checked=false;
- ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
+ fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
+ ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
 function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
  fg.value=b.getAttribute('data-g')||D.oggi;fo.value=b.getAttribute('data-o')||'';ff.value=b.getAttribute('data-f')||'';
- ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,false);});ft.required=false;si.textContent='Sposta e avvisa';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
+ ['l-tipo','l-titolo','l-note','l-opz','l-lav'].forEach(function(k){mostra(k,false);});ft.required=false;si.textContent='Sposta e avvisa';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
 form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)return;
  if(!fg.value){m('ko','Indica il giorno.');return;}
  if(modo==='nuovo'&&!ft.value.trim()){m('ko','Scrivi cosa succede.');return;}
  if(fo.value&&ff.value&&ff.value<=fo.value){m('ko','L’ora di fine deve venire dopo l’inizio.');return;}
+ if(modo==='nuovo'&&lav()&&favv.checked&&!scelte().length){m('ko','Scegli in «Chi» le persone da avvisare, oppure togli la spunta dell’avviso WhatsApp.');return;}
  occupato=true;si.disabled=true;no.disabled=true;m('','Un momento…');
  var pr;
- if(modo==='nuovo'){pr=post('crea',{t:D.t,c:D.c,dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked}});}
+ if(modo==='nuovo'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
+  if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();}
+  pr=post('crea',{t:D.t,c:D.c,dati:dati});}
  else{pr=post('azione',{t:D.t,id:Number(cur),azione:'sposta',dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value}});}
  pr.then(function(j){occupato=false;no.disabled=false;
   if(j.esito==='ok'){fatto=true;var t=modo==='nuovo'?'Segnato in agenda.':'Spostato.';
