@@ -251,7 +251,7 @@ function paginaCrono(base, tok, c, d, h, spentoRelay, apri) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Cronoprogramma - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     "<style>" + STILE + "</style></head><body>" +
-    "<header>" + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Cronoprogramma</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
     attuale +
@@ -264,7 +264,7 @@ function paginaCrono(base, tok, c, d, h, spentoRelay, apri) {
     (elenco ? '<div class="tit">Ultimi file ricevuti</div>' + elenco : "") +
     '<p class="nota">Il file viene letto in automatico e ti mostriamo cosa abbiamo trovato: <b>nel giornale non cambia nulla finché non premi «Conferma»</b>. ' +
     "Alla conferma il nuovo cronoprogramma diventa quello in uso; quello di prima resta in archivio e le lavorazioni già registrate (con lo stesso nome) tengono date reali e avanzamento.</p>" +
-    '<p class="nota">Puoi anche mandarlo su WhatsApp al Giornale Lavori scrivendo nel messaggio «cronoprogramma» e il nome del cantiere: ricevi lo stesso riepilogo da confermare.</p>' +
+    '<p class="nota">Puoi anche mandarlo su WhatsApp a TIX scrivendo nel messaggio «cronoprogramma» e il nome del cantiere: ricevi lo stesso riepilogo da confermare.</p>' +
     "<noscript><p class=\"nota\"><b>Per caricare il file serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main><script>var GL_CR=" + dati + ";" + SCRIPT + "</script></body></html>";
 }

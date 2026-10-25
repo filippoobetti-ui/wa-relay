@@ -1,4 +1,5 @@
-// cartello — Il Giornale Lavori (05/10/2026) — v7 (11/10/2026: invio del PDF al tipografo con link da scaricare) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
+// 24/10/2026: nome del servizio «TIX · Diario di cantiere» nei testi visibili (prima «Il Giornale Lavori»).
+// cartello — Il Giornale Lavori (05/10/2026) — v10 (23/10/2026: nuovo dominio tixcantiere.it — ritorni ammessi, logo, testi e mittente info@tixcantiere.it; il vecchio dominio resta ammesso) — v9 (16/10/2026: email al tipografo e pagine con i colori e il marchio TIX) — v7 (11/10/2026: invio del PDF al tipografo con link da scaricare) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
 // già esistente (scenario 7490419 → onboarding_completa_da_pagamento → cartello_completa_da_pagamento).
 // Generatore del cartello di cantiere: la PAGINA (public/cartello/index.html del relay wa-relay) si compila
 // e compone il PDF nel browser del cliente (jsPDF + motore condiviso); QUI ci sono solo i passaggi del
@@ -17,7 +18,7 @@
 //   POST /invio-prepara           {sessione, email_cliente, nome_cliente, email_tipografo, nota, byte, base_cm, altezza_cm}
 //                                 → {id, caricamento} (URL firmato: il browser carica il PDF direttamente nell'archivio privato «cartelli-stampa»)
 //   POST /invio-conferma          {id, sessione} → controlla che il file ci sia e manda l'email (scenario Make 7899006, Brevo,
-//                                 mittente «<impresa> tramite Il Giornale Lavori» <info@ilgiornalelavori.it>, Rispondi a = cliente, copia al cliente)
+//                                 mittente «<impresa> tramite TIX» <info@tixcantiere.it>, Rispondi a = cliente, copia al cliente)
 //   GET  /file?k=…                link dell'email: rimanda a un indirizzo firmato di 10 minuti; scade dopo cartello_invio_giorni (30)
 //   POST /pulizia                 (pg_cron, intestazione x-chiave) cancella i file scaduti e gli invii mai completati
 //
@@ -182,7 +183,8 @@ async function checkout(req: Request): Promise<Response> {
   const prezzo = Math.max(100, parseInt(imp.cartello_prezzo_cent || '900', 10) || 900);
   const base = (imp.cartello_url || CARTELLO_URL_DEFAULT).replace(/\/+$/, '');
   // l'indirizzo di ritorno è quello configurato, salvo che il cliente non sia già su un indirizzo nostro
-  const ammessi = [base, 'https://www.ilgiornalelavori.it', 'https://ilgiornalelavori.it'];
+  // (23/10/2026: anche tixcantiere.it; il vecchio dominio e l'host tecnico restano ammessi)
+  const ammessi = [base, 'https://www.tixcantiere.it', 'https://tixcantiere.it', 'https://www.ilgiornalelavori.it', 'https://ilgiornalelavori.it', CARTELLO_URL_DEFAULT];
   const ritorno = ammessi.some((a) => ritornoRichiesto.startsWith(a)) ? ritornoRichiesto.replace(/\/+$/, '') : base;
 
   const descrizione = `Cartello di cantiere ${etichetta} (${orientamento}) — file PDF per la stampa`;
@@ -197,7 +199,7 @@ async function checkout(req: Request): Promise<Response> {
     'line_items[0][price_data][currency]': 'eur',
     'line_items[0][price_data][unit_amount]': String(prezzo),
     'line_items[0][price_data][product_data][name]': `Cartello di cantiere ${etichetta}`,
-    'line_items[0][price_data][product_data][description]': 'File PDF vettoriale per la stampa, con render, loghi e QR — Il Giornale Lavori',
+    'line_items[0][price_data][product_data][description]': 'File PDF vettoriale per la stampa, con render, loghi e QR — TIX · Diario di cantiere',
     customer_creation: 'always',
     'tax_id_collection[enabled]': 'true',
     billing_address_collection: 'required',
@@ -266,7 +268,6 @@ async function verifica(sessione: string, pivaCartello = '', testoCartello = '')
   if (s.status === 'expired') { await aggiornaVendita(sessione, { stato: 'scaduto' }); return json({ esito: 'non_trovato' }, 404); }
   return json({ esito: 'in_attesa' });
 }
-
 
 // ------------------------------------------------------------------ v7 (11/10/2026): invio al tipografo
 const BUCKET = 'cartelli-stampa';
@@ -356,26 +357,27 @@ function htmlEmail(inv: Dizionario, vendita: Dizionario, link: string, scade: st
   const nome = esc(inv.nome_cliente), emailC = esc(inv.email_cliente);
   const [b, h] = String(inv.formato ?? '').split('x');
   const mb = (Number(inv.byte ?? 0) / 1048576).toFixed(1).replace('.', ',');
-  const riga = (k: string, v: string) => v ? `<tr><td style="padding:6px 12px 6px 0;color:#5b6b66;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:6px 0;color:#0b231c">${v}</td></tr>` : '';
+  const riga = (k: string, v: string) => v ? `<tr><td style="padding:6px 12px 6px 0;color:#5A6573;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:6px 0;color:#1B2F4A">${v}</td></tr>` : '';
   const nota = String(inv.nota ?? '').trim();
-  return `<!doctype html><html lang="it"><body style="margin:0;padding:0;background:#f2f7f3">
-<div style="max-width:600px;margin:0 auto;padding:24px 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0b231c">
-<div style="background:#ffffff;border:1px solid #d9e6df;border-radius:14px;padding:26px 24px">
+  return `<!doctype html><html lang="it"><body style="margin:0;padding:0;background:#F5F6F8">
+<div style="max-width:600px;margin:0 auto;padding:24px 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1B2F4A">
+<div style="background:#ffffff;border:1px solid #D9DEE5;border-radius:14px;padding:26px 24px">
+<p style="margin:0 0 18px"><img src="https://app.tixcantiere.it/marchio-tix.png" alt="TIX" height="40" style="height:40px;width:auto;display:block"></p>
 <p style="margin:0 0 14px">Buongiorno,</p>
-<p style="margin:0 0 14px"><strong>${nome}</strong> (<a href="mailto:${emailC}" style="color:#0f7a4a">${emailC}</a>) ti ha inviato il file del suo <strong>cartello di cantiere da stampare</strong>, preparato con Il Giornale Lavori.</p>
+<p style="margin:0 0 14px"><strong>${nome}</strong> (<a href="mailto:${emailC}" style="color:#1B2F4A">${emailC}</a>) ti ha inviato il file del suo <strong>cartello di cantiere da stampare</strong>, preparato con TIX · Diario di cantiere.</p>
 <table style="border-collapse:collapse;margin:6px 0 18px;font-size:14px">
 ${riga('Opera', esc(M_titolo(String(vendita.oggetto ?? ''))))}
 ${riga('Ubicazione', esc(vendita.ubicazione ?? ''))}
 ${riga('Misura', `base ${esc(b)} × altezza ${esc(h)} cm`)}
 ${riga('File', `PDF/X-1a:2001 — CMYK FOGRA39, testi convertiti in tracciati, pronto per la stampa (${mb} MB)`)}
 </table>
-${nota ? `<div style="background:#f2f7f3;border-left:4px solid #1fd277;border-radius:6px;padding:10px 14px;margin:0 0 18px"><div style="font-size:12px;color:#5b6b66;margin-bottom:4px">Messaggio di ${nome}</div>${esc(nota).replace(/\n/g, '<br>')}</div>` : ''}
-<p style="margin:0 0 8px;text-align:center"><a href="${esc(link)}" style="display:inline-block;background:#12b764;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 26px;border-radius:999px">Scarica il file per la stampa</a></p>
-<p style="margin:0 0 18px;text-align:center;font-size:13px;color:#5b6b66">Il link resta valido fino al ${esc(scade)}.</p>
+${nota ? `<div style="background:#F5F6F8;border-left:4px solid #F26A10;border-radius:6px;padding:10px 14px;margin:0 0 18px"><div style="font-size:12px;color:#5A6573;margin-bottom:4px">Messaggio di ${nome}</div>${esc(nota).replace(/\n/g, '<br>')}</div>` : ''}
+<p style="margin:0 0 8px;text-align:center"><a href="${esc(link)}" style="display:inline-block;background:#F26A10;color:#1B2F4A;text-decoration:none;font-weight:bold;padding:14px 26px;border-radius:999px">Scarica il file per la stampa</a></p>
+<p style="margin:0 0 18px;text-align:center;font-size:13px;color:#5A6573">Il link resta valido fino al ${esc(scade)}.</p>
 <p style="margin:0 0 6px">Per domande sulla stampa, tempi o prezzi <strong>rispondi a questa email</strong>: la risposta arriva direttamente a ${nome} (${emailC}).</p>
 </div>
-<div style="padding:16px 8px;font-size:12px;line-height:1.5;color:#5b6b66">
-<p style="margin:0 0 8px"><strong>Chi siamo.</strong> Il Giornale Lavori (www.ilgiornalelavori.it) è il servizio con cui le imprese edili tengono il giornale di cantiere su WhatsApp e creano online il proprio cartello di cantiere.</p>
+<div style="padding:16px 8px;font-size:12px;line-height:1.5;color:#5A6573">
+<p style="margin:0 0 8px"><strong>Chi siamo.</strong> TIX · Diario di cantiere (www.tixcantiere.it) è il servizio con cui le imprese edili tengono il diario di cantiere su WhatsApp e creano online il proprio cartello di cantiere.</p>
 <p style="margin:0">Questa email è partita su richiesta di ${nome}, che ha indicato il tuo indirizzo per la stampa del cartello. Non ti abbiamo iscritto a nessuna lista e non riceverai altre email da noi. Il file verrà cancellato dai nostri sistemi dopo la scadenza del link.</p>
 </div></div></body></html>`;
 }
@@ -418,7 +420,7 @@ async function invioConferma(req: Request): Promise<Response> {
   const [b, h] = String(inv.formato ?? '').split('x');
   const payload = {
     chiave: imp.cartello_invio_hook_chiave,
-    da: `"${nome} tramite Il Giornale Lavori" <info@ilgiornalelavori.it>`,
+    da: `"${nome} tramite TIX" <info@tixcantiere.it>`,
     a: inv.email_tipografo, cc: inv.email_cliente, rispondi_a: inv.email_cliente,
     oggetto: `Cartello di cantiere da stampare (${b}×${h} cm) — ${nome}`,
     html: htmlEmail({ ...inv, byte: dimensione }, vendita, link, scade),
@@ -440,9 +442,10 @@ async function invioConferma(req: Request): Promise<Response> {
 
 function paginaSemplice(titolo: string, testo: string, stato: number): Response {
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(titolo)}</title></head>
-<body style="margin:0;background:#f2f7f3;font-family:Arial,Helvetica,sans-serif;color:#0b231c"><div style="max-width:520px;margin:12vh auto;padding:28px 24px;background:#fff;border:1px solid #d9e6df;border-radius:14px">
+<body style="margin:0;background:#F5F6F8;font-family:Arial,Helvetica,sans-serif;color:#1B2F4A"><div style="max-width:520px;margin:12vh auto;padding:28px 24px;background:#fff;border:1px solid #D9DEE5;border-radius:14px">
+<p style="margin:0 0 16px"><img src="https://app.tixcantiere.it/marchio-tix.png" alt="TIX" height="36" style="height:36px;width:auto;display:block"></p>
 <h1 style="font-size:20px;margin:0 0 10px">${esc(titolo)}</h1><p style="margin:0 0 14px;line-height:1.55">${testo}</p>
-<p style="margin:0;font-size:13px;color:#5b6b66">Il Giornale Lavori — www.ilgiornalelavori.it</p></div></body></html>`;
+<p style="margin:0;font-size:13px;color:#5A6573">TIX · Diario di cantiere — www.tixcantiere.it</p></div></body></html>`;
   return new Response(html, { status: stato, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
 }
 

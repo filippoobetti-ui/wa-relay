@@ -12,7 +12,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Informativa sulla Privacy — Giornale Lavori Digitale</title>
+<title>Informativa sulla Privacy — TIX · Diario di cantiere</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1a1a1a; }
   h1 { font-size: 1.5rem; border-bottom: 2px solid #2c7a4b; padding-bottom: 10px; }
@@ -27,7 +27,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <h1>Informativa sul trattamento dei dati personali</h1>
 <p class="updated">Ultimo aggiornamento: 12 ottobre 2026</p>
 
-<p>La presente informativa descrive le modalità di trattamento dei dati personali raccolti tramite il sistema di comunicazione WhatsApp Business denominato "Giornale Lavori digitale", utilizzato per la gestione digitale delle attività di cantiere, ai sensi del Regolamento (UE) 2016/679 (GDPR).</p>
+<p>La presente informativa descrive le modalità di trattamento dei dati personali raccolti tramite il sistema di comunicazione WhatsApp Business denominato "TIX · Diario di cantiere", utilizzato per la gestione digitale delle attività di cantiere, ai sensi del Regolamento (UE) 2016/679 (GDPR).</p>
 
 <p>Il sistema è fornito da <strong>Obetti Filippo</strong>, ditta individuale, alle imprese edili che se ne avvalgono per la gestione operativa dei propri cantieri (di seguito, ciascuna, l'"Impresa Cliente").</p>
 
@@ -85,7 +85,7 @@ PEC: obettifilippo@pec.it — Email: info@tixcantiere.it
 </ul>
 
 <footer>
-Giornale Lavori Digitale — sistema di gestione automatizzata delle comunicazioni di cantiere, fornito da Obetti Filippo (ditta individuale) alle imprese edili clienti.
+TIX · Diario di cantiere — sistema di gestione automatizzata delle comunicazioni di cantiere, fornito da Obetti Filippo (ditta individuale) alle imprese edili clienti.
 </footer>
 
 </body>
@@ -97,7 +97,7 @@ const DATA_DELETION_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Richiesta di cancellazione dati — Giornale Lavori Digitale</title>
+<title>Richiesta di cancellazione dati — TIX · Diario di cantiere</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1a1a1a; }
   h1 { font-size: 1.5rem; border-bottom: 2px solid #2c7a4b; padding-bottom: 10px; }
@@ -109,7 +109,7 @@ const DATA_DELETION_HTML = `<!DOCTYPE html>
 
 <h1>Richiesta di cancellazione dei dati personali</h1>
 
-<p>Se hai utilizzato il servizio di comunicazione WhatsApp Business "Giornale Lavori digitale" e desideri richiedere la cancellazione dei tuoi dati personali, puoi procedere in uno dei seguenti modi:</p>
+<p>Se hai utilizzato il servizio di comunicazione WhatsApp Business "TIX · Diario di cantiere" e desideri richiedere la cancellazione dei tuoi dati personali, puoi procedere in uno dei seguenti modi:</p>
 
 <ol>
   <li>Contatta l'impresa per cui svolgi o hai svolto la tua attività di cantiere, che è Titolare del trattamento dei tuoi dati; oppure</li>
@@ -127,7 +127,7 @@ Email: info@tixcantiere.it
 <p>La richiesta sarà evasa entro 30 giorni dal ricevimento, salvo proroghe previste dalla normativa applicabile (art. 12 GDPR), e comporterà la cancellazione o l'anonimizzazione dei dati personali associati al numero di telefono indicato, fatti salvi gli obblighi di conservazione previsti dalla legge (es. documentazione contabile, fiscale e di sicurezza sul lavoro).</p>
 
 <footer>
-Giornale Lavori Digitale — fornito da Obetti Filippo (ditta individuale).
+TIX · Diario di cantiere — fornito da Obetti Filippo (ditta individuale).
 </footer>
 
 </body>
@@ -891,7 +891,7 @@ function extFromMime(mime) {
 // va a Make come oggi. Spegnimento senza deploy: impostazioni.chat_unica_attiva = 'no'
 // (tutto), oppure svuotare chat_unica_produzione_numeri (solo la produzione).
 // ============================================================================
-const RELAY_VERSIONE = "wa-relay 2026-10-24 restyling-1 (aspetto «premium» del portale: uno strato di stile in src/stile-premium.js, testi e funzioni invariati; PREMIUM=off lo spegne) · wa-relay 2026-10-23 dominio-3 (www.ilgiornalelavori.it e ilgiornalelavori.it: le pagine aperte dal browser rimandano con un 301 a www.tixcantiere.it, stesso percorso e parametri; il resto servito come prima; app.ilgiornalelavori.it invariato) · wa-relay 2026-10-23 dominio-2 (indirizzi nuovi nei testi: info@tixcantiere.it in privacy, cancellazione dati, portale e messaggi; www.tixcantiere.it in portale, messaggio informativo, istruzioni della voce, pagina «in arrivo» e cartello; app.tixcantiere.it per gli inviti dell'agenda) · wa-relay 2026-10-23 dominio-1 (nuovo dominio accanto al vecchio: www.tixcantiere.it e tixcantiere.it serviti come www.ilgiornalelavori.it, con il dominio nudo che rimanda a www dello stesso dominio; portale anche su app.tixcantiere.it, sempre anche su app.ilgiornalelavori.it; riga in fondo ai documenti con il dominio che trova) · wa-relay 2026-10-23 crono-2 (agenda «Lavorazioni» e rapportini dell'ufficio collegati al cronoprogramma: elenco con ricerca delle attività, «Com'è andata?» dopo «Avvenuto», esiti nel cronoprogramma con date reali e percentuale, mai le date previste) · wa-relay 2026-10-23 giornale-1 (scheda Giornale: «Correggi» rosso accanto ad «Apri il file» e «Aggiungi una voce di oggi», via /giornale/ufficio; prima delle 22:00 la correzione entra nel diario della sera con il testo mandato dal cantiere, dopo resta a parte e va nell'email del sabato) · wa-relay 2026-10-23 rapportini-1 (rapportini dell'ufficio anche con data passata: /rapportino con calendario del mese, bozza, registrazione con impronta SHA-256, correzioni e annulli come versioni nuove, documento da stampare e originale; agenda: tipo «Lavorazioni» con dove e chi, avviso solo alle persone scelte) · wa-relay 2026-10-22 ingresso-make-3 (avviso a Filippo quando Make riceve i messaggi ma non li elabora: /admin ingresso_avviso, chiamata dal database) · wa-relay 2026-10-22 ingresso-make-2 (ogni messaggio salvato in ingresso_make appena arriva, prima della risposta a Meta: se il relay si ferma prima di decidere, dopo 3 minuti va a Make come sempre; i messaggi che Meta riconsegna non si rielaborano; i pacchetti della chat unica si salvano prima delle risposte) · wa-relay 2026-10-22 ingresso-make-1 (nessun messaggio perso tra relay e Make: ogni pacchetto registrato in ingresso_make prima dell'invio, risposta di Make controllata, reinvio dei non arrivati da /admin ingresso_reinvia ogni minuto via pg_cron, nessun doppione, avviso a Filippo oltre la soglia di tentativi; INGRESSO_MAKE=off lo spegne) · wa-relay 2026-10-21 listino-v2-testi-1 (testi informativi col listino per persone attive: cantieri illimitati, prova gratuita di 30 giorni, si pagano le persone che scrivono, in Info sul servizio e nelle istruzioni della voce) \u00B7 wa-relay 2026-10-19 dieta-2 (D6: timbrature riuscite solo con la spunta di lettura quando il database lo indica; D4: niente reazioni) \u00B7 wa-relay 2026-10-18 dieta-1 (contatore dei messaggi in uscita: stati Meta con pricing in wa_uscita via wa_uscita_stato, etichetta biz_opaque_callback_data con la funzione chiamante su ogni invio del relay; DIETA_STATI=off spegne gli stati) \u00B7 wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
+const RELAY_VERSIONE = "wa-relay 2026-10-24 nome-1 (nome del prodotto «TIX · Diario di cantiere» al posto di «Il Giornale Lavori» nei testi visibili: portale, app installabile, pagine /privacy e /data-deletion, risposte WhatsApp, voce del centralino, cartello e pagina in arrivo) · wa-relay 2026-10-24 restyling-1 (aspetto «premium» del portale: uno strato di stile in src/stile-premium.js, testi e funzioni invariati; PREMIUM=off lo spegne) · wa-relay 2026-10-23 dominio-3 (www.ilgiornalelavori.it e ilgiornalelavori.it: le pagine aperte dal browser rimandano con un 301 a www.tixcantiere.it, stesso percorso e parametri; il resto servito come prima; app.ilgiornalelavori.it invariato) · wa-relay 2026-10-23 dominio-2 (indirizzi nuovi nei testi: info@tixcantiere.it in privacy, cancellazione dati, portale e messaggi; www.tixcantiere.it in portale, messaggio informativo, istruzioni della voce, pagina «in arrivo» e cartello; app.tixcantiere.it per gli inviti dell'agenda) · wa-relay 2026-10-23 dominio-1 (nuovo dominio accanto al vecchio: www.tixcantiere.it e tixcantiere.it serviti come www.ilgiornalelavori.it, con il dominio nudo che rimanda a www dello stesso dominio; portale anche su app.tixcantiere.it, sempre anche su app.ilgiornalelavori.it; riga in fondo ai documenti con il dominio che trova) · wa-relay 2026-10-23 crono-2 (agenda «Lavorazioni» e rapportini dell'ufficio collegati al cronoprogramma: elenco con ricerca delle attività, «Com'è andata?» dopo «Avvenuto», esiti nel cronoprogramma con date reali e percentuale, mai le date previste) · wa-relay 2026-10-23 giornale-1 (scheda Giornale: «Correggi» rosso accanto ad «Apri il file» e «Aggiungi una voce di oggi», via /giornale/ufficio; prima delle 22:00 la correzione entra nel diario della sera con il testo mandato dal cantiere, dopo resta a parte e va nell'email del sabato) · wa-relay 2026-10-23 rapportini-1 (rapportini dell'ufficio anche con data passata: /rapportino con calendario del mese, bozza, registrazione con impronta SHA-256, correzioni e annulli come versioni nuove, documento da stampare e originale; agenda: tipo «Lavorazioni» con dove e chi, avviso solo alle persone scelte) · wa-relay 2026-10-22 ingresso-make-3 (avviso a Filippo quando Make riceve i messaggi ma non li elabora: /admin ingresso_avviso, chiamata dal database) · wa-relay 2026-10-22 ingresso-make-2 (ogni messaggio salvato in ingresso_make appena arriva, prima della risposta a Meta: se il relay si ferma prima di decidere, dopo 3 minuti va a Make come sempre; i messaggi che Meta riconsegna non si rielaborano; i pacchetti della chat unica si salvano prima delle risposte) · wa-relay 2026-10-22 ingresso-make-1 (nessun messaggio perso tra relay e Make: ogni pacchetto registrato in ingresso_make prima dell'invio, risposta di Make controllata, reinvio dei non arrivati da /admin ingresso_reinvia ogni minuto via pg_cron, nessun doppione, avviso a Filippo oltre la soglia di tentativi; INGRESSO_MAKE=off lo spegne) · wa-relay 2026-10-21 listino-v2-testi-1 (testi informativi col listino per persone attive: cantieri illimitati, prova gratuita di 30 giorni, si pagano le persone che scrivono, in Info sul servizio e nelle istruzioni della voce) \u00B7 wa-relay 2026-10-19 dieta-2 (D6: timbrature riuscite solo con la spunta di lettura quando il database lo indica; D4: niente reazioni) \u00B7 wa-relay 2026-10-18 dieta-1 (contatore dei messaggi in uscita: stati Meta con pricing in wa_uscita via wa_uscita_stato, etichetta biz_opaque_callback_data con la funzione chiamante su ogni invio del relay; DIETA_STATI=off spegne gli stati) \u00B7 wa-relay 2026-10-16 diario-1 (testi: «diario di cantiere» per il PDF della sera e «rapportino settimanale delle ore in economia» nella pagina Data certa e nel modulo Nuovo cantiere) · wa-relay 2026-10-16 marchio-a-1 (marchio TIX unico versione A: icone bianche con spunta arancione, marchio a colori e targhetta bianca sui fondi scuri, portale e cartello navy) · wa-relay 2026-10-16 tix-testi-1 (nome TIX nei saluti e nelle istruzioni del centralino, nell'informativa privacy e nel cartello di cantiere) + logo-tix-1 (icone dell'app e marchio TIX: /marchio-tix.svg e /marchio-tix.png al posto del marchio precedente) + crono-import-1 (cronoprogramma da file: PDF, Excel/CSV, XML di Project, XML/XER di Primavera, foto — da WhatsApp con «cronoprogramma» nella didascalia o dall’area riservata /cronoprogramma; riepilogo con «Conferma / Annulla», pulsanti CRONO_IMP_, /admin crono_import_avvisa) + portale-6 (Nuovo cantiere: importo contrattuale, CUP e CIG facoltativi, con gli stessi controlli del modulo pubblico v9, per la testata del rapportino) + agenda-3 (appuntamenti di oggi nel messaggio del mattino, promemoria della sera prima al referente via /admin agenda_sera_prima, calendario ICS per cantiere /agenda/ics/<chiave>.ics) + agenda-2 (lettura AI degli appuntamenti dai messaggi: conferma «Giusto / Correggi» a chi ha scritto, pulsanti AG_OK_/AG_NO_, /admin agenda_conferma) + agenda-1 (/agenda: appuntamenti di cantiere dall'area riservata, scheda Agenda nella pagina del cantiere, avvisi WhatsApp a chi lavora nel cantiere via agenda_avvisi_lista; /admin agenda_avvisa, template_lista, template_crea) + data-certa-1 (/data-certa: la data certa con marca temporale si accende e si spegne dall'area riservata, con conferma e importo esatto; inoltro alla funzione data-certa) + chat-unica-6 + badge-2 + cartello-3 (invio al tipografo: /cartello/invio-prepara, /invio-conferma, /file) + cartello-2 (produzione, promemoria, flow, glossario vocali, tesserini, documenti, timbrature, cartello di cantiere PDF/X-1a) + portale-5 (/nuovo-cantiere dall'area riservata: modulo snello verso lo scenario 7297046) + portale-4 (portale cliente fuori da Make, installabile, visore foto a scorrimento, movimenti accesi per tutti: ?movimenti=0 li spegne su un telefono, MOVIMENTI=off per tutti) + crono-1 (domanda del venerdi sul cronoprogramma) + rimozione-1 (persone rimosse dai Tesserini: messaggi fermati prima di Make, avviso nella loro lingua) + chiamate-1 (chiamate WhatsApp chiuse in automatico, smistamento in chat) + voce-4 (assistente vocale OpenAI via SIP tramite centralino sip.ilgiornalelavori.it, webhook /voce/openai; voce, modello e accento dalle impostazioni voce_voce, voce_modello, voce_stile; se il modello scelto non e' accettato si riprova con il mini) + voce-5 (centralino v2: chiamate albanesi con X-GL-Lingua sq → assistente in albanese, senza accento italiano; le altre lingue vanno a ElevenLabs) + centralino-3 (assistente nostro sul centralino: OpenAI solo testo, voce Alexandra/ElevenLabs e Anila/Azure per l'albanese; rotte /centralino/* con token) + centralino-4 (assistente virtuale; riepilogo di fine chiamata su WhatsApp con «Tutto giusto»/«Correggi», avviso a Filippo per le richieste concrete, telefonate conservate 90 giorni) + centralino-4.1 (privacy: voce dell'assistente cancellata dalla cronologia ElevenLabs dopo ogni sintesi, vocale della correzione cancellato dopo la trascrizione, pulizia a 90 giorni anche di chiamata_fine)";
 let _chatUnicaCache = { t: 0, cfg: null };
 
 async function chatUnicaRpc(env, supabaseUrl, nome, corpo, ms) {
@@ -1923,7 +1923,7 @@ function portaleTesta(base) {
     '<link rel="apple-touch-icon" href="' + base + '/apple-touch-icon.png">' +
     '<meta name="apple-mobile-web-app-capable" content="yes">' +
     '<meta name="mobile-web-app-capable" content="yes">' +
-    '<meta name="apple-mobile-web-app-title" content="Giornale Lavori">';
+    '<meta name="apple-mobile-web-app-title" content="TIX">';
 }
 
 function portaleScriptSw(base) {
@@ -1935,7 +1935,7 @@ function portaleIngresso(base, avviso, emailPrec) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
-    '<title>Il Giornale Lavori - Accesso</title>' + portaleTesta(base) +
+    '<title>TIX · Diario di cantiere - Accesso</title>' + portaleTesta(base) +
     '<style>' +
     ':root{--v:' + PORTALE_COLORE + ';--t:#1b1f1d;--s:#5b6560;--b:#f4f6f5;--c:#fff;--l:#dfe5e2}' +
     '@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531}}' +
@@ -1951,7 +1951,7 @@ function portaleIngresso(base, avviso, emailPrec) {
     'a{color:var(--v);font-weight:600}details.wa{margin-top:18px;border-top:1px solid var(--l);padding-top:14px}details.wa summary{cursor:pointer;color:var(--s);font-size:.92rem;text-align:center}details.wa form{margin-top:12px}' +
     '</style></head><body><main><div class="card">' +
     '<img src="' + base + '/icona-192.png" alt="">' +
-    '<h1>Area riservata</h1><p>Il Giornale Lavori · i tuoi cantieri, giorno per giorno.</p>' + msg +
+    '<h1>Area riservata</h1><p>TIX · Diario di cantiere — i tuoi cantieri, giorno per giorno.</p>' + msg +
     '<form method="post" action="' + base + '/accedi">' +
     '<label for="em">Email</label>' +
     '<input id="em" name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required' + (emailPrec ? ' value="' + portaleEsc(emailPrec) + '"' : '') + '>' +
@@ -2003,7 +2003,7 @@ function portaleFoglio(base, titolo, sottotitolo, corpo) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
-    '<title>' + portaleEsc(titolo) + ' - Il Giornale Lavori</title>' + portaleTesta(base) +
+    '<title>' + portaleEsc(titolo) + ' - TIX · Diario di cantiere</title>' + portaleTesta(base) +
     '<style>' +
     ':root{--v:' + PORTALE_COLORE + ';--t:#1b1f1d;--s:#5b6560;--b:#f4f6f5;--c:#fff;--l:#dfe5e2}' +
     '@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531}}' +
@@ -2249,7 +2249,7 @@ function portaleNcModulo(base, tok, d) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     '<title>Nuovo cantiere - ' + e(d.azienda_nome) + '</title>' + portaleTesta(base) +
     '<style>' + stile + '</style></head><body>' +
-    '<header>' + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    '<header>' + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Nuovo cantiere</h1><p>' + e(d.azienda_nome) + '</p></div>' + logoImpresa + '</header>' +
     '<main><a class="indietro" href="' + torna + '"><span class="sott">&larr; Tutti i cantieri</span></a>' +
     '<form method="post" action="' + e(d.azione) + '" accept-charset="UTF-8" id="modulo-nc" autocomplete="on" novalidate>' +
@@ -2273,14 +2273,14 @@ function portaleNcModulo(base, tok, d) {
     '<label for="ip">Imprese e subappaltatori previsti <small>(facoltativo)</small></label><input id="ip" name="imprese_presenti" maxlength="200">' +
     '</section>' +
     '<section class="blocco"><h2>Referente di cantiere</h2>' +
-    '<p class="hint" style="margin-top:8px">Riceve l\'email con le istruzioni per usare il Giornale Lavori su WhatsApp.</p>' +
+    '<p class="hint" style="margin-top:8px">Riceve l\'email con le istruzioni per usare TIX su WhatsApp.</p>' +
     '<label for="rn">Nome e cognome</label><input id="rn" name="referente_nome" required maxlength="80" autocomplete="name">' +
     '<div class="riga2"><div><label for="re">Email</label><input id="re" name="referente_email" type="email" required maxlength="120" autocomplete="email"></div>' +
     '<div><label for="rt">Cellulare WhatsApp</label><input id="rt" name="referente_telefono" type="tel" maxlength="30" placeholder="+39 ..." autocomplete="tel"></div></div>' +
     '<label for="no">Note <small>(facoltative)</small></label><textarea id="no" name="note" maxlength="500"></textarea>' +
     '</section>' +
     '<label class="consenso"><input type="checkbox" id="pr" name="privacy" value="si" required>' +
-    '<span>Ho preso visione dell\'<a href="' + PORTALE_NC_PRIVACY + '" target="_blank" rel="noopener">informativa sul trattamento dei dati personali</a> del servizio Il Giornale Lavori (Obetti Filippo, Responsabile del trattamento per conto dell\'Impresa Cliente) e acconsento al trattamento dei dati inseriti per l\'attivazione del servizio.</span></label>' +
+    '<span>Ho preso visione dell\'<a href="' + PORTALE_NC_PRIVACY + '" target="_blank" rel="noopener">informativa sul trattamento dei dati personali</a> del servizio TIX · Diario di cantiere (Obetti Filippo, Responsabile del trattamento per conto dell\'Impresa Cliente) e acconsento al trattamento dei dati inseriti per l\'attivazione del servizio.</span></label>' +
     '<div class="costo">' + e(d.testo_costo || "") + '</div>' +
     '<div class="errore" id="err" role="alert"></div>' +
     '<button type="submit" id="invia">' + e(d.bottone || "Attiva il cantiere") + '</button>' +
@@ -2350,7 +2350,7 @@ const PORTALE_SW = [
   "self.addEventListener('fetch', function (e) {",
   "  if (e.request.mode !== 'navigate') return;",
   "  e.respondWith(fetch(e.request).catch(function () {",
-  "    return new Response('<!DOCTYPE html><html lang=\"it\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Nessuna connessione</title></head><body style=\"font-family:system-ui,sans-serif;padding:48px 16px;text-align:center\"><h1 style=\"font-size:1.2rem\">Nessuna connessione</h1><p>Il Giornale Lavori ha bisogno di internet per mostrarti i cantieri. Riprova appena il telefono torna in rete.</p><p><a href=\"\" onclick=\"location.reload();return false\">Riprova</a></p></body></html>',",
+  "    return new Response('<!DOCTYPE html><html lang=\"it\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Nessuna connessione</title></head><body style=\"font-family:system-ui,sans-serif;padding:48px 16px;text-align:center\"><h1 style=\"font-size:1.2rem\">Nessuna connessione</h1><p>TIX ha bisogno di internet per mostrarti i cantieri. Riprova appena il telefono torna in rete.</p><p><a href=\"\" onclick=\"location.reload();return false\">Riprova</a></p></body></html>',",
   "      { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });",
   "  }));",
   "});",
@@ -2522,8 +2522,8 @@ async function portaleRoute(request, env, prefisso) {
   if (sotto === "/manifest.webmanifest") {
     const manifest = {
       id: base + "/",
-      name: "Il Giornale Lavori",
-      short_name: "Giornale Lavori",
+      name: "TIX · Diario di cantiere",
+      short_name: "TIX",
       description: "I cantieri della tua impresa: giornale, rapportini, DDT, foto e documenti.",
       lang: "it",
       start_url: base + "/",
@@ -2767,7 +2767,7 @@ const _chiamateMenu = new Map();    // telefono -> ms ultimo messaggio di smista
 const CHIAMATE_MENU_PAUSA_MS = 10 * 60 * 1000;
 
 const CHIAMATA_TESTO_MENU =
-  "📞 Ciao! Il Giornale Lavori non risponde al telefono: qui in chat è tutto automatico, a qualsiasi ora.\n\n" +
+  "📞 Ciao! TIX non risponde al telefono: qui in chat è tutto automatico, a qualsiasi ora.\n\n" +
   "Tocca il pulsante che fa per te 👇";
 
 const CHIAMATA_RISPOSTE = {
@@ -2776,15 +2776,15 @@ const CHIAMATA_RISPOSTE = {
     "vengono registrati nel giornale del tuo cantiere.\n\n" +
     "Dopo ogni messaggio ricevi la conferma ✅: se non arriva, rimandalo tra qualche minuto.",
   CHIAMATA_INFO:
-    "🏗️ Il Giornale Lavori trasforma i messaggi WhatsApp del cantiere (testi, foto, vocali, DDT) nel " +
-    "giornale dei lavori, giorno per giorno, senza nessuna app da installare per chi lavora in cantiere.\n\n" +
+    "🏗️ TIX trasforma i messaggi WhatsApp del cantiere (testi, foto, vocali, DDT) nel " +
+    "diario di cantiere, giorno per giorno, senza nessuna app da installare per chi lavora in cantiere.\n\n" +
     "Cantieri illimitati, prova gratuita di 30 giorni e attivazione automatica. Si paga in base alle persone dell'impresa che scrivono: subappaltatori e fornitori scrivono gratis.\n\n" +
     "Il sito www.tixcantiere.it è in arrivo: da lì potrai richiedere il listino.",
   CHIAMATA_PROBLEMA:
     "🔧 Prova così:\n" +
     "1) rimanda qui il messaggio, la foto o il vocale;\n" +
     "2) attendi qualche minuto la conferma ✅;\n" +
-    "3) se la conferma non arriva ancora, avvisa l'ufficio della tua impresa: sistemerà l'accesso dal pannello del Giornale Lavori."
+    "3) se la conferma non arriva ancora, avvisa l'ufficio della tua impresa: sistemerà l'accesso dal pannello di TIX."
 };
 
 function chiamataIdPulsante(msg) {
@@ -2911,21 +2911,21 @@ async function chiamataRispostaGestisci(msg, value, env, supabaseUrl, graph) {
 // rifiutata (se possibile) e l'evento resta nel registro; il resto del relay non e' toccato.
 // ============================================================================
 const VOCE_ISTRUZIONI = [
-  "Sei l'assistente vocale del Giornale Lavori, un servizio italiano per le imprese edili. Rispondi al telefono al posto di un operatore: non esistono operatori umani da passare, non promettere mai richiamate di persone.",
+  "Sei l'assistente vocale di TIX Diario di cantiere, un servizio italiano per le imprese edili. Rispondi al telefono al posto di un operatore: non esistono operatori umani da passare, non promettere mai richiamate di persone.",
   "Parla in italiano, con tono cordiale e professionale, frasi brevi e chiare. Se chi chiama parla un'altra lingua, rispondi nella sua lingua.",
-  "Cos'è il Giornale Lavori: chi lavora in cantiere scrive su WhatsApp a questo numero (testi, foto, vocali, documenti di trasporto) e il servizio compila in automatico il giornale dei lavori del cantiere, giorno per giorno. Gli operai non devono installare nessuna app. L'impresa consulta i suoi cantieri da un'app web. I cantieri sono illimitati e si paga in base alle persone dell'impresa che scrivono; subappaltatori e fornitori scrivono gratis. C'è una prova gratuita di 30 giorni e l'attivazione è automatica.",
+  "Cos'è TIX (prima si chiamava «Il Giornale Lavori»): chi lavora in cantiere scrive su WhatsApp a questo numero (testi, foto, vocali, documenti di trasporto) e il servizio prepara in automatico la bozza del diario di cantiere, giorno per giorno. Gli operai non devono installare nessuna app. L'impresa consulta i suoi cantieri da un'app web. I cantieri sono illimitati e si paga in base alle persone dell'impresa che scrivono; subappaltatori e fornitori scrivono gratis. C'è una prova gratuita di 30 giorni e l'attivazione è automatica.",
   "Prezzi: non dare cifre. Il listino completo si richiede dal sito www.tixcantiere.it, che è in arrivo; nel frattempo invita a scrivere in chat WhatsApp a questo stesso numero.",
   "Se chi chiama lavora già in cantiere: spiega che basta scrivere qui in chat come sempre, testi, foto, documenti o vocali; dopo ogni messaggio arriva la conferma con la spunta verde. Se la conferma non arriva, rimandare il messaggio dopo qualche minuto; se il problema continua, avvisare l'ufficio della propria impresa.",
   "Se non conosci la risposta, dillo con semplicità e invita a scrivere la domanda in chat WhatsApp a questo numero. Non inventare mai informazioni, nomi di clienti o cantieri.",
   "Tieni la chiamata breve: quando la persona ha avuto la risposta, saluta e chiudi la conversazione con cortesia."
 ].join("\n\n");
 
-const VOCE_SALUTO = "Saluta dicendo: «Ciao, sono l'assistente del Giornale Lavori. Come posso aiutarti?» e poi ascolta.";
+const VOCE_SALUTO = "Saluta dicendo: «Ciao, sono l'assistente di Tix. Come posso aiutarti?» e poi ascolta.";
 
 // Chiamate instradate dal centralino come albanesi (intestazione X-GL-Lingua: sq, centralino v2):
 // in cantiere molti operai parlano solo albanese. L'accento italiano (voce_stile) non si applica.
-const VOCE_ISTRUZIONI_SQ = "LINGUA DELLA CHIAMATA: chi chiama parla albanese. Parla sempre in albanese (shqip), con frasi brevi, semplici e chiare, come si parla in cantiere. Passa all'italiano o a un'altra lingua solo se chi chiama la usa per primo. Non tradurre il nome «Giornale Lavori».";
-const VOCE_SALUTO_SQ = "Saluta in albanese dicendo: «Përshëndetje, jam asistentja e Giornale Lavori. Si mund t'ju ndihmoj?» e poi ascolta. Continua a parlare in albanese.";
+const VOCE_ISTRUZIONI_SQ = "LINGUA DELLA CHIAMATA: chi chiama parla albanese. Parla sempre in albanese (shqip), con frasi brevi, semplici e chiare, come si parla in cantiere. Passa all'italiano o a un'altra lingua solo se chi chiama la usa per primo. Non tradurre il nome «TIX».";
+const VOCE_SALUTO_SQ = "Saluta in albanese dicendo: «Përshëndetje, jam asistentja e Tix. Si mund t'ju ndihmoj?» e poi ascolta. Continua a parlare in albanese.";
 
 function b64ToBytes(b64) {
   const s = atob(b64);

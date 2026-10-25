@@ -191,7 +191,7 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Rapportini - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     "<style>" + STILE + "</style></head><body>" +
-    "<header>" + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Rapportini</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
     (d.chiuso ? '<div class="avviso">Cantiere chiuso: i rapportini restano consultabili, non se ne registrano di nuovi.</div>' : "") +

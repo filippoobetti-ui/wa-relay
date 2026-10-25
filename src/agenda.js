@@ -349,7 +349,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Agenda - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     "<style>" + STILE + "</style></head><body>" +
-    "<header>" + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + torna + '">&larr; Torna al cantiere</a>' +
     (d.chiuso ? '<div class="avviso">Cantiere chiuso: l\'agenda resta consultabile, non si aggiungono appuntamenti.</div>' : "") +
@@ -363,7 +363,7 @@ export function paginaAgenda(base, tok, c, d, h) {
       '<div class="ics-riga"><input type="text" readonly id="ics-url" value="' + e(inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics") + '"><button type="button" id="ics-copia">Copia</button></div>' +
       '<p class="piccolo">Chi ha questo indirizzo vede gli appuntamenti del cantiere: condividilo solo con chi deve averli.</p></details>' : "") +
     '<p class="nota">Ogni appuntamento arriva su WhatsApp a chi lavora in questo cantiere (' + avvisoChi + '), nella sua lingua. ' +
-    'Chi non ha scritto al Giornale Lavori nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso. ' +
+    'Chi non ha scritto a TIX nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso. ' +
     'Le «Lavorazioni» arrivano solo alle persone scelte in «Chi».</p>' +
     "<noscript><p class=\"nota\"><b>Per aggiungere o modificare gli appuntamenti serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main>" +

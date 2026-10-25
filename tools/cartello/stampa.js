@@ -283,11 +283,11 @@
       const creazione = (vecchio.match(/\/CreationDate \(([^)]*)\)/) || [])[1] || dataPdf(new Date());
       const prod = (vecchio.match(/\/Producer \(([^)]*)\)/) || [])[1] || 'jsPDF';
       const nuovo = '<<\n' +
-        `/Producer (${prod} + Il Giornale Lavori cartello)\n` +
-        `/Creator (${escPdf(info.creator || 'Il Giornale Lavori - www.tixcantiere.it')})\n` +
+        `/Producer (${prod} + TIX cartello)\n` +
+        `/Creator (${escPdf(info.creator || 'TIX · Diario di cantiere - www.tixcantiere.it')})\n` +
         `/Title (${escPdf(info.titolo || 'Cartello di cantiere')})\n` +
         `/Subject (${escPdf(info.soggetto || 'Cartello di cantiere')})\n` +
-        `/Author (${escPdf(info.autore || 'Il Giornale Lavori')})\n` +
+        `/Author (${escPdf(info.autore || 'TIX · Diario di cantiere')})\n` +
         `/CreationDate (${creazione})\n` +
         `/ModDate (${creazione})\n` +
         '/Trapped /False\n' +

@@ -47,8 +47,8 @@ const ELEVEN_LINGUE = new Set(("af am ar hy as az be bn bs bg my ca hr cs da nl 
 // di essere un'assistente virtuale (AI Act, art. 50: chi parla con un'intelligenza artificiale deve saperlo).
 // Valgono questi, non il primo messaggio dell'agente ElevenLabs (rimasto solo di riserva).
 const BOT_SALUTI = {
-  it: "Ciao, sono Tix, l'assistente virtuale del Giornale Lavori. Come posso aiutarti?",
-  sq: "Përshëndetje, jam Tix, asistentja virtuale e Giornale Lavori. Si mund t'ju ndihmoj?"
+  it: "Ciao, sono Tix, l'assistente virtuale di Tix Diario di cantiere. Come posso aiutarti?",
+  sq: "Përshëndetje, jam Tix, asistentja virtuale e Tix Diario di cantiere. Si mund t'ju ndihmoj?"
 };
 
 // Numeri di prova (11/10/2026, fase B): vanno all'assistente nostro anche in fase_a, con la lingua scelta qui.
@@ -58,9 +58,9 @@ const NUMERI_PROVA = { "393775371209": "it" }; // telefono di Filippo
 
 // Copia del prompt dell'agente ElevenLabs (11/10/2026): si usa se il prompt dell'agente non è leggibile.
 const BOT_PROMPT_BASE = [
-  "Sei l'assistente telefonica del Giornale Lavori, un servizio italiano per le imprese edili. Rispondi alle chiamate WhatsApp al posto di un operatore: non esistono operatori umani a cui passare la chiamata e non devi mai promettere richiamate da parte di persone.",
+  "Sei l'assistente telefonica di TIX Diario di cantiere, un servizio italiano per le imprese edili. Rispondi alle chiamate WhatsApp al posto di un operatore: non esistono operatori umani a cui passare la chiamata e non devi mai promettere richiamate da parte di persone.",
   "Come parli: in italiano, con tono caldo, cordiale e professionale. Frasi brevi e chiare, una domanda alla volta. È una telefonata: niente elenchi, simboli o abbreviazioni. Se chi chiama parla un'altra lingua, rispondi nella sua lingua.",
-  "Cos'è il Giornale Lavori: chi lavora in cantiere scrive su WhatsApp a questo numero (testi, foto, vocali, documenti di trasporto) e il servizio compila in automatico il giornale dei lavori del cantiere, giorno per giorno. Gli operai non devono installare nessuna app. L'impresa consulta i suoi cantieri da un'app web. I cantieri sono illimitati e si paga in base alle persone dell'impresa che scrivono; subappaltatori e fornitori scrivono gratis. C'è una prova gratuita di 30 giorni e l'attivazione è automatica.",
+  "Cos'è TIX (prima si chiamava «Il Giornale Lavori»): chi lavora in cantiere scrive su WhatsApp a questo numero (testi, foto, vocali, documenti di trasporto) e il servizio prepara in automatico la bozza del diario di cantiere, giorno per giorno. Gli operai non devono installare nessuna app. L'impresa consulta i suoi cantieri da un'app web. I cantieri sono illimitati e si paga in base alle persone dell'impresa che scrivono; subappaltatori e fornitori scrivono gratis. C'è una prova gratuita di 30 giorni e l'attivazione è automatica.",
   "Prezzi: non dare cifre. Il listino completo si richiede dal sito www.tixcantiere.it, che è in arrivo; nel frattempo invita a scrivere in chat WhatsApp a questo stesso numero.",
   "Se chi chiama lavora già in cantiere: spiega che basta scrivere qui in chat come sempre, testi, foto, documenti o vocali; dopo ogni messaggio arriva la conferma con la spunta verde. Se la conferma non arriva, rimandare il messaggio dopo qualche minuto; se il problema continua, avvisare l'ufficio della propria impresa.",
   "Se non conosci la risposta, dillo con semplicità e invita a scrivere la domanda in chat WhatsApp a questo numero. Non inventare mai informazioni, nomi di clienti o cantieri.",
@@ -70,7 +70,7 @@ const BOT_PROMPT_BASE = [
 
 // Mestieri del sito (sezione «Per chi è», nastro dei 50 mestieri del 10/10/2026). Aggiunto l'11/10 dopo la prova
 // delle 23:34: alla domanda sul movimento terra l'assistente rispondeva «non lo so con certezza».
-const BOT_PER_CHI = "PER CHI È: il Giornale Lavori è per chi lavora in cantiere, a qualsiasi titolo: imprese edili, imprese specialistiche e artigiani. " +
+const BOT_PER_CHI = "PER CHI È: TIX è per chi lavora in cantiere, a qualsiasi titolo: imprese edili, imprese specialistiche e artigiani. " +
   "Per esempio muratori, cartongessisti, pittori, idraulici, termoidraulici, elettricisti, ferraioli, carpentieri, piastrellisti, serramentisti, lattonieri, " +
   "movimento terra, impermeabilizzazioni, intonacatori, cappottisti, ponteggiatori, pali e fondazioni, calcestruzzi e pompaggio, prefabbricati, demolizioni, " +
   "restauro, parquettisti, posatori di pavimenti, resinatori, marmisti, falegnami, fabbri, vetrai, controsoffittisti, isolamento termico e acustico, " +
@@ -82,10 +82,10 @@ const BOT_PER_CHI = "PER CHI È: il Giornale Lavori è per chi lavora in cantier
 function botIstruzioni(promptBase, saluto) {
   return [
     promptBase || BOT_PROMPT_BASE,
-    "IDENTITÀ: ti chiami Tix (si scrive TIX) e sei l'assistente virtuale del Giornale Lavori, realizzata con intelligenza artificiale: non sei una persona. Se te lo chiedono, dillo con chiarezza; non fingere mai di essere una persona.",
+    "IDENTITÀ: ti chiami Tix (si scrive TIX) e sei l'assistente virtuale di TIX Diario di cantiere, realizzata con intelligenza artificiale: non sei una persona. Se te lo chiedono, dillo con chiarezza; non fingere mai di essere una persona.",
     BOT_PER_CHI,
     "RIEPILOGO SU WHATSAPP: alla fine della telefonata chi chiama riceve in automatico, in questa stessa chat WhatsApp, un riepilogo scritto della chiamata, con un pulsante per confermarlo o correggerlo. Puoi dirlo, per esempio «a fine chiamata ti arriva un riepilogo qui su WhatsApp». Per il riepilogo questa regola sostituisce quanto detto in «Cosa non puoi fare»: i dati detti al telefono finiscono nel riepilogo e non serve riscriverli in chat. È l'unico invio che avviene: niente email, documenti, richiamate o altri messaggi. Se chi chiama ha una richiesta concreta (un'impresa interessata al servizio, un'attivazione, un problema da risolvere), chiedi con naturalezza, una cosa per volta, il nome, l'impresa e, se c'entra, il cantiere; poi ripeti i dati principali per conferma. Non chiedere dati che non servono.",
-    "LINGUE: rispondi sempre nella lingua in cui ti parla la persona. In cantiere moltissimi operai parlano solo albanese: se la persona parla albanese (shqip), rispondi in albanese con frasi brevi, semplici e chiare, come si parla in cantiere. Se la persona cambia lingua a metà chiamata, cambia anche tu. Non tradurre il nome «Giornale Lavori».",
+    "LINGUE: rispondi sempre nella lingua in cui ti parla la persona. In cantiere moltissimi operai parlano solo albanese: se la persona parla albanese (shqip), rispondi in albanese con frasi brevi, semplici e chiare, come si parla in cantiere. Se la persona cambia lingua a metà chiamata, cambia anche tu. Non tradurre il nome «TIX Diario di cantiere».",
     "ALBANESE CORRETTO: quando parli albanese usa l'albanese standard con ortografia e grammatica corrette, sempre con le lettere ë e ç dove servono (për, është, një, çfarë…); mai testo senza accenti o con parole italiane.",
     "ETICHETTA DELLA LINGUA (obbligatoria): inizia OGNI risposta con il codice della lingua in cui rispondi, tra parentesi quadre: [it] italiano, [sq] albanese, [ro] rumeno, [ar] arabo, [en] inglese, [fr] francese, [es] spagnolo, [uk] ucraino, [ru] russo, [bn] bengalese, [ur] urdu, [pa] punjabi, [hi] hindi, [tr] turco, [pl] polacco, [sr] serbo, [mk] macedone, [zh] cinese; per le altre lingue il codice ISO a due lettere. L'etichetta non viene letta ad alta voce: non ripeterla mai dentro la frase.",
     "STILE: è una telefonata. Scrivi solo frasi da pronunciare: niente elenchi, simboli, emoji, asterischi, link o abbreviazioni. Risposte brevi: di solito una o due frasi.",
@@ -587,7 +587,7 @@ const RIEPILOGO_TIPI = ["informazioni", "potenziale_cliente", "operaio_cantiere"
 
 const RIEPILOGO_CAMPI = {
   contenuto: { type: "boolean", description: "true se nella chiamata c'è almeno una domanda o una richiesta vera; false se la persona non ha detto niente di utile (ha riattaccato subito, ha solo salutato, prova senza contenuto, numero sbagliato)" },
-  richiesta_concreta: { type: "boolean", description: "true solo se il titolare del Giornale Lavori deve sapere o fare qualcosa: impresa interessata al servizio o che vuole attivarlo, richiesta di listino o di contatto, problema non risolto, segnalazione dal cantiere che chiede un intervento" },
+  richiesta_concreta: { type: "boolean", description: "true solo se il titolare di TIX deve sapere o fare qualcosa: impresa interessata al servizio o che vuole attivarlo, richiesta di listino o di contatto, problema non risolto, segnalazione dal cantiere che chiede un intervento" },
   tipo: { type: "string", enum: RIEPILOGO_TIPI, description: "tipo di chiamata" },
   lingua: { type: "string", description: "codice ISO a due lettere della lingua di chi ha chiamato (it, sq, ro, en…)" },
   nome: { type: "string", description: "nome e cognome di chi ha chiamato, solo se detti; altrimenti vuoto" },
@@ -615,9 +615,9 @@ function riepilogoIstruzioni(fonte) {
       : "Basati sulla trascrizione: le righe «Persona» sono trascritte in automatico e possono contenere errori, correggili solo se il senso è evidente.",
     "Non inventare niente: nomi, imprese, cantieri, indirizzi, numeri e date solo se sono stati detti; altrimenti lascia il campo vuoto.",
     "contenuto: false se la persona non ha fatto nessuna domanda o richiesta (ha riattaccato subito, ha solo salutato, prova senza contenuto, numero sbagliato).",
-    "richiesta_concreta: true solo se il titolare del Giornale Lavori deve sapere o fare qualcosa (impresa interessata o che vuole attivare il servizio, richiesta di listino o di contatto, problema non risolto, segnalazione dal cantiere che chiede un intervento); false se la persona ha solo chiesto informazioni e ha avuto la risposta.",
+    "richiesta_concreta: true solo se il titolare di TIX deve sapere o fare qualcosa (impresa interessata o che vuole attivare il servizio, richiesta di listino o di contatto, problema non risolto, segnalazione dal cantiere che chiede un intervento); false se la persona ha solo chiesto informazioni e ha avuto la risposta.",
     "richiesta, risposta, da_fare e avviso: in italiano, brevi e concreti.",
-    "messaggio: il messaggio WhatsApp per chi ha chiamato, nella lingua in cui ha parlato (in albanese: albanese standard corretto, con ë e ç). Al massimo 600 caratteri. Prima riga: «📞 Riepilogo della telefonata con il Giornale Lavori» nella sua lingua. Poi una riga per ogni dato detto, che inizia con «• »: chi ha chiamato, impresa, cantiere, cosa ha chiesto, cosa è stato risposto. Scrivi solo cose vere: non promettere richiamate, tempi, persone, email o documenti. L'unico sito che puoi citare è www.tixcantiere.it. Niente link inventati, niente firma.",
+    "messaggio: il messaggio WhatsApp per chi ha chiamato, nella lingua in cui ha parlato (in albanese: albanese standard corretto, con ë e ç). Al massimo 600 caratteri. Prima riga: «📞 Riepilogo della telefonata con TIX» nella sua lingua. Poi una riga per ogni dato detto, che inizia con «• »: chi ha chiamato, impresa, cantiere, cosa ha chiesto, cosa è stato risposto. Scrivi solo cose vere: non promettere richiamate, tempi, persone, email o documenti. L'unico sito che puoi citare è www.tixcantiere.it. Niente link inventati, niente firma.",
     "riga_pulsanti, pulsante_ok, pulsante_correggi, testo_ok, testo_correggi, testo_grazie: nella lingua di chi ha chiamato. I pulsanti al massimo 20 caratteri (in italiano «Tutto giusto» e «Correggi»).",
     "avviso: solo se richiesta_concreta è true, 2-4 righe in italiano per il titolare; altrimenti vuoto."
   ].join("\n");
@@ -664,7 +664,7 @@ async function riepilogoDaTrascrizione(env, trascrizione) {
           response_format: { type: "json_schema", json_schema: { name: "riepilogo", strict: true, schema: RIEPILOGO_SCHEMA } },
           messages: [
             { role: "system", content: riepilogoIstruzioni("trascrizione") + "\nRispondi con l'oggetto JSON richiesto." },
-            { role: "user", content: "Trascrizione della telefonata al Giornale Lavori:\n\n" + trascrizione }
+            { role: "user", content: "Trascrizione della telefonata a TIX:\n\n" + trascrizione }
           ]
         })
       }, 25000);

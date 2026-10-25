@@ -709,8 +709,8 @@
     const tracciati = !!(opz.fontOT && opz.stampa);
     const doc = new jsPDFctor({ unit: 'mm', format: [pw, ph], orientation: pw >= ph ? 'l' : 'p', compress: true, putOnlyUsedFonts: true, floatPrecision: 3 });
     if (!tracciati) registraFont(doc, ris.font);
-    const titolo = opz.titolo || `Cartello di cantiere ${esito.formato.nome.replace(/\u00d7/g, 'x')} - Il Giornale Lavori`;
-    doc.setProperties({ title: titolo, subject: 'Cartello di cantiere', creator: 'Il Giornale Lavori — www.tixcantiere.it', author: 'Il Giornale Lavori' });
+    const titolo = opz.titolo || `Cartello di cantiere ${esito.formato.nome.replace(/\u00d7/g, 'x')} - TIX · Diario di cantiere`;
+    doc.setProperties({ title: titolo, subject: 'Cartello di cantiere', creator: 'TIX · Diario di cantiere — www.tixcantiere.it', author: 'TIX · Diario di cantiere' });
     if (typeof doc.setFileId === 'function') doc.setFileId(Array.from({ length: 32 }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join(''));
     // riquadri di pagina: TrimBox = formato finito, BleedBox = foglio con abbondanza (in punti)
     try {

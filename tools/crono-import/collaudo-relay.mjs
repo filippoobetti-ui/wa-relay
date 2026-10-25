@@ -42,7 +42,7 @@ const a = await M.cronoImportAvvisa(env, 7, h);
 v(a.inviato && inviati[inviati.length - 1].messaging_product === "whatsapp" && inviati[inviati.length - 1].to === "393313898967", "avviso inviato");
 // 3) area riservata: pagina, caricamento, stato
 const T = "a".repeat(64), C = "e4dbe85f-a505-4fe5-9b51-4a13143d6699";
-const pg = await M.portaleCronoprogramma(new Request("https://www.ilgiornalelavori.it/cronoprogramma?t=" + T + "&c=" + C), env, "", new URL("https://www.ilgiornalelavori.it/cronoprogramma?t=" + T + "&c=" + C), h);
+const pg = await M.portaleCronoprogramma(new Request("https://www.tixcantiere.it/cronoprogramma?t=" + T + "&c=" + C), env, "", new URL("https://www.tixcantiere.it/cronoprogramma?t=" + T + "&c=" + C), h);
 const html = await pg.text();
 v(pg.status === 200 && /Carica un cronoprogramma aggiornato/.test(html) && /Versione 1/.test(html) && /logo\.png/.test(html) && /data-id="7"/.test(html), "pagina");
 const scr = html.slice(html.lastIndexOf("<script>") + 8, html.lastIndexOf("</script>"));
@@ -51,7 +51,7 @@ const vero = globalThis.fetch;
 let caricato = null;
 globalThis.fetch = async (url, init) => { if (String(url).includes("/storage/v1/object/wa-media/crono/")) { caricato = { url: String(url), n: init.body.length, tipo: init.headers["Content-Type"] }; return new Response("{}", { status: 200 }); } return vero(url, init); };
 const corpo = new Uint8Array([0x25, 0x50, 0x44, 0x46, 1, 2, 3]);
-const rq = new Request("https://www.ilgiornalelavori.it/cronoprogramma/carica?t=" + T + "&c=" + C + "&nome=AQua%20Vera.pdf", { method: "POST", body: corpo, headers: { "Content-Type": "application/pdf" } });
+const rq = new Request("https://www.tixcantiere.it/cronoprogramma/carica?t=" + T + "&c=" + C + "&nome=AQua%20Vera.pdf", { method: "POST", body: corpo, headers: { "Content-Type": "application/pdf" } });
 const rc = await M.portaleCronoprogramma(rq, env, "", new URL(rq.url), h);
 const jc = await rc.json();
 v(jc.esito === "ok" && jc.id === 8 && caricato && /\/crono\/\d{4}\/\d{2}\/\d{2}\/[0-9a-f]{24}\.pdf$/.test(caricato.url) && caricato.n === 7 && caricato.tipo === "application/pdf", "caricamento " + JSON.stringify([jc, caricato]));

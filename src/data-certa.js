@@ -190,7 +190,7 @@ export function paginaDataCerta(base, tok, az, d, h) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     '<title>Data certa - ' + e(d.azienda_nome) + '</title>' + h.testa(base) +
     '<style>' + STILE + '</style></head><body>' +
-    '<header>' + (d.logo_html || '<div class="marchio">Il Giornale Lavori</div>') +
+    '<header>' + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Data certa</h1><p>' + e(d.azienda_nome) + '</p></div>' + logoImpresa + '</header>' +
     '<main><a class="indietro" href="' + torna + '"><span class="sott">&larr; Tutti i cantieri</span></a>' +
     '<section class="intro"><span class="ic" aria-hidden="true">' + DATA_CERTA_ICONA + '</span><div>' +
