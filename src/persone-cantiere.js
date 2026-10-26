@@ -109,6 +109,8 @@ export async function portalePersone(request, env, base, inUrl, h) {
       for (const k of ["nome", "telefono", "email", "impresa", "partita_iva", "codice_fiscale", "ruolo", "tipo_rapporto"]) if (dati[k] !== undefined && dati[k] !== null) rub[k] = String(dati[k]).slice(0, 160);
       if (dati.note !== undefined && dati.note !== null) rub.note = String(dati.note).slice(0, 500);
       if (UUID.test(String(dati.azienda_id || "").toLowerCase())) rub.azienda_id = String(dati.azienda_id).toLowerCase();
+      if (/^[0-9]{1,18}$/.test(String(dati.impresa_id || ""))) rub.impresa_id = String(dati.impresa_id);
+      for (const k of ["nuova_impresa", "nuova_impresa_piva"]) if (dati[k] !== undefined && dati[k] !== null) rub[k] = String(dati[k]).slice(0, 160);
       if (Number.isInteger(id) && id > 0) rub.id = String(id);
       r = await h.rpc(env, "rubrica_salva", { p_token: tok, p_dati: rub }, 15000).catch(() => null);
     }
@@ -175,11 +177,14 @@ const RAPPORTI_OPZ = '<option value="dipendente">Titolare o dipendente</option><
 
 const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio" id="form-sch" novalidate aria-labelledby="t-sch">' +
   '<h2 id="t-sch">Nuovo contatto</h2><p class="sotto">Serve solo il nome; gli altri dati sono facoltativi.</p>' +
-  '<div id="s-az-box" hidden><label class="c" for="s-az">Impresa cliente</label><select class="campo" id="s-az"></select></div>' +
+  '<div id="s-az-box" hidden><label class="c" for="s-az">Impresa</label><select class="campo" id="s-az"></select>' +
+  '<div id="s-nuova-box" hidden><div class="riga2"><div><label class="c" for="s-nuova">Ragione sociale della nuova impresa</label><input class="campo" id="s-nuova" maxlength="120"></div>' +
+  '<div><label class="c" for="s-nuova-piva">Partita IVA dell\'impresa</label><input class="campo" id="s-nuova-piva" inputmode="numeric" maxlength="13" placeholder="facoltativa"></div></div>' +
+  '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">L\'impresa resta solo in rubrica: non diventa un cliente TIX.</p></div></div>' +
   '<label class="c" for="s-nome">Nome e cognome</label><input class="campo" id="s-nome" autocomplete="off" maxlength="120">' +
   '<div class="riga2"><div><label class="c" for="s-tel">Cellulare</label><input class="campo" id="s-tel" inputmode="tel" maxlength="20" placeholder="+39 333 123 4567"></div>' +
   '<div><label class="c" for="s-mail">Email</label><input class="campo" id="s-mail" type="email" maxlength="120"></div></div>' +
-  '<label class="c" for="s-imp">Impresa o ditta della persona</label><input class="campo" id="s-imp" maxlength="120">' +
+  '<label class="c" for="s-imp">Impresa o ditta della persona</label><input class="campo" id="s-imp" maxlength="120" list="s-imp-lista"><datalist id="s-imp-lista"></datalist>' +
   '<div class="riga2"><div><label class="c" for="s-piva">Partita IVA</label><input class="campo" id="s-piva" inputmode="numeric" maxlength="13"></div>' +
   '<div><label class="c" for="s-cf">Codice fiscale</label><input class="campo" id="s-cf" maxlength="16" style="text-transform:uppercase"></div></div>' +
   '<div class="riga2"><div><label class="c" for="s-ruolo">Ruolo abituale</label><select class="campo" id="s-ruolo"><option value="">—</option></select></div>' +
@@ -210,14 +215,22 @@ function disegna(q){q=(q||"").toLowerCase().trim();var h="";sotto();
 var sr=$("s-ruolo");
 Object.keys(RUOLI).sort(function(a,b){return (RUOLI[a].ordine||99)-(RUOLI[b].ordine||99);}).forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=RUOLI[k].etichetta;sr.appendChild(o);});
 sr.addEventListener("change",function(){if(sr.value&&RUOLI[sr.value]&&!$("s-rapp").value)$("s-rapp").value=RUOLI[sr.value].rapporto;});
-if(D.filippo){var sa=$("s-az");sa.innerHTML='<option value="">Scegli…</option>'+(D.aziende||[]).map(function(a){return '<option value="'+esc(a.id)+'">'+esc(a.nome)+'</option>';}).join("");}
+var sa=$("s-az");
+function riempiAz(){if(!D.filippo)return;
+  sa.innerHTML='<option value="">Scegli…</option><optgroup label="Clienti TIX">'+(D.aziende||[]).map(function(a){return '<option value="a:'+esc(a.id)+'">'+esc(a.nome)+'</option>';}).join("")+'</optgroup>'+
+    ((D.imprese||[]).length?'<optgroup label="Altre imprese della rubrica">'+D.imprese.map(function(a){return '<option value="r:'+esc(a.id)+'">'+esc(a.nome)+'</option>';}).join("")+'</optgroup>':'')+
+    '<option value="nuova">+ Nuova impresa…</option>';}
+function riempiImp(){var v={};P.forEach(function(p){if(p.impresa)v[p.impresa]=1;});(D.imprese||[]).forEach(function(a){v[a.nome]=1;});
+  $("s-imp-lista").innerHTML=Object.keys(v).sort().map(function(n){return '<option value="'+esc(n)+'">';}).join("");}
+riempiAz();riempiImp();
+sa.addEventListener("change",function(){var n=sa.value==="nuova";$("s-nuova-box").hidden=!n;if(n)$("s-nuova").focus();});
 function apri(p){corr=p||null;$("t-sch").textContent=p?"Modifica contatto":"Nuovo contatto";$("s-err").hidden=true;
-  $("s-az-box").hidden=!(D.filippo&&!p);if(D.filippo&&!p)$("s-az").value="";
+  $("s-az-box").hidden=!(D.filippo&&!p);if(D.filippo&&!p){sa.value="";$("s-nuova-box").hidden=true;$("s-nuova").value="";$("s-nuova-piva").value="";}
   $("s-nome").value=p?p.nome||"":"";$("s-tel").value=p&&p.telefono?"+"+p.telefono:"";$("s-mail").value=p?p.email||"":"";$("s-imp").value=p?p.impresa||"":(D.filippo?"":D.impresa||"");
   $("s-piva").value=p?p.partita_iva||"":"";$("s-cf").value=p?p.codice_fiscale||"":"";sr.value=p&&p.ruolo&&RUOLI[p.ruolo]?p.ruolo:"";$("s-rapp").value=p?p.tipo_rapporto||"":"";$("s-note").value=p?p.note||"":"";
   var el=$("s-elim");el.hidden=!p;el.textContent="Elimina dalla rubrica";delete el.dataset.conferma;el.disabled=false;
   $("velo-sch").hidden=false;$("s-nome").focus();}
-function ricarica(){return chiama("rubrica",{}).then(function(r){if(r&&r.esito==="ok"){D=r;P=r.persone||[];}disegna($("cerca").value);});}
+function ricarica(){return chiama("rubrica",{}).then(function(r){if(r&&r.esito==="ok"){D=r;P=r.persone||[];riempiAz();riempiImp();}disegna($("cerca").value);});}
 $("nuovo").addEventListener("click",function(){apri(null);});
 $("lista").addEventListener("click",function(e){var b=e.target.closest("button[data-mod]");if(!b)return;for(var i=0;i<P.length;i++)if(String(P[i].id)===b.dataset.mod)apri(P[i]);});
 $("cerca").addEventListener("input",function(e){disegna(e.target.value);});
@@ -225,10 +238,11 @@ document.querySelectorAll("[data-chiudi]").forEach(function(b){b.addEventListene
 document.querySelectorAll(".velo").forEach(function(v){v.addEventListener("click",function(e){if(e.target===v)v.hidden=true;});});
 $("form-sch").addEventListener("submit",function(e){e.preventDefault();var ok=$("s-ok");ok.disabled=true;$("s-err").hidden=true;
   var dati={nome:$("s-nome").value,telefono:$("s-tel").value,email:$("s-mail").value,impresa:$("s-imp").value,partita_iva:$("s-piva").value,codice_fiscale:$("s-cf").value,ruolo:sr.value,tipo_rapporto:$("s-rapp").value,note:$("s-note").value};
-  if(D.filippo&&!corr)dati.azienda_id=$("s-az").value;
+  if(D.filippo&&!corr){var z=sa.value;if(z==="nuova"){dati.nuova_impresa=$("s-nuova").value;dati.nuova_impresa_piva=$("s-nuova-piva").value;}
+    else if(z.indexOf("r:")===0)dati.impresa_id=z.slice(2);else if(z.indexOf("a:")===0)dati.azienda_id=z.slice(2);}
   chiama("rubrica_salva",corr?{id:corr.id,dati:dati}:{dati:dati}).then(function(r){ok.disabled=false;
     if(r.esito==="ok"){$("velo-sch").hidden=true;toast(corr?"Contatto aggiornato":"Contatto aggiunto alla rubrica");ricarica();}
-    else{$("s-err").textContent=r.messaggio||"Non salvato: riprova.";$("s-err").hidden=false;var f=r.campo&&$({nome:"s-nome",telefono:"s-tel",email:"s-mail",partita_iva:"s-piva",codice_fiscale:"s-cf",azienda:"s-az"}[r.campo]);if(f)f.focus();}})
+    else{$("s-err").textContent=r.messaggio||"Non salvato: riprova.";$("s-err").hidden=false;var f=r.campo&&$({nome:"s-nome",telefono:"s-tel",email:"s-mail",partita_iva:"s-piva",codice_fiscale:"s-cf",azienda:"s-az",nuova_impresa:"s-nuova",nuova_impresa_piva:"s-nuova-piva"}[r.campo]);if(f)f.focus();}})
   .catch(function(){ok.disabled=false;$("s-err").textContent="Connessione assente: riprova.";$("s-err").hidden=false;});});
 $("s-elim").addEventListener("click",function(){var b=$("s-elim");if(!corr)return;
   if(!b.dataset.conferma){b.dataset.conferma="1";b.textContent="Tocca di nuovo per eliminare";return;}
