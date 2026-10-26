@@ -19,6 +19,9 @@ const ATTIVA = SCHEDE.map((k) => "html body #tb-" + k + ":checked~nav label[for=
 const ATTIVA_CNT = SCHEDE.map((k) => "html body #tb-" + k + ":checked~nav label[for=tb-" + k + "] .cnt,html body #tb-" + k + ":checked~.schede-w label[for=tb-" + k + "] .cnt").join(",");
 // pagine con la scheda centrale e l'icona dell'app (accesso, password, crea accesso): hanno già il tema scuro
 const AREA = "body:has(>main>.card>img[src$=\"/icona-192.png\"])";
+// pagine Persone del cantiere e Rubrica (src/persone-cantiere.js, 26/10/2026): testata .testa e tema scuro loro
+const PAG = "body:has(>header.testa)";
+const RIFLESSO_SCURO = "linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,0) 46%)";
 
 export const PREMIUM_PORTALE = "<style id=\"tx-premium\">" +
   // 1. colori, caratteri e fondo
@@ -104,6 +107,55 @@ export const PREMIUM_PORTALE = "<style id=\"tx-premium\">" +
   AREA + " a{color:#9DBBE6}" +
   AREA + " details.wa{border-top-color:rgba(255,255,255,.08)}" +
   "}" +
+  // 9. Persone del cantiere e Rubrica (26/10/2026): stesso linguaggio delle altre pagine. Il fondo resta quello della
+  // pagina (var(--bg)), così nel tema scuro i testi chiari restano leggibili.
+  PAG + "{background:radial-gradient(1100px 600px at 100% -10%,rgba(242,106,16,.05),transparent 60%),radial-gradient(900px 600px at -10% 0%,rgba(27,47,74,.06),transparent 60%),var(--bg);background-attachment:fixed}" +
+  PAG + ">header.testa{background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,0))," + NAVY + ";border-bottom:1px solid rgba(255,255,255,.08);box-shadow:0 14px 34px -24px rgba(16,27,43,.75)}" +
+  "body:has(#cerca)>header.testa{background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0)),linear-gradient(135deg,#C2540B,#F26A10)}" +
+  PAG + " .testa h1{letter-spacing:-.025em}" +
+  PAG + " .riass span{background:rgba(255,255,255,.10);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}" +
+  PAG + " .p{border-radius:18px;border-color:rgba(16,27,43,.08);background-image:" + RIFLESSO + ";background-repeat:no-repeat;box-shadow:" + OMBRA_1 + ";transition:transform .3s ease-out,box-shadow .3s ease-out}" +
+  PAG + " .p:hover{transform:translateY(-2px);box-shadow:" + OMBRA_SU + "}" +
+  PAG + " .btn{background-image:linear-gradient(180deg,#FFFFFF,#F4F7FA);border-color:rgba(16,27,43,.12);box-shadow:0 1px 2px rgba(16,27,43,.05);transition:transform .25s " + C + ",box-shadow .25s " + C + ",filter .25s " + C + "}" +
+  PAG + " .btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px -10px rgba(16,27,43,.4)}" +
+  PAG + " .btn:active{transform:scale(.985)}" +
+  PAG + " .btn.pr{background-image:" + LUCIDO + ",linear-gradient(180deg,#FF8A3D,#F26A10);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 10px 22px -12px rgba(242,106,16,.75)}" +
+  PAG + " .btn.wa{background-image:" + LUCIDO + ",linear-gradient(180deg,#27A85D,#1F8F4E);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 10px 22px -12px rgba(31,143,78,.7)}" +
+  PAG + " .btn.pr:hover," + PAG + " .btn.wa:hover{filter:brightness(1.06)}" +
+  PAG + " .btn.rosso{background-image:linear-gradient(180deg,#FFFFFF,#FDF3F2);border-color:var(--rosso)}" +
+  PAG + " .btn.pr{border-color:var(--arancio)}" + PAG + " .btn.wa{border-color:#1F8F4E}" +
+  PAG + " .stato{box-shadow:inset 0 0 0 1px rgba(16,27,43,.05)}" +
+  PAG + " .campo{border-radius:12px;box-shadow:none;background-image:none}" +
+  PAG + " .campo:focus{outline:none;border-color:#1B2F4A;box-shadow:0 0 0 4px rgba(27,47,74,.12)}" +
+  PAG + " .nota{border-radius:14px}" + PAG + " .inv{border-radius:16px}" + PAG + " .qr{border-radius:12px}" +
+  PAG + " .velo{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}" +
+  PAG + " .foglio{border-radius:22px 22px 0 0;background-image:" + RIFLESSO + ";background-repeat:no-repeat;box-shadow:0 -2px 6px rgba(0,0,0,.06),0 -30px 60px -30px rgba(0,0,0,.45)}" +
+  PAG + " .toast{background:rgba(27,47,74,.86);-webkit-backdrop-filter:saturate(180%) blur(16px);backdrop-filter:saturate(180%) blur(16px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 12px 30px -12px rgba(16,27,43,.6)}" +
+  PAG + " .tg i{box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}" +
+  "@media (prefers-color-scheme:dark){" +
+  PAG + " .p," + PAG + " .foglio{background-image:" + RIFLESSO_SCURO + ";border-color:rgba(255,255,255,.08);box-shadow:0 20px 40px -18px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.04)}" +
+  PAG + " .btn{background-image:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,0));border-color:rgba(255,255,255,.12);box-shadow:none}" +
+  PAG + " .btn.rosso{background-image:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0));border-color:var(--rosso)}" +
+  PAG + " .campo:focus{border-color:#7FA2D6;box-shadow:0 0 0 4px rgba(127,162,214,.18)}" +
+  "}" +
+  "@media (prefers-reduced-motion:reduce){" + PAG + " .p:hover," + PAG + " .btn:hover{transform:none}}" +
+  // 10. pulsanti «Persone del cantiere» e «Scarica in Excel» nella pagina del cantiere, e la finestra di Scarica in Excel
+  ".gl-pc-b,.gl-xl-b{width:auto;border-radius:12px;background-image:linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,0));" +
+  "box-shadow:0 1px 2px rgba(16,27,43,.05),0 8px 18px -12px rgba(16,27,43,.35);transition:transform .25s " + C + ",box-shadow .25s " + C + ",background-color .25s " + C + ",color .25s " + C + "}" +
+  ".gl-pc-b:hover,.gl-xl-b:hover{transform:translateY(-1px);background-image:" + LUCIDO + ";box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 10px 22px -12px rgba(16,27,43,.55)}" +
+  ".gl-pc-b:active,.gl-xl-b:active{transform:scale(.985)}" +
+  ".gl-xl-ov{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}" +
+  ".gl-xl-bx{border-radius:22px;padding:22px 22px 18px;background-image:" + RIFLESSO + ";background-repeat:no-repeat;box-shadow:0 2px 6px rgba(0,0,0,.08),0 40px 80px -30px rgba(0,0,0,.45)}" +
+  ".gl-xl-bx h3{letter-spacing:-.02em}" +
+  ".gl-xl-bx label.op{border-radius:12px;border-color:rgba(16,27,43,.10);transition:border-color .25s " + C + ",box-shadow .25s " + C + "}" +
+  ".gl-xl-bx label.op:has(input:checked){border-color:#1D6F42;box-shadow:0 0 0 3px rgba(29,111,66,.12)}" +
+  ".gl-xl-dt input{border-radius:12px}" +
+  ".gl-xl-az button{border-radius:12px;background-image:linear-gradient(180deg,#FFFFFF,#F4F7FA);box-shadow:0 1px 2px rgba(16,27,43,.05);transition:transform .25s " + C + ",box-shadow .25s " + C + ",filter .25s " + C + "}" +
+  ".gl-xl-az button.pr{background-image:" + LUCIDO + ",linear-gradient(180deg,#27894F,#1D6F42);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 10px 22px -12px rgba(29,111,66,.75)}" +
+  ".gl-xl-az button:hover{transform:translateY(-1px);filter:brightness(1.04)}.gl-xl-az button:active{transform:scale(.985)}" +
+  "@media (prefers-color-scheme:dark){.gl-pc-b,.gl-xl-b{background-image:none;box-shadow:0 8px 18px -12px rgba(0,0,0,.6)}" +
+  ".gl-xl-bx{background-image:" + RIFLESSO_SCURO + "}.gl-xl-az button{background-image:none}.gl-xl-bx label.op{border-color:#3a4540}}" +
+  "@media (prefers-reduced-motion:reduce){.gl-pc-b:hover,.gl-xl-b:hover,.gl-xl-az button:hover{transform:none}}" +
   "</style>";
 
 // Aggiunge lo strato a una risposta HTML del portale (le altre risposte passano intatte).
