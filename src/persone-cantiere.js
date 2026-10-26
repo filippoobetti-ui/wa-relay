@@ -183,7 +183,7 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<label class="c" for="f-imp">Impresa della persona</label><input class="campo" id="f-imp" maxlength="120">' +
   '<label class="c" for="f-rapp">Rapporto con l\'impresa</label><select class="campo" id="f-rapp">' +
   '<option value="dipendente">Titolare o dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
-  '<option value="autonomo">Artigiano autonomo incaricato (senza costi)</option><option value="fornitore">Fornitore (senza costi)</option>' +
+  '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option>' +
   '<option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
   '<p class="errore" id="f-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="f-ok">Aggiungi e crea l\'invito</button></div></form></div>';
@@ -217,10 +217,10 @@ function disegna(){
     var dentro=persone.filter(function(p){return p.gruppo===g[0];}); if(!dentro.length)return;
     h+='<section class="gruppo"><h3>'+g[1]+'</h3><div class="lista">';
     dentro.forEach(function(p){
-      var area=(p.ruolo==="sub"||p.ruolo==="autonomo")?"Vede l'area riservata (solo i propri dati)":"Vede l'area riservata (sola lettura)";
+      var area=(p.ruolo==="sub")?"Vede l'area riservata (solo i propri dati)":"Vede l'area riservata (sola lettura)";
       h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc(p.impresa||"")+' · '+esc(quando(p))+'</div></div>'+statoHtml(p)+'</div>'+
         '<div class="chips"><span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
-        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area)+'</div>'+
+        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
         '<div class="azioni">'+(p.stato!=="attivato"?'<button class="btn sm" type="button" data-inv="'+p.id+'">Invito</button>':'')+'<button class="btn sm rosso" type="button" data-togli="'+p.id+'">Togli dal cantiere</button></div></article>';
     });
     h+='</div></section>';
