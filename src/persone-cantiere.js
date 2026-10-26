@@ -34,6 +34,7 @@ function testoRisposta(r) {
   if (r.esito === "gia_attivo") return "Sei già attivo nel cantiere *" + r.cantiere + "*" + (r.scrive ? ": puoi scrivere qui come sempre." : ".");
   if (r.esito === "troppi") return "Troppi tentativi con codici non validi. Riprova tra un'ora, oppure chiedi a " + imp + " un nuovo link d'invito.";
   if (r.esito === "scaduto") return "Il codice d'invito è scaduto. Chiedi a " + imp + " di mandarti un nuovo link: basta un tocco dall'area riservata.";
+  if (r.esito === "rimosso_altra") return "Il tuo numero risulta tolto da un'altra impresa che usa TIX, quindi non posso attivarlo qui. Scrivi a info@tixcantiere.it e lo sistemiamo.";
   if (r.esito === "codice_usato") return "Questo codice d'invito è già stato usato da un altro numero. Chiedi a " + imp + " un link d'invito tutto tuo.";
   return "Non trovo questo codice d'invito. Controlla di aver inviato il messaggio così com'era, oppure chiedi a " + imp + " un nuovo link d'invito.";
 }
@@ -99,12 +100,14 @@ export async function portalePersone(request, env, base, inUrl, h) {
     for (const k of ["scrive", "riceve_diario", "vede_area", "consenso_promemoria", "invito_inviato", "nuovo_codice"]) if (typeof dati[k] === "boolean") pulito[k] = dati[k];
     let r = null;
     if (az === "elenco" && UUID.test(c)) r = await h.rpc(env, "persone_cantiere_elenco", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+    else if (az === "rubrica") r = await h.rpc(env, "persone_rubrica", { p_token: tok }, 15000).catch(() => null);
     else if (az === "aggiungi" && UUID.test(c)) r = await h.rpc(env, "persone_cantiere_aggiungi", { p_token: tok, p_commessa: c, p_dati: pulito }, 15000).catch(() => null);
     else if (az === "modifica" && Number.isInteger(id) && id > 0) r = await h.rpc(env, "persone_cantiere_modifica", { p_token: tok, p_id: id, p_dati: pulito }, 15000).catch(() => null);
     else if (az === "togli" && Number.isInteger(id) && id > 0) r = await h.rpc(env, "persone_cantiere_togli", { p_token: tok, p_id: id, p_motivo: String(b.motivo || "").slice(0, 300) }, 15000).catch(() => null);
     else return json({ esito: "errore" }, 400);
     return r ? json(r) : json({ esito: "incerto" });
   }
+  if (sotto === "/rubrica") return rubricaRoute(request, env, base, inUrl, h);
   if (sotto !== "/persone") return new Response("Not Found", { status: 404 });
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
@@ -129,9 +132,44 @@ function pagina(base, tok, c, d, h) {
     '<h1>Persone del cantiere</h1><p id="sotto"></p><div class="riass" id="riass"></div></div></header>' +
     '<main class="corpo"><div class="in"><div class="barra"><h2>Chi lavora qui</h2><button class="btn pr" id="apri-aggiungi" type="button">+ Aggiungi persona</button></div>' +
     '<div id="gruppi"></div><p class="nota">Entra in TIX solo chi aggiungi qui. Ogni persona riceve un link personale: lo apre, invia il messaggio già scritto e il cantiere si attiva. Il link vale 14 giorni.</p></div></main>' +
-    FORM + INVITO_HTML + '<div class="toast" id="toast" hidden></div>' +
+    FORM + RUBRICA_HTML + INVITO_HTML + '<div class="toast" id="toast" hidden></div>' +
     "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + PAGINA_JS + "})();</script></body></html>";
 }
+
+// Rubrica (26/10/2026): le persone già inserite nei cantieri dell'impresa, una volta sola (GET /rubrica?t=).
+async function rubricaRoute(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
+  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  const tok = m[0].toLowerCase();
+  const d = await h.rpc(env, "persone_rubrica", { p_token: tok }, 15000).catch(() => null);
+  if (!d) return h.risposta(h.foglio(base, "Rubrica", "Servizio non disponibile", "<p>Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>"), 503);
+  if (d.esito !== "ok") return Response.redirect(inUrl.origin + base + "/", 303);
+  const cfg = JSON.stringify({ t: tok, base: base, dati: d }).replace(/</g, "\\u003c")
+    .replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
+  const html = '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Rubrica - TIX · Diario di cantiere</title>' +
+    h.testa(base) + "<style>" + STILE + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}</style></head><body>" +
+    '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok) + '">&larr; Torna ai cantieri</a>' +
+    '<h1>Rubrica</h1><p id="sotto"></p></div></header><main class="corpo"><div class="in">' +
+    '<input class="campo cerca" id="cerca" type="search" placeholder="Cerca per nome, impresa, ruolo o numero" aria-label="Cerca nella rubrica">' +
+    '<div class="lista" id="lista"></div><p class="nota">Qui trovi una volta sola tutte le persone che hai già inserito nei tuoi cantieri. Per aggiungerne una a un altro cantiere apri il cantiere, poi «Persone del cantiere» e «+ Aggiungi persona», e scegli «Scegli dalla rubrica».</p></div></main>' +
+    "<script>(function(){var CFG=" + cfg + ";" + RUBRICA_JS + "})();</script></body></html>";
+  return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
+}
+
+const RUBRICA_JS = String.raw`
+var D=CFG.dati,P=D.persone||[];
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+document.getElementById("sotto").textContent=(D.impresa||"")+" · "+P.length+(P.length===1?" persona":" persone");
+function disegna(q){q=(q||"").toLowerCase().trim();var h="";
+  P.filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email,p.azienda].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p){
+    h+='<article class="p"><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc(p.impresa||"")+(D.filippo&&p.azienda?' · cliente '+esc(p.azienda):'')+'</div>'+
+      '<div class="chips">'+(p.ruolo_etichetta?'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>':'')+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
+      (p.cantieri&&p.cantieri.length?'<div class="azioni">'+p.cantieri.map(function(c){return '<a class="btn sm" href="'+esc(CFG.base+"/persone?t="+CFG.t+"&c="+c.id)+'">'+esc(c.nome)+'</a>';}).join("")+'</div>':'<p class="p-sub" style="margin:8px 0 0">Non è attiva in nessun cantiere in corso.</p>')+'</article>';});
+  document.getElementById("lista").innerHTML=h||'<p class="nota">Nessuna persona trovata.</p>';}
+document.getElementById("cerca").addEventListener("input",function(e){disegna(e.target.value);});
+disegna("");`;
 
 // Pulsante «Persone del cantiere» nella pagina del cantiere (dopo le schede)
 export function personeIniezione(base, token, commessa) {
@@ -176,6 +214,7 @@ const STILE = "[hidden]{display:none!important}:root{--navy:#1B2F4A;--navy-2:#24
 
 const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="form-agg" novalidate aria-labelledby="t-agg">' +
   '<h2 id="t-agg">Aggiungi persona</h2><p class="sotto">Le scelte si possono cambiare dopo, con un tocco.</p>' +
+  '<button class="btn" type="button" id="apri-rubrica" style="width:100%">&#128211; Scegli dalla rubrica</button>' +
   '<label class="c" for="f-nome">Nome e cognome</label><input class="campo" id="f-nome" autocomplete="off" maxlength="120">' +
   '<label class="c" for="f-ruolo">Ruolo nel cantiere</label><select class="campo" id="f-ruolo"></select>' +
   '<div class="riga2"><div><label class="c" for="f-tel">Cellulare</label><input class="campo" id="f-tel" inputmode="tel" maxlength="20" placeholder="+39 333 123 4567"></div>' +
@@ -187,6 +226,11 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
   '<p class="errore" id="f-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="f-ok">Aggiungi e crea l\'invito</button></div></form></div>';
+
+const RUBRICA_HTML = '<div class="velo" id="velo-rub" hidden><div class="foglio" role="dialog" aria-modal="true" aria-labelledby="t-rub">' +
+  '<h2 id="t-rub">Scegli dalla rubrica</h2><p class="sotto">Le persone che hai già inserito negli altri cantieri. Tocca un nome per riempire il modulo.</p>' +
+  '<input class="campo" id="rub-cerca" type="search" placeholder="Cerca per nome, impresa o numero" aria-label="Cerca nella rubrica">' +
+  '<div class="lista" id="rub-lista" style="margin-top:10px"></div><div class="fine"><button class="btn" type="button" data-chiudi>Chiudi</button></div></div></div>';
 
 const INVITO_HTML = '<div class="velo" id="velo-inv" hidden><div class="foglio" role="dialog" aria-modal="true" aria-labelledby="t-inv">' +
   '<h2 id="t-inv">Invito per <span id="i-nome"></span></h2><p class="sotto" id="i-scade"></p>' +
@@ -243,8 +287,24 @@ $("gruppi").addEventListener("click",function(e){
   }
 });
 var sel=$("f-ruolo");
-Object.keys(RUOLI).forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=RUOLI[k].etichetta;sel.appendChild(o);});
+Object.keys(RUOLI).sort(function(a,b){return (RUOLI[a].ordine||99)-(RUOLI[b].ordine||99);}).forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=RUOLI[k].etichetta;sel.appendChild(o);});
 sel.addEventListener("change",function(){$("f-rapp").value=RUOLI[sel.value].rapporto;});
+var RUB=null;
+function disegnaRub(q){q=(q||"").toLowerCase().trim();var gia={};persone.forEach(function(p){if(p.telefono)gia[p.telefono]=1;});var h="";
+  (RUB||[]).filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p,i){
+    var dentro=p.telefono&&gia[p.telefono];
+    h+='<button type="button" class="p" style="text-align:left;font:inherit;color:inherit;cursor:'+(dentro?'default':'pointer')+';opacity:'+(dentro?'.55':'1')+'" data-r="'+RUB.indexOf(p)+'"'+(dentro?' disabled':'')+'>'+
+      '<div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc([p.ruolo_etichetta,p.impresa,p.telefono?'+'+p.telefono:'',p.email].filter(Boolean).join(' · '))+(dentro?' · già in questo cantiere':'')+'</div></button>';});
+  $("rub-lista").innerHTML=h||'<p class="nota">'+(RUB&&RUB.length?'Nessuna persona trovata.':'La rubrica è vuota: si riempie con le persone che aggiungi ai cantieri.')+'</p>';}
+$("apri-rubrica").addEventListener("click",function(){$("velo-rub").hidden=false;$("rub-cerca").value="";
+  if(RUB){disegnaRub("");return;}$("rub-lista").innerHTML='<p class="nota">Carico la rubrica…</p>';
+  chiama("rubrica",{}).then(function(r){RUB=(r&&r.esito==="ok")?r.persone:[];disegnaRub("");}).catch(function(){$("rub-lista").innerHTML='<p class="nota">Connessione assente: riprova.</p>';});});
+$("rub-cerca").addEventListener("input",function(e){disegnaRub(e.target.value);});
+$("rub-lista").addEventListener("click",function(e){var b=e.target.closest("button[data-r]");if(!b||b.disabled)return;var p=RUB[+b.dataset.r];
+  $("f-nome").value=p.nome||"";$("f-tel").value=p.telefono?"+"+p.telefono:"";$("f-mail").value=p.email||"";$("f-imp").value=p.impresa||D.impresa||"";
+  if(p.ruolo&&RUOLI[p.ruolo]){sel.value=p.ruolo;$("f-rapp").value=RUOLI[p.ruolo].rapporto;}
+  if(p.tipo_rapporto){$("f-rapp").value=p.tipo_rapporto;}
+  $("velo-rub").hidden=true;toast("Dati presi dalla rubrica: controlla il ruolo e aggiungi");});
 $("apri-aggiungi").addEventListener("click",function(){$("f-imp").value=D.impresa||"";$("f-err").hidden=true;$("velo-agg").hidden=false;$("f-nome").focus();});
 document.querySelectorAll("[data-chiudi]").forEach(function(b){b.addEventListener("click",function(){b.closest(".velo").hidden=true;});});
 document.querySelectorAll(".velo").forEach(function(v){v.addEventListener("click",function(e){if(e.target===v)v.hidden=true;});});
