@@ -66,7 +66,10 @@ export function esportaIniezione(base, token, commessa) {
     ".gl-xl-bx{background:#fff;color:#1b1f1d;border-radius:14px;max-width:440px;width:100%;padding:20px 20px 16px;box-shadow:0 10px 40px rgba(0,0,0,.35)}" +
     ".gl-xl-bx h3{margin:0 0 6px;font-size:1.1rem;color:#1B2F4A}.gl-xl-bx p{margin:0 0 12px;font-size:.88rem;color:#5b6560;line-height:1.45}" +
     ".gl-xl-bx label.op{display:flex;gap:10px;align-items:center;padding:9px 10px;border:1px solid #dfe5e2;border-radius:10px;margin:0 0 8px;cursor:pointer;font-size:.95rem}" +
-    ".gl-xl-dt{display:flex;gap:10px;margin:6px 0 4px}.gl-xl-dt label{flex:1;font-size:.84rem;font-weight:600}" +
+    // il portale dà a tutte le etichette maiuscolo e colore, e a tutti i campi larghezza piena: qui si tolgono
+    ".gl-xl-bx label{text-transform:none;letter-spacing:normal;color:inherit;font-weight:600;margin:0}" +
+    ".gl-xl-bx label.op{margin:0 0 8px;justify-content:flex-start}.gl-xl-bx label.op input{width:auto;flex:none;margin:0;accent-color:#1D6F42}" +
+    ".gl-xl-dt{display:flex;gap:10px;margin:6px 0 4px}.gl-xl-dt label{display:block;flex:1;font-size:.84rem;font-weight:600}" +
     ".gl-xl-dt input{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:8px;border:1px solid #c9d1cd;border-radius:8px;font:inherit;background:#fff;color:#1b1f1d}" +
     ".gl-xl-az{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}" +
     ".gl-xl-az button{padding:10px 16px;border-radius:10px;border:1px solid #c9d1cd;background:#fff;color:#1b1f1d;font:inherit;font-weight:600;cursor:pointer}" +
