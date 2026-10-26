@@ -72,6 +72,45 @@ export async function invitoGestisci(msg, value, env, h) {
 }
 
 // ---------------------------------------------------------------------------
+// Comando «AREA» (26/10/2026): chi può riceverlo (numeri dell'impresa autorizzati ai cantieri, referente,
+// «Titolare impresa» attivo) riceve su WhatsApp il link della pagina dell'impresa. Decide il database
+// (area_link_whatsapp, al massimo 3 richieste al giorno). Interruttore spento o database fermo → il messaggio
+// prosegue verso Make come prima.
+const AREA = /^\s*area\s*[.!]?\s*$/i;
+
+export function areaComando(msg) {
+  return !!(msg && msg.type === "text" && msg.text && AREA.test(String(msg.text.body || "")));
+}
+
+export async function areaGestisci(msg, value, env, h) {
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  if (!areaComando(msg) || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.PERSONE_CANTIERE === "off") return false;
+  const r = await h.rpc(env, "area_link_whatsapp", { p_telefono: tel }, 8000);
+  if (!r || !r.esito || r.esito === "spento" || r.esito === "errore") return false;
+  let testo;
+  if (r.esito === "ok" && Array.isArray(r.imprese) && r.imprese.length) {
+    const piu = r.imprese.length > 1;
+    testo = "Ecco il collegamento alla tua area riservata TIX" + (piu ? ":" : " (" + r.imprese[0].nome + "):") + "\n" +
+      r.imprese.map((i) => (piu ? "*" + i.nome + "*: " : "") + i.link).join("\n") +
+      "\n\nÈ personale: chi lo apre vede tutti i cantieri dell'impresa, giralo solo a chi in azienda deve consultarli." +
+      "\nAprilo dal telefono e mettilo sulla schermata Home come un'app: su Android menu di Chrome → «Installa app», su iPhone Safari → Condividi → «Aggiungi alla schermata Home».";
+  } else if (r.esito === "troppi") {
+    testo = "Ti ho già mandato il collegamento più volte nelle ultime 24 ore. Riprova domani oppure scrivi a info@tixcantiere.it.";
+  } else {
+    testo = "Il collegamento all'area riservata lo ricevono solo i responsabili dell'impresa. Chiedilo al tuo referente oppure scrivi a info@tixcantiere.it.";
+  }
+  try {
+    await h.invia(phoneId, env.WHATSAPP_TOKEN, {
+      messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
+      context: { message_id: msg.id }, text: { body: testo.slice(0, 1500), preview_url: false }
+    });
+  } catch (e) {}
+  try { await h.log(env, tel, msg.id, "area_link", r.esito); } catch (e) {}
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Area riservata
 function json(o, stato) {
   return new Response(JSON.stringify(o), {
