@@ -307,7 +307,7 @@ function rigaApp(x, e, oggi) {
     (!attivo ? '<button type="button" data-az="riapri" data-id="' + x.id + '">Riapri</button>' : "") +
     '<button type="button" data-az="cliente" data-id="' + x.id + '" data-v="' + (x.visibile_cliente ? "0" : "1") + '">' + (x.visibile_cliente ? "Nascondi al cliente" : "Mostra al cliente") + "</button>" +
     "</div>";
-  return '<div class="ag' + (st === "annullato" ? " ann" : "") + (passato ? " pass" : "") + '" data-id="' + x.id + '" data-titolo="' + e(x.titolo) + '">' +
+  return '<div class="ag' + (st === "annullato" ? " ann" : "") + (passato ? " pass" : "") + '" data-id="' + x.id + '" data-giorno="' + e(x.giorno) + '" data-titolo="' + e(x.titolo) + '">' +
     '<div class="o">' + ora + fine + '</div><div class="corpo"><div class="t">' + e(x.titolo) + pill + "</div>" + note +
     '<div class="k">' + k + "</div>" + bott + "</div></div>";
 }
@@ -338,7 +338,10 @@ export function paginaAgenda(base, tok, c, d, h) {
   const persone = Number(d.persone_n) || 0;
   const avvisoChi = persone ? persone + (persone === 1 ? " persona registrata" : " persone registrate") : "nessuna persona registrata";
   const crono = Array.isArray(d.crono) ? d.crono : [];
-  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono }).replace(/</g, "\\u003c");
+  // Calendario del mese (28/10/2026, Filippo): gli appuntamenti che la pagina già riceve, ridotti a quello che serve alla griglia
+  const mese = app.map((x) => ({ id: Number(x.id) || 0, g: String(x.giorno || ""), o: x.tutto_il_giorno ? "" : String(x.ora || ""), f: String(x.ora_fine || ""),
+    tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.g));
+  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI }).replace(/</g, "\\u003c");
   const opzTipo = Object.keys(TIPI).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
   const pers = Array.isArray(d.persone) ? d.persone : [];
   const sceltaChi = pers.length
@@ -353,6 +356,8 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<div class="centro"><h1>Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + torna + '">&larr; Torna al cantiere</a>' +
     (d.chiuso ? '<div class="avviso">Cantiere chiuso: l\'agenda resta consultabile, non si aggiungono appuntamenti.</div>' : "") +
+    // Calendario del mese: lo disegna lo script (CALENDARIO); senza JavaScript resta l'elenco qui sotto
+    '<section class="cal" id="cal" aria-label="Calendario del mese" hidden></section>' +
     (d.chiuso ? "" : '<button type="button" class="ag-btn" id="ag-nuovo"><span class="ic">' + AGENDA_ICONA + "</span>Nuovo appuntamento</button>") +
     (d.avvisi_attivi === false ? '<p class="nota">Gli avvisi WhatsApp sono spenti in questo momento: gli appuntamenti restano in agenda.</p>' : "") +
     futuri +
@@ -399,7 +404,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<div id="es-l"></div><p class="msg" id="es-msg" aria-live="polite"></p></div>' +
     '<div class="dl-b"><button type="button" class="no" id="es-no">Annulla</button><button type="submit" class="si" id="es-si">Segna avvenuto</button></div>' +
     "</form></dialog>" +
-    "<script>var GL_AG=" + dati + ";" + SCRIPT + "</script></body></html>";
+    "<script>var GL_AG=" + dati + ";" + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
 const STILE =
@@ -455,7 +460,110 @@ const STILE =
   ".dl-c label.cr-i input{display:inline-block;width:auto;margin:3px 0 0;flex:none}.cr-i small{display:block;color:#5b6560;font-weight:400;font-size:.76rem}.cr-i.sel{background:#FFF7EA}" +
   ".cr-vuoto{padding:8px 10px;font-size:.84rem;color:#5b6560}.cr-avv{font-size:.84rem;color:#7A5300;margin:6px 0 0}.cr-avv:empty{display:none}" +
   ".es-r{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;margin:8px 0 0}.es-r b{display:block;font-size:.9rem;overflow-wrap:anywhere}" +
-  ".es-r .es-c{display:flex;gap:8px;margin-top:6px}.dl-c .es-r select{flex:1;margin-top:0}.dl-c .es-r input{width:90px;flex:none;margin-top:0}";
+  ".es-r .es-c{display:flex;gap:8px;margin-top:6px}.dl-c .es-r select{flex:1;margin-top:0}.dl-c .es-r input{width:90px;flex:none;margin-top:0}" +
+  // ---- calendario del mese (28/10/2026): griglia come Google Calendar, con un colore per tipo di appuntamento
+  ".t-consegna{--tc:#F59E0B}.t-fornitore{--tc:#8B5CF6}.t-sopralluogo{--tc:#0EA5E9}.t-collaudo{--tc:#10B981}.t-riunione{--tc:#EC4899}.t-lavorazione{--tc:#F97316}.t-altro{--tc:#64748B}" +
+  "@media (min-width:760px){main{max-width:1060px}main>.ag,main>.tit,main>.vuoto,main>details,main>.nota,main>.ag-btn,main>.avviso{max-width:720px;margin-left:auto;margin-right:auto}}" +
+  ".cal{position:relative;margin:4px 0 18px;padding:18px 18px 14px;border-radius:24px;background:linear-gradient(180deg,#FFFFFF,#F7F9FB);" +
+  "border:1px solid rgba(15,23,42,.08);box-shadow:0 1px 2px rgba(15,23,42,.05),0 24px 48px -28px rgba(15,23,42,.35);overflow:hidden}" +
+  ".cal:before{content:'';position:absolute;inset:-40% -10% auto auto;width:60%;height:120%;background:radial-gradient(closest-side,rgba(194,122,18,.10),transparent);pointer-events:none}" +
+  ".cal-t{position:relative;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}" +
+  ".cal-m{font-size:clamp(1.35rem,3.2vw,1.9rem);font-weight:800;letter-spacing:-.03em;margin:0 auto 0 4px;color:#0F172A}" +
+  ".cal-m small{font-weight:600;color:#94A3B8;margin-left:6px}" +
+  ".cal-n{display:flex;gap:6px}.cal-n button,.cal-oggi,.cal-piu{min-height:40px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0F172A;font:inherit;font-weight:700;cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s}" +
+  ".cal-n button{width:40px;font-size:1.15rem}.cal-oggi{padding:0 14px}.cal-n button:hover,.cal-oggi:hover{box-shadow:0 6px 16px -8px rgba(15,23,42,.4);transform:translateY(-1px)}" +
+  ".cal-piu{padding:0 16px;border:0;color:#fff;background:linear-gradient(180deg,#D98A1C,var(--ar));box-shadow:0 10px 22px -10px rgba(194,122,18,.8)}" +
+  ".cal-g{position:relative;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}" +
+  ".cal-w{font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94A3B8;text-align:center;padding:2px 0 4px}" +
+  ".cal-d{position:relative;min-height:104px;padding:8px 7px 6px;border-radius:16px;background:#fff;border:1px solid rgba(15,23,42,.07);text-align:left;font:inherit;color:inherit;cursor:pointer;" +
+  "display:flex;flex-direction:column;gap:3px;transition:transform .18s,box-shadow .18s,border-color .18s;overflow:hidden}" +
+  ".cal-d:hover{transform:translateY(-2px);box-shadow:0 14px 28px -18px rgba(15,23,42,.45);border-color:rgba(194,122,18,.35)}" +
+  ".cal-d.fuori{background:transparent;border-color:transparent;opacity:.42}.cal-d.fuori:hover{opacity:.7}" +
+  ".cal-d.fest{background:#FBFAF7}" +
+  ".cal-d.pieno{background:linear-gradient(180deg,#fff,#FFFBF3);border-color:rgba(194,122,18,.22)}" +
+  ".cal-d.sel{box-shadow:0 0 0 2px var(--ar),0 16px 30px -18px rgba(194,122,18,.7)}" +
+  ".cal-num{display:flex;align-items:center;justify-content:space-between;font-weight:800;font-size:.95rem;color:#334155;font-variant-numeric:tabular-nums}" +
+  ".cal-num span{display:inline-grid;place-items:center;min-width:28px;height:28px;border-radius:50%}" +
+  ".cal-d.oggi .cal-num span{color:#fff;background:linear-gradient(160deg,#E39A2E,#B86A0B);box-shadow:0 6px 14px -6px rgba(194,122,18,.9)}" +
+  ".cal-c{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 7px;border-radius:999px;font-size:.72rem;font-weight:800;color:#fff;" +
+  "background:linear-gradient(180deg,#334155,#0F172A);box-shadow:0 4px 10px -4px rgba(15,23,42,.6)}" +
+  ".cal-e{display:flex;align-items:center;gap:5px;min-width:0;padding:3px 6px 3px 5px;border-radius:8px;font-size:.72rem;line-height:1.2;font-weight:600;color:#0F172A;" +
+  "background:color-mix(in srgb,var(--tc) 14%,#fff);border-left:3px solid var(--tc)}" +
+  ".cal-e b{font-weight:800;color:color-mix(in srgb,var(--tc) 70%,#0F172A);flex:none;font-variant-numeric:tabular-nums}" +
+  ".cal-e i{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}" +
+  ".cal-e.ann{opacity:.55;text-decoration:line-through}.cal-e.ok{opacity:.7}" +
+  ".cal-altri{font-size:.7rem;font-weight:800;color:#64748B;padding-left:4px}" +
+  ".cal-pt{display:none;gap:4px;flex-wrap:wrap;margin-top:auto}.cal-pt i{width:8px;height:8px;border-radius:50%;background:var(--tc);box-shadow:0 0 0 2px #fff,0 0 8px var(--tc)}" +
+  ".cal-leg{position:relative;display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 4px 0;font-size:.76rem;color:#475569}" +
+  ".cal-leg span{display:inline-flex;align-items:center;gap:6px}.cal-leg span:before{content:'';width:10px;height:10px;border-radius:3px;background:var(--tc)}" +
+  ".cal-gi{position:relative;margin-top:14px;padding:14px 16px;border-radius:18px;background:#0F172A;color:#E2E8F0}" +
+  ".cal-gi h3{margin:0 0 8px;font-size:1rem;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:10px}" +
+  ".cal-gi h3 button{white-space:nowrap;flex:none;min-height:36px;padding:0 14px;border-radius:10px;border:0;font:inherit;font-weight:700;font-size:.85rem;color:#fff;background:linear-gradient(180deg,#D98A1C,var(--ar));cursor:pointer}" +
+  ".cal-gi ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}" +
+  ".cal-gi li{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.06);border-left:3px solid var(--tc)}" +
+  ".cal-gi li b{font-variant-numeric:tabular-nums;color:#fff}.cal-gi li span{overflow-wrap:anywhere}.cal-gi li small{color:#94A3B8;font-size:.74rem}" +
+  ".cal-gi li a{color:#FBD38D;font-size:.8rem;font-weight:700;text-decoration:none;white-space:nowrap}" +
+  ".cal-gi .vuoto-g{color:#94A3B8;font-size:.88rem}" +
+  ".ag.lampo{animation:cal-lampo 1.6s ease}@keyframes cal-lampo{0%,40%{box-shadow:0 0 0 3px var(--ar)}100%{box-shadow:none}}" +
+  "@media (max-width:759px){.cal{padding:14px 10px 12px;border-radius:20px}.cal-m{flex:1 1 100%;margin:0 0 2px 4px}.cal-t{gap:6px}.cal-oggi{margin-right:auto}.cal-n button,.cal-oggi,.cal-piu{min-height:38px}.cal-g{gap:4px}.cal-d{min-height:60px;padding:6px 4px;border-radius:12px;align-items:center}" +
+  ".cal-num{justify-content:center}.cal-num .cal-c{display:none}.cal-e,.cal-altri{display:none}.cal-pt{display:flex;justify-content:center}.cal-w{font-size:.62rem;letter-spacing:.06em}" +
+  ".cal-gi li{grid-template-columns:52px minmax(0,1fr)}.cal-gi li a{grid-column:2}}" +
+  "@media (prefers-reduced-motion:reduce){.cal-d,.cal-n button,.cal-oggi{transition:none}.ag.lampo{animation:none}}" +
+  "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .cal{background:linear-gradient(180deg,#141A24,#0F141D);border-color:rgba(255,255,255,.08)}" +
+  ":root:not([data-theme=light]) .cal-m{color:#F1F5F9}:root:not([data-theme=light]) .cal-d{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.07)}" +
+  ":root:not([data-theme=light]) .cal-d.fest{background:rgba(255,255,255,.025)}:root:not([data-theme=light]) .cal-d.pieno{background:rgba(217,138,28,.08);border-color:rgba(217,138,28,.3)}" +
+  ":root:not([data-theme=light]) .cal-num{color:#CBD5E1}:root:not([data-theme=light]) .cal-e{color:#F1F5F9;background:color-mix(in srgb,var(--tc) 22%,#141A24)}" +
+  ":root:not([data-theme=light]) .cal-e b{color:color-mix(in srgb,var(--tc) 60%,#fff)}:root:not([data-theme=light]) .cal-n button,:root:not([data-theme=light]) .cal-oggi{background:rgba(255,255,255,.06);color:#F1F5F9;border-color:rgba(255,255,255,.12)}" +
+  ":root:not([data-theme=light]) .cal-leg{color:#94A3B8}:root:not([data-theme=light]) .cal-pt i{box-shadow:0 0 0 2px #141A24,0 0 8px var(--tc)}}";
+
+// Calendario del mese (28/10/2026): richiesta di Filippo, «l'agenda si apre con tutto il mese; in ogni giorno un segno
+// se ci sono impegni; come Google Calendar ma più bello». Sul computer ogni giorno mostra fino a 3 impegni (ora e titolo,
+// colore del tipo) e il numero totale; sul telefono pallini colorati. Tocca un giorno: sotto compare l'elenco di quel
+// giorno, con «Nuovo appuntamento» già su quella data. I dati sono quelli che la pagina già riceve (futuri e ultimi 30 giorni).
+const CALENDARIO = String.raw`(function(){try{
+var D=GL_AG,box=document.getElementById('cal');if(!box)return;
+var MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+var GS=['Lun','Mar','Mer','Gio','Ven','Sab','Dom'],GL=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'];
+var T=D.tipi||{},per={};
+(D.mese||[]).forEach(function(x){(per[x.g]=per[x.g]||[]).push(x);});
+Object.keys(per).forEach(function(k){per[k].sort(function(a,b){return (a.o||'00:00')<(b.o||'00:00')?-1:1;});});
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+function iso(y,m,d){return y+'-'+(m<9?'0':'')+(m+1)+'-'+(d<10?'0':'')+d;}
+var o=String(D.oggi||'').split('-'),Y=+o[0]||new Date().getFullYear(),M=(+o[1]||1)-1,sel=D.oggi;
+function disegna(){
+ var primo=new Date(Date.UTC(Y,M,1)),off=(primo.getUTCDay()+6)%7,inizio=new Date(Date.UTC(Y,M,1-off)),h='',tot=0;
+ for(var k in per)if(k.slice(0,7)===iso(Y,M,1).slice(0,7))tot+=per[k].length;
+ h+='<div class="cal-t"><h2 class="cal-m">'+cap(MESI[M])+' '+Y+(tot?'<small>'+tot+(tot===1?' impegno':' impegni')+'</small>':'')+'</h2>'+
+  '<button type="button" class="cal-oggi" data-v="oggi">Oggi</button><div class="cal-n"><button type="button" data-v="-1" aria-label="Mese precedente">‹</button>'+
+  '<button type="button" data-v="1" aria-label="Mese successivo">›</button></div>'+(D.chiuso?'':'<button type="button" class="cal-piu" data-v="nuovo">+ Nuovo</button>')+'</div>';
+ h+='<div class="cal-g" role="grid">';for(var w=0;w<7;w++)h+='<div class="cal-w" role="columnheader">'+GS[w]+'</div>';
+ for(var i=0;i<42;i++){var dt=new Date(inizio.getTime()+i*864e5),g=iso(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()),l=per[g]||[];
+  if(i===35&&dt.getUTCMonth()!==M)break;
+  var cl='cal-d'+(dt.getUTCMonth()!==M?' fuori':'')+(g===D.oggi?' oggi':'')+(g===sel?' sel':'')+(l.length?' pieno':'')+(dt.getUTCDay()===0||dt.getUTCDay()===6?' fest':'');
+  var lab=dt.getUTCDate()+' '+MESI[dt.getUTCMonth()]+(l.length?', '+l.length+(l.length===1?' impegno':' impegni'):', nessun impegno');
+  h+='<button type="button" class="'+cl+'" data-g="'+g+'" aria-label="'+esc(lab)+'"><span class="cal-num"><span>'+dt.getUTCDate()+'</span>'+(l.length?'<em class="cal-c">'+l.length+'</em>':'')+'</span>';
+  for(var j=0;j<l.length&&j<3;j++){var x=l[j];h+='<span class="cal-e t-'+esc(x.tipo)+(x.st==='annullato'?' ann':x.st==='avvenuto'?' ok':'')+'">'+(x.o?'<b>'+esc(x.o)+'</b>':'')+'<i>'+esc(x.t)+'</i></span>';}
+  if(l.length>3)h+='<span class="cal-altri">+'+(l.length-3)+' altri</span>';
+  if(l.length){h+='<span class="cal-pt">';for(var p=0;p<l.length&&p<4;p++)h+='<i class="t-'+esc(l[p].tipo)+'"></i>';h+='</span>';}
+  h+='</button>';}
+ h+='</div><div class="cal-leg">'+Object.keys(T).map(function(k){return '<span class="t-'+esc(k)+'">'+esc(T[k])+'</span>';}).join('')+'</div>'+giorno(sel);
+ box.innerHTML=h;}
+function giorno(g){var p=g.split('-'),dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])),l=per[g]||[],h='<div class="cal-gi" aria-live="polite"><h3>'+cap(GL[dt.getUTCDay()])+' '+(+p[2])+' '+MESI[+p[1]-1]+
+ (!D.chiuso&&g>=D.oggi?'<button type="button" data-v="nuovo" data-g="'+g+'">+ Nuovo</button>':'')+'</h3>';
+ if(!l.length)h+='<p class="vuoto-g">Nessun impegno in questo giorno.</p>';
+ else{h+='<ul>';l.forEach(function(x){h+='<li class="t-'+esc(x.tipo)+'"><b>'+(x.o?esc(x.o)+(x.f?'<small> – '+esc(x.f)+'</small>':''):'<small>giornata</small>')+'</b><span>'+esc(x.t)+
+  '<br><small>'+esc(T[x.tipo]||'Altro')+(x.st?' · '+esc(x.st):'')+'</small></span><a href="#ag-'+x.id+'" data-v="vai" data-id="'+x.id+'">Dettagli ›</a></li>';});h+='</ul>';}
+ return h+'</div>';}
+box.addEventListener('click',function(ev){var b=ev.target.closest('[data-v],[data-g]');if(!b||!box.contains(b))return;var v=b.getAttribute('data-v');
+ if(v==='-1'||v==='1'){M+=+v;if(M<0){M=11;Y--;}if(M>11){M=0;Y++;}disegna();return;}
+ if(v==='oggi'){Y=+o[0];M=+o[1]-1;sel=D.oggi;disegna();return;}
+ if(v==='nuovo'){if(window.glAgNuovo)window.glAgNuovo(b.getAttribute('data-g')||sel);return;}
+ if(v==='vai'){ev.preventDefault();var r=document.querySelector('.ag[data-id="'+b.getAttribute('data-id')+'"]');if(r){var dt=r.closest('details');if(dt)dt.open=true;r.scrollIntoView({behavior:'smooth',block:'center'});r.classList.remove('lampo');void r.offsetWidth;r.classList.add('lampo');}return;}
+ var g=b.getAttribute('data-g');if(g){sel=g;var p=g.split('-');if(+p[1]-1!==M||+p[0]!==Y){Y=+p[0];M=+p[1]-1;}disegna();}});
+box.hidden=false;disegna();
+}catch(x){}})();
+`;
 
 const SCRIPT = String.raw`(function(){try{
 var D=GL_AG,dlg=document.getElementById('ag-dlg'),form=document.getElementById('ag-form');
@@ -530,6 +638,8 @@ no.addEventListener('click',function(){if(occupato)return;dlg.close();});
 dlg.addEventListener('cancel',function(ev){if(occupato)ev.preventDefault();});
 dlg.addEventListener('close',function(){var f=fatto;fatto=false;si.hidden=false;no.textContent='Annulla';if(f)location.reload();});
 var nb=document.getElementById('ag-nuovo');if(nb)nb.addEventListener('click',apriNuovo);
+/* dal calendario del mese: «+» su un giorno apre il modulo con quel giorno già scelto */
+window.glAgNuovo=function(g){if(D.chiuso)return;apriNuovo();if(g&&g>=D.oggi){fg.value=g;crAvvisa();}};
 /* «Com'è andata?» dopo «Avvenuto» (pacchetto B) */
 var es=document.getElementById('ag-es'),esL=document.getElementById('es-l'),esMsg=document.getElementById('es-msg'),esSi=document.getElementById('es-si'),esNo=document.getElementById('es-no'),esId=0,esOcc=false;
 function apriEsito(b){var att=[];try{att=JSON.parse(b.getAttribute('data-att'))||[];}catch(x){att=[];}
