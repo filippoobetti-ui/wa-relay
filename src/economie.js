@@ -163,12 +163,21 @@ function pagina(base, h, p, mese, imprese, scelta, lista, torna) {
 
 // Pulsante nella pagina del cantiere, accanto a «Scarica in Excel».
 export function economieIniezione(base, token, commessa) {
+  // 29/10/2026 sera (Filippo): i tre pulsanti della pagina del cantiere in una riga sola, ordinati e della stessa misura
   const u = base + "/economie?t=" + token + "&c=" + encodeURIComponent(commessa);
-  return "<style>.gl-ec-b{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 16px;margin-left:8px;border:1px solid #1B2F4A;border-radius:10px;background:#EEF2F8;color:#1B2F4A;font-size:.92rem;font-weight:700;text-decoration:none}" +
-    ".gl-ec-b:hover,.gl-ec-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
-    "@media (prefers-color-scheme:dark){.gl-ec-b{background:#1d2633;color:#cfe0ff;border-color:#3a4a63}}</style>" +
-    "<script>(function(){try{var a=document.createElement('a');a.className='gl-ec-b';a.href=" + JSON.stringify(u) + ";a.textContent='Economie dei subappaltatori';" +
-    "function metti(){var x=document.querySelector('.gl-xl-barra');if(x){x.appendChild(a);return true;}var nav=document.querySelector('nav.schede');" +
-    "if(nav&&nav.parentNode){var d=document.createElement('div');d.className='gl-xl-barra';d.style.cssText='max-width:960px;margin:10px auto 0;padding:0 12px;text-align:right';d.appendChild(a);nav.parentNode.insertBefore(d,nav.nextSibling);return true;}return false;}" +
-    "if(!metti())document.addEventListener('DOMContentLoaded',metti);}catch(e){}})();</script>";
+  return "<style>" +
+    ".gl-azioni{margin:12px 0 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:stretch}" +
+    ".gl-azioni>a,.gl-azioni>button{display:flex!important;align-items:center;justify-content:center;gap:8px;width:100%;min-height:46px!important;margin:0!important;padding:6px 10px!important;" +
+    "border-radius:10px!important;font:inherit;font-size:.9rem!important;font-weight:700!important;line-height:1.2;text-align:center;text-decoration:none;box-sizing:border-box;white-space:normal}" +
+    ".gl-ec-b{border:1px solid #1B2F4A;background:#EEF2F8;color:#1B2F4A}.gl-ec-b:hover,.gl-ec-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
+    "@media (prefers-color-scheme:dark){.gl-ec-b{background:#1d2633;color:#cfe0ff;border-color:#3a4a63}}" +
+    "@media (max-width:640px){.gl-azioni{grid-template-columns:minmax(0,1fr)}}" +
+    "</style>" +
+    "<script>(function(){try{var e=document.createElement('a');e.className='gl-ec-b';e.href=" + JSON.stringify(u) + ";e.innerHTML='&#128221; Economie dei subappaltatori';" +
+    "function riga(){var nav=document.querySelector('nav.schede');var r=document.querySelector('.gl-azioni');" +
+    "if(!r){r=document.createElement('div');r.className='gl-azioni';if(nav&&nav.parentNode)nav.parentNode.insertBefore(r,nav.nextSibling);else document.body.insertBefore(r,document.body.firstChild);}" +
+    "var p=document.querySelector('.gl-pc-b'),x=document.querySelector('.gl-xl-b');" +
+    "[p,x,e].forEach(function(b){if(b)r.appendChild(b);});" +
+    "document.querySelectorAll('.gl-pc-barra,.gl-xl-barra').forEach(function(v){if(!v.children.length)v.parentNode.removeChild(v);});}" +
+    "riga();if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',riga);setTimeout(riga,0);}catch(err){}})();</script>";
 }
