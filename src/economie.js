@@ -102,8 +102,9 @@ function pagina(base, h, p, mese, imprese, scelta, lista, torna) {
     '<span class="ec-data">' + e(v.data) + "</span>" +
     '<div><p class="ec-cosa">' + e(v.descrizione || "Lavoro extra") + "</p>" +
     '<p class="ec-chi">' + e(v.squadra || "") + " · " + e(v.operai) + " operai × " + num(v.ore) + " h = " + num(v.totale) + " h</p>" +
-    '<span class="ec-tag"' + (v.riportata ? "" : " hidden") + ">Anche nella lista per il committente</span></div>" +
-    (chiuso ? "" : '<button type="button" class="ec-b" data-si="' + (v.riportata ? "0" : "1") + '">' +
+    '<span class="ec-tag"' + (v.riportata ? "" : " hidden") + ">Anche nella lista per il committente</span>" +
+    (v.da ? '<span class="ec-da">' + e(v.da) + "</span>" : "") + "</div>" +
+    (chiuso || !v.id ? "" : '<button type="button" class="ec-b" data-si="' + (v.riportata ? "0" : "1") + '">' +
       (v.riportata ? "Togli dalla lista del committente" : "Riporta nella lista del committente") + "</button>") + "</div>").join("");
   const vuoto = '<p class="ec-vuoto">Nessuna ora in economia dei subappaltatori in questo mese. Le ore extra che i subappaltatori scrivono su WhatsApp compaiono qui.</p>';
   const cfg = JSON.stringify({ u: base + "/economie/riporta", t: p.tok, c: p.c });
@@ -121,7 +122,8 @@ function pagina(base, h, p, mese, imprese, scelta, lista, torna) {
     ".ec-testa{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}" +
     ".ec-testa p{margin:0;font-size:.88rem;color:var(--s)}.ec-testa h1{margin:2px 0 0;font-size:1.3rem;color:var(--ar)}" +
     ".ec-testa select{font:inherit;padding:8px 10px;border:1px solid var(--l);border-radius:10px;background:var(--c);color:var(--t)}" +
-    ".ec-spiega{font-size:.9rem;color:var(--s);line-height:1.45;margin:0 0 12px}" +
+    ".ec-spiega{font-size:.9rem;color:var(--s);line-height:1.45;margin:0 0 12px}.ec-da{display:inline-block;margin:5px 0 0 6px;font-size:.78rem;color:var(--s)}" +
+    ".ec-wa{margin:0 0 12px;padding:10px 12px;border-radius:10px;background:#E8F4EC;color:#1b1f1d;font-size:.88rem;line-height:1.45}.ec-wa b{color:#1D6F42}" +
     ".ec-chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 6px}.ec-chip{padding:6px 12px;border-radius:999px;border:1px solid var(--l);color:var(--t);text-decoration:none;font-size:.9rem;font-weight:600}" +
     ".ec-chip.on{background:var(--ar);border-color:var(--ar);color:#fff}" +
     ".ec-riga{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--l)}" +
@@ -141,6 +143,7 @@ function pagina(base, h, p, mese, imprese, scelta, lista, torna) {
     '<form method="get" action="' + e(base + "/economie") + '"><input type="hidden" name="t" value="' + e(p.tok) + '"><input type="hidden" name="c" value="' + e(p.c) + '">' +
     '<select name="mese" aria-label="Mese" onchange="this.form.submit()">' + opzMesi + "</select></form></div>" +
     '<p class="ec-spiega">Lavori extra fatti dai subappaltatori per l\'impresa, fuori dal contratto di subappalto. Non entrano nella lista per il committente: se un lavoro lo fate pagare anche al committente, premete «Riporta nella lista del committente». Vale per le liste settimanali che devono ancora uscire.</p>' +
+    '<p class="ec-wa"><b>Come le scrive il subappaltatore.</b> Su WhatsApp, come sempre: per esempio «2 operai 4 ore spostamento scarico, lavoro extra». Le ore extra di chi è registrato come subappaltatore o autonomo vengono qui, nella sua lista del mese. Se le segna l\'ufficio, nel rapportino del giorno si sceglie «Economia del subappaltatore» e si scrive il suo nome nella squadra.</p>' +
     (imprese.length ? '<div class="ec-chips">' + chips + "</div>" : "") +
     '<div id="ec-righe">' + (voci.length ? righe : vuoto) + "</div>" +
     (voci.length ? '<div class="ec-piede"><p>Totale del mese: <b>' + num(lista.ore) + ' h</b> · riportate al committente: <b id="ec-rip">' + num(lista.ore_riportate || 0) + " h</b></p>" +

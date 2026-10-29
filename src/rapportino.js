@@ -41,7 +41,7 @@ function pulisciDati(d) {
   if (Array.isArray(d.manodopera)) {
     const t = (v, n) => String(v == null ? "" : v).slice(0, n);
     o.manodopera = d.manodopera.slice(0, 30).filter((r) => r && typeof r === "object")
-      .map((r) => ({ squadra: t(r.squadra, 120), qualifica: t(r.qualifica, 20), operai: t(r.operai, 5), ore: t(r.ore, 6), economia: r.economia === "si" ? "si" : "no" }));
+      .map((r) => ({ squadra: t(r.squadra, 120), qualifica: t(r.qualifica, 20), operai: t(r.operai, 5), ore: t(r.ore, 6), economia: r.economia === "si" || r.economia === "sub" ? r.economia : "no" }));
   }
   // Cronoprogramma (23/10/2026, pacchetto B): attività eseguite con l'esito
   if (Array.isArray(d.crono)) {
@@ -207,7 +207,11 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     (conCrono ? '<div class="et">Attività del cronoprogramma <small>(facoltativo: scegli quelle lavorate e com’è andata)</small></div>' +
       '<input type="search" id="f-cr-q" placeholder="Cerca un’attività" autocomplete="off"><div class="cr-l" id="f-cr"></div>' : "") +
     '<label>Dove <small>(facoltativo)</small><input type="text" id="f-luogo" maxlength="200" placeholder="es. Piano 1, blocco B"></label>' +
-    '<div class="et">Manodopera</div><div id="f-mano"></div>' +
+    '<div class="et">Manodopera</div>' +
+    '<div class="tipi-ore"><div class="to to-n"><b>Ore normali</b><span>Lavoro previsto dal contratto. Non si paga a parte.</span></div>' +
+    '<div class="to to-c"><b>Economia per il committente</b><span>Lavori extra della tua impresa, da far pagare al committente: vanno nel rapportino settimanale delle ore in economia per la Direzione Lavori.</span></div>' +
+    '<div class="to to-s"><b>Economia del subappaltatore</b><span>Lavori extra di un subappaltatore per la tua impresa: vanno nella sua lista del mese, in «Economie dei subappaltatori». Scrivi il nome del subappaltatore nella squadra.</span></div></div>' +
+    '<div id="f-mano"></div>' +
     '<button type="button" class="piccolo-b" id="f-agg">+ Aggiungi una riga</button><p class="tot" id="f-tot"></p>' +
     '<label>Mezzi e noli <small>(facoltativo)</small><textarea id="f-mezzi" rows="2" maxlength="2000" placeholder="es. autogru 4 ore, escavatore"></textarea></label>' +
     '<label>Note <small>(facoltative)</small><textarea id="f-note" rows="2" maxlength="2000"></textarea></label>' +
@@ -221,12 +225,12 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<select class="m-q">' + opzQ + "</select>" +
     '<input type="number" class="m-op" min="1" max="200" step="1" inputmode="numeric" placeholder="Operai">' +
     '<input type="text" class="m-ore" maxlength="6" inputmode="decimal" placeholder="Ore">' +
-    '<label class="m-eco" title="Lavori extra, fuori contratto"><input type="checkbox" class="m-e"> In economia</label>' +
+    '<select class="m-e" aria-label="Tipo di ore"><option value="no">Ore normali</option><option value="si">Economia per il committente</option><option value="sub">Economia del subappaltatore</option></select>' +
     '<button type="button" class="m-x" aria-label="Togli la riga">&times;</button></div></template>' +
     '<p class="nota">Il rapportino dell’ufficio è un documento a parte: il diario di cantiere del giorno resta com’è. ' +
     'Con «Registra» riceve un numero e un’impronta SHA-256 (livello L1) e non si modifica più: ogni correzione crea una versione nuova con il motivo, ' +
-    'e quella di prima resta consultabile. Solo le righe con «In economia» (lavori extra, fuori contratto) entrano nella lista settimanale delle ore in economia, se la lista di quella settimana non è ancora uscita ' +
-    '(il lunedì alle 6:30).</p>' +
+    'e quella di prima resta consultabile. Solo le righe «Economia per il committente» entrano nella lista settimanale delle ore in economia, se la lista di quella settimana non è ancora uscita ' +
+    '(il lunedì alle 6:30); le righe «Economia del subappaltatore» vanno nella sua lista del mese, in «Economie dei subappaltatori».</p>' +
     "<noscript><p class=\"nota\"><b>Per scrivere i rapportini serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main>" +
     // annullamento
@@ -282,13 +286,16 @@ const STILE =
   ".pannello label{display:block;font-weight:600;font-size:.9rem;margin:10px 0 0}.pannello label small,.dl-c label small{font-weight:400;color:#666}" +
   ".pannello input,.pannello select,.pannello textarea,.dl-c input,.dl-c textarea{display:block;width:100%;margin-top:4px;font:inherit;font-size:1rem;padding:10px;border:1px solid var(--bordo);border-radius:10px;background:#fff;color:#111}" +
   ".et{font-weight:600;font-size:.9rem;margin:12px 0 4px}" +
-  ".riga-m{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1.6fr) minmax(0,.8fr) minmax(0,.8fr) auto 40px;gap:6px;margin:0 0 6px;align-items:center}" +
+  ".riga-m{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,2fr) 40px;gap:6px;margin:0 0 6px;align-items:center}" +
   ".riga-m input,.riga-m select{margin-top:0!important;padding:9px 8px!important;font-size:.95rem!important}" +
   ".m-x{width:40px;height:40px;border-radius:10px;border:1px solid #f0c9c6;background:#fff;color:#8c1d18;font-size:1.3rem;cursor:pointer}" +
   "@media (max-width:560px){.riga-m{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px;padding:8px;border:1px solid #E4E8E6;border-radius:10px}" +
   ".riga-m .m-sq{grid-column:1/3;grid-row:1}.riga-m .m-x{grid-column:3;grid-row:1}.riga-m .m-q{grid-column:1/4;grid-row:2}" +
-  ".riga-m .m-op{grid-column:1;grid-row:3}.riga-m .m-ore{grid-column:2/4;grid-row:3}.riga-m .m-eco{grid-column:1/4;grid-row:4}}" +
-  ".m-eco{display:inline-flex!important;align-items:center;gap:6px;margin:0!important;font-weight:600;font-size:.85rem;white-space:nowrap}.m-eco input{width:auto!important;margin:0!important}" +
+  ".riga-m .m-op{grid-column:1;grid-row:3}.riga-m .m-ore{grid-column:2/4;grid-row:3}.riga-m .m-e{grid-column:1/4;grid-row:4}}" +
+  ".riga-m .m-e{font-weight:600}.riga-m .m-e.e-si{background:#FFF4D6;border-color:#E0A91E;color:#5A3E00}.riga-m .m-e.e-sub{background:#E6F0FB;border-color:#3D7CC9;color:#0C3B70}" +
+  ".tipi-ore{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 10px}.to{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.35}" +
+  ".to b{display:block;font-size:.88rem;margin-bottom:2px}.to span{color:#555}.to-c{background:#FFF4D6;border-color:#E0A91E}.to-c b{color:#5A3E00}.to-s{background:#E6F0FB;border-color:#3D7CC9}.to-s b{color:#0C3B70}" +
+  "@media (max-width:560px){.tipi-ore{grid-template-columns:minmax(0,1fr)}}" +
   ".piccolo-b{min-height:38px;padding:0 12px;border-radius:8px;border:1px dashed var(--ar);background:#fff;color:var(--ar-s);font:inherit;font-weight:700;font-size:.88rem;cursor:pointer}" +
   ".tot{font-size:.9rem;font-weight:700;color:var(--ar-s);margin:8px 0 0}.tot:empty{display:none}" +
   ".cr-l{max-height:260px;overflow:auto;border:1px solid var(--bordo);border-radius:10px;margin-top:6px;background:#fff}" +
@@ -371,11 +378,12 @@ for(var i=0;i<gg.length;i++)gg[i].addEventListener('click',function(ev){if(stato
  chiudiModulo(true);mostraGiorno(this.getAttribute('data-g'));pan.scrollIntoView({behavior:'smooth',block:'start'});});
 /* ---------- modulo ---------- */
 function nuovaRiga(r){var n=tpl.content.firstElementChild.cloneNode(true);
- if(r){n.querySelector('.m-sq').value=r.squadra||'';n.querySelector('.m-q').value=r.qualifica||'';n.querySelector('.m-op').value=r.operai==null?'':r.operai;n.querySelector('.m-ore').value=r.ore==null?'':String(r.ore).replace('.',',');n.querySelector('.m-e').checked=r.economia==='si';}
+ if(r){n.querySelector('.m-sq').value=r.squadra||'';n.querySelector('.m-q').value=r.qualifica||'';n.querySelector('.m-op').value=r.operai==null?'':r.operai;n.querySelector('.m-ore').value=r.ore==null?'':String(r.ore).replace('.',',');n.querySelector('.m-e').value=(r.economia==='si'||r.economia==='sub')?r.economia:'no';}
+ var se=n.querySelector('.m-e');function colore(){se.className='m-e'+(se.value==='no'?'':' e-'+se.value);}se.addEventListener('change',function(){colore();stato.sporco=true;});colore();
  n.querySelector('.m-x').addEventListener('click',function(){n.parentNode.removeChild(n);if(!fmano.children.length)nuovaRiga();totale();stato.sporco=true;});
  fmano.appendChild(n);}
 function righe(){var a=[],rr=fmano.querySelectorAll('.riga-m');for(var i=0;i<rr.length;i++){var r=rr[i];
- var o={squadra:r.querySelector('.m-sq').value.trim(),qualifica:r.querySelector('.m-q').value,operai:r.querySelector('.m-op').value.trim(),ore:r.querySelector('.m-ore').value.trim(),economia:r.querySelector('.m-e').checked?'si':'no'};
+ var o={squadra:r.querySelector('.m-sq').value.trim(),qualifica:r.querySelector('.m-q').value,operai:r.querySelector('.m-op').value.trim(),ore:r.querySelector('.m-ore').value.trim(),economia:r.querySelector('.m-e').value};
  if(o.squadra||o.operai||o.ore)a.push(o);}return a;}
 function totale(){var t=0,a=righe();for(var i=0;i<a.length;i++)t+=num(a[i].operai)*num(a[i].ore);ftot.textContent=t>0?'Totale manodopera: '+ore(t):'';}
 fmano.addEventListener('input',function(){totale();});
