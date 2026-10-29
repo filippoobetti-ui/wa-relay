@@ -41,7 +41,7 @@ function pulisciDati(d) {
   if (Array.isArray(d.manodopera)) {
     const t = (v, n) => String(v == null ? "" : v).slice(0, n);
     o.manodopera = d.manodopera.slice(0, 30).filter((r) => r && typeof r === "object")
-      .map((r) => ({ squadra: t(r.squadra, 120), qualifica: t(r.qualifica, 20), operai: t(r.operai, 5), ore: t(r.ore, 6), economia: r.economia === "si" || r.economia === "sub" ? r.economia : "no" }));
+      .map((r) => ({ squadra: t(r.squadra, 120), qualifica: t(r.qualifica, 20), operai: t(r.operai, 5), ore: t(r.ore, 6), economia: r.economia === "si" || r.economia === "sub" ? r.economia : "no", fonte: r.fonte === "whatsapp" || r.fonte === "timbrature" ? r.fonte : undefined }));
   }
   // Cronoprogramma (23/10/2026, pacchetto B): attività eseguite con l'esito
   if (Array.isArray(d.crono)) {
@@ -207,6 +207,8 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     (conCrono ? '<div class="et">Attività del cronoprogramma <small>(facoltativo: scegli quelle lavorate e com’è andata)</small></div>' +
       '<input type="search" id="f-cr-q" placeholder="Cerca un’attività" autocomplete="off"><div class="cr-l" id="f-cr"></div>' : "") +
     '<label>Dove <small>(facoltativo)</small><input type="text" id="f-luogo" maxlength="200" placeholder="es. Piano 1, blocco B"></label>' +
+    '<p class="auto-info" id="f-auto" hidden><b>Preparato da TIX</b> alle 22:00 con quello che la squadra ha scritto su WhatsApp: presenze (ENTRO / ESCO) e ore in economia. ' +
+    'Controlla le righe, correggi o aggiungi quello che manca, scrivi il tuo nome e premi «Firma e registra».</p>' +
     '<div class="et">Manodopera</div>' +
     '<div class="tipi-ore"><div class="to to-n"><b>Ore normali</b><span>Lavoro previsto dal contratto. Non si paga a parte.</span></div>' +
     '<div class="to to-c"><b>Economia per il committente</b><span>Lavori extra della tua impresa, da far pagare al committente: vanno nel rapportino settimanale delle ore in economia per la Direzione Lavori.</span></div>' +
@@ -219,16 +221,16 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<label>Registrato da <small>(nome e cognome)</small><input type="text" id="f-autore" maxlength="120" autocomplete="name"></label>' +
     '<p class="msg" id="mo-msg" aria-live="polite"></p>' +
     '<div class="bott"><button type="button" class="no" id="mo-chiudi">Chiudi</button><button type="button" class="sec" id="mo-bozza">Salva bozza</button>' +
-    '<button type="submit" class="si" id="mo-reg">Registra</button></div>' +
+    '<button type="submit" class="si" id="mo-reg">Firma e registra</button></div>' +
     "</form></section>" +
     '<template id="riga-m"><div class="riga-m"><input type="text" class="m-sq" maxlength="120" placeholder="Squadra o impresa">' +
     '<select class="m-q">' + opzQ + "</select>" +
     '<input type="number" class="m-op" min="1" max="200" step="1" inputmode="numeric" placeholder="Operai">' +
     '<input type="text" class="m-ore" maxlength="6" inputmode="decimal" placeholder="Ore">' +
-    '<select class="m-e" aria-label="Tipo di ore"><option value="no">Ore normali</option><option value="si">Economia per il committente</option><option value="sub">Economia del subappaltatore</option></select>' +
+    '<select class="m-e" aria-label="Tipo di ore"><option value="no">Ore normali</option><option value="si">Economia committente</option><option value="sub">Economia subappaltatore</option></select>' +
     '<button type="button" class="m-x" aria-label="Togli la riga">&times;</button></div></template>' +
     '<p class="nota">Il rapportino dell’ufficio è un documento a parte: il diario di cantiere del giorno resta com’è. ' +
-    'Con «Registra» riceve un numero e un’impronta SHA-256 (livello L1) e non si modifica più: ogni correzione crea una versione nuova con il motivo, ' +
+    'Con «Firma e registra» riceve un numero e un’impronta SHA-256 (livello L1) e non si modifica più: ogni correzione crea una versione nuova con il motivo, ' +
     'e quella di prima resta consultabile. Solo le righe «Economia per il committente» entrano nella lista settimanale delle ore in economia, se la lista di quella settimana non è ancora uscita ' +
     '(il lunedì alle 6:30); le righe «Economia del subappaltatore» vanno nella sua lista del mese, in «Economie dei subappaltatori».</p>' +
     "<noscript><p class=\"nota\"><b>Per scrivere i rapportini serve JavaScript attivo nel browser.</b></p></noscript>" +
@@ -286,7 +288,7 @@ const STILE =
   ".pannello label{display:block;font-weight:600;font-size:.9rem;margin:10px 0 0}.pannello label small,.dl-c label small{font-weight:400;color:#666}" +
   ".pannello input,.pannello select,.pannello textarea,.dl-c input,.dl-c textarea{display:block;width:100%;margin-top:4px;font:inherit;font-size:1rem;padding:10px;border:1px solid var(--bordo);border-radius:10px;background:#fff;color:#111}" +
   ".et{font-weight:600;font-size:.9rem;margin:12px 0 4px}" +
-  ".riga-m{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,2fr) 40px;gap:6px;margin:0 0 6px;align-items:center}" +
+  ".riga-m{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.05fr) minmax(0,.5fr) minmax(0,.5fr) minmax(0,2.5fr) 40px;gap:6px;margin:0 0 6px;align-items:center}" +
   ".riga-m input,.riga-m select{margin-top:0!important;padding:9px 8px!important;font-size:.95rem!important}" +
   ".m-x{width:40px;height:40px;border-radius:10px;border:1px solid #f0c9c6;background:#fff;color:#8c1d18;font-size:1.3rem;cursor:pointer}" +
   "@media (max-width:560px){.riga-m{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px;padding:8px;border:1px solid #E4E8E6;border-radius:10px}" +
@@ -296,6 +298,8 @@ const STILE =
   ".tipi-ore{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 10px}.to{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.35}" +
   ".to b{display:block;font-size:.88rem;margin-bottom:2px}.to span{color:#555}.to-c{background:#FFF4D6;border-color:#E0A91E}.to-c b{color:#5A3E00}.to-s{background:#E6F0FB;border-color:#3D7CC9}.to-s b{color:#0C3B70}" +
   "@media (max-width:560px){.tipi-ore{grid-template-columns:minmax(0,1fr)}}" +
+  ".auto-info{margin:10px 0 4px;padding:10px 12px;border-radius:10px;background:#FFF4D6;border:1px solid #E0A91E;color:#5A3E00;font-size:.88rem;line-height:1.45}.auto-info[hidden]{display:none}" +
+  ".rp.bz.auto{border-color:#E0A91E;background:#FFF8E5}.rp.bz.auto .t{color:#5A3E00}.riga-m[data-fonte]{box-shadow:inset 3px 0 0 #25D366;border-radius:10px}" +
   ".piccolo-b{min-height:38px;padding:0 12px;border-radius:8px;border:1px dashed var(--ar);background:#fff;color:var(--ar-s);font:inherit;font-weight:700;font-size:.88rem;cursor:pointer}" +
   ".tot{font-size:.9rem;font-weight:700;color:var(--ar-s);margin:8px 0 0}.tot:empty{display:none}" +
   ".cr-l{max-height:260px;overflow:auto;border:1px solid var(--bordo);border-radius:10px;margin-top:6px;background:#fff}" +
@@ -342,10 +346,10 @@ function giorno(g){for(var i=0;i<G.length;i++)if(G[i].g===g)return G[i];return n
 function diarioUrl(g){for(var i=0;i<DI.length;i++)if(DI[i].g===g)return DI[i].url;return '';}
 function versioni(x){var a=[];for(var i=0;i<R.length;i++)if(R[i].numero&&R[i].numero===x.numero&&R[i].id!==x.id)a.push(R[i]);a.sort(function(p,q){return p.versione-q.versione;});return a;}
 function scheda(x){
- if(x.stato==='bozza'){return '<div class="rp bz"><div class="t">Bozza da completare</div>'+
+ if(x.stato==='bozza'){var au=x.origine==='automatica';return '<div class="rp bz'+(au?' auto':'')+'"><div class="t">'+(au?'Preparato da TIX dai messaggi del giorno: da controllare e firmare':'Bozza da completare')+'</div>'+
   (x.lavorazioni?'<div class="n">'+esc(x.lavorazioni.slice(0,200))+'</div>':'')+
   '<div class="k">ultima modifica '+esc(x.aggiornato_il)+(x.autore?' &middot; '+esc(x.autore):'')+'</div>'+
-  (D.chiuso?'':'<div class="az"><button type="button" data-az="riprendi" data-id="'+x.id+'">Riprendi</button><button type="button" class="rosso" data-az="scarta" data-id="'+x.id+'">Scarta la bozza</button></div>')+'</div>';}
+  (D.chiuso?'':'<div class="az"><button type="button" data-az="riprendi" data-id="'+x.id+'">'+(au?'Controlla e firma':'Riprendi')+'</button><button type="button" class="rosso" data-az="scarta" data-id="'+x.id+'">Scarta la bozza</button></div>')+'</div>';}
  var ann=x.stato==='annullato',vv=versioni(x),h='';
  h+='<div class="rp'+(ann?' ann':'')+'"><div class="t">Rapportino n. '+x.numero+(x.versione>1?' <span class="pl mov">versione '+x.versione+'</span>':'')+(ann?' <span class="pl ann">annullato</span>':'')+'</div>';
  if(x.lavorazioni)h+='<div class="n">'+esc(x.lavorazioni.slice(0,240))+(x.lavorazioni.length>240?'…':'')+'</div>';
@@ -379,11 +383,11 @@ for(var i=0;i<gg.length;i++)gg[i].addEventListener('click',function(ev){if(stato
 /* ---------- modulo ---------- */
 function nuovaRiga(r){var n=tpl.content.firstElementChild.cloneNode(true);
  if(r){n.querySelector('.m-sq').value=r.squadra||'';n.querySelector('.m-q').value=r.qualifica||'';n.querySelector('.m-op').value=r.operai==null?'':r.operai;n.querySelector('.m-ore').value=r.ore==null?'':String(r.ore).replace('.',',');n.querySelector('.m-e').value=(r.economia==='si'||r.economia==='sub')?r.economia:'no';}
- var se=n.querySelector('.m-e');function colore(){se.className='m-e'+(se.value==='no'?'':' e-'+se.value);}se.addEventListener('change',function(){colore();stato.sporco=true;});colore();
+ if(r&&(r.fonte==='whatsapp'||r.fonte==='timbrature')){n.setAttribute('data-fonte',r.fonte);n.title=r.fonte==='whatsapp'?'Riga presa da WhatsApp':'Riga presa da ENTRO / ESCO';}var se=n.querySelector('.m-e');function colore(){se.className='m-e'+(se.value==='no'?'':' e-'+se.value);}se.addEventListener('change',function(){colore();stato.sporco=true;});colore();
  n.querySelector('.m-x').addEventListener('click',function(){n.parentNode.removeChild(n);if(!fmano.children.length)nuovaRiga();totale();stato.sporco=true;});
  fmano.appendChild(n);}
 function righe(){var a=[],rr=fmano.querySelectorAll('.riga-m');for(var i=0;i<rr.length;i++){var r=rr[i];
- var o={squadra:r.querySelector('.m-sq').value.trim(),qualifica:r.querySelector('.m-q').value,operai:r.querySelector('.m-op').value.trim(),ore:r.querySelector('.m-ore').value.trim(),economia:r.querySelector('.m-e').value};
+ var o={squadra:r.querySelector('.m-sq').value.trim(),qualifica:r.querySelector('.m-q').value,operai:r.querySelector('.m-op').value.trim(),ore:r.querySelector('.m-ore').value.trim(),economia:r.querySelector('.m-e').value};if(r.getAttribute('data-fonte'))o.fonte=r.getAttribute('data-fonte');
  if(o.squadra||o.operai||o.ore)a.push(o);}return a;}
 function totale(){var t=0,a=righe();for(var i=0;i<a.length;i++)t+=num(a[i].operai)*num(a[i].ore);ftot.textContent=t>0?'Totale manodopera: '+ore(t):'';}
 fmano.addEventListener('input',function(){totale();});
@@ -412,9 +416,9 @@ function riempi(x,g){fdata.value=x?x.data:g;flav.value=x?x.lavorazioni:'';fluogo
  crSel={};var cc=(x&&x.crono)||[];for(var c=0;c<cc.length;c++)crSel[cc[c].attivita_id]={esito:cc[c].esito,pct:cc[c].pct==null?'':String(cc[c].pct)};if(crQ)crQ.value='';crRender();
  fmano.innerHTML='';var mm=(x&&x.manodopera)||[];for(var i=0;i<mm.length;i++)nuovaRiga(mm[i]);if(!mm.length)nuovaRiga();totale();}
 function apriModulo(modo,x,g){stato.modo=modo;stato.id=x?x.id:null;stato.sporco=false;stato.salvato=false;
- riempi(x,g);q('#l-motivo').hidden=modo!=='correggi';bBozza.hidden=modo==='correggi';bReg.hidden=false;bReg.disabled=false;bBozza.disabled=false;
+ riempi(x,g);q('#f-auto').hidden=!(x&&x.origine==='automatica'&&modo==='bozza');q('#l-motivo').hidden=modo!=='correggi';bBozza.hidden=modo==='correggi';bReg.hidden=false;bReg.disabled=false;bBozza.disabled=false;
  tit.textContent=modo==='correggi'?'Correzione del rapportino n. '+x.numero:(modo==='bozza'?'Bozza del rapportino':'Nuovo rapportino');
- bReg.textContent=modo==='correggi'?'Registra la correzione':'Registra';bChiudi.textContent='Chiudi';m('','');
+ bReg.textContent=modo==='correggi'?'Registra la correzione':'Firma e registra';bChiudi.textContent='Chiudi';m('','');
  mod.hidden=false;mod.scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){try{flav.focus();}catch(e){}},300);}
 function chiudiModulo(silenzioso){if(stato.occupato)return false;mod.hidden=true;if(stato.ricarica&&!silenzioso){location.href=link(D.g);}return true;}
 bChiudi.addEventListener('click',function(){if(stato.sporco&&!confirm('Chiudere senza salvare le ultime modifiche?'))return;if(stato.ricarica){location.href=link(D.g);return;}chiudiModulo();});
