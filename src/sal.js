@@ -68,8 +68,63 @@ function pulisci(azione, d) {
     s("nome", 120); s("data", 10); s("nota", 600); s("motivo", 600);
   } else if (azione === "misura_togli") {
     s("motivo", 300);
+  } else if (azione === "computo_conferma" || azione === "computo_annulla") {
+    s("autore", 120);
   }
   return o;
+}
+
+// ---------------------------------------------------------------------------- caricamento del computo (29/10/2026)
+// Il file va nell'archivio (wa-media, «documenti/<cantiere>/computo/…»), poi lo legge la funzione computo-import:
+// la pagina mostra l'anteprima con il controllo delle somme e nulla cambia finché l'ufficio non conferma.
+const MAX_FILE = 18 * 1024 * 1024;
+function estensione(nome) {
+  const m = /\.(pdf|xlsx|xlsm|xls|ods|csv|dcf|xpwe|docx?)$/i.exec(String(nome || ""));
+  return m ? "." + m[1].toLowerCase() : "";
+}
+function casuale() {
+  const b = new Uint8Array(10);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+async function caricaComputo(request, env, inUrl, h) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const tok = String(inUrl.searchParams.get("t") || "").toLowerCase();
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[\u0000-\u001f\\/]+/g, " ").trim().slice(0, 180);
+  if (!GETTONE.test(tok)) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return json({ esito: "errore" }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  // prima il controllo dell'accesso, poi il file (chi non ha accesso non scrive nulla nell'archivio)
+  const ctx = await h.rpc(env, "computo_import_contesto", { p_token: tok, p_commessa: c }, 10000).catch(() => null);
+  if (!ctx) return json({ esito: "incerto" }, 503);
+  if (ctx.esito !== "ok") return json({ esito: String(ctx.esito) }, ctx.esito === "gettone" ? 403 : 400);
+  if (ctx.chiuso) return json({ esito: "chiuso", messaggio: "Il cantiere è chiuso." });
+  if (ctx.attivo === false) return json({ esito: "spento", messaggio: "Il caricamento del computo è sospeso in questo momento." });
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  const ora = new Date();
+  const giorno = ora.getUTCFullYear() + String(ora.getUTCMonth() + 1).padStart(2, "0") + String(ora.getUTCDate()).padStart(2, "0");
+  const percorso = "documenti/" + c + "/computo/" + giorno + "-" + casuale() + estensione(nome);
+  const mime = String(request.headers.get("Content-Type") || "application/octet-stream").split(";")[0].trim().slice(0, 120) || "application/octet-stream";
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const up = await fetch(supabaseUrl + "/storage/v1/object/wa-media/" + percorso, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": mime, "x-upsert": "false" },
+      body: bytes, signal: ctrl.signal
+    });
+    if (!up.ok) return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } catch (e) {
+    return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } finally { clearTimeout(timer); }
+  const r = await h.rpc(env, "computo_import_da_portale", { p_token: tok, p_commessa: c, p_storage_path: percorso, p_mime: mime, p_nome_file: nome || null, p_byte: bytes.length }, 10000).catch(() => null);
+  if (!r) return json({ esito: "incerto" }, 503);
+  if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
+  return json({ esito: "ok", id: r.id });
 }
 
 export async function portaleSal(request, env, base, inUrl, h) {
@@ -79,6 +134,7 @@ export async function portaleSal(request, env, base, inUrl, h) {
   }
   const sotto = inUrl.pathname.slice(base.length);
   if (sotto === "/sal/api") return api(request, env, h);
+  if (sotto === "/sal/computo/carica") return caricaComputo(request, env, inUrl, h);
   if (sotto === "/sal/excel") return excel(request, env, base, inUrl, h);
   if (sotto === "/sal/documento") return documento(request, env, base, inUrl, h);
   if (sotto !== "/sal") return new Response("Not Found", { status: 404 });
@@ -128,6 +184,11 @@ async function api(request, env, h) {
       if (["scarta", "firmato", "visto", "riemetti", "annulla"].indexOf(sa) === -1) return json({ esito: "errore" }, 400);
       r = await chiama("sal_stato", { p_token: tok, p_sal: id, p_azione: sa, p_dati: dati });
     }
+  } else if (["computo_stato", "computo_conferma", "computo_annulla"].indexOf(az) !== -1) {
+    const n = Number(b.id);
+    if (!UUID.test(c) || !Number.isInteger(n) || n <= 0) return json({ esito: "errore" }, 400);
+    if (az === "computo_stato") r = await chiama("computo_import_stato", { p_token: tok, p_commessa: c, p_id: n });
+    else r = await chiama("computo_import_azione", { p_token: tok, p_commessa: c, p_id: n, p_azione: az === "computo_conferma" ? "conferma" : "annulla", p_autore: dati.autore || null });
   } else {
     return json({ esito: "errore" }, 400);
   }
@@ -674,6 +735,13 @@ const STILE =
   ".dl-b .si.rosso{background:#b91c1c;border-color:#b91c1c}.msg{margin:0 18px;color:#b91c1c;font-weight:700;font-size:.9rem;min-height:1em}" +
   ".dims{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.calc{font-size:.9rem;color:#4A1F86;font-weight:700}" +
   ".sal-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1d1530;color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.3)}" +
+  // caricamento del computo
+  ".k-car{border:2px dashed var(--sal-b);background:#FCFAFF}.k-car p{margin:0 0 10px}" +
+  ".giro{display:inline-block;width:18px;height:18px;border:3px solid var(--sal-b);border-top-color:var(--sal);border-radius:50%;animation:giro 1s linear infinite;vertical-align:middle;margin-right:8px}" +
+  "@keyframes giro{to{transform:rotate(360deg)}}.k-att{font-weight:700;color:#3d1a6e;padding:6px 0}" +
+  ".k-err{background:#FEF2F2;border-left:4px solid #b91c1c;border-radius:10px;padding:10px 14px;color:#7f1d1d;font-weight:700;margin:8px 0}" +
+  ".k-avv{margin:8px 0;padding:0 0 0 18px;color:var(--avv);font-weight:700;font-size:.9rem}.k-avv li{margin:3px 0}" +
+  "table.av tr.kv{cursor:default}table.av tr.kv.alt td{color:#6b7280}" +
   ":root{color-scheme:light}";
 
 const APP = String.raw`(function(){"use strict";
@@ -695,7 +763,8 @@ function api(azione,extra){var b={t:C.t,c:C.c,azione:azione};extra=extra||{};for
 function ricarica(){return api('contesto').then(function(r){if(r&&r.esito==='ok'){D=r;tutto();}else if(r&&(r.esito==='gettone'||r.esito==='spento')){location.href=C.torna;}});}
 function errore(r){if(!r)return 'Il servizio non risponde: riprova.';if(r.esito==='chiuso')return 'Il cantiere è chiuso.';if(r.esito==='incerto')return 'Non sappiamo se è andata a buon fine: ricarica la pagina e controlla.';return r.messaggio||'Non è stato possibile salvare.';}
 var K=D.computo||null,CL=D.calcolo||null,CO=CL?CL.conto:null;
-var scheda=C.s||ls('sal_scheda')||'avanzamento';if(!K||!CL||!(CL.voci||[]).length)scheda=C.s||'contratto';
+var scheda=C.s||ls('sal_scheda')||'avanzamento';if(!K||!CL||!(CL.voci||[]).length)scheda=C.s||'computo';
+var IMP=null,impId=D.import?D.import.id:null,impTutte=false,impTimer=null,impGiri=0;
 var filtro='tutte',cerca='';
 var chiusi={};
 
@@ -906,20 +975,79 @@ function salvaContratto(){var d={tipo_contratto:$('#c-tipo').value,importo_contr
   api('contratto',{dati:d}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){avviso('Scheda contratto salvata.');ricarica();}else $('#c-msg').textContent=errore(r);});}
 
 // ---------------- computo
-function computo(){var k=K;
-  if(!k)return '<div class="pann"><h2>Computo metrico</h2><p>Il cantiere non ha ancora un computo. Mandalo a info@tixcantiere.it (Excel, file PriMus o PDF): lo carichiamo noi e lo trovi qui, con il controllo delle somme.</p>'+
-    '<p class="nota">Intanto puoi compilare la scheda «Contratto».</p></div>';
-  var h='<div class="pann"><h2>Computo metrico · versione '+es(k.versione)+'</h2><p class="nota" style="margin-top:0">'+es(k.fonte||'')+(k.file_nome?' · file '+es(k.file_nome):'')+'</p>'+
+function computo(){var k=K,senza=!k||!Number(k.voci_n);
+  var h=caricaHtml(senza);
+  if(senza)return h+(D.chiuso?'':'<p class="nota">Intanto puoi compilare la scheda «Contratto».</p>');
+  h+='<div class="pann"><h2>Computo metrico · versione '+es(k.versione)+'</h2><p class="nota" style="margin-top:0">'+es(k.fonte||'')+(k.file_nome?' · file '+es(k.file_nome):'')+'</p>'+
     '<div class="s-cifre"><div class="s-cifra"><small>Voci</small><b>'+es(k.voci_n)+'</b></div><div class="s-cifra"><small>Capitoli</small><b>'+es(k.capitoli_n)+'</b></div><div class="s-cifra"><small>Righe di misura</small><b>'+es(k.righe_n)+'</b></div></div>'+
     '<h3>Controllo delle somme</h3><table class="conto"><tr><td>Somma del computo (voci comprese)</td><td class="n">'+eur(CO&&CO.importo_computo)+' €</td></tr>'+
     '<tr><td>Importo del contratto</td><td class="n">'+eur(k.importo_contratto)+(k.importo_contratto!=null?' €':'')+'</td></tr></table><p>'+diff()+'</p>'+
     (k.nota_differenza?'<p class="nota">Nota: '+es(k.nota_differenza)+'</p>':'')+
-    '<p>'+(Number(k.scarti)===0?'<span class="ok-v">Righe di misura e quantità tornano voce per voce.</span>':'<span class="ko-v">'+es(k.scarti)+' voci hanno righe di misura che non tornano con la quantità.</span>')+'</p>';
+    '<p>'+(!Number(k.righe_n)?'<span class="sub">Il file non aveva le righe di misura: si controllano i totali delle voci.</span>':Number(k.scarti)===0?'<span class="ok-v">Righe di misura e quantità tornano voce per voce.</span>':'<span class="ko-v">'+es(k.scarti)+' voci hanno righe di misura che non tornano con la quantità.</span>')+'</p>';
   if(CL&&CL.capitoli&&CL.capitoli.length){h+='<h3>Capitoli</h3><table class="conto">';var tot=Number(CO.importo_computo)||0;
     CL.capitoli.forEach(function(c){h+='<tr><td>'+es(c.n)+'</td><td class="n">'+eur(c.ic)+' €</td><td class="n sub">'+pc(tot?Number(c.ic)/tot*100:0)+'</td></tr>';});h+='</table>';}
   if(k.versioni&&k.versioni.length>1)h+='<h3>Versioni</h3><p class="nota" style="margin-top:0">'+k.versioni.map(function(v){return 'v. '+v.versione+' ('+v.stato+', '+v.creato_il+')';}).join(' · ')+'. Una variante diventa sempre una versione nuova: le vecchie restano.</p>';
-  h+='<p class="nota">Per caricare un computo aggiornato o una variante mandalo a info@tixcantiere.it: diventa la versione successiva, senza toccare questa.</p></div>';
+  h+='</div>';
   return h;}
+
+// ---------------- caricamento del computo: file → lettura → anteprima → Conferma / Annulla
+function caricaHtml(senza){
+  if(D.chiuso)return senza?'<div class="pann"><h2>Computo metrico</h2><p>Il cantiere non ha un computo.</p></div>':'';
+  if(D.carica_attivo===false)return senza?'<div class="pann"><h2>Computo metrico</h2><p>Il caricamento del computo è sospeso in questo momento: riprova più tardi.</p></div>':'';
+  if(K&&K.bloccato)return '<div class="pann"><p class="nota" style="margin:0">Ci sono già SAL emessi: il computo non si sostituisce più. Le varianti, con il confronto tra le versioni, arrivano a breve.</p></div>';
+  var h='<div class="pann k-car"><h2>'+(senza?'Carica il computo metrico':'Carica un computo aggiornato')+'</h2>',s=IMP?IMP.stato:'';
+  if(!IMP||['errore','annullato','confermato','scaduto','errore_locale'].indexOf(s)>=0){
+    h+='<p>'+(senza?'Carica il computo in Excel o in PDF, anche esportato da PriMus. TIX legge voci, quantità e prezzi e ti mostra il controllo delle somme: nulla cambia finché non premi «Conferma».'
+        :'Il file nuovo diventa la versione '+(Number(K.versione)+1)+' del computo e la versione '+es(K.versione)+' resta in archivio. Prima di confermare vedi l’anteprima con il controllo delle somme.')+'</p>'+
+      '<div class="riga-b" style="margin:0"><label class="b pr" for="k-file">Scegli il file del computo</label></div>'+
+      '<input type="file" id="k-file" accept=".xlsx,.xlsm,.xls,.ods,.csv,.pdf,.dcf" hidden>'+
+      '<p class="nota" style="margin-bottom:0">Excel (.xlsx, .xls) o PDF, fino a 18 MB. Da PriMus: esporta il computo in Excel oppure stampalo in PDF (il file .dcf si apre solo con PriMus). Un PDF scansionato non si legge.</p>';
+    if(s==='errore')h+='<div class="k-err">Non sono riuscito a leggere «'+es(IMP.nome_file||'il file')+'»: '+es(IMP.errore||'errore sconosciuto')+'.</div>';
+    if(s==='errore_locale')h+='<div class="k-err">'+es(IMP.msg)+'</div>';
+  } else if(s==='invio'||s==='ricevuto'||s==='in_lettura'){
+    h+='<p class="k-att"><span class="giro" aria-hidden="true"></span>'+(s==='invio'?'Invio di «'+es(IMP.nome_file)+'»…':'Sto leggendo «'+es(IMP.nome_file||'il file')+'»: di solito ci vuole meno di un minuto.')+'</p>';
+  } else if(s==='pronto')h+=anteprima(IMP);
+  return h+'</div>';}
+function anteprima(r){
+  var rp=r.riepilogo||{},cn=rp.conteggi||{},b=r.blocchi||{},vv=r.voci||[],tf=rp.totale_file,so=Number(rp.somma)||0,hatf=tf!==null&&tf!==undefined&&tf!=='';
+  var h='<p style="margin:0 0 8px"><b>Anteprima di «'+es(r.nome_file||'')+'»</b> · '+(r.modo==='ai'?'letto con l’intelligenza artificiale: controlla bene':'letto dal file')+'</p>'+
+    '<div class="s-cifre"><div class="s-cifra"><small>Voci</small><b>'+es(cn.voci!=null?cn.voci:vv.length)+'</b><span>'+(Number(cn.righe)?es(cn.righe)+' righe di misura':'senza righe di misura')+'</span></div>'+
+    '<div class="s-cifra"><small>Capitoli</small><b>'+es((r.capitoli||[]).length)+'</b></div>'+
+    '<div class="s-cifra"><small>Somma delle voci</small><b>'+eur(so)+' €</b><span>'+(hatf?'nel file: '+eur(tf)+' €':'totale non scritto nel file')+'</span></div></div>';
+  if(hatf){var d=Math.round((Number(tf)-so)*100)/100;h+='<p>'+(Math.abs(d)<=0.05?'<span class="ok-v">Le somme tornano con il totale scritto nel file.</span>':'<span class="ko-v">La somma delle voci è diversa dal totale del file di '+eur(Math.abs(d))+' €.</span>')+'</p>';}
+  if((r.avvisi||[]).length)h+='<ul class="k-avv">'+r.avvisi.map(function(a){return '<li>'+es(a)+'</li>';}).join('')+'</ul>';
+  var stop='';
+  if(b.sal_emessi)stop='Ci sono già SAL emessi: il computo non si sostituisce più.';
+  else if(b.bozza)stop='C’è una bozza del SAL aperta: scartala (scheda «SAL») prima di cambiare computo.';
+  else if((b.misure_senza_voce||[]).length)stop='Le voci n. '+b.misure_senza_voce.join(', ')+' hanno già delle misure ma nel file nuovo non ci sono con lo stesso numero e la stessa unità: togli quelle misure oppure correggi il file.';
+  if(b.attuale)h+='<p class="nota">Con «Conferma» diventa la versione '+(Number(b.attuale.versione)+1)+' del computo. La versione '+es(b.attuale.versione)+' ('+es(b.attuale.voci)+' voci) resta in archivio'+
+    (Number(b.misure)?'; le '+es(b.misure)+' misure già scritte passano alle voci con lo stesso numero':'')+'. Dati del contratto, regola dei SAL e traguardi restano quelli di oggi.</p>';
+  var righe=impTutte?vv:vv.slice(0,40);
+  h+='<table class="av"><thead><tr><th class="t">N.</th><th class="t">Tariffa</th><th class="t">Descrizione</th><th class="t">U.M.</th><th>Quantità</th><th>Prezzo</th><th>Importo</th></tr></thead><tbody>'+
+    righe.map(function(x){var np=x[5]===null||x[5]===undefined,imp=np?null:Math.round(Number(x[4])*Number(x[5])*100)/100;
+      return '<tr class="v kv'+(x[7]?' alt':'')+'"><td class="t" data-l="N.">'+es(x[0])+'</td><td class="t" data-l="Tariffa">'+es(x[1]||'')+'</td><td class="t"><span class="vd">'+es(x[2]||'')+'</span>'+
+        (x[7]?'<span class="vs">voce alternativa: non entra nella somma</span>':'')+'</td><td class="t" data-l="U.M.">'+es(x[3]||'')+'</td><td data-l="Quantità">'+qt(x[4])+'</td>'+
+        '<td data-l="Prezzo">'+(np?'—':eur(x[5]))+'</td><td data-l="Importo">'+(imp===null?'—':eur(imp))+'</td></tr>';}).join('')+'</tbody></table>';
+  if(!impTutte&&vv.length>40)h+='<div class="riga-b"><button type="button" class="b" id="k-tutte">Mostra tutte le '+vv.length+' voci</button></div>';
+  if(stop)h+='<div class="k-err">'+es(stop)+'</div>';
+  h+='<div class="campi" style="margin-top:12px"><label>Chi conferma <small>(nome e cognome)</small><input type="text" id="k-chi" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label></div>'+
+    '<div class="riga-b">'+(stop?'':'<button type="button" class="b pr" id="k-conferma">Conferma il computo</button>')+'<button type="button" class="b ro" id="k-annulla">Annulla</button></div>';
+  return h;}
+function impMostra(){if(scheda==='computo')corpo();}
+function impSegui(){clearTimeout(impTimer);if(!impId)return;
+  api('computo_stato',{id:impId}).then(function(r){
+    if(!r||r.esito!=='ok'){if(r&&r.esito==='sconosciuto'){IMP=null;impId=null;impMostra();return;}if(++impGiri<120)impTimer=setTimeout(impSegui,4000);return;}
+    IMP=r;impMostra();
+    if((r.stato==='ricevuto'||r.stato==='in_lettura')&&++impGiri<150)impTimer=setTimeout(impSegui,2500);});}
+function impCarica(f){
+  if(!f)return;
+  if(f.size>18*1024*1024){IMP={stato:'errore_locale',msg:'Il file è troppo grande (massimo 18 MB).'};impMostra();return;}
+  clearTimeout(impTimer);IMP={stato:'invio',nome_file:f.name};impTutte=false;impMostra();
+  fetch(C.u+'/computo/carica?t='+encodeURIComponent(C.t)+'&c='+encodeURIComponent(C.c)+'&nome='+encodeURIComponent(f.name),{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream'},body:f})
+    .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};})
+    .then(function(r){if(r&&r.esito==='ok'){impId=r.id;impGiri=0;IMP={stato:'ricevuto',nome_file:f.name};impMostra();impTimer=setTimeout(impSegui,2000);}
+      else{IMP={stato:'errore_locale',msg:(r&&r.messaggio)||errore(r)};impMostra();}});}
+document.addEventListener('change',function(ev){if(ev.target.id!=='k-file')return;var f=ev.target.files&&ev.target.files[0];ev.target.value='';impCarica(f);});
 
 // ---------------- eventi
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a,tr'):null;if(!t)return;
@@ -944,6 +1072,11 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
         '<p class="nota" style="margin:0">Con l’emissione il SAL riceve l’impronta SHA-256 e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
         '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti il SAL',
         function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso('SAL emesso.');});});});return;}
+  if(t.id==='k-tutte'){impTutte=true;corpo();return;}
+  if(t.id==='k-conferma'||t.id==='k-annulla'){var conf=t.id==='k-conferma',chi=$('#k-chi')?$('#k-chi').value:'';if(conf&&chi)ls('sal_autore',chi);t.disabled=true;
+    api(conf?'computo_conferma':'computo_annulla',{id:impId,dati:{autore:chi}}).then(function(r){
+      if(r&&r.esito==='ok'){clearTimeout(impTimer);IMP=null;impId=null;impTutte=false;avviso(conf?'Computo caricato: versione '+r.versione+', '+r.voci+' voci.':'Caricamento annullato.');if(conf)ricarica();else corpo();}
+      else{t.disabled=false;avviso(errore(r));}});return;}
   if(t.id==='c-salva'){salvaContratto();return;}
   if(t.id==='c-tg-agg'){$('#c-tg').insertAdjacentHTML('beforeend',rigaTg({}));return;}
   if(t.hasAttribute('data-tgx')){t.parentNode.parentNode.removeChild(t.parentNode);return;}
@@ -961,4 +1094,5 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
 document.addEventListener('submit',function(ev){if(ev.target.id!=='dlg-f')return;ev.preventDefault();if(dlgAzione)dlgAzione();});
 document.addEventListener('input',function(ev){if(ev.target.id==='cerca'){cerca=ev.target.value.toLowerCase().trim();var pos=ev.target.selectionStart;corpo();var c=$('#cerca');if(c){c.focus();try{c.setSelectionRange(pos,pos);}catch(e){}}}});
 tutto();
+if(impId)impSegui();
 })();`;
