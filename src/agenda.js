@@ -5,6 +5,7 @@
 //   GET  /agenda?t=<gettone>&c=<cantiere>          → pagina: appuntamenti del cantiere, modulo «Nuovo appuntamento»
 //   POST /agenda/crea   {t, c, dati}                → RPC agenda_crea, poi gli avvisi partono subito da qui
 //   POST /agenda/azione {t, id, azione, dati}       → RPC agenda_modifica (sposta, annulla, avvenuto, riapri, cliente, aggiorna)
+//                                                     azione «modifica» (29/10/2026) → RPC agenda_modifica_tutto: tutti i dati del modulo
 // Gli avvisi: il database decide chi riceve e il testo (agenda_avvisi_lista, nella lingua di ciascuno, una riga per
 // persona e versione, mai doppi); qui si spedisce con il token WhatsApp e si segna l'esito (agenda_avviso_segna).
 // La stessa funzione la chiama anche il database (trigger → pg_net → POST /admin {azione: agenda_avvisa}) per gli
@@ -234,7 +235,17 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     }
     const id = Number(b.id);
     const az = String(b.azione || "");
-    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna", "crono_esito"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
+    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna", "crono_esito", "modifica"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
+    // «Modifica» (29/10/2026, Filippo): tutti i dati del modulo in un colpo solo. Gli avvisi si chiedono sempre: il database
+    // li prepara solo per chi non ha ancora questa versione (giorno o ora cambiati = come «Sposta»; persone aggiunte in «Chi»)
+    if (az === "modifica") {
+      const r = await h.rpc(env, "agenda_modifica_tutto", { p_token: tok, p_id: id, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
+      if (!r) return json({ esito: "incerto" });
+      if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
+      let avvisi = null;
+      try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {}
+      return json({ esito: "ok", id, spostato: r.spostato === true, inviati: avvisi ? avvisi.inviati : null });
+    }
     if (az === "crono_esito") {
       const r = await h.rpc(env, "agenda_crono_esito", { p_token: tok, p_id: id, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
       return r ? json(r) : json({ esito: "incerto" });
@@ -301,6 +312,11 @@ function rigaApp(x, e, oggi) {
     x.visibile_cliente ? "visibile al cliente" : "", avv].filter(Boolean).join(" · ");
   const attivo = st !== "annullato" && st !== "avvenuto";
   const bott = '<div class="az">' +
+    // «Modifica» (29/10/2026): riapre il modulo già compilato con tutti i dati dell'appuntamento
+    (st !== "annullato" ? '<button type="button" data-az="modifica" data-id="' + x.id + '" data-app="' + e(JSON.stringify({ g: x.giorno, o: x.tutto_il_giorno ? "" : x.ora, f: x.ora_fine,
+      tipo: TIPI[x.tipo] ? x.tipo : "altro", t: x.titolo, n: x.note, luogo: x.luogo, chi: x.chi_testo == null ? "" : x.chi_testo,
+      pers: Array.isArray(x.persone) ? x.persone : [], att: Array.isArray(x.attivita) ? x.attivita.map((a) => a.id) : [],
+      avv: x.avvisa !== false, cli: x.visibile_cliente === true, sera: x.avviso_sera_prima === true })) + '">Modifica</button>' : "") +
     (st !== "annullato" ? '<button type="button" data-az="sposta" data-id="' + x.id + '" data-g="' + e(x.giorno) + '" data-o="' + e(x.ora) + '" data-f="' + e(x.ora_fine) + '">Sposta</button>' : "") +
     (attivo ? '<button type="button" data-az="avvenuto" data-id="' + x.id + '"' + att + '>Avvenuto</button>' : "") +
     (attivo ? '<button type="button" class="rosso" data-az="annulla" data-id="' + x.id + '">Annulla</button>' : "") +
@@ -342,7 +358,9 @@ export function paginaAgenda(base, tok, c, d, h) {
   const mese = app.map((x) => ({ id: Number(x.id) || 0, g: String(x.giorno || ""), o: x.tutto_il_giorno ? "" : String(x.ora || ""), f: String(x.ora_fine || ""),
     tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.g));
   const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI }).replace(/</g, "\\u003c");
-  const opzTipo = Object.keys(TIPI).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
+  // «Lavorazioni» prima voce del Tipo e scelta di partenza del nuovo appuntamento (29/10/2026, Filippo);
+  // la legenda del calendario resta nell'ordine di TIPI
+  const opzTipo = ["lavorazione"].concat(Object.keys(TIPI).filter((k) => k !== "lavorazione")).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
   const pers = Array.isArray(d.persone) ? d.persone : [];
   const sceltaChi = pers.length
     ? pers.map((p) => '<label class="pc"><input type="checkbox" class="f-pers" value="' + e(p.id) + '"> ' + e(p.nome) + "</label>").join("")
@@ -577,7 +595,7 @@ var fluogo=document.getElementById('f-luogo'),fchi=document.getElementById('f-ch
 var modo='nuovo',cur=null,occupato=false,fatto=false;
 function lav(){return ftipo.value==='lavorazione';}
 function scelte(){var a=[];for(var i=0;i<fpers.length;i++)if(fpers[i].checked)a.push(fpers[i].value);return a;}
-function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo==='nuovo');
+function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo!=='sposta');
  ttit.textContent=l?'Quali lavorazioni':'Cosa succede';ft.placeholder=l?'es. Getto del solaio del piano 1':'es. Consegna solaio – autotrasportatore';
  tavv.textContent=l?'Avvisa su WhatsApp le persone scelte in «Chi»':tavv.getAttribute('data-tutti');
  if(l&&!fpers.length)favv.checked=false;}
@@ -604,28 +622,36 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function m(cl,t){msg.className='msg '+cl;msg.textContent=t;}
 function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=v?'':'none';}
 function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(corpo)}).then(function(r){return r.json();});}
-function apriNuovo(){modo='nuovo';cur=null;fatto=false;tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
- fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='consegna';favv.checked=true;fcli.checked=false;fsera.checked=false;
+function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
+ fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='lavorazione';favv.checked=true;fcli.checked=false;fsera.checked=false;
  fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
  crSel={};if(crQ)crQ.value='';crRender();
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
-function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
+function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;fg.min=D.oggi;var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
  fg.value=b.getAttribute('data-g')||D.oggi;fo.value=b.getAttribute('data-o')||'';ff.value=b.getAttribute('data-f')||'';
  ['l-tipo','l-titolo','l-note','l-opz','l-lav'].forEach(function(k){mostra(k,false);});ft.required=false;si.textContent='Sposta e avvisa';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
+/* «Modifica» (29/10/2026): lo stesso modulo del nuovo appuntamento, già compilato; un giorno passato resta sceglibile */
+function apriModifica(b){var x={};try{x=JSON.parse(b.getAttribute('data-app'))||{};}catch(e){x={};}
+ modo='modifica';cur=b.getAttribute('data-id');fatto=false;tit.textContent='Modifica l’appuntamento';sub.textContent=x.t||'';
+ fg.min=x.g&&x.g<D.oggi?x.g:D.oggi;fg.value=x.g||D.oggi;fo.value=x.o||'';ff.value=x.f||'';ft.value=x.t||'';fn.value=x.n||'';ftipo.value=x.tipo||'altro';
+ favv.checked=x.avv!==false;fcli.checked=!!x.cli;fsera.checked=!!x.sera;fluogo.value=x.luogo||'';fchi.value=x.chi||'';
+ var ps=x.pers||[];for(var i=0;i<fpers.length;i++)fpers[i].checked=ps.indexOf(fpers[i].value)!==-1;
+ crSel={};(x.att||[]).forEach(function(id){crSel[id]=1;});if(crQ)crQ.value='';crRender();
+ ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Salva le modifiche';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
 form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)return;
  if(!fg.value){m('ko','Indica il giorno.');return;}
- if(modo==='nuovo'&&!ft.value.trim()){m('ko','Scrivi cosa succede.');return;}
+ if(modo!=='sposta'&&!ft.value.trim()){m('ko','Scrivi cosa succede.');return;}
  if(fo.value&&ff.value&&ff.value<=fo.value){m('ko','L’ora di fine deve venire dopo l’inizio.');return;}
- if(modo==='nuovo'&&lav()&&favv.checked&&!scelte().length){m('ko','Scegli in «Chi» le persone da avvisare, oppure togli la spunta dell’avviso WhatsApp.');return;}
+ if(modo!=='sposta'&&lav()&&favv.checked&&!scelte().length){m('ko','Scegli in «Chi» le persone da avvisare, oppure togli la spunta dell’avviso WhatsApp.');return;}
  occupato=true;si.disabled=true;no.disabled=true;m('','Un momento…');
  var pr;
- if(modo==='nuovo'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
+ if(modo!=='sposta'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
   if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();dati.attivita=Object.keys(crSel).slice(0,10);}
-  pr=post('crea',{t:D.t,c:D.c,dati:dati});}
+  pr=modo==='nuovo'?post('crea',{t:D.t,c:D.c,dati:dati}):post('azione',{t:D.t,id:Number(cur),azione:'modifica',dati:dati});}
  else{pr=post('azione',{t:D.t,id:Number(cur),azione:'sposta',dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value}});}
  pr.then(function(j){occupato=false;no.disabled=false;
-  if(j.esito==='ok'){fatto=true;var t=modo==='nuovo'?'Segnato in agenda.':'Spostato.';
-   if(typeof j.inviati==='number'){t+=' Avvisi WhatsApp inviati: '+j.inviati+(j.fuori_finestra?' · da recapitare al mattino: '+j.fuori_finestra:'')+'.';}
+  if(j.esito==='ok'){fatto=true;var t=modo==='nuovo'?'Segnato in agenda.':modo==='modifica'?(j.spostato?'Modifiche salvate: giorno o ora cambiati, come «Sposta».':'Modifiche salvate.'):'Spostato.';
+   if(typeof j.inviati==='number'&&(modo!=='modifica'||j.spostato||j.inviati>0)){t+=' Avvisi WhatsApp inviati: '+j.inviati+(j.fuori_finestra?' · da recapitare al mattino: '+j.fuori_finestra:'')+'.';}
    m('ok',t);si.hidden=true;no.textContent='Chiudi';return;}
   if(j.esito==='gettone'){location.href=D.base+'/';return;}
   if(j.esito==='gia'){fatto=true;m('ok','Era già così.');si.hidden=true;no.textContent='Chiudi';return;}
@@ -663,6 +689,7 @@ esNo.addEventListener('click',function(){if(!esOcc)es.close();});
 es.addEventListener('cancel',function(ev){if(esOcc)ev.preventDefault();});
 function azione(b){var az=b.getAttribute('data-az'),id=Number(b.getAttribute('data-id')),r=b.closest('.ag'),titolo=r?r.getAttribute('data-titolo'):'';
  if(az==='sposta'){apriSposta(b);return;}
+ if(az==='modifica'){apriModifica(b);return;}
  if(az==='avvenuto'&&b.getAttribute('data-att')){apriEsito(b);return;}
  var dati={};
  if(az==='annulla'){if(!confirm('Annullare «'+titolo+'»? Chi lavora in cantiere riceve l’avviso su WhatsApp.'))return;}
