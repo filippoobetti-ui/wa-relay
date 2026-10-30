@@ -107,6 +107,63 @@
     color:#7FA694;
     line-height:1.6;
   }
+  /* Lista del lancio (30/10/2026) */
+  .lista{
+    width:100%;
+    max-width:460px;
+    text-align:left;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:16px;
+    padding:22px 20px;
+  }
+  .lista h2{margin:0 0 6px;font-size:19px;font-weight:800;text-align:center}
+  .lista .sotto{margin:0 0 16px;font-size:14.5px;line-height:1.5;color:#CFE6DB;text-align:center}
+  .riga{display:flex;gap:10px}
+  .riga .campo{flex:1;min-width:0}
+  .campo{margin-bottom:12px}
+  .campo label{display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;color:#E3F1EA}
+  .campo label small{font-weight:400;color:#8FC3AA}
+  .campo input{
+    width:100%;
+    min-height:44px;
+    padding:10px 12px;
+    font:inherit;
+    font-size:16px;
+    color:#fff;
+    background:rgba(3,26,21,.55);
+    border:1px solid rgba(255,255,255,.22);
+    border-radius:10px;
+  }
+  .campo input:focus{outline:2px solid var(--green-hi);outline-offset:1px;border-color:transparent}
+  .campo .aiuto{font-size:12.5px;color:#8FC3AA;margin-top:4px}
+  .scelta{display:flex;gap:10px;align-items:flex-start;margin:10px 0;font-size:13.5px;line-height:1.45;color:#CFE6DB}
+  .scelta input{width:20px;height:20px;margin:1px 0 0;flex:0 0 auto;accent-color:var(--green)}
+  .scelta a{color:#fff}
+  .trappola{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  .invia{
+    width:100%;
+    min-height:48px;
+    margin-top:8px;
+    font:inherit;
+    font-size:16px;
+    font-weight:800;
+    color:var(--deep);
+    background:var(--green);
+    border:0;
+    border-radius:10px;
+    cursor:pointer;
+  }
+  .invia:hover{background:var(--green-hi)}
+  .invia:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .invia[disabled]{opacity:.6;cursor:wait}
+  .esito{margin-top:12px;font-size:14.5px;line-height:1.5;text-align:center;min-height:1em}
+  .esito.ok{color:var(--green-hi);font-weight:600}
+  .esito.no{color:#FFB4A1}
+  .oppure{font-size:13.5px;color:#8FC3AA;margin:0}
+  .nota{margin:14px 0 0;font-size:12px;line-height:1.5;color:#8FC3AA}
+  .nota a{color:#CFE6DB}
+  @media (max-width:420px){.riga{flex-direction:column;gap:0}}
 </style>
 </head>
 <body>
@@ -132,8 +189,28 @@
   </span>
 
   <h1>Il diario di cantiere via WhatsApp, per chi lavora nell'edilizia.</h1>
-  <p class="lede">Il sito di TIX è quasi pronto. Nel frattempo puoi scriverci: rispondiamo noi, non un modulo.</p>
+  <p class="lede">Il sito di TIX è quasi pronto. Lascia i tuoi dati: il giorno dell'apertura ti avvisiamo noi.</p>
 
+  <form class="lista" id="lista" novalidate>
+    <h2>Avvisatemi al lancio</h2>
+    <p class="sotto">Iscriviti alla lista del lancio: ai primi 50 iscritti confermati riserveremo un'offerta di lancio, con condizioni che pubblicheremo il giorno dell'apertura. L'iscrizione è senza costi e non obbliga a nessun acquisto.</p>
+    <div class="riga">
+      <div class="campo"><label for="l-nome">Nome</label><input id="l-nome" name="nome" autocomplete="given-name" maxlength="60" required></div>
+      <div class="campo"><label for="l-cognome">Cognome</label><input id="l-cognome" name="cognome" autocomplete="family-name" maxlength="60" required></div>
+    </div>
+    <div class="campo"><label for="l-impresa">Impresa</label><input id="l-impresa" name="impresa" autocomplete="organization" maxlength="120" required></div>
+    <div class="campo"><label for="l-email">Email</label><input id="l-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="160" required></div>
+    <div class="trappola" aria-hidden="true"><label for="l-sito">Non compilare</label><input id="l-sito" name="sito_web" tabindex="-1" autocomplete="off"></div>
+    <label class="scelta"><input type="checkbox" id="l-ok" required><span>Voglio ricevere per email l'avviso dell'apertura di TIX · Diario di cantiere e l'offerta riservata ai primi iscritti. Potrò cancellarmi in ogni momento.</span></label>
+    <label class="scelta"><input type="checkbox" id="l-wa"><span>Inviatemi l'avviso dell'apertura e l'offerta riservata ai primi iscritti anche su WhatsApp, al numero indicato qui sotto. <small>(facoltativo)</small></span></label>
+    <div class="campo" id="l-tel-box"><label for="l-tel">Telefono cellulare <small>(facoltativo; obbligatorio solo se scegli WhatsApp)</small></label><input id="l-tel" name="telefono" type="tel" autocomplete="tel" inputmode="tel" maxlength="30" placeholder="333 123 4567">
+      <div class="aiuto">Numero italiano, oppure con il prefisso del paese (per esempio +40 per la Romania).</div></div>
+    <button class="invia" type="submit" id="l-invia">Avvisatemi</button>
+    <div class="esito" id="l-esito" role="status" aria-live="polite"></div>
+    <p class="nota">Titolare: Obetti Filippo (ditta individuale), Campodarsego (PD) – <a href="mailto:privacy@tixcantiere.it">privacy@tixcantiere.it</a>. Usiamo i tuoi dati, con il tuo consenso, solo per avvisarti dell'apertura di TIX e dell'offerta ai primi iscritti, per email e, se lo scegli, su WhatsApp. Senza conferma li cancelliamo dopo 7 giorni; poi li conserviamo fino alla fine dell'offerta di lancio (al massimo 12 mesi). Puoi cancellarti in ogni momento con il link presente in ogni messaggio. Lista riservata a maggiorenni che agiscono per motivi professionali. Informativa completa: <a href="/privacy-policy" target="_blank" rel="noopener">Privacy policy</a>.</p>
+  </form>
+
+  <p class="oppure">Hai una domanda? Scrivici: rispondiamo noi.</p>
   <div class="contact">
     <a href="mailto:info@tixcantiere.it">info@tixcantiere.it</a>
     <a href="https://wa.me/393783107501?text=Ciao%2C%20vorrei%20sapere%20di%20più%20su%20TIX">Scrivici su WhatsApp</a>
@@ -142,5 +219,38 @@
   <footer>
     Obetti Filippo — P.IVA IT05289060286 — Padova (PD), Italia
   </footer>
+<script>
+(function(){
+  var f=document.getElementById("lista"),es=document.getElementById("l-esito"),bt=document.getElementById("l-invia"),t0=Date.now();
+  var base=location.pathname.indexOf("/sito-prova")===0?"/sito-prova":"";
+  function dici(testo,ok){es.textContent=testo;es.className="esito "+(ok?"ok":"no");}
+  function v(id){return document.getElementById(id).value.trim();}
+  function ferma(id,testo){dici(testo,false);document.getElementById(id).focus();}
+  f.addEventListener("submit",function(e){
+    e.preventDefault();
+    if(!v("l-nome"))return ferma("l-nome","Scrivi il tuo nome.");
+    if(!v("l-cognome"))return ferma("l-cognome","Scrivi il tuo cognome.");
+    if(!v("l-impresa"))return ferma("l-impresa","Scrivi il nome della tua impresa.");
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v("l-email")))return ferma("l-email","L'email non sembra scritta bene.");
+    if(!document.getElementById("l-ok").checked)return ferma("l-ok","Per iscriverti spunta la casella dell'avviso per email.");
+    var wa=document.getElementById("l-wa").checked;
+    if(wa&&v("l-tel").replace(/[^0-9]/g,"").length<6)return ferma("l-tel","Per WhatsApp scrivi il numero di cellulare completo.");
+    bt.disabled=true;dici("Invio in corso…",true);
+    fetch(base+"/lista/iscrivi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      nome:v("l-nome"),cognome:v("l-cognome"),impresa:v("l-impresa"),email:v("l-email"),telefono:wa?v("l-tel"):"",
+      email_ok:true,whatsapp:wa,sito_web:document.getElementById("l-sito").value,t_ms:Date.now()-t0})})
+    .then(function(r){return r.json();})
+    .then(function(r){
+      if(r.esito==="ok"){f.reset();dici("Grazie! Ti abbiamo mandato un'email: apri il link per confermare l'iscrizione. Se non la trovi, guarda nello spam.",true);return;}
+      bt.disabled=false;
+      if(r.esito==="non_valido")dici("Controlla i dati: qualcosa non è scritto bene.",false);
+      else if(r.esito==="troppi")dici("Troppe iscrizioni in poco tempo. Riprova tra un'ora.",false);
+      else if(r.esito==="chiusa")dici("Le iscrizioni non sono ancora aperte. Scrivici su WhatsApp o per email.",false);
+      else dici("Qualcosa non ha funzionato. Riprova tra qualche minuto, oppure scrivici.",false);
+    })
+    .catch(function(){bt.disabled=false;dici("Qualcosa non ha funzionato. Riprova tra qualche minuto, oppure scrivici.",false);});
+  });
+})();
+</script>
 </body>
 </html>
