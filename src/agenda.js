@@ -422,6 +422,11 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<div id="es-l"></div><p class="msg" id="es-msg" aria-live="polite"></p></div>' +
     '<div class="dl-b"><button type="button" class="no" id="es-no">Annulla</button><button type="submit" class="si" id="es-si">Segna avvenuto</button></div>' +
     "</form></dialog>" +
+    // «Giornata» (30/10/2026): la pagina di un giorno, aperta dal calendario; la riempie lo script con gli appuntamenti dell'elenco
+    '<dialog id="ag-gio" aria-labelledby="gio-tit"><div class="dl-t"><h2 id="gio-tit">Giornata</h2><p>' + e(cant.nome || "") + "</p></div>" +
+    '<div class="dl-c" id="gio-l"></div>' +
+    '<div class="dl-b"><button type="button" class="no" id="gio-no">Chiudi</button>' +
+    (d.chiuso ? "" : '<button type="button" class="si" id="gio-nuovo">+ Nuovo appuntamento</button>') + "</div></dialog>" +
     "<script>var GL_AG=" + dati + ";" + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
@@ -522,6 +527,8 @@ const STILE =
   ".cal-gi li b{font-variant-numeric:tabular-nums;color:#fff}.cal-gi li span{overflow-wrap:anywhere}.cal-gi li small{color:#94A3B8;font-size:.74rem}" +
   ".cal-gi li a{color:#FBD38D;font-size:.8rem;font-weight:700;text-decoration:none;white-space:nowrap}" +
   ".cal-gi .vuoto-g{color:#94A3B8;font-size:.88rem}" +
+  "#ag-gio{width:min(640px,calc(100vw - 24px));overflow-x:hidden;overflow-y:auto}#ag-gio .dl-c{padding:12px 14px 4px}#ag-gio .ag{margin-bottom:8px}" +
+  ".gio-v{background:#fff;border:1px dashed #B9C3BE;border-radius:12px;padding:16px;color:#4A524E;font-size:.92rem;margin:4px 0 8px}" +
   ".ag.lampo{animation:cal-lampo 1.6s ease}@keyframes cal-lampo{0%,40%{box-shadow:0 0 0 3px var(--ar)}100%{box-shadow:none}}" +
   "@media (max-width:759px){.cal{padding:14px 10px 12px;border-radius:20px}.cal-m{flex:1 1 100%;margin:0 0 2px 4px}.cal-t{gap:6px}.cal-oggi{margin-right:auto}.cal-n button,.cal-oggi,.cal-piu{min-height:38px}.cal-g{gap:4px}.cal-d{min-height:60px;padding:6px 4px;border-radius:12px;align-items:center}" +
   ".cal-num{justify-content:center}.cal-num .cal-c{display:none}.cal-e,.cal-altri{display:none}.cal-pt{display:flex;justify-content:center}.cal-w{font-size:.62rem;letter-spacing:.06em}" +
@@ -538,6 +545,7 @@ const STILE =
 // se ci sono impegni; come Google Calendar ma più bello». Sul computer ogni giorno mostra fino a 3 impegni (ora e titolo,
 // colore del tipo) e il numero totale; sul telefono pallini colorati. Tocca un giorno: sotto compare l'elenco di quel
 // giorno, con «Nuovo appuntamento» già su quella data. I dati sono quelli che la pagina già riceve (futuri e ultimi 30 giorni).
+// «Giornata» (30/10/2026, Filippo): il tocco su un giorno apre anche la pagina di quel giorno (finestra #ag-gio, SCRIPT).
 const CALENDARIO = String.raw`(function(){try{
 var D=GL_AG,box=document.getElementById('cal');if(!box)return;
 var MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
@@ -578,7 +586,7 @@ box.addEventListener('click',function(ev){var b=ev.target.closest('[data-v],[dat
  if(v==='oggi'){Y=+o[0];M=+o[1]-1;sel=D.oggi;disegna();return;}
  if(v==='nuovo'){if(window.glAgNuovo)window.glAgNuovo(b.getAttribute('data-g')||sel);return;}
  if(v==='vai'){ev.preventDefault();var r=document.querySelector('.ag[data-id="'+b.getAttribute('data-id')+'"]');if(r){var dt=r.closest('details');if(dt)dt.open=true;r.scrollIntoView({behavior:'smooth',block:'center'});r.classList.remove('lampo');void r.offsetWidth;r.classList.add('lampo');}return;}
- var g=b.getAttribute('data-g');if(g){sel=g;var p=g.split('-');if(+p[1]-1!==M||+p[0]!==Y){Y=+p[0];M=+p[1]-1;}disegna();}});
+ var g=b.getAttribute('data-g');if(g){sel=g;var p=g.split('-');if(+p[1]-1!==M||+p[0]!==Y){Y=+p[0];M=+p[1]-1;}disegna();if(window.glAgGiorno)window.glAgGiorno(g);}});
 box.hidden=false;disegna();
 }catch(x){}})();
 `;
@@ -701,6 +709,22 @@ function azione(b){var az=b.getAttribute('data-az'),id=Number(b.getAttribute('da
   alert(j.messaggio||'Non sono riuscito a salvare: riprova tra poco.');for(var i=0;i<bs.length;i++)bs[i].disabled=false;
  }).catch(function(){alert('Il servizio non risponde: riprova tra poco.');for(var i=0;i<bs.length;i++)bs[i].disabled=false;});}
 var tutti=document.querySelectorAll('.az button[data-az]');for(var k=0;k<tutti.length;k++)tutti[k].addEventListener('click',function(){azione(this);});
+/* «Giornata» (30/10/2026, Filippo): tocca un giorno del calendario e si apre la pagina di quel giorno, con gli appuntamenti
+   come nell'elenco della pagina e gli stessi pulsanti (Modifica, Sposta, Avvenuto…); l'elenco resta com'è */
+var gio=document.getElementById('ag-gio'),gioL=document.getElementById('gio-l'),gioT=document.getElementById('gio-tit'),gioN=document.getElementById('gio-nuovo'),gioG='';
+var GMESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'],GGIO=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+window.glAgGiorno=function(g){if(!gio||!/^\d{4}-\d{2}-\d{2}$/.test(g))return;gioG=g;var p=g.split('-'),dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
+ gioT.textContent=(g===D.oggi?'Oggi · ':'')+GGIO[dt.getUTCDay()]+' '+(+p[2])+' '+GMESI[+p[1]-1]+' '+p[0];
+ gioL.innerHTML='';var rs=document.querySelectorAll('main .ag[data-giorno="'+g+'"]');
+ for(var i=0;i<rs.length;i++)gioL.appendChild(rs[i].cloneNode(true));
+ if(!rs.length)gioL.innerHTML='<p class="gio-v">Nessun appuntamento in questo giorno'+(g<D.oggi?' (l’agenda mostra gli ultimi 30 giorni).':D.chiuso?'.':': tocca «+ Nuovo appuntamento» per fissarne uno.')+'</p>';
+ var bg=gioL.querySelectorAll('.az button[data-az]');for(var j=0;j<bg.length;j++){bg[j].disabled=false;bg[j].addEventListener('click',function(){azione(this);});}
+ /* il cestino (cestino.js) lega ogni pulsante 🗑 a parte: nella giornata si chiude la finestra e si usa quello dell'elenco */
+ var bc=gioL.querySelectorAll('.gl-ct-b');for(var q=0;q<bc.length;q++)bc[q].addEventListener('click',function(){var r=this.closest('.ag'),o=r&&document.querySelector('main .ag[data-id="'+r.getAttribute('data-id')+'"] > .gl-ct-b');if(o){gio.close();o.click();}});
+ if(gioN)gioN.hidden=g<D.oggi;
+ if(!gio.open)gio.showModal();gioL.scrollTop=0;};
+if(gio){document.getElementById('gio-no').addEventListener('click',function(){gio.close();});
+ if(gioN)gioN.addEventListener('click',function(){gio.close();window.glAgNuovo(gioG);});}
 var ic=document.getElementById('ics-copia');if(ic)ic.addEventListener('click',function(){var u=document.getElementById('ics-url');try{u.select();}catch(x){}
  var fatto=function(){ic.textContent='Copiato';setTimeout(function(){ic.textContent='Copia';},1500);};
  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.value).then(fatto,function(){try{document.execCommand('copy');fatto();}catch(x){}});}else{try{document.execCommand('copy');fatto();}catch(x){}}});
