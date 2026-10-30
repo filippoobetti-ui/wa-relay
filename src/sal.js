@@ -70,6 +70,13 @@ function pulisci(azione, d) {
     s("motivo", 300);
   } else if (azione === "computo_conferma" || azione === "computo_annulla") {
     s("autore", 120);
+  } else if (azione === "proposta") {
+    s("azione", 12); u("voce_id");
+    s("data", 10); s("luogo", 160); s("descrizione", 300); s("autore", 120); s("motivo", 300);
+    ["pu", "l", "w", "h", "q", "pct"].forEach((k) => s(k, 20));
+    if (d.meno === true) o.meno = true;
+  } else if (azione === "curva_prepara") {
+    if (d.rifai === true) o.rifai = true;
   }
   return o;
 }
@@ -169,15 +176,20 @@ async function api(request, env, h) {
   const dati = pulisci(az, b.dati);
   let r = null;
   const chiama = (nome, corpo) => h.rpc(env, nome, corpo, 25000).catch(() => null);
-  if (["contesto", "contratto", "misura", "bozza"].indexOf(az) !== -1) {
+  if (["contesto", "contratto", "misura", "bozza", "curva_prepara"].indexOf(az) !== -1) {
     if (!UUID.test(c)) return json({ esito: "errore" }, 400);
     if (az === "contesto") r = await chiama("sal_contesto", { p_token: tok, p_commessa: c });
     else if (az === "contratto") r = await chiama("sal_contratto_salva", { p_token: tok, p_commessa: c, p_dati: dati });
     else if (az === "misura") r = await chiama("sal_misura_salva", { p_token: tok, p_commessa: c, p_dati: dati });
+    else if (az === "curva_prepara") r = await chiama("sal_curva_prepara", { p_token: tok, p_commessa: c, p_rifai: dati.rifai === true });
     else r = await chiama("sal_bozza_salva", { p_token: tok, p_commessa: c, p_dati: dati });
-  } else if (["misura_togli", "emetti", "stato"].indexOf(az) !== -1) {
+  } else if (["misura_togli", "emetti", "stato", "proposta"].indexOf(az) !== -1) {
     if (!UUID.test(id)) return json({ esito: "errore" }, 400);
     if (az === "misura_togli") r = await chiama("sal_misura_annulla", { p_token: tok, p_id: id, p_motivo: dati.motivo || "" });
+    else if (az === "proposta") {
+      if (["conferma", "scarta"].indexOf(dati.azione || "") === -1) return json({ esito: "errore" }, 400);
+      r = await chiama("sal_proposta_azione", { p_token: tok, p_id: id, p_azione: dati.azione, p_dati: dati });
+    }
     else if (az === "emetti") r = await chiama("sal_emetti", { p_token: tok, p_sal: id, p_dati: dati });
     else {
       const sa = String((b.dati || {}).azione || "");
@@ -742,6 +754,13 @@ const STILE =
   ".k-err{background:#FEF2F2;border-left:4px solid #b91c1c;border-radius:10px;padding:10px 14px;color:#7f1d1d;font-weight:700;margin:8px 0}" +
   ".k-avv{margin:8px 0;padding:0 0 0 18px;color:var(--avv);font-weight:700;font-size:.9rem}.k-avv li{margin:3px 0}" +
   "table.av tr.kv{cursor:default}table.av tr.kv.alt td{color:#6b7280}" +
+  // proposte dal cantiere (fase 2) e curva prevista / reale
+  ".pr-el{list-style:none;margin:0;padding:0}.pr-it{border:1px solid var(--sal-b);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:#FCFAFF}" +
+  ".pr-t{font-size:.86rem;color:#5b5470}.pr-it blockquote{margin:6px 0;padding:6px 10px;border-left:3px solid #25D366;background:#F6FFF9;border-radius:6px;font-size:.92rem}" +
+  ".pr-v{font-size:.92rem}.pr-q{font-weight:800;color:#3d1a6e}.pr-dm{font-weight:800;color:var(--avv)}.pr-f a{margin-right:10px;color:var(--sal-s);font-weight:700;font-size:.88rem}" +
+  ".curva svg{display:block;width:100%;height:auto}.cu-l{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.88rem;margin:8px 0 0}" +
+  ".cu-p::before,.cu-r::before{content:\"\";display:inline-block;width:20px;height:0;vertical-align:middle;margin-right:6px}" +
+  ".cu-p::before{border-top:2px dashed #8a94a0}.cu-r::before{border-top:3px solid var(--sal)}" +
   ":root{color-scheme:light}";
 
 const APP = String.raw`(function(){"use strict";
@@ -784,7 +803,7 @@ function regola(){if(!K)return '';var c=K.cadenza_sal;return c==='mensile'?'SAL 
 function schede(){[].forEach.call(document.querySelectorAll('.sal-tab button'),function(b){b.setAttribute('aria-selected',b.getAttribute('data-s')===scheda?'true':'false');});}
 function corpo(){var el=$('#sal-corpo');
   if(scheda==='avanzamento')el.innerHTML=avanzamento();else if(scheda==='sal')el.innerHTML=salTab();else if(scheda==='contratto')el.innerHTML=contratto();else el.innerHTML=computo();
-  if(scheda==='contratto')legaContratto();}
+  if(scheda==='contratto')legaContratto();if(scheda==='avanzamento')curvaSegui();}
 
 // ---------------- avanzamento
 function voceVisibile(v){
@@ -792,9 +811,52 @@ function voceVisibile(v){
   if(filtro==='oltre'&&!v.oltre)return false;
   if(cerca){var s=(v.nr+' '+(v.t||'')+' '+(v.d||'')+' '+(v.dl||'')).toLowerCase();var p=cerca.split(/\s+/);for(var i=0;i<p.length;i++)if(p[i]&&s.indexOf(p[i])<0)return false;}
   return true;}
+// ---------------- proposte dal cantiere (fase 2)
+function proposteHtml(){var pp=D.proposte||[];if(!pp.length)return '';
+  var h='<div class="pann"><h2>Proposte dal cantiere ('+pp.length+')</h2><p class="nota" style="margin:0 0 10px">TIX le ha lette nei messaggi WhatsApp (sezioni LAV e SAL) e nei rapportini dell’ufficio. Entrano nel SAL solo quelle che confermi.</p><ul class="pr-el">';
+  pp.forEach(function(p){
+    var cosa=p.q!=null?'<span class="pr-q">'+qt(p.q)+' '+es(p.u||'')+'</span>':(p.pct!=null?'<span class="pr-q">'+pc(p.pct)+' a oggi</span>':'<span class="pr-dm">quantità da misurare</span>');
+    h+='<li class="pr-it"><div class="pr-t"><b>'+di(p.data)+'</b> · '+es(p.autore||'')+' · '+(p.fonte==='rapportino'?'rapportino dell’ufficio':'WhatsApp')+'</div>'+
+      '<blockquote>«'+es(p.testo||'')+'»</blockquote>'+
+      '<div class="pr-v"><b>Voce '+es(p.nr)+'</b> · '+es(p.dl||p.d||'')+'<br>'+cosa+(p.luogo?' · '+es(p.luogo):'')+(p.stato_lav?' · '+es(String(p.stato_lav).replace('_',' ')):'')+'</div>'+
+      ((p.foto||[]).length?'<div class="pr-f">'+p.foto.map(function(f,i){return '<a href="'+es(f)+'" target="_blank" rel="noopener noreferrer">&#128247; foto '+(i+1)+'</a>';}).join('')+'</div>':'')+
+      (D.chiuso?'':'<div class="riga-b"><button type="button" class="b pr" data-pconf="'+es(p.id)+'">Conferma</button><button type="button" class="b" data-pcorr="'+es(p.id)+'">Correggi</button><button type="button" class="b ro" data-pscarta="'+es(p.id)+'">Scarta</button></div>')+'</li>';});
+  return h+'</ul></div>';}
+function proposta(id){var a=D.proposte||[];for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
+
+// ---------------- curva dei lavori previsti contro quelli reali
+var MESI=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'],curvaChiesta=false,curvaGiri=0;
+function curvaHtml(){var cu=D.curva;if(!cu||!cu.punti||!cu.punti.length)return '';
+  var pts=cu.punti,base=Number(cu.base)||0,conPrev=pts.some(function(p){return p[1]!=null;});
+  // il disegno ha la larghezza dello schermo (sul telefono le scritte restano leggibili)
+  var W=Math.round(Math.min(640,Math.max(300,(window.innerWidth||640)-64))),H=W<480?190:230,ml=40,mr=10,mt=10,mb=28,t0=Date.parse(pts[0][0]),t1=Date.parse(pts[pts.length-1][0]);if(!(t1>t0))t1=t0+864e5;
+  var ymax=base;pts.forEach(function(p){if(p[1]!=null)ymax=Math.max(ymax,Number(p[1]));if(p[2]!=null)ymax=Math.max(ymax,Number(p[2]));});ymax=ymax>0?ymax*1.04:1;
+  var x=function(d){return ml+(Date.parse(d)-t0)/(t1-t0)*(W-ml-mr);},y=function(v){return mt+(1-v/ymax)*(H-mt-mb);};
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Lavori previsti e lavori fatti nel tempo">';
+  [0,25,50,75,100].forEach(function(q){var v=base*q/100,yy=y(v).toFixed(1);s+='<line x1="'+ml+'" x2="'+(W-mr)+'" y1="'+yy+'" y2="'+yy+'" stroke="#E6E9E7"/><text x="'+(ml-6)+'" y="'+(Number(yy)+4)+'" font-size="11" text-anchor="end" fill="#6b7280">'+q+'%</text>';});
+  var mesi=pts.filter(function(p){return /-(28|29|30|31)$/.test(p[0])&&p[0]!==cu.oggi;}),passo=Math.max(1,Math.ceil(mesi.length/(W<480?4:8)));
+  mesi.forEach(function(p,i){if(i%passo)return;var d=new Date(p[0]+'T12:00:00');s+='<text x="'+x(p[0]).toFixed(1)+'" y="'+(H-10)+'" font-size="11" text-anchor="middle" fill="#6b7280">'+MESI[d.getMonth()]+(d.getMonth()===0||i===0?' '+String(d.getFullYear()).slice(2):'')+'</text>';});
+  var xo=x(cu.oggi).toFixed(1);s+='<line x1="'+xo+'" x2="'+xo+'" y1="'+mt+'" y2="'+(H-mb)+'" stroke="#C9B6EC" stroke-dasharray="3 3"/><text x="'+xo+'" y="'+(mt+10)+'" font-size="11" text-anchor="middle" fill="#6B2FB3">oggi</text>';
+  var linea=function(i,stile){var d=pts.filter(function(p){return p[i]!=null;}).map(function(p,k){return (k?'L':'M')+x(p[0]).toFixed(1)+' '+y(Number(p[i])).toFixed(1);}).join(' ');return d?'<path d="'+d+'" fill="none" '+stile+'/>':'';};
+  if(conPrev)s+=linea(1,'stroke="#8a94a0" stroke-width="2" stroke-dasharray="6 4"');
+  s+=linea(2,'stroke="#9146DB" stroke-width="3" stroke-linejoin="round"')+'</svg>';
+  var po=cu.previsto_oggi,fo=Number(cu.reale_oggi)||0,h='<div class="pann curva"><h2>Andamento: lavori previsti e lavori fatti</h2>'+s+
+    '<div class="cu-l">'+(conPrev?'<span class="cu-p">Previsto dal cronoprogramma</span>':'')+'<span class="cu-r">Fatto (misure confermate)</span></div>'+
+    '<div class="s-cifre" style="margin-top:10px">'+(po!=null?'<div class="s-cifra"><small>Previsto a oggi</small><b>'+eur(po)+' €</b><span>'+pc(base?po/base*100:0)+' del computo</span></div>':'')+
+    '<div class="s-cifra"><small>Fatto a oggi</small><b>'+eur(fo)+' €</b><span>'+pc(base?fo/base*100:0)+' del computo</span></div>'+
+    (po!=null?'<div class="s-cifra"><small>'+(fo>=po?'Avanti di':'Indietro di')+'</small><b>'+eur(Math.abs(fo-po))+' €</b><span>rispetto al cronoprogramma</span></div>':'')+'</div>';
+  if(cu.pesi==='importi')h+='<p class="nota" style="margin-bottom:0">Previsto: gli importi delle voci del computo distribuiti sulle attività del cronoprogramma ('+es(cu.voci_collegate)+' voci collegate da TIX; il resto in proporzione alla durata). <a href="#" id="cu-rifai">Rifai il collegamento</a></p>';
+  else if(cu.pesi==='durata'||cu.pesi==='in_corso')h+='<p class="nota" style="margin-bottom:0">Previsto provvisorio, in proporzione alla durata delle attività: TIX sta collegando le voci del computo alle attività del cronoprogramma (meno di un minuto).</p>';
+  else h+='<p class="nota" style="margin-bottom:0">Per vedere i lavori previsti carica il cronoprogramma del cantiere: <a href="'+es(C.torna.replace('/?t=','/cronoprogramma?t='))+'">Cronoprogramma</a>.</p>';
+  return h+'</div>';}
+function curvaSegui(){var cu=D.curva;if(!cu||D.chiuso)return;
+  if(cu.pesi==='durata'&&cu.programma&&!curvaChiesta){curvaChiesta=true;api('curva_prepara',{dati:{}}).then(function(r){if(r&&r.esito==='ok'&&r.stato!=='fatto')setTimeout(curvaAttendi,20000);});}
+  else if(cu.pesi==='in_corso'&&!curvaGiri)setTimeout(curvaAttendi,20000);}
+function curvaAttendi(){if(++curvaGiri>9)return;ricarica().then(function(){if(D.curva&&D.curva.pesi==='in_corso')setTimeout(curvaAttendi,20000);});}
+
 function avanzamento(){
   if(!K||!CL||!(CL.voci||[]).length)return '<div class="pann"><h2>Prima serve il computo</h2><p>Per misurare l’avanzamento il cantiere deve avere il computo metrico del contratto. Apri la scheda «Computo».</p></div>';
-  var h='<div class="pann"><div class="strum"><input type="search" id="cerca" placeholder="Cerca una voce: numero, tariffa o parole" value="'+es(cerca)+'" autocomplete="off">'+
+  var h=proposteHtml()+curvaHtml()+'<div class="pann"><div class="strum"><input type="search" id="cerca" placeholder="Cerca una voce: numero, tariffa o parole" value="'+es(cerca)+'" autocomplete="off">'+
     '<div class="filtri"><button type="button" data-f="tutte" aria-pressed="'+(filtro==='tutte')+'">Tutte</button><button type="button" data-f="lavori" aria-pressed="'+(filtro==='lavori')+'">Con lavori</button>'+
     '<button type="button" data-f="oltre" aria-pressed="'+(filtro==='oltre')+'">Oltre il computo</button></div></div>'+
     '<p class="nota" style="margin:0 0 8px">Tocca una voce per scrivere una misura. '+(D.bozza?'Il periodo del SAL n. '+D.bozza.numero+' arriva al '+di(D.bozza.periodo_a)+'.':'Le quantità «periodo» sono quelle non ancora in un SAL.')+'</p>'+
@@ -829,13 +891,17 @@ function chiudi(){var d=$('#dlg');if(d.close)d.close();else d.removeAttribute('o
 function salvando(p){var b=$('#dlg-si');b.disabled=true;$('#dlg-m').textContent='';
   return p.then(function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();return ricarica().then(function(){return r;});}$('#dlg-m').textContent=errore(r);return null;});}
 
-function misura(v,m){
+function misura(v,m,prop){
   if(D.chiuso){avviso('Il cantiere è chiuso.');return;}
   m=m||{};var oggi=D.oggi;var dims=m.pu!=null||m.l!=null||m.w!=null||m.h!=null;
-  var c='<p class="nota" style="margin:0">'+es(v.dl||v.d)+'<br>Prezzo '+eur(v.p)+' € / '+es(v.u)+' · contratto '+qt(v.qc)+' · a oggi '+qt(v.qt)+(v.pct!=null?' ('+pc(v.pct)+')':'')+'</p>'+
+  // proposta dal cantiere: si parte da quello che dice il messaggio e si può cambiare anche la voce
+  if(prop&&!m.prefill)m={data:prop.data,q:prop.q,pct:prop.pct,luogo:prop.luogo,descrizione:prop.descrizione,prefill:1};
+  var c=(prop?'<p class="nota" style="margin:0">Dal cantiere: «'+es(prop.testo||'')+'»</p><label>Voce del computo<select id="m-voce">'+
+      (CL.voci||[]).map(function(x){return '<option value="'+es(x.id)+'"'+(x.id===v.id?' selected':'')+'>'+es(x.nr)+' · '+es(x.d)+' ('+es(x.u)+')</option>';}).join('')+'</select></label>':'')+
+    '<p class="nota" style="margin:0">'+es(v.dl||v.d)+'<br>Prezzo '+eur(v.p)+' € / '+es(v.u)+' · contratto '+qt(v.qc)+' · a oggi '+qt(v.qt)+(v.pct!=null?' ('+pc(v.pct)+')':'')+'</p>'+
     '<label>Giorno<input type="date" id="m-data" max="'+es(oggi)+'" value="'+es(m.data||oggi)+'"></label>';
   if(v.perc&&Number(v.qc)>0){var att=Number(v.qc)>0?(Number(v.qt)||0)/Number(v.qc)*100:0;
-    c+='<label>Avanzamento della voce a oggi <small>(in %, ora '+pc(att)+')</small><input type="text" id="m-pct" inputmode="decimal" placeholder="es. 40"></label>'+
+    c+='<label>Avanzamento della voce a oggi <small>(in %, ora '+pc(att)+')</small><input type="text" id="m-pct" inputmode="decimal" placeholder="es. 40" value="'+(m.pct!=null?es(String(m.pct).replace('.',',')):'')+'"></label>'+
       '<p class="nota" style="margin:0">Si registra solo la differenza rispetto a quanto già misurato.</p>';}
   else{c+='<div class="scelte"><label><input type="radio" name="m-modo" value="q"'+(dims?'':' checked')+'> Scrivo la quantità</label><label><input type="radio" name="m-modo" value="d"'+(dims?' checked':'')+'> Scrivo le misure (la quantità si calcola)</label></div>'+
       '<label id="m-lq"'+(dims?' hidden':'')+'>Quantità <small>('+es(v.u)+')</small><input type="text" id="m-q" inputmode="decimal" value="'+(m.q!=null&&!dims?es(String(Math.abs(m.q)).replace('.',',')):'')+'"></label>'+
@@ -847,13 +913,16 @@ function misura(v,m){
   c+='<label>Luogo <small>(facoltativo)</small><input type="text" id="m-luogo" maxlength="160" placeholder="es. plinti asse B, piano terra" value="'+es(m.luogo||'')+'"></label>'+
     '<label>Descrizione o motivo <small>(obbligatorio per una misura in meno)</small><input type="text" id="m-descr" maxlength="300" value="'+es(m.descrizione||'')+'"></label>'+
     '<label>Scritta da <small>(nome e cognome)</small><input type="text" id="m-autore" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>';
-  finestra((m.id?'Modifica misura · ':'Nuova misura · ')+v.nr+' '+v.d,v.oltre?'Attenzione: questa voce è già oltre il computo.':'',c,'Salva la misura',function(){
+  finestra((prop?'Conferma la proposta · ':(m.id?'Modifica misura · ':'Nuova misura · '))+v.nr+' '+v.d,v.oltre?'Attenzione: questa voce è già oltre il computo.':'',c,prop?'Conferma la misura':'Salva la misura',function(){
     var d={voce_id:v.id,data:$('#m-data').value,luogo:$('#m-luogo').value,descrizione:$('#m-descr').value,autore:$('#m-autore').value};
     if(m.id)d.id=m.id;ls('sal_autore',d.autore);
     if($('#m-pct')){d.pct=$('#m-pct').value;}
     else if(document.querySelector('input[name=m-modo]:checked').value==='d'){d.pu=$('#m-pu').value;d.l=$('#m-l').value;d.w=$('#m-w').value;d.h=$('#m-h').value;d.meno=$('#m-meno').checked;}
     else{d.q=$('#m-q').value;d.meno=$('#m-meno').checked;}
+    if(prop){d.azione='conferma';return salvando(api('proposta',{id:prop.id,dati:d})).then(function(r){if(r)avviso('Misura confermata: '+qt(r.quantita)+' '+v.u);});}
     return salvando(api('misura',{dati:d})).then(function(r){if(r)avviso('Misura salvata: '+qt(r.quantita)+' '+v.u);});});
+  if(prop)$('#m-voce').addEventListener('change',function(){var nv=voce(this.value);if(!nv)return;
+    var cur={data:$('#m-data').value,luogo:$('#m-luogo').value,descrizione:$('#m-descr').value,prefill:1};chiudi();misura(nv,cur,prop);});
   var ri=function(){var a=['m-pu','m-l','m-w','m-h'].map(function(i){var x=$('#'+i);return x?nu(x.value):null;});var t=1,uno=false;a.forEach(function(x){if(x!==null&&!isNaN(x)){t*=x;uno=true;}});
     var el=$('#m-calc');if(el)el.textContent=uno?'Quantità: '+qt(Math.round(t*100)/100)+' '+v.u:'';};
   ['m-pu','m-l','m-w','m-h'].forEach(function(i){var x=$('#'+i);if(x)x.addEventListener('input',ri);});ri();
@@ -1001,7 +1070,8 @@ function caricaHtml(senza){
         :'Il file nuovo diventa la versione '+(Number(K.versione)+1)+' del computo e la versione '+es(K.versione)+' resta in archivio. Prima di confermare vedi l’anteprima con il controllo delle somme.')+'</p>'+
       '<div class="riga-b" style="margin:0"><label class="b pr" for="k-file">Scegli il file del computo</label></div>'+
       '<input type="file" id="k-file" accept=".xlsx,.xlsm,.xls,.ods,.csv,.pdf,.dcf" hidden>'+
-      '<p class="nota" style="margin-bottom:0">Excel (.xlsx, .xls) o PDF, fino a 18 MB. Da PriMus: esporta il computo in Excel oppure stampalo in PDF (il file .dcf si apre solo con PriMus). Un PDF scansionato non si legge.</p>';
+      '<p class="nota" style="margin-bottom:0">Excel (.xlsx, .xls) o PDF, fino a 18 MB. Da PriMus: esporta il computo in Excel oppure stampalo in PDF (il file .dcf si apre solo con PriMus). '+
+        (D.carica_ai?'Anche un PDF scansionato o un formato diverso: lo legge l’intelligenza artificiale, e tu controlli l’anteprima.':'Un PDF scansionato non si legge.')+'</p>';
     if(s==='errore')h+='<div class="k-err">Non sono riuscito a leggere «'+es(IMP.nome_file||'il file')+'»: '+es(IMP.errore||'errore sconosciuto')+'.</div>';
     if(s==='errore_locale')h+='<div class="k-err">'+es(IMP.msg)+'</div>';
   } else if(s==='invio'||s==='ricevuto'||s==='in_lettura'){
@@ -1010,7 +1080,7 @@ function caricaHtml(senza){
   return h+'</div>';}
 function anteprima(r){
   var rp=r.riepilogo||{},cn=rp.conteggi||{},b=r.blocchi||{},vv=r.voci||[],tf=rp.totale_file,so=Number(rp.somma)||0,hatf=tf!==null&&tf!==undefined&&tf!=='';
-  var h='<p style="margin:0 0 8px"><b>Anteprima di «'+es(r.nome_file||'')+'»</b> · '+(r.modo==='ai'?'letto con l’intelligenza artificiale: controlla bene':'letto dal file')+'</p>'+
+  var h='<p style="margin:0 0 8px"><b>Anteprima di «'+es(r.nome_file||'')+'»</b> · '+(/^ai/.test(r.modo||'')?'letto con l’intelligenza artificiale: controlla bene':'letto dal file')+'</p>'+
     '<div class="s-cifre"><div class="s-cifra"><small>Voci</small><b>'+es(cn.voci!=null?cn.voci:vv.length)+'</b><span>'+(Number(cn.righe)?es(cn.righe)+' righe di misura':'senza righe di misura')+'</span></div>'+
     '<div class="s-cifra"><small>Capitoli</small><b>'+es((r.capitoli||[]).length)+'</b></div>'+
     '<div class="s-cifra"><small>Somma delle voci</small><b>'+eur(so)+' €</b><span>'+(hatf?'nel file: '+eur(tf)+' €':'totale non scritto nel file')+'</span></div></div>';
@@ -1072,6 +1142,15 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
         '<p class="nota" style="margin:0">Con l’emissione il SAL riceve l’impronta SHA-256 e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
         '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti il SAL',
         function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso('SAL emesso.');});});});return;}
+  if(t.hasAttribute('data-pconf')||t.hasAttribute('data-pcorr')){var pr=proposta(t.getAttribute('data-pconf')||t.getAttribute('data-pcorr'));if(!pr)return;
+    var pv=voce(pr.voce_id)||(CL.voci||[])[0];
+    if(t.hasAttribute('data-pcorr')||(pr.q==null&&pr.pct==null)){if(pv)misura(pv,null,pr);return;}
+    t.disabled=true;api('proposta',{id:pr.id,dati:{azione:'conferma',autore:ls('sal_autore')}}).then(function(r){
+      if(r&&r.esito==='ok'){avviso('Misura confermata: '+qt(r.quantita)+' '+(pv?pv.u:''));ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.hasAttribute('data-pscarta')){var ps=t.getAttribute('data-pscarta');
+    finestra('Scartare la proposta?','Non entra nel SAL; resta nello storico come scartata.','<label>Motivo <small>(facoltativo)</small><input type="text" id="ps-mot" maxlength="300" placeholder="es. lavoro già misurato"></label>','Scarta',
+      function(){return salvando(api('proposta',{id:ps,dati:{azione:'scarta',motivo:$('#ps-mot').value,autore:ls('sal_autore')}})).then(function(r){if(r)avviso('Proposta scartata.');});},true);return;}
+  if(t.id==='cu-rifai'){ev.preventDefault();api('curva_prepara',{dati:{rifai:true}}).then(function(r){if(r&&r.esito==='ok'){avviso('Collegamento in corso: meno di un minuto.');curvaGiri=0;ricarica().then(function(){setTimeout(curvaAttendi,20000);});}else avviso(errore(r));});return;}
   if(t.id==='k-tutte'){impTutte=true;corpo();return;}
   if(t.id==='k-conferma'||t.id==='k-annulla'){var conf=t.id==='k-conferma',chi=$('#k-chi')?$('#k-chi').value:'';if(conf&&chi)ls('sal_autore',chi);t.disabled=true;
     api(conf?'computo_conferma':'computo_annulla',{id:impId,dati:{autore:chi}}).then(function(r){
