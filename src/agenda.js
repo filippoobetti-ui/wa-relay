@@ -180,6 +180,11 @@ async function leggiCorpo(request) {
   } catch (e) { return { errore: 400 }; }
 }
 
+// Inviti (30/10/2026): id dei contatti della Rubrica scelti nel modulo (al massimo 30); null = elenco non mandato
+function invitatiDa(b) {
+  return Array.isArray(b && b.invitati) ? b.invitati.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0).slice(0, 30) : null;
+}
+
 function pulisciDati(d) {
   const o = {};
   if (!d || typeof d !== "object") return o;
@@ -213,6 +218,17 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
       "Content-Type": "text/calendar; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow",
       "Content-Disposition": 'inline; filename="agenda-cantiere.ics"' } });
   }
+  // Inviti (30/10/2026, agenda-invitati-1): /agenda/invito/<chiave>.ics — il calendario di un solo appuntamento per un invitato
+  // dalla Rubrica (link nella sua email); chiave propria dell'invitato, mai il gettone del portale
+  const mInv = /^\/agenda\/invito\/([0-9a-f]{32})\.ics$/.exec(sotto);
+  if (mInv) {
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    const ics = await h.rpc(env, "agenda_invito_ics", { p_chiave: mInv[1] }, 15000).catch(() => null);
+    if (typeof ics !== "string" || !ics) return new Response("Not Found", { status: 404 });
+    return new Response(request.method === "HEAD" ? null : ics, { status: 200, headers: {
+      "Content-Type": "text/calendar; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow",
+      "Content-Disposition": 'attachment; filename="appuntamento.ics"' } });
+  }
   if (sotto === "/agenda/crea" || sotto === "/agenda/azione") {
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
     const b = await leggiCorpo(request);
@@ -231,7 +247,11 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
       let riga = null;
       try { riga = await h.rpc(env, "agenda_contesto", { p_token: tok, p_commessa: c }, 10000); } catch (e) {}
       const fuori = riga && Array.isArray(riga.appuntamenti) ? (riga.appuntamenti.find((x) => Number(x.id) === Number(r.id)) || {}).avvisi_no : null;
-      return json({ esito: "ok", id: r.id, inviati: avvisi ? avvisi.inviati : null, errori: avvisi ? avvisi.errori : null, fuori_finestra: fuori == null ? null : Number(fuori) });
+      const inv = invitatiDa(b);
+      let invRis = null;
+      if (inv && inv.length) invRis = await h.rpc(env, "agenda_invitati_imposta", { p_token: tok, p_id: r.id, p_contatti: inv }, 15000).catch(() => null);
+      return json({ esito: "ok", id: r.id, inviati: avvisi ? avvisi.inviati : null, errori: avvisi ? avvisi.errori : null, fuori_finestra: fuori == null ? null : Number(fuori),
+        inviti: invRis && invRis.esito === "ok" ? invRis.email : null });
     }
     const id = Number(b.id);
     const az = String(b.azione || "");
@@ -241,10 +261,16 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     if (az === "modifica") {
       const r = await h.rpc(env, "agenda_modifica_tutto", { p_token: tok, p_id: id, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
       if (!r) return json({ esito: "incerto" });
+      // Inviti (30/10/2026): l'elenco degli invitati si salva anche quando il resto è uguale («gia»)
+      const inv = invitatiDa(b);
+      let invRis = null;
+      if (inv && (r.esito === "ok" || r.esito === "gia")) invRis = await h.rpc(env, "agenda_invitati_imposta", { p_token: tok, p_id: id, p_contatti: inv }, 15000).catch(() => null);
+      const inviti = invRis && invRis.esito === "ok" ? invRis.email : null;
+      if (r.esito === "gia" && inviti) return json({ esito: "ok", id, spostato: false, inviati: null, inviti });
       if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
       let avvisi = null;
       try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {}
-      return json({ esito: "ok", id, spostato: r.spostato === true, inviati: avvisi ? avvisi.inviati : null });
+      return json({ esito: "ok", id, spostato: r.spostato === true, inviati: avvisi ? avvisi.inviati : null, inviti });
     }
     if (az === "crono_esito") {
       const r = await h.rpc(env, "agenda_crono_esito", { p_token: tok, p_id: id, p_dati: pulisciDati(b.dati) }, 15000).catch(() => null);
@@ -275,6 +301,8 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
   }
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return Response.redirect(inUrl.origin + torna, 303);
+  // Inviti (30/10/2026): i contatti della Rubrica dell'impresa con email, per «Invita dalla Rubrica»
+  try { const rb = await h.rpc(env, "agenda_inviti_rubrica", { p_token: tok, p_commessa: c }, 8000); if (rb && rb.esito === "ok") d.rubrica = rb.contatti; } catch (e) {}
   let pagina = metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, Object.assign({ origine: inUrl.origin }, h));
   // Cestino (17/10/2026): pulsante su ogni appuntamento e sezione «Cestino» (src/cestino.js)
   if (pagina && d.chiuso !== true && pagina.lastIndexOf("</body>") !== -1) {
@@ -302,7 +330,8 @@ function rigaApp(x, e, oggi) {
   const fine = x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "";
   const note = (x.note ? '<div class="n">' + e(x.note) + "</div>" : "") +
     (x.luogo || x.chi ? '<div class="n">' + [x.luogo ? "📍 " + e(x.luogo) : "", x.chi ? "👷 " + e(x.chi) : ""].filter(Boolean).join(" &middot; ") + "</div>" : "") +
-    (Array.isArray(x.attivita) && x.attivita.length ? '<div class="n">📊 ' + x.attivita.map((a) => e(a.nome)).join(", ") + "</div>" : "");
+    (Array.isArray(x.attivita) && x.attivita.length ? '<div class="n">📊 ' + x.attivita.map((a) => e(a.nome)).join(", ") + "</div>" : "") +
+    (Array.isArray(x.invitati) && x.invitati.length ? '<div class="n">✉️ Invitati: ' + x.invitati.map((i) => e(i.nome)).join(", ") + "</div>" : "");
   const att = Array.isArray(x.attivita) && x.attivita.length ? ' data-att="' + e(JSON.stringify(x.attivita.map((a) => ({ id: a.id, nome: a.nome })))) + '"' : "";
   const nAv = Number(x.avvisi_ok) || 0, nNo = Number(x.avvisi_no) || 0;
   let avv = "";
@@ -316,7 +345,8 @@ function rigaApp(x, e, oggi) {
     (st !== "annullato" ? '<button type="button" data-az="modifica" data-id="' + x.id + '" data-app="' + e(JSON.stringify({ g: x.giorno, o: x.tutto_il_giorno ? "" : x.ora, f: x.ora_fine,
       tipo: TIPI[x.tipo] ? x.tipo : "altro", t: x.titolo, n: x.note, luogo: x.luogo, chi: x.chi_testo == null ? "" : x.chi_testo,
       pers: Array.isArray(x.persone) ? x.persone : [], att: Array.isArray(x.attivita) ? x.attivita.map((a) => a.id) : [],
-      avv: x.avvisa !== false, cli: x.visibile_cliente === true, sera: x.avviso_sera_prima === true })) + '">Modifica</button>' : "") +
+      avv: x.avvisa !== false, cli: x.visibile_cliente === true, sera: x.avviso_sera_prima === true,
+      inv: Array.isArray(x.invitati) ? x.invitati.map((i) => i.id).filter(Boolean) : [] })) + '">Modifica</button>' : "") +
     (st !== "annullato" ? '<button type="button" data-az="sposta" data-id="' + x.id + '" data-g="' + e(x.giorno) + '" data-o="' + e(x.ora) + '" data-f="' + e(x.ora_fine) + '">Sposta</button>' : "") +
     (attivo ? '<button type="button" data-az="avvenuto" data-id="' + x.id + '"' + att + '>Avvenuto</button>' : "") +
     (attivo ? '<button type="button" class="rosso" data-az="annulla" data-id="' + x.id + '">Annulla</button>' : "") +
@@ -346,7 +376,8 @@ export function paginaAgenda(base, tok, c, d, h) {
     nf++;
     if (giorno !== g) {
       g = giorno;
-      futuri += '<div class="tit">' + (giorno === oggi ? "Oggi" : e(giornoIt(giorno))) + "</div>";
+      futuri += '<div class="tit" data-g="' + e(giorno) + '" role="button" tabindex="0" title="Apri la giornata"><span>' + (giorno === oggi ? "Oggi" : e(giornoIt(giorno))) +
+        '</span><span class="tit-apri">Apri la giornata ›</span></div>';
     }
     futuri += rigaApp(x, e, oggi);
   }
@@ -357,7 +388,8 @@ export function paginaAgenda(base, tok, c, d, h) {
   // Calendario del mese (28/10/2026, Filippo): gli appuntamenti che la pagina già riceve, ridotti a quello che serve alla griglia
   const mese = app.map((x) => ({ id: Number(x.id) || 0, g: String(x.giorno || ""), o: x.tutto_il_giorno ? "" : String(x.ora || ""), f: String(x.ora_fine || ""),
     tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.g));
-  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI }).replace(/</g, "\\u003c");
+  const rubrica = (Array.isArray(d.rubrica) ? d.rubrica : []).map((k) => ({ id: Number(k.id) || 0, n: String(k.nome || ""), e: String(k.email || ""), i: String(k.impresa || "") })).filter((k) => k.id);
+  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI, rubrica: rubrica }).replace(/</g, "\\u003c");
   // «Lavorazioni» prima voce del Tipo e scelta di partenza del nuovo appuntamento (29/10/2026, Filippo);
   // la legenda del calendario resta nell'ordine di TIPI
   const opzTipo = ["lavorazione"].concat(Object.keys(TIPI).filter((k) => k !== "lavorazione")).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
@@ -407,6 +439,10 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<label>Altre squadre o imprese <small>(facoltativo)</small><input type="text" id="f-chi" maxlength="200" placeholder="es. Impresa Bianchi, betonpompa"></label>' +
     "</div>" +
     '<label id="l-note">Note <small>(facoltative)</small><textarea id="f-n" maxlength="600" rows="2" placeholder="es. serve la gru, tenere libero il piazzale"></textarea></label>' +
+    // Inviti (30/10/2026, Filippo): contatti della Rubrica invitati all'appuntamento, con email e invito al calendario
+    '<div id="l-inv"><div class="chi-t">Invita dalla Rubrica <small>(ricevono un’email con l’invito da aggiungere al calendario)</small></div>' +
+    (rubrica.length ? '<input type="search" id="f-inv-q" placeholder="Cerca per nome, impresa o email" autocomplete="off"><div class="cr-l" id="f-inv"></div><p class="cr-avv" id="f-inv-sel"></p>'
+      : '<p class="piccolo">In Rubrica non ci sono contatti con l’email: aggiungila nella Rubrica per poterli invitare.</p>') + "</div>" +
     '<div id="l-opz" class="opz">' +
     '<label class="ck"><input type="checkbox" id="f-avv" checked> <span id="t-avv" data-tutti="' + e("Avvisa su WhatsApp chi lavora in cantiere (" + avvisoChi + ")") + '">Avvisa su WhatsApp chi lavora in cantiere (' + e(avvisoChi) + ")</span></label>" +
     '<label class="ck"><input type="checkbox" id="f-cli"> Visibile anche al cliente</label>' +
@@ -449,6 +485,8 @@ const STILE =
   ".ag-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:10px;min-height:54px;margin:0 0 16px;border:0;border-radius:12px;background:var(--ar);color:#fff;font:inherit;font-weight:700;font-size:1.02rem;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)}" +
   ".ag-btn .ic{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center}.ag-btn svg{width:20px;height:20px}" +
   ".tit{font-size:.92rem;color:var(--ar-s);font-weight:700;margin:12px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--ar)}" +
+  ".tit[data-g]{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.tit[data-g]:hover .tit-apri,.tit[data-g]:focus-visible .tit-apri{text-decoration:underline}" +
+  ".tit[data-g]:focus-visible{outline:2px solid var(--ar);outline-offset:3px;border-radius:4px}.tit-apri{font-size:.78rem;font-weight:700;color:var(--ar);white-space:nowrap}" +
   ".ag{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:10px 14px;margin-bottom:8px;display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:start}" +
   ".ag .o{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ar);font-size:1.05rem}.ag .o small{display:block;font-weight:400;font-size:.72rem;color:#555}" +
   ".ag .t{font-weight:700;overflow-wrap:anywhere}.ag .n{font-size:.86rem;color:#444;white-space:pre-line;margin-top:2px}.ag .k{font-size:.74rem;color:#4A524E;margin-top:3px}" +
@@ -482,6 +520,7 @@ const STILE =
   ".dl-c label.cr-i{display:flex;align-items:flex-start;gap:8px;margin:0;padding:7px 10px;border-bottom:1px solid #EEF0EF;font-weight:500;font-size:.88rem;cursor:pointer}" +
   ".dl-c label.cr-i input{display:inline-block;width:auto;margin:3px 0 0;flex:none}.cr-i small{display:block;color:#5b6560;font-weight:400;font-size:.76rem}.cr-i.sel{background:#FFF7EA}" +
   ".cr-vuoto{padding:8px 10px;font-size:.84rem;color:#5b6560}.cr-avv{font-size:.84rem;color:#7A5300;margin:6px 0 0}.cr-avv:empty{display:none}" +
+  "#f-inv{overflow-x:hidden}#f-inv .cr-i span{min-width:0;overflow-wrap:anywhere}" +
   ".es-r{border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;margin:8px 0 0}.es-r b{display:block;font-size:.9rem;overflow-wrap:anywhere}" +
   ".es-r .es-c{display:flex;gap:8px;margin-top:6px}.dl-c .es-r select{flex:1;margin-top:0}.dl-c .es-r input{width:90px;flex:none;margin-top:0}" +
   // ---- calendario del mese (28/10/2026): griglia come Google Calendar, con un colore per tipo di appuntamento
@@ -630,12 +669,22 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function m(cl,t){msg.className='msg '+cl;msg.textContent=t;}
 function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=v?'':'none';}
 function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(corpo)}).then(function(r){return r.json();});}
-function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
+/* Inviti (30/10/2026): contatti della Rubrica con email; i scelti restano sempre in cima all'elenco */
+var RUB=D.rubrica||[],invSel={},invL=document.getElementById('f-inv'),invQ=document.getElementById('f-inv-q'),invS=document.getElementById('f-inv-sel');
+function invRender(){if(!invL)return;var q=(invQ.value||'').toLowerCase().trim(),h='',n=0,lista=RUB.slice().sort(function(a,b){return (invSel[b.id]?1:0)-(invSel[a.id]?1:0);});
+ for(var i=0;i<lista.length;i++){var k=lista[i],sel=!!invSel[k.id];if(!sel&&q&&(k.n+' '+k.i+' '+k.e).toLowerCase().indexOf(q)===-1)continue;if(!sel&&n>=80)continue;n++;
+  h+='<label class="cr-i'+(sel?' sel':'')+'"><input type="checkbox" value="'+k.id+'"'+(sel?' checked':'')+'><span>'+esc(k.n)+'<small>'+[k.i,k.e].filter(Boolean).map(esc).join(' · ')+'</small></span></label>';}
+ invL.innerHTML=h||'<div class="cr-vuoto">Nessun contatto con queste parole.</div>';var c=Object.keys(invSel).length;
+ invS.textContent=c?(c===1?'1 invitato: riceve l’email':c+' invitati: ricevono l’email')+' quando salvi.':'';}
+if(invL){invQ.addEventListener('input',invRender);invL.addEventListener('change',function(ev){var c=ev.target;if(!c||c.type!=='checkbox')return;
+ if(c.checked){if(Object.keys(invSel).length>=30){c.checked=false;return;}invSel[c.value]=1;}else delete invSel[c.value];invRender();});}
+function invitati(){return Object.keys(invSel).map(Number);}
+function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;invSel={};if(invQ)invQ.value='';invRender();mostra('l-inv',true);tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
  fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='lavorazione';favv.checked=true;fcli.checked=false;fsera.checked=false;
  fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
  crSel={};if(crQ)crQ.value='';crRender();
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
-function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;fg.min=D.oggi;var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
+function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;fg.min=D.oggi;mostra('l-inv',false);var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
  fg.value=b.getAttribute('data-g')||D.oggi;fo.value=b.getAttribute('data-o')||'';ff.value=b.getAttribute('data-f')||'';
  ['l-tipo','l-titolo','l-note','l-opz','l-lav'].forEach(function(k){mostra(k,false);});ft.required=false;si.textContent='Sposta e avvisa';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
 /* «Modifica» (29/10/2026): lo stesso modulo del nuovo appuntamento, già compilato; un giorno passato resta sceglibile */
@@ -645,6 +694,7 @@ function apriModifica(b){var x={};try{x=JSON.parse(b.getAttribute('data-app'))||
  favv.checked=x.avv!==false;fcli.checked=!!x.cli;fsera.checked=!!x.sera;fluogo.value=x.luogo||'';fchi.value=x.chi||'';
  var ps=x.pers||[];for(var i=0;i<fpers.length;i++)fpers[i].checked=ps.indexOf(fpers[i].value)!==-1;
  crSel={};(x.att||[]).forEach(function(id){crSel[id]=1;});if(crQ)crQ.value='';crRender();
+ invSel={};(x.inv||[]).forEach(function(id){invSel[id]=1;});if(invQ)invQ.value='';invRender();mostra('l-inv',true);
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Salva le modifiche';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
 form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)return;
  if(!fg.value){m('ko','Indica il giorno.');return;}
@@ -655,11 +705,12 @@ form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)retu
  var pr;
  if(modo!=='sposta'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
   if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();dati.attivita=Object.keys(crSel).slice(0,10);}
-  pr=modo==='nuovo'?post('crea',{t:D.t,c:D.c,dati:dati}):post('azione',{t:D.t,id:Number(cur),azione:'modifica',dati:dati});}
+  pr=modo==='nuovo'?post('crea',{t:D.t,c:D.c,dati:dati,invitati:invitati()}):post('azione',{t:D.t,id:Number(cur),azione:'modifica',dati:dati,invitati:invitati()});}
  else{pr=post('azione',{t:D.t,id:Number(cur),azione:'sposta',dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value}});}
  pr.then(function(j){occupato=false;no.disabled=false;
   if(j.esito==='ok'){fatto=true;var t=modo==='nuovo'?'Segnato in agenda.':modo==='modifica'?(j.spostato?'Modifiche salvate: giorno o ora cambiati, come «Sposta».':'Modifiche salvate.'):'Spostato.';
    if(typeof j.inviati==='number'&&(modo!=='modifica'||j.spostato||j.inviati>0)){t+=' Avvisi WhatsApp inviati: '+j.inviati+(j.fuori_finestra?' · da recapitare al mattino: '+j.fuori_finestra:'')+'.';}
+   if(j.inviti>0){t+=' Email agli invitati: '+j.inviti+'.';}
    m('ok',t);si.hidden=true;no.textContent='Chiudi';return;}
   if(j.esito==='gettone'){location.href=D.base+'/';return;}
   if(j.esito==='gia'){fatto=true;m('ok','Era già così.');si.hidden=true;no.textContent='Chiudi';return;}
@@ -725,6 +776,9 @@ window.glAgGiorno=function(g){if(!gio||!/^\d{4}-\d{2}-\d{2}$/.test(g))return;gio
  if(!gio.open)gio.showModal();gioL.scrollTop=0;};
 if(gio){document.getElementById('gio-no').addEventListener('click',function(){gio.close();});
  if(gioN)gioN.addEventListener('click',function(){gio.close();window.glAgNuovo(gioG);});}
+/* (30/10 sera, Filippo) anche i titoli dei giorni dell'elenco aprono la giornata */
+Array.prototype.forEach.call(document.querySelectorAll('main .tit[data-g]'),function(t){function apri(){if(window.glAgGiorno)window.glAgGiorno(t.getAttribute('data-g'));}
+ t.addEventListener('click',apri);t.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();apri();}});});
 var ic=document.getElementById('ics-copia');if(ic)ic.addEventListener('click',function(){var u=document.getElementById('ics-url');try{u.select();}catch(x){}
  var fatto=function(){ic.textContent='Copiato';setTimeout(function(){ic.textContent='Copia';},1500);};
  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.value).then(fatto,function(){try{document.execCommand('copy');fatto();}catch(x){}});}else{try{document.execCommand('copy');fatto();}catch(x){}}});
