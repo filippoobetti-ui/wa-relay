@@ -467,7 +467,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<div class="dl-b"><button type="button" class="no" id="es-no">Annulla</button><button type="submit" class="si" id="es-si">Segna avvenuto</button></div>' +
     "</form></dialog>" +
     // «Giornata» (30/10/2026): la pagina di un giorno, aperta dal calendario; la riempie lo script con gli appuntamenti dell'elenco
-    '<dialog id="ag-gio" aria-labelledby="gio-tit"><div class="dl-t"><h2 id="gio-tit">Giornata</h2><p>' + e(cant.nome || "") + "</p></div>" +
+    '<dialog id="ag-gio" aria-labelledby="gio-tit"><div class="dl-t"><h2 id="gio-tit">Giornata</h2><p>' + e(cant.nome || "") + '<span class="gio-n" id="gio-n"></span></p></div>' +
     '<div class="dl-c" id="gio-l"></div>' +
     '<div class="dl-b"><button type="button" class="no" id="gio-no">Chiudi</button>' +
     (d.chiuso ? "" : '<button type="button" class="si" id="gio-nuovo">+ Nuovo appuntamento</button>') + "</div></dialog>" +
@@ -581,7 +581,12 @@ const STILE =
   ".cal-gi li b{font-variant-numeric:tabular-nums;color:#fff}.cal-gi li span{overflow-wrap:anywhere}.cal-gi li small{color:#94A3B8;font-size:.74rem}" +
   ".cal-gi li a{color:#FBD38D;font-size:.8rem;font-weight:700;text-decoration:none;white-space:nowrap}" +
   ".cal-gi .vuoto-g{color:#94A3B8;font-size:.88rem}" +
-  "#ag-gio{width:min(640px,calc(100vw - 24px));overflow-x:hidden;overflow-y:auto}#ag-gio .dl-c{padding:12px 14px 4px}#ag-gio .ag{margin-bottom:8px}" +
+  // giornata a tutto schermo (30/10/2026, Filippo: «si apre in grande»): data grande in testa, appuntamenti al centro, pulsanti fissi in fondo
+  "#ag-gio{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;margin:0;border-radius:0;overflow:hidden}#ag-gio[open]{display:flex;flex-direction:column}" +
+  "#ag-gio .dl-t{padding:18px max(16px,calc((100vw - 820px)/2)) 14px}#ag-gio .dl-t h2{font-size:clamp(1.6rem,5.5vw,2.5rem);line-height:1.15;letter-spacing:-.02em}#ag-gio .dl-t p{font-size:1rem;margin-top:6px}" +
+  "#ag-gio .dl-c{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px max(16px,calc((100vw - 820px)/2)) 8px}#ag-gio .ag{margin-bottom:10px;font-size:1.04rem}#ag-gio .ag .o{font-size:1.25rem}#ag-gio .ag .t{font-size:1.1rem}" +
+  "#ag-gio .dl-b{padding:12px max(16px,calc((100vw - 820px)/2)) 16px;border-top:1px solid var(--bordo);background:#fff}" +
+  ".gio-n{display:inline-block;margin-left:8px;padding:1px 10px;border-radius:999px;background:var(--ar);color:#fff;font-size:.82rem;font-weight:700;vertical-align:middle}.gio-n:empty{display:none}" +
   ".gio-v{background:#fff;border:1px dashed #B9C3BE;border-radius:12px;padding:16px;color:#4A524E;font-size:.92rem;margin:4px 0 8px}" +
   ".ag.lampo{animation:cal-lampo 1.6s ease}@keyframes cal-lampo{0%,40%{box-shadow:0 0 0 3px var(--ar)}100%{box-shadow:none}}" +
   "@media (max-width:759px){.cal{padding:14px 10px 12px;border-radius:20px}.cal-m{flex:1 1 100%;margin:0 0 2px 4px}.cal-t{gap:6px}.cal-oggi{margin-right:auto}.cal-n button,.cal-oggi,.cal-piu{min-height:38px}.cal-g{gap:4px}.cal-d{min-height:60px;padding:6px 4px;border-radius:12px;align-items:center}" +
@@ -788,6 +793,7 @@ window.glAgGiorno=function(g){if(!gio||!/^\d{4}-\d{2}-\d{2}$/.test(g))return;gio
  /* il cestino (cestino.js) lega ogni pulsante 🗑 a parte: nella giornata si chiude la finestra e si usa quello dell'elenco */
  var bc=gioL.querySelectorAll('.gl-ct-b');for(var q=0;q<bc.length;q++)bc[q].addEventListener('click',function(){var r=this.closest('.ag'),o=r&&document.querySelector('main .ag[data-id="'+r.getAttribute('data-id')+'"] > .gl-ct-b');if(o){gio.close();o.click();}});
  if(gioN)gioN.hidden=g<D.oggi;
+ var gn=document.getElementById('gio-n');if(gn)gn.textContent=rs.length?(rs.length===1?'1 appuntamento':rs.length+' appuntamenti'):'';
  if(!gio.open)gio.showModal();gioL.scrollTop=0;};
 if(gio){document.getElementById('gio-no').addEventListener('click',function(){gio.close();});
  if(gioN)gioN.addEventListener('click',function(){gio.close();window.glAgNuovo(gioG);});}
