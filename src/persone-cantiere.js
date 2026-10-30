@@ -212,11 +212,12 @@ async function rubricaRoute(request, env, base, inUrl, h) {
 }
 
 const RAPPORTI_OPZ = '<option value="titolare">Titolare</option><option value="dipendente">Dipendente</option><option value="subappaltatore">Impresa subappaltatrice</option>' +
-  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
+  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
 
 const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio" id="form-sch" novalidate aria-labelledby="t-sch">' +
   '<h2 id="t-sch">Nuovo contatto</h2><p class="sotto">Serve solo il nome; gli altri dati sono facoltativi.</p>' +
   '<div id="s-az-box" hidden><label class="c" for="s-az">Impresa</label><select class="campo" id="s-az"></select>' +
+  '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">Per un professionista con partita IVA scegli «+ Nuova impresa» e scrivi il suo studio o la sua ditta.</p>' +
   '<div id="s-nuova-box" hidden><div class="riga2"><div><label class="c" for="s-nuova">Ragione sociale della nuova impresa</label><input class="campo" id="s-nuova" maxlength="120"></div>' +
   '<div><label class="c" for="s-nuova-piva">Partita IVA dell\'impresa</label><input class="campo" id="s-nuova-piva" inputmode="numeric" maxlength="13" placeholder="facoltativa"></div></div>' +
   '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">L\'impresa resta solo in rubrica: non diventa un cliente TIX.</p></div></div>' +
@@ -224,6 +225,7 @@ const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio"
   '<div class="riga2"><div><label class="c" for="s-tel">Telefono</label><input class="campo" id="s-tel" type="tel" inputmode="tel" maxlength="20" placeholder="333 123 4567"></div>' +
   '<div><label class="c" for="s-mail">Email</label><input class="campo" id="s-mail" type="email" maxlength="120"></div></div>' +
   '<label class="c" for="s-imp">Impresa o ditta della persona</label><input class="campo" id="s-imp" maxlength="120" list="s-imp-lista"><datalist id="s-imp-lista"></datalist>' +
+  '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">Professionista con partita IVA (PM, DL, CSE, consulente)? Scrivi il suo studio o la sua ditta e scegli il rapporto «Professionista».</p>' +
   '<div class="riga2"><div><label class="c" for="s-piva">Partita IVA</label><input class="campo" id="s-piva" inputmode="numeric" maxlength="13"></div>' +
   '<div><label class="c" for="s-cf">Codice fiscale</label><input class="campo" id="s-cf" maxlength="16" style="text-transform:uppercase"></div></div>' +
   '<div class="riga2"><div><label class="c" for="s-ruolo">Ruolo abituale</label><select class="campo" id="s-ruolo"><option value="">—</option></select></div>' +
@@ -338,7 +340,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 var toastT;function toast(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){el.hidden=true;},2800);}
 function chiama(az,extra){var b={t:CFG.t,azione:az};for(var k in extra)b[k]=extra[k];
   return fetch(CFG.api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){return r.json();});}
-var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",esterno:"Esterno"};
+var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",professionista:"Professionista",esterno:"Esterno"};
 function sotto(){$("sotto").textContent=(D.impresa||"")+" · "+P.length+(P.length===1?" contatto":" contatti");}
 function disegna(q){q=(q||"").toLowerCase().trim();var h="";sotto();
   P.filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email,p.azienda,p.partita_iva,p.codice_fiscale].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p){
@@ -361,6 +363,7 @@ function riempiImp(){var v={};P.forEach(function(p){if(p.impresa)v[p.impresa]=1;
   $("s-imp-lista").innerHTML=Object.keys(v).sort().map(function(n){return '<option value="'+esc(n)+'">';}).join("");}
 riempiAz();riempiImp();
 sa.addEventListener("change",function(){var n=sa.value==="nuova";$("s-nuova-box").hidden=!n;if(n)$("s-nuova").focus();});
+$("s-rapp").addEventListener("change",function(){if(this.value==="professionista"&&D.impresa&&$("s-imp").value===D.impresa){$("s-imp").value="";$("s-imp").focus();}});
 function apri(p){corr=p||null;$("t-sch").textContent=p?"Modifica contatto":"Nuovo contatto";$("s-err").hidden=true;
   $("s-az-box").hidden=!(D.filippo&&!p);if(D.filippo&&!p){sa.value="";$("s-nuova-box").hidden=true;$("s-nuova").value="";$("s-nuova-piva").value="";}
   $("s-nome").value=p?p.nome||"":"";telImposta("s-tel",p&&p.telefono?p.telefono:"");$("s-mail").value=p?p.email||"":"";$("s-imp").value=p?p.impresa||"":(D.filippo?"":D.impresa||"");
@@ -438,7 +441,7 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<label class="c" for="f-rapp">Rapporto con l\'impresa</label><select class="campo" id="f-rapp">' +
   '<option value="titolare">Titolare (si conta nel canone)</option><option value="dipendente">Dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
   '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option>' +
-  '<option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
+  '<option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente (senza costi)</option><option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
   '<p class="errore" id="f-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="f-ok">Aggiungi e crea l\'invito</button></div></form></div>';
 
