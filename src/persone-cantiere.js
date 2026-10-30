@@ -200,14 +200,14 @@ async function rubricaRoute(request, env, base, inUrl, h) {
     .replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   const html = '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Rubrica - TIX · Diario di cantiere</title>' +
-    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}</style></head><body>" +
+    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}" + IMPORTA_CSS + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok) + '">&larr; Torna ai cantieri</a>' +
     '<h1>Rubrica</h1><p id="sotto"></p></div></header><main class="corpo"><div class="in">' +
-    '<div class="barra"><h2>Contatti</h2><button class="btn pr" id="nuovo" type="button">+ Nuovo contatto</button></div>' +
+    '<div class="barra"><h2>Contatti</h2><div class="az-rub"><button class="btn" id="importa" type="button">&#128229; Importa da file</button><button class="btn pr" id="nuovo" type="button">+ Nuovo contatto</button></div></div>' +
     '<input class="campo cerca" id="cerca" type="search" placeholder="Cerca per nome, impresa, ruolo o numero" aria-label="Cerca nella rubrica" style="margin-top:12px">' +
     '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
-    SCHEDA_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + RUBRICA_JS + "})();</script></body></html>";
+    SCHEDA_HTML + IMPORTA_HTML + '<div class="toast" id="toast" hidden></div>' +
+    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
 }
 
@@ -234,6 +234,142 @@ const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio"
   '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">Non scrivere qui dati sulla salute, sui sindacati o su condanne.</p>' +
   '<p class="errore" id="s-err" hidden></p><div class="fine"><button class="btn rosso" type="button" id="s-elim" hidden>Elimina dalla rubrica</button>' +
   '<button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="s-ok">Salva</button></div></form></div>';
+
+// 30/10/2026 (Filippo, rubrica-importa-1): «Importa da file» nella Rubrica. Il file (Excel, CSV, vCard del telefono, PDF)
+// si legge nel browser, senza mandarlo a TIX; si mostra l'elenco con i contatti già in rubrica (o doppi nel file) tolti e
+// segnalati; «Aggiungi» salva gli altri uno per uno con rubrica_salva, che rifiuta comunque i numeri già presenti.
+const IMPORTA_CSS = ".az-rub{display:flex;gap:8px;flex-wrap:wrap}.carica-imp{display:flex;align-items:center;justify-content:center;gap:8px;min-height:64px;margin:12px 0 4px;" +
+  "border:2px dashed var(--bordo);border-radius:12px;cursor:pointer;font-weight:700}.carica-imp:hover{border-color:#F26A10}.carica-imp input{position:absolute;opacity:0;width:1px;height:1px}" +
+  "#velo-imp .foglio{overflow-x:hidden}.imp-r>span{flex:1;min-width:0}.imp-l{max-height:46vh;overflow-y:auto;overflow-x:hidden;border:1px solid var(--bordo);border-radius:10px;margin-top:8px}.imp-r{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-bottom:1px solid var(--bordo)}" +
+  ".imp-r:last-child{border-bottom:0}.imp-r input{margin-top:4px;flex:0 0 auto}.imp-r b{display:block}.imp-r small{display:block;opacity:.75;overflow-wrap:anywhere}.imp-r.no{opacity:.6}" +
+  ".imp-r .perche{color:#B4500A;font-weight:600;opacity:1}.imp-ries{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}.imp-ries span{padding:3px 9px;border-radius:999px;font-size:.8rem;font-weight:700;background:rgba(242,106,16,.12)}";
+
+const IMPORTA_HTML = '<div class="velo" id="velo-imp" hidden><div class="foglio" role="dialog" aria-modal="true" aria-labelledby="t-imp">' +
+  '<h2 id="t-imp">Importa contatti da file</h2>' +
+  '<p class="sotto">Carica l\'elenco dei tuoi contatti: Excel (.xlsx, .xls), CSV, rubrica del telefono (.vcf) oppure PDF. TIX legge nomi, telefoni, email e imprese e prepara l\'elenco da controllare. ' +
+  'I contatti già in rubrica vengono tolti da soli. Il file resta sul tuo dispositivo: a TIX arrivano solo i contatti che aggiungi.</p>' +
+  '<div id="i-az-box" hidden><label class="c" for="i-az">Impresa a cui appartengono i contatti</label><select class="campo" id="i-az"></select></div>' +
+  '<label class="carica-imp" for="i-file"><input type="file" id="i-file" accept=".xlsx,.xls,.ods,.csv,.txt,.vcf,.pdf">&#128196;&nbsp;<span id="i-file-t">Scegli il file</span></label>' +
+  '<p class="sotto" id="i-stato" aria-live="polite"></p><div id="i-anteprima"></div><p class="errore" id="i-err" hidden></p>' +
+  '<div class="fine"><button class="btn" type="button" data-chiudi>Chiudi</button><button class="btn pr" type="button" id="i-ok" hidden>Aggiungi</button></div></div></div>';
+
+const IMPORTA_JS = String.raw`
+var IMP=[],IMP_FILE="";
+var LIB={xlsx:"https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",pdf:"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",pdfw:"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"};
+function libreria(u){return new Promise(function(ok,ko){if(document.querySelector('script[data-lib="'+u+'"]'))return ok();var s=document.createElement("script");s.src=u;s.setAttribute("data-lib",u);
+  s.onload=function(){ok();};s.onerror=function(){ko(new Error("non riesco a caricare il lettore del file: controlla la connessione"));};document.head.appendChild(s);});}
+function iStato(t){$("i-stato").textContent=t;}
+function iErr(t){var e=$("i-err");e.textContent=t||"";e.hidden=!t;}
+function pul(s){return String(s==null?"":s).replace(/\s+/g," ").trim();}
+function normNome(s){return pul(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9 ]/g,"").split(" ").filter(Boolean).sort().join(" ");}
+function normTel(t){var s=pul(t);if(!s)return "";var piu=/^(\+|00)/.test(s),d=s.replace(/[^0-9]/g,"");if(s.indexOf("00")===0)d=d.slice(2);
+  if(!piu&&(/^3\d{8,9}$/.test(d)||/^0\d{5,10}$/.test(d)))d="39"+d;return d.length>=10&&d.length<=15?d:"";}
+var RE_MAIL=/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,RE_TEL=/(\+|00)?\d[\d\s.\/()-]{7,}\d/,RE_CF=/\b[A-Za-z]{6}\d{2}[A-Za-z]\d{2}[A-Za-z]\d{3}[A-Za-z]\b/,RE_PIVA=/p(?:artita)?\.?\s*iva[:\s.]*([0-9]{11})/i;
+var ALIAS={cognome:["cognome"],nome:["nome e cognome","cognome e nome","nominativo","nome","contatto","referente","denominazione","ragione sociale"],
+  telefono:["cellulare","cell","telefono","tel","mobile","numero","whatsapp","recapito"],email:["email","e-mail","mail","posta elettronica","pec"],
+  impresa:["impresa","ditta","azienda","societa","organizzazione","company","studio"],partita_iva:["partita iva","p.iva","piva","p. iva","vat"],
+  codice_fiscale:["codice fiscale","cod. fiscale","cod fiscale","c.f.","cf"],ruolo:["ruolo","mansione","qualifica","funzione","professione"]};
+function campoDi(t){t=pul(t).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[:*]/g,"");if(!t||t.length>40)return "";
+  for(var k in ALIAS)for(var i=0;i<ALIAS[k].length;i++){var a=ALIAS[k][i];if(t===a||(a.length>3&&t.indexOf(a)===0))return k;}return "";}
+// righe (array di celle) → contatti, con o senza riga d'intestazione
+function daTabella(righe){righe=righe.map(function(r){return (r||[]).map(pul);}).filter(function(r){return r.some(Boolean);});
+  var mappa=null,inizio=0;
+  for(var i=0;i<Math.min(righe.length,6)&&!mappa;i++){var m={},n=0;righe[i].forEach(function(c,j){var k=campoDi(c);if(k&&!(k in m)){m[k]=j;n++;}});if(n>=2||(n===1&&("nome" in m))){mappa=m;inizio=i+1;}}
+  var out=[];
+  righe.slice(inizio).forEach(function(r){var c={};
+    if(mappa){for(var k in mappa)c[k]=r[mappa[k]]||"";if(c.cognome){c.nome=pul((c.nome||"")+" "+c.cognome);}delete c.cognome;
+      if(c.telefono&&!normTel(c.telefono)&&RE_MAIL.test(c.telefono)){if(!c.email)c.email=c.telefono.match(RE_MAIL)[0];c.telefono="";}
+      if(!c.email)r.forEach(function(x){var m=x.match(RE_MAIL);if(!c.email&&m)c.email=m[0];});
+      if(!c.telefono){r.forEach(function(x,j){if(!c.telefono&&normTel(x)&&!(c.partita_iva&&x===c.partita_iva))c.telefono=x;});}}
+    else c=daTesto(r.join(" | "));
+    out.push(c);});
+  return out;}
+// una riga di testo libero (PDF, elenchi senza colonne) → contatto
+function daTesto(t){var c={},s=" "+t+" ",m;
+  if((m=s.match(RE_MAIL))){c.email=m[0];s=s.replace(m[0]," ");}
+  if((m=s.match(RE_PIVA))){c.partita_iva=m[1];s=s.replace(m[0]," ");}
+  if((m=s.match(RE_CF))){c.codice_fiscale=m[0];s=s.replace(m[0]," ");}
+  if((m=s.match(RE_TEL))&&normTel(m[0])){c.telefono=m[0];s=s.replace(m[0]," ");}
+  var parti=s.split(/\s*(?:\||;|\t|,|\s[-–—]\s)\s*/).map(pul).filter(function(x){return /[A-Za-zÀ-ÿ]{2}/.test(x)&&!/^(tel|cell|telefono|cellulare|email|e-mail|mail)\.?:?$/i.test(x);});
+  c.nome=(parti[0]||"").replace(/^(tel|cell)\.?:?\s*/i,"");if(parti[1])c.impresa=parti[1];return c;}
+function leggiCsv(testo){var r1=testo.split(/\r?\n/)[0]||"",sep=[";",",","\t"].sort(function(a,b){return r1.split(b).length-r1.split(a).length;})[0];
+  var righe=[],riga=[],cella="",q=false;
+  for(var i=0;i<testo.length;i++){var ch=testo[i];
+    if(q){if(ch==='"'){if(testo[i+1]==='"'){cella+='"';i++;}else q=false;}else cella+=ch;}
+    else if(ch==='"')q=true;else if(ch===sep){riga.push(cella);cella="";}else if(ch==="\n"){riga.push(cella.replace(/\r$/,""));righe.push(riga);riga=[];cella="";}else cella+=ch;}
+  if(cella||riga.length){riga.push(cella);righe.push(riga);}return righe;}
+function leggiVcf(testo){var out=[],c=null;testo.replace(/\r?\n[ \t]/g,"").split(/\r?\n/).forEach(function(l){var i=l.indexOf(":");if(i<0)return;
+  var chiave=l.slice(0,i).toUpperCase(),v=l.slice(i+1).replace(/\\,/g,",").replace(/\\;/g,";");
+  if(chiave==="BEGIN"&&/VCARD/i.test(v))c={};else if(chiave==="END"&&c){out.push(c);c=null;}else if(!c)return;
+  else if(chiave==="FN"||chiave.indexOf("FN;")===0)c.nome=v;else if((chiave==="N"||chiave.indexOf("N;")===0)&&!c.nome)c.nome=pul(v.split(";").slice(0,2).reverse().join(" "));
+  else if(chiave.indexOf("TEL")===0&&!c.telefono)c.telefono=v;else if(chiave.indexOf("EMAIL")===0&&!c.email)c.email=v;else if(chiave.indexOf("ORG")===0)c.impresa=v.split(";")[0];
+  else if(chiave.indexOf("TITLE")===0)c.ruolo=v;});return out;}
+function leggiPdf(buf){return libreria(LIB.pdf).then(function(){var lib=window.pdfjsLib;lib.GlobalWorkerOptions.workerSrc=LIB.pdfw;return lib.getDocument({data:buf}).promise;}).then(function(doc){
+  var pagine=[];for(var p=1;p<=Math.min(doc.numPages,50);p++)pagine.push(p);
+  return pagine.reduce(function(pr,n){return pr.then(function(righe){return doc.getPage(n).then(function(pg){return pg.getTextContent();}).then(function(tc){
+    var linee={};tc.items.forEach(function(it){if(!pul(it.str))return;var y=Math.round(it.transform[5]/3);(linee[y]=linee[y]||[]).push(it);});
+    Object.keys(linee).map(Number).sort(function(a,b){return b-a;}).forEach(function(y){var it=linee[y].sort(function(a,b){return a.transform[4]-b.transform[4];}),celle=[],cur="",fine=null;
+      it.forEach(function(x){var x0=x.transform[4];if(fine!==null&&x0-fine>12){celle.push(cur);cur="";}cur+=(cur&&fine!==null&&x0-fine>1.5?" ":"")+x.str;fine=x0+(x.width||0);});celle.push(cur);righe.push(celle);});
+    return righe;});});},Promise.resolve([]));});}
+function leggiFile(f){var nome=f.name.toLowerCase(),ext=nome.slice(nome.lastIndexOf(".")+1);
+  if(ext==="vcf")return f.text().then(leggiVcf);
+  if(ext==="csv"||ext==="txt")return f.text().then(function(t){return daTabella(leggiCsv(t));});
+  if(ext==="pdf")return f.arrayBuffer().then(leggiPdf).then(daTabella);
+  if(ext==="xlsx"||ext==="xls"||ext==="ods")return Promise.all([libreria(LIB.xlsx),f.arrayBuffer()]).then(function(x){var wb=window.XLSX.read(x[1],{type:"array"}),righe=[];
+    wb.SheetNames.forEach(function(n){righe=righe.concat(window.XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:""}));});return daTabella(righe);});
+  return Promise.reject(new Error("questo tipo di file non si può leggere: salvalo come Excel, CSV o PDF"));}
+function ruoloDi(t){t=pul(t).toLowerCase();if(!t)return "";for(var k in RUOLI)if((RUOLI[k].etichetta||"").toLowerCase()===t)return k;return "";}
+function aziendaScelta(){var v=$("i-az").value||"";return D.filippo?v:"";}
+function esistenti(){var z=aziendaScelta();return P.filter(function(p){if(!D.filippo)return true;if(z.indexOf("a:")===0)return p.azienda_id===z.slice(2);if(z.indexOf("r:")===0)return String(p.impresa_id)===z.slice(2);return false;});}
+function controlla(){var es=esistenti(),tel={},mail={},nomi={};
+  es.forEach(function(p){if(p.telefono)tel[String(p.telefono).replace(/[^0-9]/g,"")]=p;if(p.email)mail[String(p.email).toLowerCase()]=p;var n=normNome(p.nome);if(n)(nomi[n]=nomi[n]||[]).push(p);});
+  var visti={};
+  IMP.forEach(function(c){c.stato="nuovo";c.perche="";c.tel=normTel(c.telefono);c.mail=pul(c.email).toLowerCase();c.nn=normNome(c.nome);
+    if(pul(c.nome).length<2){c.stato="salta";c.perche="Manca il nome: lo salto.";return;}
+    var g=(c.tel&&tel[c.tel])||(c.mail&&mail[c.mail])||(c.nn&&nomi[c.nn]&&nomi[c.nn].filter(function(p){return !c.tel||!p.telefono;})[0]);
+    if(g){c.stato="doppio";c.perche="Questo contatto esiste già in rubrica ("+pul(g.nome)+(g.telefono?", +"+g.telefono:"")+"): non lo aggiungo.";return;}
+    var chiavi=[c.tel&&"t"+c.tel,c.mail&&"m"+c.mail,!c.tel&&!c.mail&&"n"+c.nn].filter(Boolean);
+    for(var i=0;i<chiavi.length;i++)if(visti[chiavi[i]]){c.stato="doppio";c.perche="È ripetuto nel file: lo aggiungo una volta sola.";return;}
+    chiavi.forEach(function(k){visti[k]=1;});
+    if(pul(c.telefono)&&!c.tel)c.perche="Numero non riconosciuto: lo salvo senza telefono.";});
+  disegnaImp();}
+function disegnaImp(){var nuovi=IMP.filter(function(c){return c.stato==="nuovo";}),dop=IMP.filter(function(c){return c.stato==="doppio";}),sal=IMP.filter(function(c){return c.stato==="salta";});
+  var h='<div class="imp-ries"><span>'+nuovi.length+' da aggiungere</span>'+(dop.length?'<span>'+dop.length+' già presenti o doppi, tolti</span>':'')+(sal.length?'<span>'+sal.length+' senza nome, saltati</span>':'')+'</div><div class="imp-l">';
+  IMP.forEach(function(c,i){var no=c.stato!=="nuovo";
+    h+='<label class="imp-r'+(no?' no':'')+'"><input type="checkbox" data-i="'+i+'"'+(no?' disabled':(c.scelto===false?'':' checked'))+'><span><b>'+esc(pul(c.nome)||"(senza nome)")+'</b>'+
+      '<small>'+esc([c.tel?"+"+c.tel:pul(c.telefono),pul(c.email),pul(c.impresa),pul(c.ruolo)].filter(Boolean).join(" · "))+'</small>'+(c.perche?'<small class="perche">'+esc(c.perche)+'</small>':'')+'</span></label>';});
+  $("i-anteprima").innerHTML=h+'</div>';var n=nuovi.filter(function(c){return c.scelto!==false;}).length;
+  var ok=$("i-ok");ok.hidden=!nuovi.length;ok.disabled=!n;ok.textContent="Aggiungi "+n+(n===1?" contatto":" contatti");}
+$("i-anteprima").addEventListener("change",function(e){var x=e.target;if(!x||x.type!=="checkbox")return;IMP[+x.getAttribute("data-i")].scelto=x.checked;disegnaImp();});
+$("importa").addEventListener("click",function(){IMP=[];$("i-file").value="";$("i-file-t").textContent="Scegli il file";$("i-anteprima").innerHTML="";$("i-ok").hidden=true;iErr("");
+  iStato("Il file si legge qui, sul tuo dispositivo.");var box=$("i-az-box");box.hidden=!D.filippo;
+  if(D.filippo){$("i-az").innerHTML=Array.prototype.filter.call($("s-az").options,function(o){return o.value!=="nuova";}).map(function(o){return o.outerHTML;}).join("");
+    var gr=$("s-az").querySelectorAll("optgroup");if(gr.length){$("i-az").innerHTML='<option value="">Scegli…</option>'+Array.prototype.map.call(gr,function(g){return g.outerHTML;}).join("");}}
+  $("velo-imp").hidden=false;});
+$("i-az").addEventListener("change",function(){if(IMP.length)controlla();});
+$("i-file").addEventListener("change",function(){var f=this.files&&this.files[0];if(!f)return;iErr("");$("i-ok").hidden=true;$("i-anteprima").innerHTML="";
+  if(f.size>20*1024*1024){iErr("Il file è troppo grande (più di 20 MB).");return;}
+  IMP_FILE=f.name;$("i-file-t").textContent=f.name;iStato("Leggo il file…");
+  leggiFile(f).then(function(lista){IMP=lista.filter(function(c){return c&&(pul(c.nome)||pul(c.telefono)||pul(c.email));}).slice(0,1000);
+    if(!IMP.length){iStato("");iErr("Nel file non ho trovato contatti. Va bene un elenco con nome e telefono, una persona per riga.");return;}
+    iStato("Ho trovato "+IMP.length+(IMP.length===1?" contatto":" contatti")+" in «"+f.name+"». Controlla l'elenco e tocca «Aggiungi».");controlla();})
+  .catch(function(e){iStato("");iErr("Non sono riuscito a leggere il file: "+(e&&e.message?e.message:e)+".");});});
+$("i-ok").addEventListener("click",function(){if(D.filippo&&!aziendaScelta()){iErr("Scegli prima l'impresa a cui appartengono i contatti.");$("i-az").focus();return;}
+  var da=IMP.filter(function(c){return c.stato==="nuovo"&&c.scelto!==false;});if(!da.length)return;
+  var ok=$("i-ok");ok.disabled=true;iErr("");var fatti=0,gia=[],errori=[],i=0,z=aziendaScelta();
+  function prossimo(){if(i>=da.length)return Promise.resolve();var c=da[i++];iStato("Aggiungo "+i+" di "+da.length+"…");
+    var dati={nome:pul(c.nome).slice(0,120),telefono:c.tel?"+"+c.tel:"",email:/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.mail)?c.mail:"",impresa:pul(c.impresa).slice(0,120),
+      partita_iva:/^\d{11}$/.test(pul(c.partita_iva).replace(/\D/g,""))?pul(c.partita_iva).replace(/\D/g,""):"",codice_fiscale:RE_CF.test(pul(c.codice_fiscale))?pul(c.codice_fiscale).toUpperCase():"",
+      ruolo:ruoloDi(c.ruolo),note:pul(c.ruolo)&&!ruoloDi(c.ruolo)?("Ruolo: "+pul(c.ruolo)).slice(0,500):""};
+    if(!dati.impresa&&!D.filippo)dati.impresa=D.impresa||"";
+    if(z.indexOf("a:")===0)dati.azienda_id=z.slice(2);else if(z.indexOf("r:")===0)dati.impresa_id=z.slice(2);
+    return chiama("rubrica_salva",{dati:dati}).then(function(r){if(r&&r.esito==="ok")fatti++;else if(r&&r.campo==="telefono"&&/già/.test(r.messaggio||""))gia.push(dati.nome);else errori.push(dati.nome+(r&&r.messaggio?" ("+r.messaggio+")":""));})
+      .catch(function(){errori.push(dati.nome+" (connessione)");}).then(prossimo);}
+  prossimo().then(function(){ok.disabled=false;ok.hidden=true;
+    var t="Aggiunti "+fatti+(fatti===1?" contatto":" contatti")+" alla rubrica.";
+    var dop=IMP.filter(function(c){return c.stato==="doppio";}).length+gia.length;if(dop)t+=" "+dop+(dop===1?" era già presente e non l'ho aggiunto.":" erano già presenti o doppi e non li ho aggiunti.");
+    iStato(t);if(errori.length)iErr("Non salvati: "+errori.slice(0,8).join("; ")+(errori.length>8?"…":""));$("i-anteprima").innerHTML="";toast(t);ricarica();});});
+`;
 
 // 30/10/2026 (Filippo): telefono con bandierina e prefisso del paese, Italia di base
 const TEL_CSS = ".tel-box{position:relative;display:flex;gap:6px}.tel-box .campo{flex:1;min-width:0}" +
