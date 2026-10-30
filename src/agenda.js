@@ -488,6 +488,8 @@ const STILE =
   ".tit[data-g]{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.tit[data-g]:hover .tit-apri,.tit[data-g]:focus-visible .tit-apri{text-decoration:underline}" +
   ".tit[data-g]:focus-visible{outline:2px solid var(--ar);outline-offset:3px;border-radius:4px}.tit-apri{font-size:.78rem;font-weight:700;color:var(--ar);white-space:nowrap}" +
   ".ag{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:10px 14px;margin-bottom:8px;display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:start}" +
+  // 30/10/2026 (Filippo, opzione 4): ogni appuntamento contornato da una linea sfumata blu TIX → arancione
+  'main .ag{position:relative;border-color:transparent!important}main .ag::before{content:"";position:absolute;inset:-1px;background:linear-gradient(135deg,#1B2F4A,#F26A10);padding:2px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;border-radius:inherit}@media (prefers-color-scheme:dark){main .ag::before{background:linear-gradient(135deg,#6F8FBF,#F26A10)}}' +
   ".ag .o{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ar);font-size:1.05rem}.ag .o small{display:block;font-weight:400;font-size:.72rem;color:#555}" +
   ".ag .t{font-weight:700;overflow-wrap:anywhere}.ag .n{font-size:.86rem;color:#444;white-space:pre-line;margin-top:2px}.ag .k{font-size:.74rem;color:#4A524E;margin-top:3px}" +
   ".ag.pass{opacity:.65}.ag.ann .t{text-decoration:line-through}" +
