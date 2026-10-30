@@ -6,6 +6,9 @@
 //   POST /sal/api   {t, c, azione, id?, dati?}   → RPC sal_* (contesto, contratto, misura, misura_togli, bozza, emetti, stato)
 //   GET  /sal/excel?t=<gettone>&c=<cantiere>[&id=<sal>]        → file .xlsx scritto qui, senza librerie
 //   GET  /sal/documento?t=<gettone>&id=<sal>[&originale=1]     → documento del SAL da stampare (o il file originale)
+//   GET  /sal/pdf?t=<gettone>&c=<cantiere>[&id=<sal>]          → PDF da firmare, scritto qui senza librerie (fase 3, 30/10/2026)
+//   POST /sal/firmato/carica?t=&id=&nome=&chi=                  → copia firmata (PDF o .p7m) nell'archivio del cantiere
+//   GET  /sal/firmato?t=<gettone>&id=<sal>                      → scarica la copia firmata
 // Il database decide tutto: chi entra (impostazioni.sal_attivo), calcolo, numeri, impronta, versioni.
 // Il relay non conserva nulla. Si spegne anche con la variabile del Worker SAL = "off".
 // ============================================================================
@@ -46,6 +49,7 @@ function pulisci(azione, d) {
         const r = {};
         if (/^[0-9]{1,18}$/.test(String(t.id || ""))) r.id = String(t.id);
         s("nome", 120, t, r); s("modo", 12, t, r); s("percentuale", 10, t, r); s("data_prevista", 10, t, r); s("raggiunto_il", 10, t, r);
+        u("crono_attivita_id", r, t);
         return r;
       });
     }
@@ -55,7 +59,7 @@ function pulisci(azione, d) {
     ["pu", "l", "w", "h", "q", "pct"].forEach((k) => s(k, 20));
     if (d.meno === true) o.meno = true;
   } else if (azione === "bozza") {
-    s("periodo_a", 10); s("note", 1000);
+    s("periodo_a", 10); s("note", 1000); s("tipo", 10); s("data_fine_lavori", 10); s("data_collaudo", 10); s("collaudo_tipo", 10);
     if (d.traguardo_id !== undefined) o.traguardo_id = /^[0-9]{1,18}$/.test(String(d.traguardo_id || "")) ? String(d.traguardo_id) : "";
     if (Array.isArray(d.altre_voci)) {
       o.altre_voci = d.altre_voci.slice(0, 60).filter((a) => a && typeof a === "object").map((a) => {
@@ -69,7 +73,11 @@ function pulisci(azione, d) {
   } else if (azione === "misura_togli") {
     s("motivo", 300);
   } else if (azione === "computo_conferma" || azione === "computo_annulla") {
-    s("autore", 120);
+    s("autore", 120); s("variante_descrizione", 300); s("variante_data", 10); s("importo_contratto", 20);
+  } else if (azione === "traguardo_raggiunto") {
+    s("data", 10);
+  } else if (azione === "computo_confronto") {
+    ["da", "a"].forEach((k) => { if (/^[0-9]{1,4}$/.test(String(d[k] || ""))) o[k] = Number(d[k]); });
   } else if (azione === "proposta") {
     s("azione", 12); u("voce_id");
     s("data", 10); s("luogo", 160); s("descrizione", 300); s("autore", 120); s("motivo", 300);
@@ -143,6 +151,9 @@ export async function portaleSal(request, env, base, inUrl, h) {
   if (sotto === "/sal/api") return api(request, env, h);
   if (sotto === "/sal/computo/carica") return caricaComputo(request, env, inUrl, h);
   if (sotto === "/sal/excel") return excel(request, env, base, inUrl, h);
+  if (sotto === "/sal/pdf") return pdf(request, env, base, inUrl, h);
+  if (sotto === "/sal/firmato/carica") return caricaFirmato(request, env, inUrl, h);
+  if (sotto === "/sal/firmato") return scaricaFirmato(request, env, base, inUrl, h);
   if (sotto === "/sal/documento") return documento(request, env, base, inUrl, h);
   if (sotto !== "/sal") return new Response("Not Found", { status: 404 });
   const metodo = request.method;
@@ -176,12 +187,20 @@ async function api(request, env, h) {
   const dati = pulisci(az, b.dati);
   let r = null;
   const chiama = (nome, corpo) => h.rpc(env, nome, corpo, 25000).catch(() => null);
-  if (["contesto", "contratto", "misura", "bozza", "curva_prepara"].indexOf(az) !== -1) {
+  if (["contesto", "contratto", "misura", "bozza", "curva_prepara", "traguardo_raggiunto", "computo_confronto"].indexOf(az) !== -1) {
     if (!UUID.test(c)) return json({ esito: "errore" }, 400);
     if (az === "contesto") r = await chiama("sal_contesto", { p_token: tok, p_commessa: c });
     else if (az === "contratto") r = await chiama("sal_contratto_salva", { p_token: tok, p_commessa: c, p_dati: dati });
     else if (az === "misura") r = await chiama("sal_misura_salva", { p_token: tok, p_commessa: c, p_dati: dati });
     else if (az === "curva_prepara") r = await chiama("sal_curva_prepara", { p_token: tok, p_commessa: c, p_rifai: dati.rifai === true });
+    else if (az === "traguardo_raggiunto") {
+      const n = Number(b.id);
+      if (!Number.isInteger(n) || n <= 0) return json({ esito: "errore" }, 400);
+      r = await chiama("sal_traguardo_raggiunto", { p_token: tok, p_commessa: c, p_id: n, p_data: dati.data || null });
+    } else if (az === "computo_confronto") {
+      if (!dati.da || !dati.a) return json({ esito: "errore" }, 400);
+      r = await chiama("sal_computo_confronto", { p_token: tok, p_commessa: c, p_da: dati.da, p_a: dati.a });
+    }
     else r = await chiama("sal_bozza_salva", { p_token: tok, p_commessa: c, p_dati: dati });
   } else if (["misura_togli", "emetti", "stato", "proposta"].indexOf(az) !== -1) {
     if (!UUID.test(id)) return json({ esito: "errore" }, 400);
@@ -200,7 +219,8 @@ async function api(request, env, h) {
     const n = Number(b.id);
     if (!UUID.test(c) || !Number.isInteger(n) || n <= 0) return json({ esito: "errore" }, 400);
     if (az === "computo_stato") r = await chiama("computo_import_stato", { p_token: tok, p_commessa: c, p_id: n });
-    else r = await chiama("computo_import_azione", { p_token: tok, p_commessa: c, p_id: n, p_azione: az === "computo_conferma" ? "conferma" : "annulla", p_autore: dati.autore || null });
+    else r = await chiama("computo_import_azione", { p_token: tok, p_commessa: c, p_id: n, p_azione: az === "computo_conferma" ? "conferma" : "annulla",
+      p_autore: dati.autore || null, p_dati: az === "computo_conferma" ? dati : null });
   } else {
     return json({ esito: "errore" }, 400);
   }
@@ -271,6 +291,436 @@ async function excel(request, env, base, inUrl, h) {
     "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "Content-Disposition": 'attachment; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
     "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// ---------------------------------------------------------------------------- PDF da firmare e copia firmata (fase 3, 30/10/2026)
+function nomeScarico(nome, ripiego) {
+  return nome.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || ripiego;
+}
+async function pdf(request, env, base, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
+  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  const tok = m[0].toLowerCase();
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  if (!UUID.test(c)) return new Response("Not Found", { status: 404 });
+  const r = await h.rpc(env, "sal_excel_dati", { p_token: tok, p_commessa: c, p_sal: UUID.test(id) ? id : null }, 25000).catch(() => null);
+  if (!r) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
+  if (r.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (r.esito !== "ok") return h.risposta(h.foglio(base, "SAL", "", '<p class="err">' + h.esc(r.messaggio || "File non preparato.") + "</p>"), 400);
+  const file = salPdf(r);
+  const nome = String(r.nome_file || "TIX SAL.xlsx").replace(/\.xlsx$/i, "") + ".pdf";
+  return new Response(metodo === "HEAD" ? null : file, { status: 200, headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": 'attachment; filename="' + nomeScarico(nome, "TIX SAL.pdf") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// La copia firmata (a mano e scansionata, o con firma digitale: .pdf o .p7m) va nell'archivio del cantiere,
+// «documenti/<cantiere>/sal/…», e si cancella con il cantiere. Il database ne tiene percorso, nome e impronta SHA-256.
+async function caricaFirmato(request, env, inUrl, h) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const tok = String(inUrl.searchParams.get("t") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[\u0000-\u001f\\/]+/g, " ").trim().slice(0, 180);
+  const chi = String(inUrl.searchParams.get("chi") || "").replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, 120);
+  if (!GETTONE.test(tok)) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(id)) return json({ esito: "errore" }, 400);
+  const est = ((/\.(pdf|p7m)$/i.exec(nome) || [])[1] || "").toLowerCase();
+  if (!est) return json({ esito: "formato", messaggio: "Carica il SAL firmato in PDF (anche con firma digitale: .pdf o .p7m)." }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  // prima il controllo dell'accesso, poi il file
+  const info = await h.rpc(env, "sal_firmato_info", { p_token: tok, p_sal: id }, 10000).catch(() => null);
+  if (!info) return json({ esito: "incerto" }, 503);
+  if (info.esito !== "ok") return json({ esito: String(info.esito), messaggio: info.messaggio || "" }, info.esito === "gettone" ? 403 : 400);
+  if (info.chiuso) return json({ esito: "chiuso", messaggio: "Il cantiere è chiuso." });
+  if (!info.emesso || !UUID.test(String(info.commessa_id || ""))) return json({ esito: "errore", messaggio: "La copia firmata si carica su un SAL emesso." });
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  if (est === "pdf" && String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== "%PDF") return json({ esito: "formato", messaggio: "Il file non è un PDF." }, 400);
+  const ora = new Date();
+  const giorno = ora.getUTCFullYear() + String(ora.getUTCMonth() + 1).padStart(2, "0") + String(ora.getUTCDate()).padStart(2, "0");
+  const doc = info.tipo === "finale" ? "conto-finale" : info.tipo === "svincolo" ? "svincolo" : "sal-" + (Number(info.numero) || 0);
+  const percorso = "documenti/" + info.commessa_id + "/sal/" + doc + "-v" + (Number(info.versione) || 1) + "-firmato-" + giorno + "-" + casuale() + "." + est;
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const up = await fetch(supabaseUrl + "/storage/v1/object/wa-media/" + percorso, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
+                 "Content-Type": est === "pdf" ? "application/pdf" : "application/pkcs7-mime", "x-upsert": "false" },
+      body: bytes, signal: ctrl.signal
+    });
+    if (!up.ok) return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } catch (e) {
+    return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } finally { clearTimeout(timer); }
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (x) => x.toString(16).padStart(2, "0")).join("");
+  const r = await h.rpc(env, "sal_firmato_registra", { p_token: tok, p_sal: id, p_path: percorso, p_nome: nome || null, p_byte: bytes.length,
+    p_sha256: sha, p_autore: chi || null }, 10000).catch(() => null);
+  if (!r) return json({ esito: "incerto" }, 503);
+  if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
+  // la copia sostituita non serve più: si toglie dall'archivio (solo se è davvero di questo cantiere)
+  const vecchio = String(info.path || "");
+  if (vecchio && vecchio !== percorso && vecchio.indexOf("documenti/" + info.commessa_id + "/sal/") === 0 && !/\.\./.test(vecchio)) {
+    await fetch(supabaseUrl + "/storage/v1/object/wa-media/" + vecchio.split("/").map(encodeURIComponent).join("/"), {
+      method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  }
+  return json({ esito: "ok", sha256: sha });
+}
+
+async function scaricaFirmato(request, env, base, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
+  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  const tok = m[0].toLowerCase();
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  if (!UUID.test(id)) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "sal_firmato_info", { p_token: tok, p_sal: id }, 10000).catch(() => null);
+  if (!info) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
+  if (info.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (info.esito !== "ok" || !info.path) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Copia firmata non trovata.</p>'), 404);
+  const supabaseUrl = env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co";
+  const f = await fetch(supabaseUrl + "/storage/v1/object/wa-media/" + String(info.path).split("/").map(encodeURIComponent).join("/"), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il file non si legge dall’archivio: riprova tra un minuto.</p>'), 502);
+  const nome = String(info.nome || String(info.path).split("/").pop());
+  return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": /\.p7m$/i.test(info.path) ? "application/pkcs7-mime" : "application/pdf",
+    "Content-Disposition": 'attachment; filename="' + nomeScarico(nome, "SAL firmato.pdf") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+function titoloDoc(sal, N) {
+  const t = sal.tipo === "finale" ? "Conto finale dei lavori" : sal.tipo === "svincolo" ? "Svincolo delle ritenute di garanzia" : "Stato di avanzamento lavori n. " + N;
+  return t + (Number(sal.versione) > 1 ? " (versione " + sal.versione + ")" : "");
+}
+
+// Il PDF si scrive a mano, come l'Excel: font Helvetica del lettore PDF (codifica WinAnsi), A4 orizzontale, niente librerie.
+// Larghezze dei caratteri 32–126 di Helvetica e Helvetica-Bold (metriche standard); le lettere accentate usano quella della lettera base.
+const HW = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556,
+  278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611,
+  722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+  556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
+const HWB = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556,
+  333, 333, 584, 584, 584, 611, 975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611,
+  722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556, 333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+  611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584];
+const WIN = { 0x20AC: 128, 0x201A: 130, 0x201E: 132, 0x2026: 133, 0x2018: 145, 0x2019: 146, 0x201C: 147, 0x201D: 148, 0x2022: 149, 0x2013: 150, 0x2014: 151, 0x2122: 153, 0x2212: 45 };
+const LARG_WIN = { 128: 556, 130: 222, 132: 333, 133: 1000, 145: 222, 146: 222, 147: 333, 148: 333, 149: 350, 150: 556, 151: 1000, 153: 1000,
+  160: 278, 171: 556, 176: 400, 178: 333, 179: 333, 183: 278, 187: 556 };
+// Il PDF va scritto entro pochi millisecondi (limite del Worker): larghezze in tabella, nessuna normalizzazione per i testi solo ASCII.
+function codWin(u) {
+  if ((u >= 32 && u < 127) || (u >= 160 && u <= 255)) return u;
+  if (WIN[u]) return WIN[u];
+  return u === 9 || u === 10 || u === 13 ? 32 : 63;
+}
+const nfc = (s) => { const t = String(s == null ? "" : s); return /[^\x00-\x7f]/.test(t) ? t.normalize("NFC") : t; };
+function winAnsi(s) {
+  const t = nfc(s), out = [];
+  for (let i = 0; i < t.length; i++) {
+    const u = t.charCodeAt(i);
+    if (u >= 0xD800 && u <= 0xDBFF && i + 1 < t.length) { i++; out.push(63); } else out.push(codWin(u));
+  }
+  return out;
+}
+function largCod(c, gr) {
+  if (c >= 32 && c <= 126) return (gr ? HWB : HW)[c - 32];
+  if (LARG_WIN[c]) return LARG_WIN[c];
+  if (c >= 192) {
+    const b = String.fromCharCode(c).normalize("NFD").charCodeAt(0);
+    if (b >= 32 && b <= 126) return (gr ? HWB : HW)[b - 32];
+  }
+  return 556;
+}
+const LW = [0, 1].map((g) => Float64Array.from({ length: 256 }, (_, c) => largCod(c, g === 1)));
+function largTesto(s, corpo, gr) {
+  const t = nfc(s), L = LW[gr ? 1 : 0];
+  let w = 0;
+  for (let i = 0; i < t.length; i++) {
+    const u = t.charCodeAt(i);
+    if (u >= 0xD800 && u <= 0xDBFF && i + 1 < t.length) { i++; w += L[63]; } else w += L[codWin(u)];
+  }
+  return w * corpo / 1000;
+}
+// il pezzo iniziale più lungo che sta in «w» (almeno un carattere)
+function taglia(s, w, corpo, gr) {
+  const t = nfc(s), L = LW[gr ? 1 : 0], k = corpo / 1000;
+  let x = 0;
+  for (let i = 0; i < t.length; i++) {
+    const u = t.charCodeAt(i), doppio = u >= 0xD800 && u <= 0xDBFF && i + 1 < t.length;
+    x += L[doppio ? 63 : codWin(u)] * k;
+    if (x > w) return t.slice(0, i > 0 ? i : (doppio ? 2 : 1));
+    if (doppio) i++;
+  }
+  return t;
+}
+function pdfStringa(s) {
+  if (typeof s === "string" && /^[\x20-\x27\x2a-\x5b\x5d-\x7e]*$/.test(s)) return "(" + s + ")";
+  let o = "(";
+  for (const c of winAnsi(s)) {
+    if (c === 40 || c === 41 || c === 92) o += "\\" + String.fromCharCode(c);
+    else if (c < 32 || c > 126) o += "\\" + c.toString(8).padStart(3, "0");
+    else o += String.fromCharCode(c);
+  }
+  return o + ")";
+}
+const grpIt = (s) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+function eurIt(n) { const x = num(n); if (x === null) return ""; const p = Math.abs(x).toFixed(2).split("."); return (x < 0 && Math.abs(x) >= 0.005 ? "-" : "") + grpIt(p[0]) + "," + p[1]; }
+function qtIt(n) {
+  const x0 = num(n); if (x0 === null) return "";
+  const x = Math.round(x0 * 1000) / 1000, p = Math.abs(x).toFixed(3).replace(/\.?0+$/, "").split(".");
+  return (x < 0 ? "-" : "") + grpIt(p[0]) + (p[1] ? "," + p[1] : "");
+}
+function pcIt(n) { const x = num(n); return x === null ? "" : x.toFixed(2).replace(".", ",") + "%"; }
+function dataIt(s) { if (!s) return ""; const p = String(s).slice(0, 10).split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : String(s); }
+
+export function salPdf(d) {
+  const W = 842, H = 595, M = 32, BASSO = M + 30;
+  const sal = d.sal || {}, co = d.conto || {}, cm = d.computo || {}, ca = d.cantiere || {};
+  const tipo = sal.tipo || co.tipo || "sal";
+  const bozza = sal.stato === "bozza" || sal.stato === "anteprima";
+  const N = Number(sal.numero) || 1;
+  const voci = (Array.isArray(d.voci) ? d.voci : []).filter((v) => num(v.qt) || num(v.qn) || num(v.qp));
+  const alt = Array.isArray(d.altre_voci) ? d.altre_voci : [];
+  const titolo = titoloDoc(sal, N) + " — proposta dell’impresa";
+  const f2 = (n) => String(Math.round(n * 100) / 100);
+  const pagine = [];
+  let p = null, y = 0;
+  const op = (s) => p.push(s);
+  const testo = (x, yy, s, corpo, gr, colore) => {
+    if (s === null || s === undefined || s === "") return;
+    op((colore || "0 g") + " BT /" + (gr ? "F2" : "F1") + " " + corpo + " Tf " + f2(x) + " " + f2(yy) + " Td " + pdfStringa(s) + " Tj ET");
+  };
+  const destra = (xr, yy, s, corpo, gr, colore) => testo(xr - largTesto(s, corpo, gr), yy, s, corpo, gr, colore);
+  const linea = (x1, y1, x2, y2, sp, colore) => op((colore || "0.7 G") + " " + (sp || 0.5) + " w " + f2(x1) + " " + f2(y1) + " m " + f2(x2) + " " + f2(y2) + " l S");
+  const fondo = (x, yy, w, hh, colore) => op(colore + " " + f2(x) + " " + f2(yy) + " " + f2(w) + " " + f2(hh) + " re f");
+  // a capo per parole; con «max» si ferma appena sa che il testo non ci sta (le descrizioni dei computi possono essere lunghissime)
+  const aCapo = (s, w, corpo, gr, max) => {
+    const parole = String(s == null ? "" : s).replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+    const sp = largTesto(" ", corpo, gr), righe = [];
+    let r = "", rw = 0;
+    for (const pa of parole) {
+      const pw = largTesto(pa, corpo, gr);
+      if (!r) { r = pa; rw = pw; }
+      else if (rw + sp + pw <= w) { r += " " + pa; rw += sp + pw; }
+      else { righe.push(r); r = pa; rw = pw; if (max && righe.length > max) { r = ""; break; } }
+    }
+    if (r) righe.push(r);
+    for (let i = 0; i < righe.length; i++) if (largTesto(righe[i], corpo, gr) > w) righe[i] = taglia(righe[i], w, corpo, gr);
+    if (max && righe.length > max) {
+      righe.length = max;
+      righe[max - 1] = taglia(righe[max - 1], Math.max(0, w - largTesto("…", corpo, gr)), corpo, gr) + "…";
+    }
+    return righe.length ? righe : [""];
+  };
+  const nuova = () => {
+    p = []; pagine.push(p); y = H - M;
+    testo(M, y - 8, "TIX™ · " + titolo, 8, true, "0.29 0.12 0.53 rg");
+    destra(W - M, y - 8, (ca.nome || "") + (ca.impresa ? " · " + ca.impresa : ""), 8, false, "0.35 g");
+    linea(M, y - 13, W - M, y - 13, 0.6, "0.57 0.27 0.86 RG");
+    y -= 24;
+  };
+  const serve = (alt0) => { if (y - alt0 < BASSO) nuova(); };
+
+  // ---- prima pagina: titolo e dati
+  nuova();
+  if (bozza) {
+    fondo(M, y - 16, W - 2 * M, 16, "1 0.95 0.9 rg");
+    testo(M + 6, y - 11.5, "BOZZA — non ancora emessa: non ha numero definitivo né impronta, non va firmata.", 8.5, true, "0.6 0.2 0 rg");
+    y -= 24;
+  }
+  for (const r of aCapo(titolo, W - 2 * M, 15, true)) { testo(M, y - 14, r, 15, true, "0.24 0.1 0.43 rg"); y -= 19; }
+  y -= 4;
+  const tipoC = { a_misura: "a misura", a_corpo: "a corpo", misto: "a corpo e a misura" }[cm.tipo_contratto] || "";
+  const sx = [["Impresa", ca.impresa], ["Cantiere", ca.nome], ["Ubicazione", ca.ubicazione], ["Committente", ca.committente],
+    ["Direzione Lavori", ca.dl], ["CUP / CIG", [ca.cup, ca.cig].filter(Boolean).join(" / ")]];
+  const periodo = tipo === "svincolo"
+    ? [(sal.collaudo_tipo === "cre" ? "Certificato di regolare esecuzione" : "Collaudo"), dataIt(sal.data_collaudo)]
+    : tipo === "finale" ? ["Fine dei lavori", dataIt(sal.data_fine_lavori || sal.periodo_a)]
+    : ["Lavori", "dal " + dataIt(sal.periodo_da) + " al " + dataIt(sal.periodo_a)];
+  const dx = [["Contratto", [tipoC, num(cm.importo_contratto) !== null ? eurIt(cm.importo_contratto) + " €" : ""].filter(Boolean).join(", ")],
+    ["Ribasso · ritenuta · anticipazione", pcIt(cm.ribasso_pct || 0) + " · " + pcIt(cm.ritenuta_pct || 0) + " · " + pcIt(cm.anticipazione_pct || 0)],
+    ["Computo", "versione " + (cm.versione || "") + (cm.variante_n ? " (variante n. " + cm.variante_n + (cm.variante_descrizione ? ": " + cm.variante_descrizione : "") + ")" : "")],
+    periodo,
+    ["Emesso", bozza ? "non ancora" : (sal.emesso_il || "") + (sal.emesso_da ? " da " + sal.emesso_da : "")],
+    ["Versione", String(Number(sal.versione) || 1)]];
+  const colW = (W - 2 * M) / 2 - 10;
+  let ys = y, yd = y;
+  for (const [et, v] of sx) { if (!v) continue; testo(M, ys - 8, et, 7, false, "0.42 g"); for (const r of aCapo(v, colW - 110, 8.5, true, 2)) { testo(M + 110, ys - 8, r, 8.5, true); ys -= 11; } ys -= 1; }
+  const x2 = M + colW + 20;
+  for (const [et, v] of dx) { if (!v) continue; testo(x2, yd - 8, et, 7, false, "0.42 g"); for (const r of aCapo(v, colW - 130, 8.5, false, 2)) { testo(x2 + 130, yd - 8, r, 8.5, false); yd -= 11; } yd -= 1; }
+  y = Math.min(ys, yd) - 8;
+
+  // ---- voci (il documento dello svincolo non le ripete)
+  const col = [[26, "N.", "s"], [70, "Tariffa", "s"], [268, "Descrizione", "s"], [40, "U.M.", "s"], [70, "Q. precedente", "d"], [70, "Q. periodo", "d"],
+    [70, "Q. a oggi", "d"], [74, "Prezzo €", "d"], [90, "Importo a oggi €", "d"]];
+  const xs = []; { let x = M; for (const c of col) { xs.push(x); x += c[0]; } }
+  const intestazione = () => {
+    fondo(M, y - 14, W - 2 * M, 14, "0.94 0.91 0.98 rg");
+    col.forEach((c, i) => { if (c[2] === "d") destra(xs[i] + c[0] - 3, y - 10, c[1], 7, true, "0.29 0.12 0.53 rg"); else testo(xs[i] + 3, y - 10, c[1], 7, true, "0.29 0.12 0.53 rg"); });
+    y -= 16;
+  };
+  if (tipo !== "svincolo") {
+    serve(60);
+    testo(M, y - 10, "Lavori a oggi" + (voci.length ? " (" + voci.length + (voci.length === 1 ? " voce con lavori)" : " voci con lavori)") : ": nessuna voce con lavori"), 10, true, "0.24 0.1 0.43 rg");
+    y -= 16;
+    if (voci.length) {
+      intestazione();
+      let capCorrente = null, totIt = 0, totIn = 0;
+      for (const v of voci) {
+        const cn = v.cn || "";
+        const righeD = aCapo(v.d || v.db || "", col[2][0] - 6, 7.5, false, 2);
+        const alt0 = righeD.length * 9 + 4 + (cn !== capCorrente ? 14 : 0);
+        if (y - alt0 < BASSO) { nuova(); intestazione(); capCorrente = null; }
+        if (cn !== capCorrente) {
+          capCorrente = cn;
+          fondo(M, y - 12, W - 2 * M, 12, "0.95 0.95 0.95 rg");
+          testo(M + 3, y - 9, cn, 7.5, true, "0.14 0.19 0.16 rg");
+          y -= 14;
+        }
+        const yb = y - 8;
+        testo(xs[0] + 3, yb, String(v.nr == null ? "" : v.nr), 7.5);
+        testo(xs[1] + 3, yb, aCapo(v.t || "", col[1][0] - 6, 7.5, false, 1)[0], 7.5);
+        righeD.forEach((r, i) => testo(xs[2] + 3, yb - i * 9, r, 7.5));
+        testo(xs[3] + 3, yb, v.u || "", 7.5);
+        destra(xs[4] + col[4][0] - 3, yb, qtIt(v.qp), 7.5);
+        destra(xs[5] + col[5][0] - 3, yb, qtIt(v.qn), 7.5);
+        destra(xs[6] + col[6][0] - 3, yb, qtIt(v.qt), 7.5, true);
+        destra(xs[7] + col[7][0] - 3, yb, eurIt(v.p), 7.5);
+        destra(xs[8] + col[8][0] - 3, yb, eurIt(v.it), 7.5, true);
+        y -= righeD.length * 9 + 4;
+        linea(M, y + 1, W - M, y + 1, 0.3, "0.85 G");
+        totIt += num(v.it) || 0; totIn += num(v.in) || 0;
+      }
+      serve(16);
+      fondo(M, y - 14, W - 2 * M, 14, "0.94 0.91 0.98 rg");
+      testo(xs[2] + 3, y - 10, "Totale lavori a oggi (di cui in questo periodo " + eurIt(Math.round(totIn * 100) / 100) + " €)", 8, true);
+      destra(W - M - 3, y - 10, eurIt(Math.round(totIt * 100) / 100), 8, true);
+      y -= 22;
+    }
+  }
+
+  // ---- altre voci
+  if (alt.length && tipo !== "svincolo") {
+    serve(40);
+    testo(M, y - 10, "Altre voci di questo documento (economie e noli, prezzo già netto)", 10, true, "0.24 0.1 0.43 rg");
+    y -= 16;
+    for (const a of alt) {
+      const righe = aCapo((a.tipo ? { economia: "Economia", nolo: "Nolo", altro: "Altro" }[a.tipo] + ": " : "") + (a.descrizione || ""), 430, 7.5, false, 2);
+      serve(righe.length * 9 + 4);
+      righe.forEach((r, i) => testo(M + 3, y - 8 - i * 9, r, 7.5));
+      destra(M + 520, y - 8, qtIt(a.quantita) + " " + (a.unita || ""), 7.5);
+      destra(M + 610, y - 8, eurIt(a.prezzo), 7.5);
+      destra(W - M - 3, y - 8, eurIt(Math.round((num(a.quantita) || 0) * (num(a.prezzo) || 0) * 100) / 100), 7.5, true);
+      y -= righe.length * 9 + 4;
+      linea(M, y + 1, W - M, y + 1, 0.3, "0.85 G");
+    }
+    y -= 8;
+  }
+
+  // ---- conto
+  const tr = co.traguardo && co.traguardo.modo === "percentuale" ? co.traguardo : null;
+  const lavPer = co.lavori_periodo != null ? num(co.lavori_periodo) : Math.round(voci.reduce((t, v) => t + (num(v.in) || 0), 0) * 100) / 100;
+  const rc = [];
+  if (tr) rc.push(["Traguardo «" + (tr.nome || "") + "»: " + pcIt(tr.percentuale) + " del contratto", (num(co.netto) || 0) - (num(co.altre_voci) || 0), false, "in tutto " + pcIt(tr.cumulata)]);
+  else {
+    rc.push(["Lavori a misura a oggi", co.lavori_misura]);
+    if (num(co.lavori_corpo)) rc.push(["Lavori a corpo a oggi", co.lavori_corpo]);
+    rc.push(["Totale lavori a oggi", co.lavori, true, tipo === "svincolo" ? "" : "di cui in questo periodo " + eurIt(lavPer) + " €"]);
+    rc.push(["− Ribasso " + pcIt(co.ribasso_pct || 0), co.ribasso]);
+    rc.push(["+ Oneri della sicurezza", co.sicurezza, false, { nei_prezzi: "compresi nei prezzi", voci: "nelle voci non ribassabili", proporzionale: "in proporzione ai lavori" }[co.sicurezza_modo] || ""]);
+  }
+  if (num(co.altre_voci)) rc.push(["+ Altre voci a oggi (economie e noli)", co.altre_voci]);
+  rc.push(["= Lavori netti a oggi", co.netto, true]);
+  rc.push([tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta, false,
+    tipo === "finale" ? "trattenuta fino allo svincolo" : ""]);
+  if (num(co.recupero) || num(co.anticipazione)) rc.push(["− Recupero dell’anticipazione" + (tipo === "sal" ? "" : " (per intero)"), co.recupero]);
+  rc.push(["= Spettanza a oggi", co.spettanza, true]);
+  rc.push(["− SAL già emessi", co.precedenti]);
+  const fin = tipo === "finale" ? "SALDO DEL CONTO FINALE, RITENUTE ESCLUSE" : tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTO SAL";
+  serve(rc.length * 14 + 60);
+  testo(M, y - 10, "Conto", 10, true, "0.24 0.1 0.43 rg");
+  y -= 16;
+  const cw = 470;
+  for (const [et, v, forte, sub] of rc) {
+    if (forte) fondo(M, y - 13, cw, 13, "0.98 0.97 1 rg");
+    testo(M + 4, y - 9.5, et, 8.5, !!forte);
+    if (sub) testo(M + 4 + largTesto(et, 8.5, !!forte) + 6, y - 9.5, sub, 7, false, "0.42 g");
+    destra(M + cw - 4, y - 9.5, eurIt(v) + " €", 8.5, !!forte);
+    y -= 14;
+    linea(M, y + 1, M + cw, y + 1, 0.3, "0.88 G");
+  }
+  fondo(M, y - 18, cw, 18, "0.96 0.94 1 rg");
+  linea(M, y, M + cw, y, 1.2, "0.57 0.27 0.86 RG");
+  testo(M + 4, y - 12.5, fin, 9.5, true, "0.24 0.1 0.43 rg");
+  destra(M + cw - 4, y - 12.5, eurIt(co.dovuto) + " € + IVA", 10, true, "0.24 0.1 0.43 rg");
+  y -= 26;
+  const note = ["Importi in euro, IVA esclusa: TIX non calcola l’IVA. Tutto è calcolato a oggi e poi si toglie quanto già emesso."];
+  if (tipo === "finale") note.push("Conto finale: l’anticipazione si recupera per intero. Le ritenute di garanzia trattenute (" + eurIt(co.ritenute_trattenute != null ? co.ritenute_trattenute : co.ritenuta) +
+    " €) si svincolano dopo il collaudo o il certificato di regolare esecuzione.");
+  if (tipo === "svincolo") note.push("Svincolo dopo " + (sal.collaudo_tipo === "cre" ? "il certificato di regolare esecuzione" : "il collaudo") + (sal.data_collaudo ? " del " + dataIt(sal.data_collaudo) : "") +
+    ": la ritenuta non si trattiene più. Ritenute svincolate: " + eurIt(co.ritenute_trattenute) + " €.");
+  if (sal.note) note.push("Note: " + sal.note);
+  for (const n of note) for (const r of aCapo(n, W - 2 * M, 7.5)) { serve(10); testo(M, y - 8, r, 7.5, false, "0.3 g"); y -= 10; }
+  y -= 10;
+
+  // ---- firme
+  serve(96);
+  const bw = (W - 2 * M - 30) / 2;
+  [[M, "Per l’impresa: data, timbro e firma", sal.firma_impresa], [M + bw + 30, "Visto della Direzione Lavori: data e firma", sal.firma_dl]].forEach(([x, et, nome]) => {
+    op("0.6 G 0.6 w " + f2(x) + " " + f2(y - 80) + " " + f2(bw) + " 80 re S");
+    testo(x + 6, y - 12, et, 8, true, "0.3 g");
+    if (nome) testo(x + 6, y - 26, nome, 9);
+    linea(x + 6, y - 66, x + bw - 6, y - 66, 0.4, "0.75 G");
+  });
+  y -= 90;
+
+  // ---- piede di ogni pagina
+  const imp = bozza ? "Bozza: l’impronta SHA-256 si registra all’emissione." : sal.sha ? "Impronta SHA-256 del documento registrato in TIX: " + sal.sha : "";
+  pagine.forEach((pg, i) => {
+    p = pg;
+    linea(M, M + 22, W - M, M + 22, 0.4, "0.8 G");
+    testo(M, M + 12, "Documento preparato dall’impresa con TIX™: la verifica e l’approvazione spettano alla Direzione Lavori.", 7, false, "0.42 g");
+    destra(W - M, M + 12, "Pagina " + (i + 1) + " di " + pagine.length, 7, false, "0.42 g");
+    if (imp) testo(M, M + 3, imp, 6.5, false, "0.42 g");
+  });
+
+  // ---- file PDF
+  const oggetti = [];
+  const agg = (s) => { oggetti.push(s); return oggetti.length; };
+  const dataPdf = "D:" + String(sal.periodo_a || "2026-01-01").slice(0, 10).replace(/-/g, "") + "120000Z";
+  agg("<< /Type /Catalog /Pages 2 0 R >>");
+  agg("PAGINE");
+  agg("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  agg("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  agg("<< /Title " + pdfStringa(titoloDoc(sal, N) + " - " + (ca.nome || "")) + " /Author " + pdfStringa(ca.impresa || "") +
+    " /Creator (TIX) /Producer (TIX) /CreationDate (" + dataPdf + ") /ModDate (" + dataPdf + ") >>");
+  const figli = [];
+  for (const pg of pagine) {
+    const flusso = pg.join("\n");
+    const c = agg("<< /Length " + flusso.length + " >>\nstream\n" + flusso + "\nendstream");
+    figli.push(agg("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + W + " " + H + "] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents " + c + " 0 R >>"));
+  }
+  oggetti[1] = "<< /Type /Pages /Kids [" + figli.map((n) => n + " 0 R").join(" ") + "] /Count " + figli.length + " >>";
+  // dopo l'intestazione (con i 4 byte «binari» del commento) è tutto ASCII: si codifica in un colpo solo
+  const testa = [0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]; // "%PDF-1.4\n%âãÏÓ\n"
+  const parti = [], pos = [];
+  let lun = testa.length;
+  oggetti.forEach((o, i) => { const s = (i + 1) + " 0 obj\n" + o + "\nendobj\n"; pos.push(lun); parti.push(s); lun += s.length; });
+  parti.push("xref\n0 " + (oggetti.length + 1) + "\n0000000000 65535 f \n" + pos.map((x) => String(x).padStart(10, "0") + " 00000 n \n").join("") +
+    "trailer\n<< /Size " + (oggetti.length + 1) + " /Root 1 0 R /Info 5 0 R >>\nstartxref\n" + lun + "\n%%EOF\n");
+  const tutto = parti.join("");
+  let corpo = new TextEncoder().encode(tutto);
+  if (corpo.length !== tutto.length) { corpo = new Uint8Array(tutto.length); for (let i = 0; i < tutto.length; i++) corpo[i] = tutto.charCodeAt(i) & 0xFF; }
+  const b = new Uint8Array(testa.length + corpo.length);
+  b.set(testa, 0); b.set(corpo, testa.length);
+  return b;
 }
 
 // Il file è sempre uguale per gli stessi dati (date fisse dentro lo zip), così un SAL emesso dà sempre lo stesso Excel.
@@ -515,14 +965,17 @@ export function salXlsx(d) {
   // ---- Riepilogo
   const R = new Foglio("Riepilogo");
   R.larg = [52, 18, 18, 14, 4, 12, 40, 8, 12, 12, 14];
-  R.c(1, 1, "TIX™ · Stato di avanzamento lavori n. " + N + (Number(sal.versione) > 1 ? " (versione " + sal.versione + ")" : "") + " — proposta dell’impresa", S.TIT);
+  const tipo = sal.tipo || co.tipo || "sal";
+  R.c(1, 1, "TIX™ · " + titoloDoc(sal, N) + " — proposta dell’impresa", S.TIT);
   R.c(2, 1, (ca.nome || "") + (ca.ubicazione ? " · " + ca.ubicazione : "") + (ca.impresa ? " · " + ca.impresa : ""), S.LAB);
   R.c(4, 1, "Dati del SAL", S.HDR); R.c(4, 2, "", S.HDR);
   const righeDati = [["SAL n.", N, S.INT], ["Versione", Number(sal.versione) || 1, S.INT], ["Stato", STATI[sal.stato] || sal.stato || "", S.TXT],
-    ["Lavori dal", seriale(sal.periodo_da), S.DATA], ["Lavori al", seriale(sal.periodo_a), S.DATA],
-    ["Emesso", sal.emesso_il ? sal.emesso_il + (sal.emesso_da ? " da " + sal.emesso_da : "") : "non ancora", S.TXT],
+    ["Lavori dal", seriale(sal.periodo_da), S.DATA], ["Lavori al", seriale(sal.periodo_a), S.DATA]]
+    .concat(tipo === "finale" ? [["Fine dei lavori", seriale(sal.data_fine_lavori), S.DATA]] : [])
+    .concat(tipo === "svincolo" ? [[sal.collaudo_tipo === "cre" ? "Certificato di regolare esecuzione" : "Collaudo", seriale(sal.data_collaudo), S.DATA]] : [])
+    .concat([["Emesso", sal.emesso_il ? sal.emesso_il + (sal.emesso_da ? " da " + sal.emesso_da : "") : "non ancora", S.TXT],
     ["Impronta SHA-256 del documento del SAL", sal.sha || "si assegna all’emissione", S.TXT],
-    ["Committente", ca.committente || "", S.TXT], ["Direzione Lavori", ca.dl || "", S.TXT]];
+    ["Committente", ca.committente || "", S.TXT], ["Direzione Lavori", ca.dl || "", S.TXT]]);
   let rr = 5;
   for (const [et, v, st] of righeDati) { R.c(rr, 1, et, S.TXT); R.c(rr, 2, v, st); rr++; }
   rr++;
@@ -564,13 +1017,17 @@ export function salXlsx(d) {
   rr++;
   const rNet = riga("= Lavori netti a oggi", trag ? "ROUND(B" + rBase + "*B" + rCum + "/100,2)+B" + rAvp + "+B" + rAvsF
     : "B" + rLav + "-B" + rRibI + "+B" + rSic + "+B" + rAvp + "+B" + rAvsF, num(co.netto) || 0, num(co.netto) || 0, S.EURB);
-  const rRitI = riga("− Ritenuta a garanzia", "ROUND(B" + rNet + "*B" + rRit + "/100,2)", num(co.ritenuta) || 0, num(co.ritenuta) || 0);
+  // svincolo: la ritenuta non si trattiene più; conto finale e svincolo: l'anticipazione si recupera tutta
+  const rRitI = riga(tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia",
+    tipo === "svincolo" ? "0" : "ROUND(B" + rNet + "*B" + rRit + "/100,2)", num(co.ritenuta) || 0, num(co.ritenuta) || 0);
   const rAntI = riga("   Anticipazione", "ROUND(B" + rBase + "*B" + rAnt + "/100,2)", antic, antic);
-  const rRec = riga("− Recupero dell’anticipazione", "IF(AND(B" + rAntI + ">0,B" + rBase + ">0),MAX(0,MIN(B" + rAntI + ",ROUND(B" + rAntI + "*B" + rNet + "/B" + rBase + ",2))),0)",
+  const rRec = riga("− Recupero dell’anticipazione" + (tipo === "sal" ? "" : " (per intero)"),
+    tipo === "sal" ? "IF(AND(B" + rAntI + ">0,B" + rBase + ">0),MAX(0,MIN(B" + rAntI + ",ROUND(B" + rAntI + "*B" + rNet + "/B" + rBase + ",2))),0)" : "B" + rAntI,
     num(co.recupero) || 0, num(co.recupero) || 0);
   const rSp = riga("= Spettanza a oggi", "B" + rNet + "-B" + rRitI + "-B" + rRec, num(co.spettanza) || 0, num(co.spettanza) || 0, S.EURB);
   const rPrev = riga("− SAL già emessi", sto.length ? "SUM(Storico!$M$5:$M$" + stoFine + ")" : "0", num(co.precedenti) || 0, num(co.precedenti) || 0);
-  riga("= IMPORTO DI QUESTO SAL (+ IVA)", "B" + rSp + "-B" + rPrev, num(co.dovuto) || 0, num(co.dovuto) || 0, S.GRANDE);
+  riga(tipo === "finale" ? "= SALDO DEL CONTO FINALE, RITENUTE ESCLUSE (+ IVA)" : tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTO SAL (+ IVA)",
+    "B" + rSp + "-B" + rPrev, num(co.dovuto) || 0, num(co.dovuto) || 0, S.GRANDE);
   rr++;
   R.c(rr, 1, "Importi in euro, IVA esclusa: TIX non calcola l’IVA (10%, 22%, inversione contabile o scissione dei pagamenti dipendono dal caso). " +
     "Le celle della colonna B sono formule che leggono i fogli Avanzamento, Libretto e Storico; la colonna C riporta i numeri registrati da TIX e la differenza deve essere zero.", S.NOTA);
@@ -615,7 +1072,7 @@ export function salXlsx(d) {
   add("docProps/core.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
     'xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
-    "<dc:title>" + xe("SAL n. " + N + " - " + (ca.nome || "")) + "</dc:title><dc:creator>TIX</dc:creator>" +
+    "<dc:title>" + xe(titoloDoc(sal, N) + " - " + (ca.nome || "")) + "</dc:title><dc:creator>TIX</dc:creator>" +
     '<dcterms:created xsi:type="dcterms:W3CDTF">' + dataDoc + '</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">' + dataDoc + "</dcterms:modified></cp:coreProperties>");
   add("docProps/app.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>TIX</Application></Properties>');
@@ -761,6 +1218,12 @@ const STILE =
   ".curva svg{display:block;width:100%;height:auto}.cu-l{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.88rem;margin:8px 0 0}" +
   ".cu-p::before,.cu-r::before{content:\"\";display:inline-block;width:20px;height:0;vertical-align:middle;margin-right:6px}" +
   ".cu-p::before{border-top:2px dashed #8a94a0}.cu-r::before{border-top:3px solid var(--sal)}" +
+  // fase 3: varianti, traguardi dal cronoprogramma, copia firmata
+  "dialog.largo{width:min(980px,96vw)}dialog table.av th{position:static}.b.ok{border-color:#0B5E37;color:#0B5E37;background:#E6F6EC}" +
+  ".tg .tg-cr{grid-column:1/-1;margin:-2px 0 6px;font-size:.82rem;color:#5b5470}.tg .tg-cr .b{min-height:32px;padding:0 10px;margin-left:8px}" +
+  ".sc-cr{display:flex;gap:8px;align-items:flex-start;font-weight:600;padding:8px 10px;border:1px solid #E1E6E3;border-radius:10px;cursor:pointer}.sc-cr small{display:block;font-weight:400;color:#6b7280}" +
+  ".ver{list-style:none;margin:0;padding:0}.ver li{padding:6px 0;border-top:1px solid #eee;font-size:.9rem}.ver li .b{min-height:34px;margin-left:8px}" +
+  "table.cf tr.cf-nuova td{background:#F0FBF4}table.cf tr.cf-tolta td{background:#FEF2F2;color:#7f1d1d}" +
   ":root{color-scheme:light}";
 
 const APP = String.raw`(function(){"use strict";
@@ -793,10 +1256,14 @@ function testa(){
   var h='';
   if(D.avviso)h+='<a class="s-avv" href="#" data-vai="sal">'+es(D.avviso.testo)+'</a>';
   if(CO){var p=Math.max(0,Math.min(100,Number(CO.pct)||0));
+    var F=D.fase||{},tb=D.bozza?(D.bozza.tipo||'sal'):'',t3='Prossimo SAL',s3=regola();
     var prox=D.bozza?'n. '+D.bozza.numero+(D.bozza.versione>1?' (v. '+D.bozza.versione+')':'')+' in preparazione':(D.prossimo?'n. '+D.prossimo.numero:'');
+    if(tb==='finale'||tb==='svincolo'){t3=tb==='finale'?'Conto finale':'Svincolo delle ritenute';prox='in preparazione';s3='';}
+    else if(F.svincolo){t3='Contabilità';prox='chiusa';s3='conto finale e svincolo emessi';}
+    else if(F.finale){t3='Conto finale';prox='emesso';s3='lavori finiti il '+di(F.finale.data_fine_lavori||F.finale.periodo_a);}
     h+='<div class="s-cifre"><div class="s-cifra"><small>Contratto</small><b>'+eur(CO.base_contratto)+' €</b><span>computo v. '+es(K.versione)+': '+eur(CO.importo_computo)+' €</span></div>'+
       '<div class="s-cifra"><small>Fatto a oggi</small><b>'+eur(CO.lavori)+' €</b><span>'+pc(CO.pct)+' del computo</span><div class="s-barra"><i style="width:'+p.toFixed(1)+'%"></i></div></div>'+
-      '<div class="s-cifra"><small>Prossimo SAL</small><b>'+es(prox)+'</b><span>'+es(regola())+'</span></div></div>';}
+      '<div class="s-cifra"><small>'+t3+'</small><b>'+es(prox)+'</b><span>'+es(s3)+'</span></div></div>';}
   $('#sal-testa').innerHTML=h;
 }
 function regola(){if(!K)return '';var c=K.cadenza_sal;return c==='mensile'?'SAL mensile':c==='soglia'?'ogni '+eur(K.soglia_sal_importo)+' € di lavori':c==='traguardi'?'a traguardi':c==='fine_lavori'?'unico a fine lavori':'regola dei SAL da scegliere';}
@@ -885,8 +1352,8 @@ function voce(id){var a=(CL&&CL.voci)||[];for(var i=0;i<a.length;i++)if(a[i].id=
 
 // ---------------- finestra
 var dlgAzione=null;
-function finestra(t,s,c,etich,fn,rosso){$('#dlg-t').textContent=t;$('#dlg-s').textContent=s||'';$('#dlg-c').innerHTML=c;$('#dlg-m').textContent='';
-  var b=$('#dlg-si');b.textContent=etich||'Salva';b.className='si'+(rosso?' rosso':'');b.disabled=false;dlgAzione=fn;var d=$('#dlg');if(d.showModal)d.showModal();else d.setAttribute('open','');}
+function finestra(t,s,c,etich,fn,rosso,largo){$('#dlg-t').textContent=t;$('#dlg-s').textContent=s||'';$('#dlg-c').innerHTML=c;$('#dlg-m').textContent='';
+  var b=$('#dlg-si');b.textContent=etich||'Salva';b.className='si'+(rosso?' rosso':'');b.disabled=false;b.hidden=!fn;dlgAzione=fn;var d=$('#dlg');d.classList.toggle('largo',!!largo);if(d.showModal)d.showModal();else d.setAttribute('open','');}
 function chiudi(){var d=$('#dlg');if(d.close)d.close();else d.removeAttribute('open');}
 function salvando(p){var b=$('#dlg-si');b.disabled=true;$('#dlg-m').textContent='';
   return p.then(function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();return ricarica().then(function(){return r;});}$('#dlg-m').textContent=errore(r);return null;});}
@@ -931,7 +1398,8 @@ function misura(v,m,prop){
 
 // ---------------- SAL
 function statoSal(s){return {emesso:['Emesso','em'],firmato_impresa:['Firmato dall’impresa','fi'],visto_dl:['Visto dalla DL','ok'],sostituito:['Sostituito','no'],annullato:['Annullato','no']}[s]||[s,'no'];}
-function contoHtml(co){if(!co)return '';var tr=co.traguardo&&co.traguardo.modo==='percentuale'?co.traguardo:null;
+function nomeDoc(tp,n,v){return (tp==='finale'?'Conto finale':tp==='svincolo'?'Svincolo delle ritenute':'SAL n. '+n)+(v>1?' (v. '+v+')':'');}
+function contoHtml(co){if(!co)return '';var tr=co.traguardo&&co.traguardo.modo==='percentuale'?co.traguardo:null,tp=co.tipo||'sal';
   var r=function(t,v,cl,sub){return '<tr'+(cl?' class="'+cl+'"':'')+'><td>'+t+(sub?' <span class="sub">'+sub+'</span>':'')+'</td><td class="n">'+eur(v)+' €</td></tr>';};
   var h='<table class="conto">';
   if(tr){h+=r('Traguardo «'+es(tr.nome)+'»: '+pc(tr.percentuale)+' del contratto',Number(co.netto)-Number(co.altre_voci),'','in tutto '+pc(tr.cumulata)+' di '+eur(co.base_contratto)+' €');
@@ -941,32 +1409,50 @@ function contoHtml(co){if(!co)return '';var tr=co.traguardo&&co.traguardo.modo==
     h+=r('− Ribasso '+pc(co.ribasso_pct),co.ribasso);
     h+=r('+ Oneri della sicurezza',co.sicurezza,'',co.sicurezza_modo==='nei_prezzi'?'compresi nei prezzi':co.sicurezza_modo==='voci'?'nelle voci non ribassabili':'in proporzione ai lavori');}
   if(Number(co.altre_voci))h+=r('+ Altre voci a oggi (economie e noli)',co.altre_voci,'',Number(co.altre_voci_sal)?'di cui in questo SAL '+eur(co.altre_voci_sal)+' €':'');
-  h+=r('= Lavori netti a oggi',co.netto,'tot')+r('− Ritenuta a garanzia '+pc(co.ritenuta_pct),co.ritenuta);
-  if(Number(co.anticipazione))h+=r('− Recupero dell’anticipazione',co.recupero,'','anticipazione '+eur(co.anticipazione)+' €');
+  h+=r('= Lavori netti a oggi',co.netto,'tot')+r(tp==='svincolo'?'− Ritenuta a garanzia: non si trattiene più (svincolo)':'− Ritenuta a garanzia '+pc(co.ritenuta_pct),co.ritenuta,'',tp==='finale'?'trattenuta fino allo svincolo':'');
+  if(Number(co.anticipazione))h+=r('− Recupero dell’anticipazione'+(tp==='sal'?'':' (per intero)'),co.recupero,'','anticipazione '+eur(co.anticipazione)+' €');
   h+=r('= Spettanza a oggi',co.spettanza,'tot')+r('− SAL già emessi',co.precedenti);
-  h+='<tr class="fin"><td>Importo di questo SAL</td><td class="n">'+eur(co.dovuto)+' € + IVA</td></tr></table>';
+  h+='<tr class="fin"><td>'+(tp==='finale'?'Saldo del conto finale (ritenute escluse)':tp==='svincolo'?'Ritenute da svincolare':'Importo di questo SAL')+'</td><td class="n">'+eur(co.dovuto)+' € + IVA</td></tr></table>';
+  if(tp==='finale')h+='<p class="nota">Ritenute di garanzia trattenute: <b>'+eur(co.ritenute_trattenute)+' €</b>. Si svincolano dopo il collaudo o il certificato di regolare esecuzione.</p>';
   return h;}
 function salTab(){
   if(!K||!CL||!(CL.voci||[]).length)return '<div class="pann"><h2>Prima serve il computo</h2><p>Apri la scheda «Computo».</p></div>';
-  var h='',b=D.bozza,xl=C.u+'/excel?t='+C.t+'&c='+C.c;
-  if(b){var trs=D.traguardi||[];
-    h+='<div class="pann"><h2>SAL n. '+b.numero+(b.versione>1?' (versione '+b.versione+')':'')+' — bozza</h2>'+
+  var h='',b=D.bozza,F=D.fase||{},xl=C.u+'/excel?t='+C.t+'&c='+C.c,pf=C.u+'/pdf?t='+C.t+'&c='+C.c,dis=D.chiuso?' disabled':'',av=D.avviso;
+  // traguardo preso dal cronoprogramma: l'attività risulta conclusa
+  if(av&&av.tipo==='traguardo_crono'&&!D.chiuso)h+='<div class="pann"><h2>Traguardo dal cronoprogramma</h2><p>'+es(av.testo)+'</p><div class="campi"><label>Raggiunto il<input type="date" id="tgr-d" max="'+es(D.oggi)+'" value="'+es(av.data||D.oggi)+'"></label></div>'+
+    '<div class="riga-b"><button type="button" class="b pr" data-tgr="'+es(av.traguardo_id)+'">Segna il traguardo raggiunto</button></div></div>';
+  if(b){var trs=D.traguardi||[],tp=b.tipo||'sal';
+    h+='<div class="pann"><h2>'+nomeDoc(tp,b.numero,b.versione)+' — bozza</h2>'+
       (b.versione>1&&b.motivo?'<p class="avviso">Nuova versione: '+es(b.motivo)+'</p>':'')+
-      '<div class="campi"><label>Lavori dal<input type="date" value="'+es(b.periodo_da)+'" disabled></label><label>Lavori fino al<input type="date" id="b-a" min="'+es(b.periodo_da)+'" max="'+es(D.oggi)+'" value="'+es(b.periodo_a)+'"'+(D.chiuso?' disabled':'')+'></label>'+
-      (trs.length?'<label>Traguardo<select id="b-tg"'+(D.chiuso?' disabled':'')+'><option value="">nessuno</option>'+trs.filter(function(t){return !t.sal;}).map(function(t){return '<option value="'+t.id+'"'+(String(b.traguardo_id)===String(t.id)?' selected':'')+'>'+es(t.nome)+(t.modo==='percentuale'?' ('+pc(t.percentuale)+' del contratto)':'')+'</option>';}).join('')+'</select></label>':'')+'</div>'+
-      (CL.misure_dopo?'<p class="nota">'+CL.misure_dopo+(CL.misure_dopo===1?' misura è':' misure sono')+' dopo il '+di(b.periodo_a)+': entreranno nel SAL successivo.</p>':'')+
+      (tp==='finale'?'<p>Il conto finale chiude la contabilità: tutte le misure fino alla fine dei lavori, l’anticipazione recuperata per intero, le ritenute trattenute fino allo svincolo.</p>':
+       tp==='svincolo'?'<p>Dopo il collaudo, o il certificato di regolare esecuzione, la ritenuta non si trattiene più: questo documento chiede le ritenute trattenute nei SAL e nel conto finale.</p>':'')+
+      '<div class="campi">'+
+      (tp==='finale'?'<label>Lavori finiti il<input type="date" id="b-fine" min="'+es(b.periodo_da)+'" max="'+es(D.oggi)+'" value="'+es(b.data_fine_lavori||b.periodo_a)+'"'+dis+'></label>':
+       tp==='svincolo'?'<label>Documento<select id="b-ct"'+dis+'><option value="collaudo"'+(b.collaudo_tipo!=='cre'?' selected':'')+'>collaudo</option><option value="cre"'+(b.collaudo_tipo==='cre'?' selected':'')+'>certificato di regolare esecuzione</option></select></label>'+
+         '<label>Del<input type="date" id="b-dc" min="'+es(b.periodo_a)+'" max="'+es(D.oggi)+'" value="'+es(b.data_collaudo||'')+'"'+dis+'></label>':
+       '<label>Lavori dal<input type="date" value="'+es(b.periodo_da)+'" disabled></label><label>Lavori fino al<input type="date" id="b-a" min="'+es(b.periodo_da)+'" max="'+es(D.oggi)+'" value="'+es(b.periodo_a)+'"'+dis+'></label>'+
+         (trs.length?'<label>Traguardo<select id="b-tg"'+dis+'><option value="">nessuno</option>'+trs.filter(function(t){return !t.sal;}).map(function(t){return '<option value="'+t.id+'"'+(String(b.traguardo_id)===String(t.id)?' selected':'')+'>'+es(t.nome)+(t.modo==='percentuale'?' ('+pc(t.percentuale)+' del contratto)':'')+'</option>';}).join('')+'</select></label>':''))+'</div>'+
+      (tp!=='svincolo'&&CL.misure_dopo?'<p class="nota">'+CL.misure_dopo+(CL.misure_dopo===1?' misura è':' misure sono')+' dopo il '+di(b.periodo_a)+': '+(tp==='finale'?(CL.misure_dopo===1?'non entra':'non entrano')+' nel conto finale. Se il lavoro è stato fatto prima, correggi la data; se no, togli la misura.':(CL.misure_dopo===1?'entrerà':'entreranno')+' nel SAL successivo.')+'</p>':'')+
       '<h3>Conto</h3>'+contoHtml(CO)+
-      '<h3>Altre voci di questo SAL <small>(economie e noli, prezzo già netto)</small></h3><div id="b-av">'+(b.altre_voci||[]).map(rigaAv).join('')+'</div>'+
-      (D.chiuso?'':'<button type="button" class="b" id="b-av-agg">+ Aggiungi una riga</button>')+
-      '<label style="margin-top:10px">Note del SAL <small>(facoltative, vanno nel documento)</small><textarea id="b-note" maxlength="1000"'+(D.chiuso?' disabled':'')+'>'+es(b.note||'')+'</textarea></label>'+
+      (tp==='svincolo'?'':'<h3>Altre voci <small>(economie e noli, prezzo già netto)</small></h3><div id="b-av">'+(b.altre_voci||[]).map(rigaAv).join('')+'</div>'+
+        (D.chiuso?'':'<button type="button" class="b" id="b-av-agg">+ Aggiungi una riga</button>'))+
+      '<label style="margin-top:10px">Note <small>(facoltative, vanno nel documento)</small><textarea id="b-note" maxlength="1000"'+dis+'>'+es(b.note||'')+'</textarea></label>'+
       '<div class="riga-b">'+(D.chiuso?'':'<button type="button" class="b" id="b-salva">Salva la bozza</button>')+
       '<a class="b" href="'+es(C.u+'/documento?t='+C.t+'&id='+b.id)+'" target="_blank" rel="noopener">Anteprima del documento</a>'+
-      '<a class="b ex" href="'+es(xl)+'">Scarica in Excel</a>'+
-      (D.chiuso?'':'<button type="button" class="b pr" id="b-emetti">Emetti il SAL n. '+b.numero+'</button><button type="button" class="b ro" id="b-scarta">Scarta la bozza</button>')+'</div></div>';}
+      '<a class="b" href="'+es(pf)+'">Anteprima PDF</a><a class="b ex" href="'+es(xl)+'">Scarica in Excel</a>'+
+      (D.chiuso?'':'<button type="button" class="b pr" id="b-emetti">Emetti '+(tp==='finale'?'il conto finale':tp==='svincolo'?'lo svincolo':'il SAL n. '+b.numero)+'</button><button type="button" class="b ro" id="b-scarta">Scarta la bozza</button>')+'</div></div>';}
+  else if(F.svincolo){h+='<div class="pann"><h2>Contabilità chiusa</h2><p>Conto finale e svincolo delle ritenute sono emessi: per questo cantiere non si preparano altri SAL. Documenti e copie firmate restano qui sotto.</p></div>';}
+  else if(F.finale){var fi=F.finale;
+    h+='<div class="pann"><h2>Svincolo delle ritenute di garanzia</h2><p>Conto finale emesso: lavori finiti il '+di(fi.data_fine_lavori||fi.periodo_a)+'. Ritenute trattenute: <b>'+eur(fi.ritenute)+' €</b>. '+
+      'Dopo il collaudo, o il certificato di regolare esecuzione, prepara lo svincolo.</p>'+
+      (D.chiuso?'':'<div class="campi"><label>Documento<select id="s-ct"><option value="collaudo">collaudo</option><option value="cre">certificato di regolare esecuzione</option></select></label>'+
+        '<label>Del<input type="date" id="s-dc" min="'+es(fi.periodo_a)+'" max="'+es(D.oggi)+'"></label></div><div class="riga-b"><button type="button" class="b pr" id="b-svincolo">Prepara lo svincolo</button></div>')+'</div>';}
   else{var p=D.prossimo||{};
     h+='<div class="pann"><h2>Prossimo SAL: n. '+es(p.numero)+(p.versione>1?' (versione '+p.versione+')':'')+'</h2><p>Lavori dal '+di(p.periodo_da)+' al '+di(p.periodo_a)+' (si può cambiare nella bozza). '+
       'Con «Prepara» TIX mette nel SAL tutte le misure confermate fino a quel giorno.</p><h3>Situazione a oggi</h3>'+contoHtml(CO)+
-      '<div class="riga-b">'+(D.chiuso?'':'<button type="button" class="b pr" id="b-nuova">Prepara il SAL n. '+es(p.numero)+'</button>')+'<a class="b ex" href="'+es(xl)+'">Scarica in Excel (situazione a oggi)</a></div></div>';}
+      '<div class="riga-b">'+(D.chiuso?'':'<button type="button" class="b pr" id="b-nuova">Prepara il SAL n. '+es(p.numero)+'</button>')+'<a class="b ex" href="'+es(xl)+'">Scarica in Excel (situazione a oggi)</a></div></div>';
+    if(!D.chiuso)h+='<div class="pann"><h2>Fine dei lavori: conto finale</h2><p>Quando i lavori sono finiti, il conto finale chiude la contabilità: mette tutte le misure fino a quel giorno, recupera per intero l’anticipazione e lascia le ritenute fino allo svincolo, dopo il collaudo.</p>'+
+      '<div class="campi"><label>Lavori finiti il<input type="date" id="f-fine" max="'+es(D.oggi)+'" value="'+es(D.oggi)+'"></label></div><div class="riga-b"><button type="button" class="b" id="b-finale">Prepara il conto finale</button></div></div>';}
   var wa=D.whatsapp||[];
   if(wa.length)h+='<div class="pann"><h2>Dal cantiere, sezione SAL di WhatsApp</h2><p class="nota" style="margin-top:0">Promemoria: messaggi arrivati dopo l’ultimo SAL. Non entrano nel conto da soli.</p>'+
     wa.map(function(w){return '<div class="wa">'+es(w.testo)+'<br><small>'+es(w.il)+'</small></div>';}).join('')+'</div>';
@@ -974,17 +1460,21 @@ function salTab(){
   h+='<div class="pann"><h2>SAL emessi</h2>';
   if(!el.length)h+='<p class="nota" style="margin:0">Ancora nessuno.</p>';
   else{var ultimo=null;el.forEach(function(s){if(['emesso','firmato_impresa','visto_dl'].indexOf(s.stato)>=0&&(!ultimo||s.numero>ultimo.numero))ultimo=s;});
-    h+='<div class="sal-el">';el.forEach(function(s){var st=statoSal(s.stato),vivo=['emesso','firmato_impresa','visto_dl'].indexOf(s.stato)>=0;
-      h+='<div class="sal-c"><div class="r1"><b>SAL n. '+s.numero+(s.versione>1?' (v. '+s.versione+')':'')+'</b><span class="st '+st[1]+'">'+es(st[0])+'</span>'+
-        '<span>lavori dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'</span><span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
+    h+='<div class="sal-el">';el.forEach(function(s){var st=statoSal(s.stato),vivo=['emesso','firmato_impresa','visto_dl'].indexOf(s.stato)>=0,tps=s.tipo||'sal',nm=es(nomeDoc(tps,s.numero,1));
+      h+='<div class="sal-c"><div class="r1"><b>'+es(nomeDoc(tps,s.numero,s.versione))+'</b><span class="st '+st[1]+'">'+es(st[0])+'</span>'+
+        '<span>'+(tps==='finale'?'lavori finiti il '+di(s.data_fine_lavori||s.periodo_a):tps==='svincolo'?(s.collaudo_tipo==='cre'?'certificato di regolare esecuzione':'collaudo')+' del '+di(s.data_collaudo):'lavori dal '+di(s.periodo_da)+' al '+di(s.periodo_a))+'</span>'+
+        '<span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
         '<p class="nota" style="margin:6px 0">Emesso il '+es(s.emesso_il||'')+' da '+es(s.emesso_da||'')+(s.firma_impresa?' · firmato da '+es(s.firma_impresa)+' il '+es(s.firma_impresa_il):'')+
         (s.firma_dl?' · visto DL: '+es(s.firma_dl)+' il '+es(s.firma_dl_il)+(s.firma_dl_nota?' («'+es(s.firma_dl_nota)+'»)':''):'')+
-        (s.motivo&&!vivo?' · '+es(s.motivo):'')+'</p><div class="riga-b">'+
+        (s.motivo&&!vivo?' · '+es(s.motivo):'')+(s.firmato_nome?' · copia firmata «'+es(s.firmato_nome)+'» caricata il '+es(s.firmato_il||'')+(s.firmato_da?' da '+es(s.firmato_da):''):'')+'</p><div class="riga-b">'+
         '<a class="b" href="'+es(C.u+'/documento?t='+C.t+'&id='+s.id)+'" target="_blank" rel="noopener">Documento</a>'+
+        '<a class="b" href="'+es(pf+'&id='+s.id)+'">PDF da firmare</a>'+
         '<a class="b ex" href="'+es(xl+'&id='+s.id)+'">Excel</a>'+
-        (!D.chiuso&&s.stato==='emesso'?'<button type="button" class="b" data-st="firmato" data-id="'+s.id+'" data-n="'+s.numero+'">Segna firmato dall’impresa</button>':'')+
-        (!D.chiuso&&(s.stato==='emesso'||s.stato==='firmato_impresa')?'<button type="button" class="b" data-st="visto" data-id="'+s.id+'" data-n="'+s.numero+'">Segna visto dalla DL</button>':'')+
-        (!D.chiuso&&ultimo&&ultimo.id===s.id&&s.stato!=='visto_dl'?'<button type="button" class="b" data-st="riemetti" data-id="'+s.id+'" data-n="'+s.numero+'">Riemetti con correzioni</button><button type="button" class="b ro" data-st="annulla" data-id="'+s.id+'" data-n="'+s.numero+'">Annulla</button>':'')+
+        (s.firmato_nome?'<a class="b ok" href="'+es(C.u+'/firmato?t='+C.t+'&id='+s.id)+'">Copia firmata</a>':'')+
+        (!D.chiuso&&vivo?'<label class="b">'+(s.firmato_nome?'Sostituisci la copia firmata':'Carica la copia firmata')+'<input type="file" class="f-firm" data-id="'+s.id+'" accept=".pdf,.p7m" hidden></label>':'')+
+        (!D.chiuso&&s.stato==='emesso'?'<button type="button" class="b" data-st="firmato" data-id="'+s.id+'" data-n="'+nm+'">Segna firmato dall’impresa</button>':'')+
+        (!D.chiuso&&(s.stato==='emesso'||s.stato==='firmato_impresa')?'<button type="button" class="b" data-st="visto" data-id="'+s.id+'" data-n="'+nm+'">Segna visto dalla DL</button>':'')+
+        (!D.chiuso&&ultimo&&ultimo.id===s.id&&s.stato!=='visto_dl'?'<button type="button" class="b" data-st="riemetti" data-id="'+s.id+'" data-n="'+nm+'">Riemetti con correzioni</button><button type="button" class="b ro" data-st="annulla" data-id="'+s.id+'" data-n="'+nm+'">Annulla</button>':'')+
         '</div></div>';});h+='</div>';}
   return h+'</div>';}
 function rigaAv(a){a=a||{};var dis=D.chiuso?' disabled':'';
@@ -993,9 +1483,14 @@ function rigaAv(a){a=a||{};var dis=D.chiuso?' disabled':'';
     '<label>Quantità<input type="text" class="a-q" inputmode="decimal" value="'+(a.quantita!=null?es(String(a.quantita).replace('.',',')):'')+'"'+dis+'></label>'+
     '<label>Prezzo €<input type="text" class="a-p" inputmode="decimal" value="'+(a.prezzo!=null?es(String(a.prezzo).replace('.',',')):'')+'"'+dis+'></label>'+
     (D.chiuso?'':'<button type="button" class="b ro x" data-avx="1" aria-label="Togli la riga">×</button>')+'</div>';}
-function datiBozza(){var d={periodo_a:$('#b-a').value,note:$('#b-note').value,altre_voci:[]};var tg=$('#b-tg');if(tg)d.traguardo_id=tg.value;
-  [].forEach.call(document.querySelectorAll('#b-av .av-r'),function(r){var x={tipo:$('.a-t',r).value,descrizione:$('.a-d',r).value,unita:$('.a-u',r).value,quantita:$('.a-q',r).value,prezzo:$('.a-p',r).value};
-    if(x.descrizione||x.quantita||x.prezzo)d.altre_voci.push(x);});return d;}
+function datiBozza(){var tp=(D.bozza&&D.bozza.tipo)||'sal',d={note:$('#b-note').value};
+  if(tp==='sal'){d.periodo_a=$('#b-a').value;var tg=$('#b-tg');if(tg)d.traguardo_id=tg.value;}
+  if(tp==='finale')d.data_fine_lavori=$('#b-fine').value;
+  if(tp==='svincolo'){d.data_collaudo=$('#b-dc').value;d.collaudo_tipo=$('#b-ct').value;}
+  if(tp!=='svincolo'){d.altre_voci=[];
+    [].forEach.call(document.querySelectorAll('#b-av .av-r'),function(r){var x={tipo:$('.a-t',r).value,descrizione:$('.a-d',r).value,unita:$('.a-u',r).value,quantita:$('.a-q',r).value,prezzo:$('.a-p',r).value};
+      if(x.descrizione||x.quantita||x.prezzo)d.altre_voci.push(x);});}
+  return d;}
 function salvaBozza(){return api('bozza',{dati:datiBozza()}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza salvata.');return ricarica().then(function(){return true;});}avviso(errore(r));return false;});}
 
 // ---------------- contratto
@@ -1018,17 +1513,20 @@ function contratto(){
       .map(function(o){return '<label><input type="radio" name="c-cad" value="'+o[0]+'"'+(k.cadenza_sal===o[0]?' checked':'')+d2+'> '+o[1]+'</label>';}).join('')+'</div>'+
     '<label id="c-l-soglia"'+(k.cadenza_sal==='soglia'?'':' hidden')+'>Soglia <small>(€ di lavori non ancora contabilizzati)</small><input type="text" id="c-soglia" inputmode="decimal" value="'+n(k.soglia_sal_importo)+'"'+d2+'></label>'+
     '<div id="c-trag"'+((k.cadenza_sal==='traguardi'||(D.traguardi||[]).length)?'':' hidden')+'><h3>Traguardi</h3><p class="nota" style="margin-top:0">«A misura»: il SAL conta le quantità fatte. «% del contratto»: il SAL vale una quota fissa del contratto (es. 20% a fine strutture).</p><div id="c-tg">'+
-    (D.traguardi||[]).map(rigaTg).join('')+'</div>'+(D.chiuso?'':'<button type="button" class="b" id="c-tg-agg">+ Aggiungi un traguardo</button>')+'</div>'+
+    (D.traguardi||[]).map(rigaTg).join('')+'</div>'+(D.chiuso?'':'<div class="riga-b" style="margin-top:4px"><button type="button" class="b" id="c-tg-agg">+ Aggiungi un traguardo</button>'+
+      ((D.cardini||[]).length?'<button type="button" class="b" id="c-tg-crono">+ Dal cronoprogramma ('+(D.cardini||[]).length+')</button>':'')+'</div>')+'</div>'+
     '<h3>Differenza tra computo e contratto</h3><p class="nota" style="margin-top:0">'+diff()+'</p>'+
     '<label>Nota sulla differenza <small>(es. «oneri e lavori in economia previsti a parte»)</small><textarea id="c-nota" maxlength="600"'+d2+'>'+es(k.nota_differenza||'')+'</textarea></label>'+
     '<p class="msg" id="c-msg" style="margin:8px 0 0"></p><div class="riga-b">'+(D.chiuso?'':'<button type="button" class="b pr" id="c-salva">Salva la scheda contratto</button>')+'</div></div>';
   return h;}
-function rigaTg(t){t=t||{};var usato=!!t.sal,d=D.chiuso?' disabled':'',du=(usato||D.chiuso)?' disabled':'';
-  return '<div class="tg" data-id="'+es(t.id||'')+'"><label>Nome<input type="text" class="t-n" maxlength="120" placeholder="es. fine strutture" value="'+es(t.nome||'')+'"'+d+'></label>'+
+function rigaTg(t){t=t||{};var usato=!!t.sal,d=D.chiuso?' disabled':'',du=(usato||D.chiuso)?' disabled':'',cr=t.crono;
+  return '<div class="tg" data-id="'+es(t.id||'')+'" data-crono="'+es(t.crono_attivita_id||'')+'"><label>Nome<input type="text" class="t-n" maxlength="120" placeholder="es. fine strutture" value="'+es(t.nome||'')+'"'+d+'></label>'+
     '<label>Come si calcola<select class="t-m"'+du+'><option value="misura"'+(t.modo!=='percentuale'?' selected':'')+'>a misura</option><option value="percentuale"'+(t.modo==='percentuale'?' selected':'')+'>% del contratto</option></select></label>'+
     '<label>%<input type="text" class="t-p" inputmode="decimal" value="'+(t.percentuale!=null?es(String(t.percentuale).replace('.',',')):'')+'"'+du+'></label>'+
     '<label>Prevista<input type="date" class="t-dp" value="'+es(t.data_prevista||'')+'"'+d+'></label><label>Raggiunta il<input type="date" class="t-r" max="'+es(D.oggi)+'" value="'+es(t.raggiunto_il||'')+'"'+d+'></label>'+
-    (usato?'<span class="st ok x">SAL n. '+t.sal+'</span>':(D.chiuso?'':'<button type="button" class="b ro x" data-tgx="1" aria-label="Togli il traguardo">×</button>'))+'</div>';}
+    (usato?'<span class="st ok x">SAL n. '+t.sal+'</span>':(D.chiuso?'':'<button type="button" class="b ro x" data-tgx="1" aria-label="Togli il traguardo">×</button>'))+
+    (cr?'<p class="tg-cr">Dal cronoprogramma: «'+es(cr.nome)+'», fine prevista '+di(cr.data)+(cr.fatto?(cr.fine_reale?' · concluso il '+di(cr.fine_reale):' · concluso')+
+      (t.raggiunto_il||D.chiuso?'':'<button type="button" class="b" data-tgset="'+es(cr.fine_reale||D.oggi)+'">Segna raggiunto</button>'):'')+'</p>':'')+'</div>';}
 function diff(){var k=K||{},s=CO?Number(CO.importo_computo):Number(k.importo_computo||0),ct=Number(k.importo_contratto||0);
   if(!ct)return 'Scrivi l’importo del contratto per confrontarlo con la somma del computo.';
   var d=Math.round((ct-s)*100)/100;if(Math.abs(d)<0.01)return '<span class="ok-v">Le somme tornano:</span> computo e contratto valgono entrambi '+eur(ct)+' €.';
@@ -1038,7 +1536,8 @@ function legaContratto(){
 function salvaContratto(){var d={tipo_contratto:$('#c-tipo').value,importo_contratto:$('#c-imp').value,ribasso_pct:$('#c-rib').value,ritenuta_pct:$('#c-rit').value,anticipazione_pct:$('#c-ant').value,
   oneri_sicurezza:$('#c-sic').value,sicurezza_modo:$('#c-smodo').value,data_contratto:$('#c-dc').value,termine_ultimazione:$('#c-tu').value,nota_differenza:$('#c-nota').value,
   cadenza_sal:(document.querySelector('input[name=c-cad]:checked')||{}).value||'',soglia_sal_importo:$('#c-soglia').value,traguardi:[]};
-  [].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){var t={id:r.getAttribute('data-id'),nome:$('.t-n',r).value,modo:$('.t-m',r).value,percentuale:$('.t-p',r).value,data_prevista:$('.t-dp',r).value,raggiunto_il:$('.t-r',r).value};
+  [].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){var t={id:r.getAttribute('data-id'),nome:$('.t-n',r).value,modo:$('.t-m',r).value,percentuale:$('.t-p',r).value,data_prevista:$('.t-dp',r).value,raggiunto_il:$('.t-r',r).value,
+      crono_attivita_id:r.getAttribute('data-crono')||''};
     if(t.nome||t.percentuale)d.traguardi.push(t);});
   var b=$('#c-salva');b.disabled=true;$('#c-msg').textContent='';
   api('contratto',{dati:d}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){avviso('Scheda contratto salvata.');ricarica();}else $('#c-msg').textContent=errore(r);});}
@@ -1055,7 +1554,13 @@ function computo(){var k=K,senza=!k||!Number(k.voci_n);
     '<p>'+(!Number(k.righe_n)?'<span class="sub">Il file non aveva le righe di misura: si controllano i totali delle voci.</span>':Number(k.scarti)===0?'<span class="ok-v">Righe di misura e quantità tornano voce per voce.</span>':'<span class="ko-v">'+es(k.scarti)+' voci hanno righe di misura che non tornano con la quantità.</span>')+'</p>';
   if(CL&&CL.capitoli&&CL.capitoli.length){h+='<h3>Capitoli</h3><table class="conto">';var tot=Number(CO.importo_computo)||0;
     CL.capitoli.forEach(function(c){h+='<tr><td>'+es(c.n)+'</td><td class="n">'+eur(c.ic)+' €</td><td class="n sub">'+pc(tot?Number(c.ic)/tot*100:0)+'</td></tr>';});h+='</table>';}
-  if(k.versioni&&k.versioni.length>1)h+='<h3>Versioni</h3><p class="nota" style="margin-top:0">'+k.versioni.map(function(v){return 'v. '+v.versione+' ('+v.stato+', '+v.creato_il+')';}).join(' · ')+'. Una variante diventa sempre una versione nuova: le vecchie restano.</p>';
+  if(k.variante_n)h+='<p class="avviso">Variante n. '+es(k.variante_n)+(k.variante_descrizione?': '+es(k.variante_descrizione):'')+(k.variante_data?' del '+di(k.variante_data):'')+'.</p>';
+  if(k.versioni&&k.versioni.length>1)h+='<h3>Versioni</h3><ul class="ver">'+k.versioni.map(function(v){
+      return '<li><b>v. '+es(v.versione)+'</b> · '+es(v.stato)+' · '+es(v.creato_il)+
+        (v.variante_n?' · <span class="ko-v">variante n. '+es(v.variante_n)+'</span>'+(v.variante_descrizione?': '+es(v.variante_descrizione):'')+(v.variante_data?' del '+di(v.variante_data):''):'')+
+        (v.importo_computo!=null?' · computo '+eur(v.importo_computo)+' €':'')+
+        (v.versione>1?'<button type="button" class="b" data-conf="'+(v.versione-1)+','+v.versione+'">Confronta con la v. '+(v.versione-1)+'</button>':'')+'</li>';}).join('')+
+    '</ul><p class="nota">Una variante diventa sempre una versione nuova: le vecchie restano, con i SAL emessi su di loro.</p>';
   h+='</div>';
   return h;}
 
@@ -1063,10 +1568,13 @@ function computo(){var k=K,senza=!k||!Number(k.voci_n);
 function caricaHtml(senza){
   if(D.chiuso)return senza?'<div class="pann"><h2>Computo metrico</h2><p>Il cantiere non ha un computo.</p></div>':'';
   if(D.carica_attivo===false)return senza?'<div class="pann"><h2>Computo metrico</h2><p>Il caricamento del computo è sospeso in questo momento: riprova più tardi.</p></div>':'';
-  if(K&&K.bloccato)return '<div class="pann"><p class="nota" style="margin:0">Ci sono già SAL emessi: il computo non si sostituisce più. Le varianti, con il confronto tra le versioni, arrivano a breve.</p></div>';
-  var h='<div class="pann k-car"><h2>'+(senza?'Carica il computo metrico':'Carica un computo aggiornato')+'</h2>',s=IMP?IMP.stato:'';
+  if(D.fase&&D.fase.finale)return K&&K.bloccato?'<div class="pann"><p class="nota" style="margin:0">Il conto finale è emesso: il computo non cambia più.</p></div>':'';
+  var vr=!!(K&&K.bloccato);
+  var h='<div class="pann k-car"><h2>'+(senza?'Carica il computo metrico':vr?'Carica una variante del computo':'Carica un computo aggiornato')+'</h2>',s=IMP?IMP.stato:'';
   if(!IMP||['errore','annullato','confermato','scaduto','errore_locale'].indexOf(s)>=0){
     h+='<p>'+(senza?'Carica il computo in Excel o in PDF, anche esportato da PriMus. TIX legge voci, quantità e prezzi e ti mostra il controllo delle somme: nulla cambia finché non premi «Conferma».'
+        :vr?'Ci sono già SAL emessi: il file nuovo diventa una <b>variante</b>, cioè la versione '+(Number(K.versione)+1)+' del computo. Prima di confermare vedi il confronto voce per voce con la versione di oggi. '+
+          'Misure, traguardi e collegamento della curva passano alla versione nuova; i SAL già emessi non cambiano.'
         :'Il file nuovo diventa la versione '+(Number(K.versione)+1)+' del computo e la versione '+es(K.versione)+' resta in archivio. Prima di confermare vedi l’anteprima con il controllo delle somme.')+'</p>'+
       '<div class="riga-b" style="margin:0"><label class="b pr" for="k-file">Scegli il file del computo</label></div>'+
       '<input type="file" id="k-file" accept=".xlsx,.xlsm,.xls,.ods,.csv,.pdf,.dcf" hidden>'+
@@ -1086,12 +1594,21 @@ function anteprima(r){
     '<div class="s-cifra"><small>Somma delle voci</small><b>'+eur(so)+' €</b><span>'+(hatf?'nel file: '+eur(tf)+' €':'totale non scritto nel file')+'</span></div></div>';
   if(hatf){var d=Math.round((Number(tf)-so)*100)/100;h+='<p>'+(Math.abs(d)<=0.05?'<span class="ok-v">Le somme tornano con il totale scritto nel file.</span>':'<span class="ko-v">La somma delle voci è diversa dal totale del file di '+eur(Math.abs(d))+' €.</span>')+'</p>';}
   if((r.avvisi||[]).length)h+='<ul class="k-avv">'+r.avvisi.map(function(a){return '<li>'+es(a)+'</li>';}).join('')+'</ul>';
-  var stop='';
-  if(b.sal_emessi)stop='Ci sono già SAL emessi: il computo non si sostituisce più.';
-  else if(b.bozza)stop='C’è una bozza del SAL aperta: scartala (scheda «SAL») prima di cambiare computo.';
+  var stop='',cf=r.confronto,vr=!!r.variante;
+  if(b.bozza)stop='C’è una bozza del SAL aperta: scartala (scheda «SAL») prima di cambiare computo.';
   else if((b.misure_senza_voce||[]).length)stop='Le voci n. '+b.misure_senza_voce.join(', ')+' hanno già delle misure ma nel file nuovo non ci sono con lo stesso numero e la stessa unità: togli quelle misure oppure correggi il file.';
-  if(b.attuale)h+='<p class="nota">Con «Conferma» diventa la versione '+(Number(b.attuale.versione)+1)+' del computo. La versione '+es(b.attuale.versione)+' ('+es(b.attuale.voci)+' voci) resta in archivio'+
-    (Number(b.misure)?'; le '+es(b.misure)+' misure già scritte passano alle voci con lo stesso numero':'')+'. Dati del contratto, regola dei SAL e traguardi restano quelli di oggi.</p>';
+  if(cf)h+='<h3>Confronto con la versione '+es(b.attuale?b.attuale.versione:'di oggi')+'</h3><div class="s-cifre"><div class="s-cifra"><small>Computo di oggi</small><b>'+eur(cf.totale_a)+' €</b><span>'+es(cf.voci_a)+' voci</span></div>'+
+    '<div class="s-cifra"><small>Computo nuovo</small><b>'+eur(cf.totale_b)+' €</b><span>'+es(cf.voci_b)+' voci</span></div>'+
+    '<div class="s-cifra"><small>Differenza</small><b>'+(Number(cf.differenza)>0?'+':'')+eur(cf.differenza)+' €</b><span>'+(cf.pct!=null?pc(cf.pct):'')+'</span></div></div>'+
+    '<p>'+es(cf.nuove)+(Number(cf.nuove)===1?' voce nuova':' voci nuove')+' · '+es(cf.tolte)+(Number(cf.tolte)===1?' tolta':' tolte')+' · '+es(cf.cambiate)+(Number(cf.cambiate)===1?' cambiata':' cambiate')+' (quantità, prezzo o unità)</p>'+
+    tabConfronto(cf.righe,impTutte?0:30);
+  if(b.attuale)h+='<p class="nota">Con «Conferma» diventa la versione '+(Number(b.attuale.versione)+1)+' del computo'+(vr?' (variante)':'')+'. La versione '+es(b.attuale.versione)+' ('+es(b.attuale.voci)+' voci) resta in archivio'+
+    (Number(b.misure)?'; le '+es(b.misure)+' misure già scritte passano alle voci con lo stesso numero':'')+'. '+(vr?'Regola dei SAL e traguardi restano quelli di oggi; l’importo del contratto è quello che scrivi qui sotto.':'Dati del contratto, regola dei SAL e traguardi restano quelli di oggi.')+'</p>';
+  if(vr&&!stop){var vimp=K&&K.importo_contratto!=null&&cf?Math.round((Number(K.importo_contratto)+Number(cf.differenza)*(1-Number(K.ribasso_pct||0)/100))*100)/100:null;
+    h+='<h3>Atto della variante</h3><div class="campi"><label>Atto <small>(es. «Perizia di variante n. 1»)</small><input type="text" id="k-vd" maxlength="300"></label>'+
+      '<label>Data dell’atto<input type="date" id="k-vdata" max="'+es(D.oggi)+'"></label>'+
+      '<label>Nuovo importo del contratto <small>(€)</small><input type="text" id="k-vimp" inputmode="decimal" value="'+(vimp!=null?es(String(vimp).replace('.',',')):'')+'"></label></div>'+
+      '<p class="nota">Importo proposto: quello di oggi ('+eur(K&&K.importo_contratto)+' €) più la differenza del computo'+(Number(K&&K.ribasso_pct)?' con il ribasso del '+pc(K.ribasso_pct):'')+'. Correggilo se l’atto dice un’altra cifra.</p>';}
   var righe=impTutte?vv:vv.slice(0,40);
   h+='<table class="av"><thead><tr><th class="t">N.</th><th class="t">Tariffa</th><th class="t">Descrizione</th><th class="t">U.M.</th><th>Quantità</th><th>Prezzo</th><th>Importo</th></tr></thead><tbody>'+
     righe.map(function(x){var np=x[5]===null||x[5]===undefined,imp=np?null:Math.round(Number(x[4])*Number(x[5])*100)/100;
@@ -1101,8 +1618,17 @@ function anteprima(r){
   if(!impTutte&&vv.length>40)h+='<div class="riga-b"><button type="button" class="b" id="k-tutte">Mostra tutte le '+vv.length+' voci</button></div>';
   if(stop)h+='<div class="k-err">'+es(stop)+'</div>';
   h+='<div class="campi" style="margin-top:12px"><label>Chi conferma <small>(nome e cognome)</small><input type="text" id="k-chi" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label></div>'+
-    '<div class="riga-b">'+(stop?'':'<button type="button" class="b pr" id="k-conferma">Conferma il computo</button>')+'<button type="button" class="b ro" id="k-annulla">Annulla</button></div>';
+    '<div class="riga-b">'+(stop?'':'<button type="button" class="b pr" id="k-conferma">'+(vr?'Conferma la variante':'Conferma il computo')+'</button>')+'<button type="button" class="b ro" id="k-annulla">Annulla</button></div>';
   return h;}
+// confronto voce per voce: [nr, stato, tariffa, descrizione, u. prima, u. dopo, q. prima, q. dopo, prezzo prima, prezzo dopo, importo prima, importo dopo, differenza]
+function tabConfronto(rr,max){if(!rr||!rr.length)return '<p class="nota">Nessuna voce cambiata.</p>';var v=max?rr.slice(0,max):rr;
+  var fr=function(a,b,f){return a===null||a===undefined?f(b):b===null||b===undefined?f(a):(Number(a)===Number(b)?f(b):f(a)+' → '+f(b));};
+  return '<table class="av cf"><thead><tr><th class="t">N.</th><th class="t">Voce</th><th class="t">Cosa</th><th>Quantità</th><th>Prezzo</th><th>Importo</th><th>Differenza</th></tr></thead><tbody>'+
+    v.map(function(x){return '<tr class="kv cf-'+es(x[1])+'"><td class="t" data-l="N.">'+es(x[0])+'</td><td class="t"><span class="vd">'+es(x[3]||'')+'</span><span class="vs">'+es(x[2]||'')+
+        (x[4]&&x[5]&&x[4]!==x[5]?' · unità '+es(x[4])+' → '+es(x[5]):' · '+es(x[5]||x[4]||''))+'</span></td><td class="t" data-l="Cosa">'+({nuova:'nuova',tolta:'tolta',cambiata:'cambiata'}[x[1]]||'')+'</td>'+
+        '<td data-l="Quantità">'+fr(x[6],x[7],qt)+'</td><td data-l="Prezzo">'+fr(x[8],x[9],eur)+'</td><td data-l="Importo">'+fr(x[10],x[11],eur)+'</td>'+
+        '<td data-l="Differenza"><b>'+(Number(x[12])>0?'+':'')+eur(x[12])+'</b></td></tr>';}).join('')+'</tbody></table>'+
+    (max&&rr.length>max?'<div class="riga-b"><button type="button" class="b" id="k-tutte">Mostra tutte le '+rr.length+' voci cambiate</button></div>':'');}
 function impMostra(){if(scheda==='computo')corpo();}
 function impSegui(){clearTimeout(impTimer);if(!impId)return;
   api('computo_stato',{id:impId}).then(function(r){
@@ -1118,6 +1644,14 @@ function impCarica(f){
     .then(function(r){if(r&&r.esito==='ok'){impId=r.id;impGiri=0;IMP={stato:'ricevuto',nome_file:f.name};impMostra();impTimer=setTimeout(impSegui,2000);}
       else{IMP={stato:'errore_locale',msg:(r&&r.messaggio)||errore(r)};impMostra();}});}
 document.addEventListener('change',function(ev){if(ev.target.id!=='k-file')return;var f=ev.target.files&&ev.target.files[0];ev.target.value='';impCarica(f);});
+// copia firmata del SAL (PDF firmato a mano e scansionato, o firmato digitalmente: .pdf o .p7m)
+document.addEventListener('change',function(ev){var i=ev.target;if(!i.classList||!i.classList.contains('f-firm'))return;var f=i.files&&i.files[0],id=i.getAttribute('data-id');i.value='';if(!f)return;
+  if(!/\.(pdf|p7m)$/i.test(f.name)){avviso('Carica il SAL firmato in PDF (.pdf o .p7m).');return;}
+  if(f.size>18*1024*1024){avviso('Il file è troppo grande (massimo 18 MB).');return;}
+  avviso('Invio della copia firmata…');
+  fetch(C.u+'/firmato/carica?t='+encodeURIComponent(C.t)+'&id='+encodeURIComponent(id)+'&nome='+encodeURIComponent(f.name)+'&chi='+encodeURIComponent(ls('sal_autore')),{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream'},body:f})
+    .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};})
+    .then(function(r){if(r&&r.esito==='ok'){avviso('Copia firmata salvata.');ricarica();}else avviso((r&&r.messaggio)||errore(r));});});
 
 // ---------------- eventi
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a,tr'):null;if(!t)return;
@@ -1135,13 +1669,32 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(t.id==='b-salva'){salvaBozza();return;}
   if(t.id==='b-av-agg'){$('#b-av').insertAdjacentHTML('beforeend',rigaAv({}));return;}
   if(t.hasAttribute('data-avx')){t.parentNode.parentNode.removeChild(t.parentNode);return;}
-  if(t.id==='b-scarta'){var b0=D.bozza;finestra('Scartare la bozza del SAL n. '+b0.numero+'?','Le misure restano: torneranno nella prossima bozza. Si perdono solo le altre voci e le note di questa bozza.','','Scarta la bozza',
+  if(t.id==='b-finale'){t.disabled=true;api('bozza',{dati:{tipo:'finale',data_fine_lavori:$('#f-fine').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza del conto finale pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.id==='b-svincolo'){t.disabled=true;api('bozza',{dati:{tipo:'svincolo',data_collaudo:$('#s-dc').value,collaudo_tipo:$('#s-ct').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza dello svincolo pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.hasAttribute('data-tgr')){t.disabled=true;api('traguardo_raggiunto',{id:t.getAttribute('data-tgr'),dati:{data:($('#tgr-d')||{}).value||''}}).then(function(r){if(r&&r.esito==='ok'){avviso('Traguardo segnato raggiunto.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.hasAttribute('data-tgset')){var rg=t.closest('.tg');if(rg){$('.t-r',rg).value=t.getAttribute('data-tgset');avviso('Data messa: salva la scheda contratto.');}return;}
+  if(t.id==='c-tg-crono'){var gia={};[].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){gia[r.getAttribute('data-crono')]=1;});
+    var lista=(D.cardini||[]).filter(function(c){return !gia[c.id];});
+    if(!lista.length){avviso('I traguardi del cronoprogramma sono già tutti nella lista.');return;}
+    finestra('Traguardi dal cronoprogramma','Scegli quelli che fanno scattare un SAL: entrano nella lista con la data del cronoprogramma. Poi salva la scheda contratto.',
+      lista.map(function(c){return '<label class="sc-cr"><input type="checkbox" value="'+es(c.id)+'"> <span>'+es(c.nome)+' <small>fine prevista '+di(c.data)+(c.fatto?' · concluso':'')+'</small></span></label>';}).join(''),'Aggiungi',
+      function(){[].forEach.call(document.querySelectorAll('#dlg-c input:checked'),function(i){var c=(D.cardini||[]).filter(function(x){return x.id===i.value;})[0];
+          if(c)$('#c-tg').insertAdjacentHTML('beforeend',rigaTg({nome:String(c.nome||'').slice(0,120),modo:'misura',data_prevista:c.data,crono_attivita_id:c.id,crono:c}));});
+        $('#c-trag').hidden=false;chiudi();avviso('Traguardi aggiunti: salva la scheda contratto.');});return;}
+  if(t.hasAttribute('data-conf')){var pp=t.getAttribute('data-conf').split(',');t.disabled=true;
+    api('computo_confronto',{dati:{da:pp[0],a:pp[1]}}).then(function(r){t.disabled=false;if(!r||r.esito!=='ok'){avviso(errore(r));return;}var cf=r.confronto||{};
+      finestra('Computo: versione '+r.da+' → versione '+r.a,r.variante?'Variante n. '+r.variante.n+(r.variante.descrizione?': '+r.variante.descrizione:'')+(r.variante.data?' del '+di(r.variante.data):''):'',
+        '<div class="s-cifre"><div class="s-cifra"><small>Versione '+es(r.da)+'</small><b>'+eur(cf.totale_a)+' €</b></div><div class="s-cifra"><small>Versione '+es(r.a)+'</small><b>'+eur(cf.totale_b)+' €</b></div>'+
+        '<div class="s-cifra"><small>Differenza</small><b>'+(Number(cf.differenza)>0?'+':'')+eur(cf.differenza)+' €</b><span>'+(cf.pct!=null?pc(cf.pct):'')+'</span></div></div>'+
+        (Number(r.contratto_da)!==Number(r.contratto_a)?'<p>Importo del contratto: '+eur(r.contratto_da)+' € → '+eur(r.contratto_a)+' €</p>':'')+
+        '<p>'+es(cf.nuove)+(Number(cf.nuove)===1?' voce nuova':' voci nuove')+' · '+es(cf.tolte)+(Number(cf.tolte)===1?' tolta':' tolte')+' · '+es(cf.cambiate)+(Number(cf.cambiate)===1?' cambiata':' cambiate')+'</p>'+tabConfronto(cf.righe,0),'',null,false,true);});return;}
+  if(t.id==='b-scarta'){var b0=D.bozza;finestra('Scartare la bozza ('+nomeDoc(b0.tipo||'sal',b0.numero,b0.versione)+')?','Le misure restano: torneranno nella prossima bozza. Si perdono solo le altre voci e le note di questa bozza.','','Scarta la bozza',
       function(){return salvando(api('stato',{id:b0.id,dati:{azione:'scarta'}})).then(function(r){if(r)avviso('Bozza scartata.');});},true);return;}
-  if(t.id==='b-emetti'){var b1=D.bozza;salvaBozza().then(function(ok){if(!ok)return;var co=CO||{};
-      finestra('Emettere il SAL n. '+b1.numero+'?','Importo: '+eur(co.dovuto)+' € + IVA · lavori fino al '+di(D.bozza.periodo_a),
+  if(t.id==='b-emetti'){var b1=D.bozza,tp1=b1.tipo||'sal',nm1=tp1==='finale'?'il conto finale':tp1==='svincolo'?'lo svincolo delle ritenute':'il SAL n. '+b1.numero;salvaBozza().then(function(ok){if(!ok)return;var co=CO||{};
+      finestra('Emettere '+nm1+'?','Importo: '+eur(co.dovuto)+' € + IVA'+(tp1==='finale'?' · lavori finiti il '+di(D.bozza.data_fine_lavori):tp1==='svincolo'?'':' · lavori fino al '+di(D.bozza.periodo_a)),
         '<p class="nota" style="margin:0">Con l’emissione il SAL riceve l’impronta SHA-256 e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
-        '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti il SAL',
-        function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso('SAL emesso.');});});});return;}
+        '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti',
+        function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso(tp1==='finale'?'Conto finale emesso.':tp1==='svincolo'?'Svincolo emesso.':'SAL emesso.');});});});return;}
   if(t.hasAttribute('data-pconf')||t.hasAttribute('data-pcorr')){var pr=proposta(t.getAttribute('data-pconf')||t.getAttribute('data-pcorr'));if(!pr)return;
     var pv=voce(pr.voce_id)||(CL.voci||[])[0];
     if(t.hasAttribute('data-pcorr')||(pr.q==null&&pr.pct==null)){if(pv)misura(pv,null,pr);return;}
@@ -1153,21 +1706,23 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(t.id==='cu-rifai'){ev.preventDefault();api('curva_prepara',{dati:{rifai:true}}).then(function(r){if(r&&r.esito==='ok'){avviso('Collegamento in corso: meno di un minuto.');curvaGiri=0;ricarica().then(function(){setTimeout(curvaAttendi,20000);});}else avviso(errore(r));});return;}
   if(t.id==='k-tutte'){impTutte=true;corpo();return;}
   if(t.id==='k-conferma'||t.id==='k-annulla'){var conf=t.id==='k-conferma',chi=$('#k-chi')?$('#k-chi').value:'';if(conf&&chi)ls('sal_autore',chi);t.disabled=true;
-    api(conf?'computo_conferma':'computo_annulla',{id:impId,dati:{autore:chi}}).then(function(r){
-      if(r&&r.esito==='ok'){clearTimeout(impTimer);IMP=null;impId=null;impTutte=false;avviso(conf?'Computo caricato: versione '+r.versione+', '+r.voci+' voci.':'Caricamento annullato.');if(conf)ricarica();else corpo();}
+    var dk={autore:chi};if(conf&&$('#k-vd')){dk.variante_descrizione=$('#k-vd').value;dk.variante_data=$('#k-vdata').value;dk.importo_contratto=$('#k-vimp').value;}
+    api(conf?'computo_conferma':'computo_annulla',{id:impId,dati:dk}).then(function(r){
+      if(r&&r.esito==='ok'){clearTimeout(impTimer);IMP=null;impId=null;impTutte=false;
+        avviso(!conf?'Caricamento annullato.':r.variante?'Variante n. '+r.variante+' confermata: versione '+r.versione+' del computo.':'Computo caricato: versione '+r.versione+', '+r.voci+' voci.');if(conf)ricarica();else corpo();}
       else{t.disabled=false;avviso(errore(r));}});return;}
   if(t.id==='c-salva'){salvaContratto();return;}
   if(t.id==='c-tg-agg'){$('#c-tg').insertAdjacentHTML('beforeend',rigaTg({}));return;}
   if(t.hasAttribute('data-tgx')){t.parentNode.parentNode.removeChild(t.parentNode);return;}
   if(t.hasAttribute('data-st')){var az=t.getAttribute('data-st'),sid=t.getAttribute('data-id'),nn=t.getAttribute('data-n');
-    if(az==='firmato'||az==='visto'){finestra(az==='firmato'?'SAL n. '+nn+': firmato dall’impresa':'SAL n. '+nn+': visto dalla Direzione Lavori','Si segna solo nell’area riservata: TIX non manda niente.',
+    if(az==='firmato'||az==='visto'){finestra(az==='firmato'?nn+': firmato dall’impresa':nn+': visto dalla Direzione Lavori','Si segna solo nell’area riservata: TIX non manda niente.',
         '<label>'+(az==='firmato'?'Firmato da':'Nome del Direttore dei Lavori')+'<input type="text" id="f-nome" maxlength="120"></label><label>Il giorno<input type="date" id="f-data" max="'+es(D.oggi)+'" value="'+es(D.oggi)+'"></label>'+
         (az==='visto'?'<label>Nota della DL <small>(facoltativa)</small><input type="text" id="f-nota" maxlength="600"></label>':''),'Salva',
         function(){var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});}
-    else{finestra(az==='riemetti'?'Riemettere il SAL n. '+nn+' con correzioni?':'Annullare il SAL n. '+nn+'?',
+    else{finestra(az==='riemetti'?'Riemettere «'+nn+'» con correzioni?':'Annullare «'+nn+'»?',
         az==='riemetti'?'Nasce la versione successiva in bozza, con le stesse misure da correggere. La versione di prima resta archiviata con la sua impronta.':'Il SAL resta archiviato come annullato; le sue misure tornano libere per il prossimo SAL.',
         '<label>Motivo<textarea id="r-mot" maxlength="600" placeholder="es. la DL ha chiesto di rimisurare la voce 12"></textarea></label><label>Chi lo fa <small>(nome e cognome)</small><input type="text" id="r-nome" maxlength="120" value="'+es(ls('sal_autore'))+'"></label>',
-        az==='riemetti'?'Riemetti':'Annulla il SAL',function(){return salvando(api('stato',{id:sid,dati:{azione:az,motivo:$('#r-mot').value,nome:$('#r-nome').value}})).then(function(r){if(r){avviso(az==='riemetti'?'Versione nuova pronta in bozza.':'SAL annullato.');}});},az==='annulla');}
+        az==='riemetti'?'Riemetti':'Annulla',function(){return salvando(api('stato',{id:sid,dati:{azione:az,motivo:$('#r-mot').value,nome:$('#r-nome').value}})).then(function(r){if(r){avviso(az==='riemetti'?'Versione nuova pronta in bozza.':'SAL annullato.');}});},az==='annulla');}
     return;}
 });
 document.addEventListener('submit',function(ev){if(ev.target.id!=='dlg-f')return;ev.preventDefault();if(dlgAzione)dlgAzione();});
