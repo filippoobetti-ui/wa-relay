@@ -1,3 +1,6 @@
+// v12 (30/10/2026, cartello-cantiere-1): dall'app si caricano i dati di un cantiere (POST /cantiere {t, c}) e il cartello
+// resta legato a quel cantiere; ogni PDF passa da POST /pdf {sessione, impronta, oggetto, ubicazione}: il primo è compreso,
+// poi fino a cartello_modifiche_max (10) PDF con dati diversi; lo stesso cartello si riscarica sempre (funzione SQL cartello_controlla_pdf).
 // 24/10/2026: nome del servizio «TIX · Diario di cantiere» nei testi visibili (prima «Il Giornale Lavori»).
 // cartello — Il Giornale Lavori (05/10/2026) — v10 (23/10/2026: nuovo dominio tixcantiere.it — ritorni ammessi, logo, testi e mittente info@tixcantiere.it; il vecchio dominio resta ammesso) — v9 (16/10/2026: email al tipografo e pagine con i colori e il marchio TIX) — v7 (11/10/2026: invio del PDF al tipografo con link da scaricare) — v6 (10/10/2026: campo «abbonato» nella verifica, per la frase in fondo al cartello) — v4 (09/10/2026: misure personalizzate, stati rimborsato/annullato definitivi) — v2 (sera): client_reference_id CRT-<token> per la conferma dal webhook Stripe
 // già esistente (scenario 7490419 → onboarding_completa_da_pagamento → cartello_completa_da_pagamento).
@@ -103,6 +106,21 @@ async function registraScarico(sessione: string): Promise<void> {
   await dbFetch('rpc/cartello_registra_scarico', { method: 'POST', body: JSON.stringify({ p_session: sessione }) });
 }
 
+// v12 (30/10/2026): dati del cantiere (gettone dell'app) e via libera al PDF con il conteggio delle modifiche
+async function rpc(nome: string, corpo: Dizionario): Promise<Dizionario | null> {
+  const r = await dbFetch(`rpc/${nome}`, { method: 'POST', body: JSON.stringify(corpo) });
+  if (!r || !r.ok) return null;
+  try { return (await r.json()) as Dizionario; } catch { return null; }
+}
+function datiCantiere(t: string, c: string): Promise<Dizionario | null> {
+  return rpc('cartello_dati_cantiere', { p_token: t.slice(0, 80), p_commessa: c.slice(0, 60) || null });
+}
+async function controllaPdf(d: Dizionario): Promise<Dizionario | null> {
+  const s = String(d.sessione ?? '');
+  if (!RE_SESSIONE.test(s)) return { esito: 'non_pagato' };
+  return rpc('cartello_controlla_pdf', { p_session: s, p_impronta: String(d.impronta ?? '').slice(0, 64), p_oggetto: String(d.oggetto ?? '').slice(0, 300), p_ubicazione: String(d.ubicazione ?? '').slice(0, 200) });
+}
+
 // ------------------------------------------------------------------ Stripe
 function formUrl(dati: Record<string, string>): string {
   return Object.entries(dati).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
@@ -171,14 +189,24 @@ async function checkout(req: Request): Promise<Response> {
   const formato = String(dati.formato ?? '');
   const orientamento = String(dati.orientamento ?? 'verticale') === 'orizzontale' ? 'orizzontale' : 'verticale';
   const tipo = String(dati.tipo ?? 'privato') === 'pubblico' ? 'pubblico' : 'privato';
-  const oggetto = String(dati.oggetto ?? '').trim().slice(0, 300);
-  const ubicazione = String(dati.ubicazione ?? '').trim().slice(0, 200);
+  let oggetto = String(dati.oggetto ?? '').trim().slice(0, 300);
+  let ubicazione = String(dati.ubicazione ?? '').trim().slice(0, 200);
+  // v12: dall'app arrivano gettone e cantiere → oggetto e ubicazione sono quelli del cantiere e la vendita resta legata a lui
+  let commessaId: string | null = null;
+  if (dati.t || dati.c) {
+    const k = await datiCantiere(String(dati.t ?? ''), String(dati.c ?? ''));
+    if (!k || k.esito !== 'ok' || !k.cantiere) return json({ errore: 'cantiere non riconosciuto: riapri il cartello dall’app TIX' }, 403);
+    const cant = k.cantiere as Dizionario;
+    commessaId = String(cant.id);
+    oggetto = String(cant.nome ?? '').trim().slice(0, 300) || oggetto;
+    if (String(cant.ubicazione ?? '').trim()) ubicazione = String(cant.ubicazione).trim().slice(0, 200);
+  }
   const ritornoRichiesto = String(dati.ritorno ?? '');
   const etichetta = etichettaFormato(formato);
   if (!etichetta) return json({ errore: 'formato non valido' }, 400);
   if (!oggetto) return json({ errore: 'manca l’oggetto dei lavori' }, 400);
 
-  const imp = await impostazioni(['cartello_url', 'cartello_prezzo_cent', 'cartello_attivo', 'stripe_tax_rate_id_iva22']);
+  const imp = await impostazioni(['cartello_url', 'cartello_prezzo_cent', 'cartello_attivo', 'stripe_tax_rate_id_iva22', 'cartello_modifiche_max']);
   if ((imp.cartello_attivo || 'si') === 'no') return json({ errore: 'servizio momentaneamente sospeso' }, 503);
   const prezzo = Math.max(100, parseInt(imp.cartello_prezzo_cent || '900', 10) || 900);
   const base = (imp.cartello_url || CARTELLO_URL_DEFAULT).replace(/\/+$/, '');
@@ -213,6 +241,7 @@ async function checkout(req: Request): Promise<Response> {
     'metadata[orientamento]': orientamento,
     'metadata[tipo]': tipo,
     'metadata[oggetto]': oggetto.slice(0, 200),
+    'metadata[commessa]': commessaId ?? '',
   };
   if (imp.stripe_tax_rate_id_iva22) campi['line_items[0][tax_rates][0]'] = imp.stripe_tax_rate_id_iva22;
 
@@ -223,6 +252,7 @@ async function checkout(req: Request): Promise<Response> {
   }
   await inserisciVendita({
     session_id: r.corpo.id, token, stato: 'creato', formato, orientamento, tipo, oggetto, ubicazione, ritorno,
+    commessa_id: commessaId, modifiche_max: Math.max(0, parseInt(imp.cartello_modifiche_max || '10', 10) || 10),
     importo_cent: prezzo, iva_pct: 22, totale_cent: Math.round(prezzo * 1.22), valuta: 'eur',
     ip_hash: await hashIp(req), user_agent: (req.headers.get('user-agent') || '').slice(0, 200),
   });
@@ -238,7 +268,7 @@ async function verifica(sessione: string, pivaCartello = '', testoCartello = '')
   if (riga.stato === 'pagato') {
     const ab = await abbonato([String(riga.partita_iva ?? ''), ...pivaCartello.split(',')], String(riga.email ?? ''), testoCartello);
     if (ab !== riga.abbonato) await aggiornaVendita(sessione, { abbonato: ab });
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string), abbonato: ab, email: riga.email ?? '', cliente: riga.cliente ?? '', invii: await contaInvii(sessione) });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(riga.pagato_il as string), abbonato: ab, email: riga.email ?? '', cliente: riga.cliente ?? '', invii: await contaInvii(sessione), commessa: riga.commessa_id ?? '', usate: Number(riga.modifiche_usate ?? 0), max: Number(riga.modifiche_max ?? 10) });
   }
   if (!(await canaleStripe())) return json({ esito: 'in_attesa' });
   const r = await stripe('GET', `checkout/sessions/${encodeURIComponent(sessione)}`);
@@ -263,7 +293,7 @@ async function verifica(sessione: string, pivaCartello = '', testoCartello = '')
       stripe_payment_intent: typeof s.payment_intent === 'string' ? s.payment_intent : null,
       stripe_customer: typeof s.customer === 'string' ? s.customer : null,
     });
-    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando), abbonato: ab, email: emailCompratore, cliente: String(cd.name ?? ''), invii: 0 });
+    return json({ esito: 'pagato', formato: riga.formato, orientamento: riga.orientamento, oggetto: riga.oggetto, ubicazione: riga.ubicazione, pagato_il: dataIt(quando), abbonato: ab, email: emailCompratore, cliente: String(cd.name ?? ''), invii: 0, commessa: riga.commessa_id ?? '', usate: Number(riga.modifiche_usate ?? 0), max: Number(riga.modifiche_max ?? 10) });
   }
   if (s.status === 'expired') { await aggiornaVendita(sessione, { stato: 'scaduto' }); return json({ esito: 'non_trovato' }, 404); }
   return json({ esito: 'in_attesa' });
@@ -315,6 +345,8 @@ async function invioPrepara(req: Request): Promise<Response> {
   if (!RE_SESSIONE.test(sessione)) return json({ errore: 'cartello non riconosciuto' }, 400);
   const vendita = await leggiVendita(sessione);
   if (!vendita || vendita.stato !== 'pagato') return json({ errore: 'si possono inviare solo cartelli già pagati' }, 403);
+  // v12: si invia solo il cartello appena autorizzato da /pdf (stessa impronta): l'invio non aggira il conteggio delle modifiche
+  if (vendita.ultima_impronta && String(d.impronta ?? '') !== vendita.ultima_impronta) return json({ errore: 'il cartello è cambiato dopo l’ultimo controllo: riprova' }, 409);
   const emailCliente = pulito(d.email_cliente, 200).toLowerCase();
   const emailTip = pulito(d.email_tipografo, 200).toLowerCase();
   const nome = pulito(d.nome_cliente, 80).replace(/["<>]/g, '');
@@ -508,6 +540,13 @@ Deno.serve(async (req: Request) => {
       try { return await invioConferma(req); } catch (e) { return json({ errore: 'errore interno: ' + String((e as Error)?.message ?? e).slice(0, 120) }, 500); }
     }
     if (percorso === '/pulizia') return await pulizia(req);
+    if (percorso === '/cantiere' || percorso === '/pdf') {
+      try {
+        const d = (await req.json()) as Dizionario;
+        const r = percorso === '/cantiere' ? await datiCantiere(String(d.t ?? ''), String(d.c ?? '')) : await controllaPdf(d);
+        return json(r ?? { esito: 'errore', errore: 'servizio momentaneamente non disponibile, riprova' }, r ? 200 : 503);
+      } catch { return json({ esito: 'errore', errore: 'richiesta non leggibile' }, 400); }
+    }
     if (percorso === '/scarico') {
       try {
         const d = (await req.json()) as Dizionario;

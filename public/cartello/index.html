@@ -92,6 +92,7 @@ aside.anteprima{position:sticky;top:12px;display:grid;gap:12px}
 .pagamento .tot small{color:var(--muto)}
 .pagato{background:var(--chiaro);border:1px solid #bfe3cf;border-radius:12px;padding:12px 14px}
 .pagato .t{font-weight:700;color:var(--verde)}
+.campo input.fisso,.campo textarea.fisso{background:#EEF4F8;color:#334155;cursor:not-allowed}.campo .fisso-nota{display:block;margin-top:4px;font-size:13px;color:#1E7FBF}
 .invio-tip{margin-top:12px;border:1px solid #bcdcf0;background:#f3f9fd;border-radius:12px;padding:14px}
 .invio-tip .t{font-weight:700;color:#1E7FBF;font-size:1.02rem;margin-bottom:4px}
 .invio-tip .griglia{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
@@ -153,6 +154,14 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
 
 <main class="app">
   <div class="colonna" id="modulo">
+    <section class="pannello" id="pannello-cantiere" hidden>
+      <h2><span class="num">0</span>Carica i dati dal cantiere</h2>
+      <p class="sotto">Scegli il cantiere: il cartello si compila con i dati che TIX ha già (oggetto, indirizzo, committente, direttore dei lavori, impresa, importo, CUP/CIG, date). Oggetto e indirizzo restano quelli del cantiere: il cartello vale solo per lui e comprende fino a 10 modifiche.</p>
+      <div class="riga-opzioni"><label class="campo"><span class="eti">Cantiere</span><select id="sel-cantiere"><option value="">Scegli il cantiere…</option></select></label></div>
+      <button class="btn" type="button" id="btn-carica-cantiere">Carica i dati dal cantiere</button>
+      <p class="aiuto" id="esito-cantiere" aria-live="polite"></p>
+    </section>
+
     <section class="pannello">
       <h2><span class="num">1</span>Formato</h2>
       <p class="sotto">Scrivi base e altezza del cartello finito, in centimetri (da 40 a 600 cm per lato): il disegno e il file si costruiscono da soli. Il file esce alla dimensione reale in PDF/X-1a, pronto per la tipografia.</p>
@@ -224,7 +233,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       <button class="btn secondario" type="button" id="btn-anteprima">Scarica l'anteprima gratuita (PDF con filigrana)</button>
       <div class="pagamento" id="pagamento">
         <div class="tot"><span>Cartello di cantiere · PDF/X-1a per la stampa</span><span><b id="tot-lordo">10,98 €</b> <small>(9,00 € + IVA 22 %)</small></span></div>
-        <p class="nota">Il pagamento vale per questo cantiere: correzioni e nuovi download sono compresi. Al momento del pagamento puoi indicare partita IVA e dati per la fattura.</p>
+        <p class="nota">Il pagamento vale per questo cantiere: comprende il primo PDF e fino a 10 modifiche; riscaricare lo stesso cartello senza cambiare nulla è sempre gratis. Al momento del pagamento puoi indicare partita IVA e dati per la fattura.</p>
         <button class="btn grande" type="button" id="btn-acquista">Acquista e scarica il PDF/X-1a per la stampa</button>
         <p class="motivo-blocco" id="motivo-blocco" hidden></p>
         <div id="pagato-box" hidden></div>
@@ -235,7 +244,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   </aside>
 </main>
 
-<footer class="piede">Un servizio di <a href="https://www.tixcantiere.it" target="_blank" rel="noopener">TIX</a> · <a href="https://www.tixcantiere.it/note-legali" target="_blank" rel="noopener">Note legali</a> · <a href="https://www.tixcantiere.it/termini-condizioni" target="_blank" rel="noopener">Termini</a> · <a href="https://www.tixcantiere.it/privacy-policy" target="_blank" rel="noopener">Privacy</a> · Mentre componi, i dati del cartello restano nel tuo browser. Al pagamento riceviamo formato, oggetto e indirizzo dei lavori; dopo il pagamento, email e nome che inserisci nella pagina di Stripe.</footer>
+<footer class="piede">Un servizio di <a href="https://www.tixcantiere.it" target="_blank" rel="noopener">TIX</a> · <a href="https://www.tixcantiere.it/note-legali" target="_blank" rel="noopener">Note legali</a> · <a href="https://www.tixcantiere.it/termini-condizioni" target="_blank" rel="noopener">Termini</a> · <a href="https://www.tixcantiere.it/privacy-policy" target="_blank" rel="noopener">Privacy</a> · Mentre componi, i dati del cartello restano nel tuo browser. Al pagamento riceviamo formato, oggetto e indirizzo dei lavori; a ogni PDF un’impronta del cartello (non i suoi dati), per contare le modifiche comprese; dopo il pagamento, email e nome che inserisci nella pagina di Stripe.</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js"></script>
@@ -1448,6 +1457,9 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   var API = (location.pathname.replace(/\/+$/, '') || '');
   var PREZZO_CENT = 900, IVA_PCT = 22;
   var CHIAVE_STATO = 'cartello.v1', DB_NOME = 'cartello-cantiere', DB_STORE = 'immagini';
+  // 30/10/2026 (cartello-cantiere-1): aperta dall'app con ?t=<gettone> si sceglie un cantiere e se ne caricano i dati;
+  // il gettone resta solo in questa scheda (sessionStorage), mai nei dati salvati del cartello
+  function gettone() { try { return sessionStorage.getItem('cartello.t') || ''; } catch (e) { return ''; } }
   var $ = function (s) { return document.querySelector(s); };
   var el = function (tag, attrs, html) { var e = document.createElement(tag); if (attrs) Object.keys(attrs).forEach(function (k) { if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]); }); if (html != null) e.innerHTML = html; return e; };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
@@ -1606,6 +1618,8 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
         }
         if (c.id === 'oggetto') { var pre = el('div', { class: 'con-prefisso' }); pre.appendChild(el('span', { class: 'prefisso' }, 'Lavori di')); pre.appendChild(inp); lab.appendChild(pre); }
         else lab.appendChild(inp);
+        var fisso = valoreFisso(c.id);
+        if (fisso !== null) { inp.value = fisso; stato.campi[c.id] = fisso; inp.readOnly = true; inp.classList.add('fisso'); lab.appendChild(el('span', { class: 'fisso-nota' }, 'Preso dal cantiere: si cambia nella scheda del cantiere in TIX.')); }
         gr.appendChild(lab);
       });
       sez.appendChild(gr);
@@ -1905,6 +1919,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var bloccato = !!errMisura || ultimoEsito.avvisi.some(function (a) { return a.indexOf('Troppi dati') === 0; });
     mostraAvvisi(lista);
     motivoBlocco = manca.length ? 'Per acquistare manca ancora: ' + manca.join(', ') + '.' : errMisura ? errMisura : (bloccato ? 'Troppi dati per la misura scelta: accorcia qualche testo oppure scegli un formato più grande (es. 2,00 × 3,00 m).' : '');
+    if (!motivoBlocco && gettone() && !(stato.cantiere && stato.cantiere.id)) motivoBlocco = 'Prima scegli il cantiere e tocca «Carica i dati dal cantiere» (riquadro 0, in alto).';
     $('#btn-acquista').classList.toggle('spento', !!motivoBlocco);
     $('#motivo-blocco').hidden = !motivoBlocco; $('#motivo-blocco').textContent = motivoBlocco;
     aggiornaPagamento();
@@ -1946,16 +1961,105 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     });
   }
   function conAttesa(btn, testo, lavoro) {
-    var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + testo;
+    var prima = btn.innerHTML, ko = ''; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + testo;
     var aggiorna = function (t) { btn.innerHTML = '<span class="spinner"></span>' + t; };
     return new Promise(function (ok) { setTimeout(ok, 30); }).then(function () { return lavoro(aggiorna); })
-      .catch(function (e) { var m = (e && e.message ? e.message : e); if (btn.id === 'btn-invia') esitoInvio('Invio non riuscito: ' + m + '.', false); else errore('Non sono riuscito a creare il PDF: ' + m); })
-      .then(function () { btn.innerHTML = prima; btn.disabled = false; ridisegna(); });
+      .catch(function (e) { var m = (e && e.message ? e.message : e); if (btn.id === 'btn-invia') esitoInvio((e && e.perUtente ? '' : 'Invio non riuscito: ') + m + (e && e.perUtente ? '' : '.'), false); else ko = e && e.perUtente ? m : 'Non sono riuscito a creare il PDF: ' + m; })
+      .then(function () { btn.innerHTML = prima; btn.disabled = false; ridisegna(); if (ko) { errore(ko); $('#avvisi').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } });
   }
   $('#btn-anteprima').addEventListener('click', function () {
     var btn = this;
     conAttesa(btn, 'Preparo l’anteprima…', function () { return generaPdf(false).then(function (u8) { scarica(u8, nomeFile('anteprima')); }); });
   });
+
+  // ---------------------------------------------------------------- 30/10/2026: dati dal cantiere e modifiche comprese
+  function valoreFisso(id) {
+    if (id !== 'oggetto' && id !== 'ubicazione') return null;
+    var p = stato.pagamento, k = stato.cantiere;
+    if (p && p.commessa && M.pulisci(p[id])) return p[id];
+    if (k && k.id && M.pulisci(k[id])) return k[id];
+    return null;
+  }
+  function chiamaCantiere(corpo) {
+    return fetch(API + '/cantiere', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }).then(function (r) { return r.json(); });
+  }
+  function esitoCantiere(t, ok) { var e = $('#esito-cantiere'); e.textContent = t; e.style.color = ok ? '' : '#8a1c12'; }
+  function applicaCantiere(k) {
+    var C = stato.campi, metti = function (id, v) { if (M.pulisci(v)) C[id] = String(v); };
+    C.oggetto = k.nome; metti('ubicazione', k.ubicazione);
+    metti('committente', k.committente); metti('direttore_lavori', k.direttore_lavori); metti('impresa', k.impresa);
+    metti('importo_progetto', k.importo); metti('cup', k.cup); metti('cig', k.cig); metti('data_inizio', k.data_inizio); metti('data_fine', k.data_fine);
+    if (M.pulisci(k.imprese_presenti) && !M.pulisci(C.subappaltatori)) C.subappaltatori = k.imprese_presenti;
+    if ((M.pulisci(k.cup) || M.pulisci(k.cig)) && stato.tipo !== 'pubblico') { stato.tipo = 'pubblico'; document.querySelectorAll('input[name="tipo"]').forEach(function (r) { r.checked = r.value === 'pubblico'; }); }
+    stato.cantiere = { id: k.id, nome: k.nome, oggetto: C.oggetto, ubicazione: M.pulisci(k.ubicazione) ? C.ubicazione : '' };
+    salvaStato(); disegnaModulo(); ridisegna();
+  }
+  function avviaCantiere() {
+    var t = gettone(), k = stato.cantiere;
+    if (!t && !(k && k.id)) return;
+    $('#pannello-cantiere').hidden = false;
+    var sel = $('#sel-cantiere');
+    if (!t) {
+      sel.appendChild(el('option', { value: k.id, selected: 'selected' }, esc(k.nome))); sel.disabled = true; $('#btn-carica-cantiere').hidden = true;
+      esitoCantiere('Dati caricati dal cantiere «' + k.nome + '». Per caricarli di nuovo riapri il cartello dall’app TIX.', true);
+      return;
+    }
+    chiamaCantiere({ t: t }).then(function (j) {
+      if (!j || j.esito !== 'ok') { esitoCantiere(j && j.esito === 'gettone' ? 'Accesso scaduto: riapri il cartello dall’app TIX.' : 'Non riesco a leggere i tuoi cantieri: riprova tra poco.', false); return; }
+      (j.cantieri || []).forEach(function (x) { var o = el('option', { value: x.id }, esc(x.nome + (x.ubicazione ? ' — ' + x.ubicazione : ''))); if (k && k.id === x.id) o.selected = true; sel.appendChild(o); });
+      if (!(j.cantieri || []).length) esitoCantiere('Non hai cantieri aperti in TIX.', false);
+      else if (k && k.id) esitoCantiere('Dati caricati dal cantiere «' + k.nome + '».', true);
+    }).catch(function () { esitoCantiere('Non riesco a leggere i tuoi cantieri: controlla la connessione.', false); });
+  }
+  $('#btn-carica-cantiere').addEventListener('click', function () {
+    var b = this, id = $('#sel-cantiere').value, p = stato.pagamento;
+    if (!id) { esitoCantiere('Scegli prima il cantiere.', false); return; }
+    if (p && p.commessa && p.commessa !== id) { esitoCantiere('Questo cartello è già pagato per un altro cantiere: per un cantiere diverso serve un nuovo acquisto («Cancella tutto e ricomincia», in fondo alla pagina).', false); return; }
+    b.disabled = true;
+    chiamaCantiere({ t: gettone(), c: id }).then(function (j) {
+      b.disabled = false;
+      if (!j || j.esito !== 'ok' || !j.cantiere) { esitoCantiere(j && j.esito === 'gettone' ? 'Accesso scaduto: riapri il cartello dall’app TIX.' : j && j.esito === 'chiuso' ? 'Il cantiere è chiuso.' : 'Non riesco a leggere il cantiere: riprova.', false); return; }
+      applicaCantiere(j.cantiere);
+      esitoCantiere('✓ Dati caricati dal cantiere «' + j.cantiere.nome + '». Controllali e completa quelli che mancano.', true);
+    }).catch(function () { b.disabled = false; esitoCantiere('Il servizio non risponde: riprova.', false); });
+  });
+  // impronta dei dati del cartello (non i dati): serve al server per contare le modifiche comprese
+  function impronta() {
+    var d = datiCorrenti(), campi = {};
+    Object.keys(d.campi || {}).sort().forEach(function (k) { var v = M.pulisci(d.campi[k]); if (v) campi[k] = v; });
+    var im = function (x) { return x ? [x.slot || '', x.ruolo || '', x.src ? x.src.length + ':' + x.src.slice(-64) : ''].join('|') : ''; };
+    var testo = JSON.stringify([d.colore, d.testata, d.misura || null, d.formato, d.orientamento, d.tipo, d.abbondanza, campi, im(immagini.stemma), im(immagini.render), (immagini.loghi || []).map(im)]);
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(testo)).then(function (h) { return Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); });
+  }
+  function rimettiUltimo() {
+    var u = stato.ultimoPdf; if (!u) return;
+    ['colore', 'testata', 'misura', 'formato', 'orientamento', 'tipo', 'abbondanza'].forEach(function (k) { stato[k] = u[k]; });
+    stato.campi = JSON.parse(JSON.stringify(u.campi || {})); salvaStato();
+    document.querySelectorAll('input[name="tipo"]').forEach(function (r) { r.checked = r.value === stato.tipo; });
+    $('#orientamento').value = stato.orientamento; $('#abbondanza').value = String(stato.abbondanza || 0);
+    disegnaFormati(); disegnaColori(); disegnaTestate(); disegnaModulo(); aggiornaOrientamento(); ridisegna();
+  }
+  function stop(t) { var e = new Error(t); e.perUtente = true; return e; }
+  // via libera del server prima di ogni PDF: il primo è compreso, poi fino a 10 PDF con dati diversi; lo stesso si riscarica sempre
+  function permessoPdf(p) {
+    var h = '';
+    return impronta().then(function (x) {
+      h = x;
+      return fetch(API + '/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione, impronta: h, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200) }) });
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.esito === 'ok') {
+        p.usate = Number(j.usate || 0); p.max = Number(j.max || p.max || 10);
+        stato.ultimoPdf = { colore: stato.colore, testata: stato.testata, misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: JSON.parse(JSON.stringify(stato.campi)) };
+        salvaStato(); return h;
+      }
+      if (j && j.esito === 'limite') {
+        if (stato.ultimoPdf && confirm('Hai usato le ' + j.max + ' modifiche comprese per questo cartello.\n\nVuoi rimettere i dati dell’ultimo PDF scaricato? Poi lo puoi riscaricare quando vuoi.')) rimettiUltimo();
+        throw stop('Hai usato le ' + j.max + ' modifiche comprese per questo cartello. L’ultimo PDF scaricato si può sempre riscaricare uguale; per un cartello diverso serve un nuovo acquisto.');
+      }
+      if (j && j.esito === 'altro_cantiere') throw stop('Oggetto o indirizzo non sono quelli del cartello pagato («' + M.pulisci(j.oggetto).slice(0, 60) + '», ' + M.pulisci(j.ubicazione).slice(0, 60) + '): rimettili come erano.');
+      throw new Error((j && (j.errore || j.messaggio)) || 'controllo non riuscito, riprova tra poco');
+    });
+  }
 
   // ---------------------------------------------------------------- pagamento
   function stessoCantiere(p) {
@@ -2024,13 +2128,14 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var d = M.dimensioni(stato), base = Math.round(d.W / 10), alt = Math.round(d.H / 10);
     var invio = null, pdf = null;
     $('#inv-esito').hidden = true;
-    conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
-      return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }).then(function (u8) {
+    var hInvio = '';
+    conAttesa(b, 'Controllo il cartello…', function (aggiorna) {
+      return permessoPdf(p).then(function (h) { hInvio = h; aggiorna('Preparo il PDF/X-1a…'); return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }); }).then(function (u8) {
         pdf = u8;
         if (u8.length > 50 * 1024 * 1024) throw new Error('il file supera i 50 MB: scaricalo e mandalo con WeTransfer, oppure usa immagini più leggere');
         aggiorna('Preparo l’invio…');
         return fetch(API + '/invio-prepara', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessione: p.sessione, nome_cliente: nome, email_cliente: email, email_tipografo: tip, nota: nota, byte: u8.length, base_cm: base, altezza_cm: alt }) });
+          body: JSON.stringify({ sessione: p.sessione, impronta: hInvio, nome_cliente: nome, email_cliente: email, email_tipografo: tip, nota: nota, byte: u8.length, base_cm: base, altezza_cm: alt }) });
       }).then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.id) throw new Error(j.errore || 'invio non avviato'); return j; }); }).then(function (j) {
         invio = j;
         aggiorna('Carico il file (' + (pdf.length / 1048576).toFixed(1).replace('.', ',') + ' MB)…');
@@ -2055,17 +2160,16 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     if (p && stessoCantiere(p)) {
       box.hidden = false;
       box.innerHTML = '<div class="pagato"><div class="t">✓ Pagamento ricevuto' + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
-        '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.titoloLavori(p.oggetto || stato.campi.oggetto).slice(0, 80)) + '». Puoi correggere i dati e scaricare di nuovo il PDF quante volte vuoi.</div>' +
+        '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.titoloLavori(p.oggetto || stato.campi.oggetto).slice(0, 80)) + '». Comprende il primo PDF e fino a ' + (p.max || 10) + ' modifiche: usate ' + (p.usate || 0) + ' di ' + (p.max || 10) + '. Riscaricare lo stesso cartello senza cambiare nulla è sempre gratis.</div>' +
         '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button></div>';
       btn.hidden = true;
       mostraInvio(p);
       $('#btn-scarica').addEventListener('click', function () {
         var b = this;
-        conAttesa(b, 'Preparo il PDF/X-1a…', function (aggiorna) {
-          return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }).then(function (u8) {
+        conAttesa(b, 'Controllo il cartello…', function (aggiorna) {
+          return permessoPdf(p).then(function () { aggiorna('Preparo il PDF/X-1a…'); return generaPdf(true, function (f) { aggiorna('Converto le immagini in CMYK… ' + Math.round(f * 100) + ' %'); }); }).then(function (u8) {
             scarica(u8, nomeFile('PDFX1a'));
             if (!M.pulisci(p.oggetto)) { p.oggetto = stato.campi.oggetto; p.ubicazione = stato.campi.ubicazione; salvaStato(); }
-            try { fetch(API + '/scarico', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione }) }); } catch (e) {}
           });
         });
       });
@@ -2084,7 +2188,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     salvaImmagini().then(function () {
       return fetch(API + '/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formato: M.codiceFormato(stato), orientamento: stato.formato === 'su_misura' ? 'verticale' : stato.orientamento, tipo: stato.tipo, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200), ritorno: location.origin + location.pathname })
+        body: JSON.stringify({ formato: M.codiceFormato(stato), orientamento: stato.formato === 'su_misura' ? 'verticale' : stato.orientamento, tipo: stato.tipo, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200), ritorno: location.origin + location.pathname, t: stato.cantiere && stato.cantiere.id ? gettone() : '', c: (stato.cantiere && stato.cantiere.id) || '' })
       });
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
       if (!x.ok || !x.j || !x.j.url) throw new Error((x.j && x.j.errore) || 'servizio di pagamento non disponibile');
@@ -2101,7 +2205,8 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var pive = (testoImp.match(/\b\d{11}\b/g) || []).slice(0, 5).join(',');
     return fetch(API + '/verifica?sessione=' + encodeURIComponent(id) + '&piva=' + encodeURIComponent(pive) + '&testo=' + encodeURIComponent(testoImp)).then(function (r) { return r.json(); }).then(function (j) {
       if (j && j.esito === 'pagato') {
-        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato, email: j.email || '', cliente: j.cliente || '', invii: Number(j.invii || 0) };
+        stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato, email: j.email || '', cliente: j.cliente || '', invii: Number(j.invii || 0), commessa: j.commessa || '', usate: Number(j.usate || 0), max: Number(j.max || 10) };
+        if (stato.pagamento.commessa) { stato.campi.oggetto = stato.pagamento.oggetto; if (M.pulisci(stato.pagamento.ubicazione)) stato.campi.ubicazione = stato.pagamento.ubicazione; disegnaModulo(); }
         try { ridisegna(); } catch (e) { /* l'anteprima si aggiorna comunque al prossimo cambio */ }
         stato.sessione = null; salvaStato();
         mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
@@ -2150,6 +2255,8 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       disegnaMiniature();
       ridisegna();
       var q = new URLSearchParams(location.search);
+      if (/^[0-9a-f]{64}$/.test(q.get('t') || '')) { try { sessionStorage.setItem('cartello.t', q.get('t')); } catch (e) {} }
+      avviaCantiere();
       var sess = q.get('sessione') || stato.sessione;
       if (q.get('esito') === 'annullato') mostraAvvisi([{ testo: 'Pagamento annullato: il cartello è rimasto com’era, puoi riprovare quando vuoi.' }]);
       if (sess) {
@@ -2160,7 +2267,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
           }
         });
       }
-      if (q.get('sessione') || q.get('esito')) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+      if (q.get('sessione') || q.get('esito') || q.get('t')) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', avvia); else avvia();
