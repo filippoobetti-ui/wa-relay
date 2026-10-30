@@ -211,7 +211,7 @@ async function rubricaRoute(request, env, base, inUrl, h) {
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
 }
 
-const RAPPORTI_OPZ = '<option value="dipendente">Titolare o dipendente</option><option value="subappaltatore">Impresa subappaltatrice</option>' +
+const RAPPORTI_OPZ = '<option value="titolare">Titolare</option><option value="dipendente">Dipendente</option><option value="subappaltatore">Impresa subappaltatrice</option>' +
   '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
 
 const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio" id="form-sch" novalidate aria-labelledby="t-sch">' +
@@ -240,7 +240,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 var toastT;function toast(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){el.hidden=true;},2800);}
 function chiama(az,extra){var b={t:CFG.t,azione:az};for(var k in extra)b[k]=extra[k];
   return fetch(CFG.api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){return r.json();});}
-var RAPP={dipendente:"Titolare o dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",esterno:"Esterno"};
+var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",esterno:"Esterno"};
 function sotto(){$("sotto").textContent=(D.impresa||"")+" · "+P.length+(P.length===1?" contatto":" contatti");}
 function disegna(q){q=(q||"").toLowerCase().trim();var h="";sotto();
   P.filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email,p.azienda,p.partita_iva,p.codice_fiscale].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p){
@@ -338,7 +338,7 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<div><label class="c" for="f-mail">Email</label><input class="campo" id="f-mail" type="email" maxlength="120" placeholder="facoltativa"></div></div>' +
   '<label class="c" for="f-imp">Impresa della persona</label><input class="campo" id="f-imp" maxlength="120">' +
   '<label class="c" for="f-rapp">Rapporto con l\'impresa</label><select class="campo" id="f-rapp">' +
-  '<option value="dipendente">Titolare o dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
+  '<option value="titolare">Titolare (si conta nel canone)</option><option value="dipendente">Dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
   '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option>' +
   '<option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
