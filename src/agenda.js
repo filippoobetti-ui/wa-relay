@@ -390,6 +390,18 @@ export function paginaAgenda(base, tok, c, d, h) {
     tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.g));
   const rubrica = (Array.isArray(d.rubrica) ? d.rubrica : []).map((k) => ({ id: Number(k.id) || 0, n: String(k.nome || ""), e: String(k.email || ""), i: String(k.impresa || "") })).filter((k) => k.id);
   const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI, rubrica: rubrica }).replace(/</g, "\\u003c");
+  // Collega al calendario (30/10/2026, Filippo): pulsanti diretti per Google Calendar, iPhone/Mac e Outlook in cima all'agenda;
+  // per gli altri calendari l'indirizzo resta da copiare. Il calendario va in una sola direzione: dall'agenda TIX al telefono.
+  const icsUrl = d.ics_chiave && /^[0-9a-f]{32}$/.test(String(d.ics_chiave)) ? inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics" : "";
+  const webcal = icsUrl.replace(/^https?:\/\//, "webcal://");
+  const collega = icsUrl ? '<section class="collega" aria-label="Collega l’agenda al tuo calendario"><div class="collega-t">&#128198; Collega questa agenda al tuo calendario <small>si aggiorna da sola</small></div>' +
+    '<div class="collega-b"><a class="cb" href="' + e("https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal)) + '" target="_blank" rel="noopener">Google Calendar</a>' +
+    '<a class="cb" href="' + e(webcal) + '">iPhone / Mac</a>' +
+    '<a class="cb" href="' + e("https://outlook.live.com/calendar/0/addfromweb?url=" + encodeURIComponent(icsUrl) + "&name=" + encodeURIComponent("Agenda " + (cant.nome || "cantiere"))) + '" target="_blank" rel="noopener">Outlook</a></div>' +
+    '<details class="collega-altro"><summary>Altro calendario (Samsung, Outlook aziendale…): copia l’indirizzo</summary>' +
+    '<div class="ics-riga"><input type="text" readonly id="ics-url" value="' + e(icsUrl) + '"><button type="button" id="ics-copia">Copia</button></div>' +
+    '<p class="piccolo">Incollalo in «Aggiungi calendario da URL» o «Iscriviti a un calendario». Il collegamento va in una sola direzione, dall’agenda TIX al tuo calendario; Google lo aggiorna ogni qualche ora. ' +
+    'Chi ha questo indirizzo vede gli appuntamenti del cantiere: condividilo solo con chi deve averli.</p></details></section>' : "";
   // «Lavorazioni» prima voce del Tipo e scelta di partenza del nuovo appuntamento (29/10/2026, Filippo);
   // la legenda del calendario resta nell'ordine di TIPI
   const opzTipo = ["lavorazione"].concat(Object.keys(TIPI).filter((k) => k !== "lavorazione")).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
@@ -409,14 +421,10 @@ export function paginaAgenda(base, tok, c, d, h) {
     // Calendario del mese: lo disegna lo script (CALENDARIO); senza JavaScript resta l'elenco qui sotto
     '<section class="cal" id="cal" aria-label="Calendario del mese" hidden></section>' +
     (d.chiuso ? "" : '<button type="button" class="ag-btn" id="ag-nuovo"><span class="ic">' + AGENDA_ICONA + "</span>Nuovo appuntamento</button>") +
+    collega +
     (d.avvisi_attivi === false ? '<p class="nota">Gli avvisi WhatsApp sono spenti in questo momento: gli appuntamenti restano in agenda.</p>' : "") +
     futuri +
     (np ? '<details class="pass-box"><summary>Appuntamenti passati (ultimi 30 giorni): ' + np + "</summary>" + passati + "</details>" : "") +
-    (d.ics_chiave && /^[0-9a-f]{32}$/.test(String(d.ics_chiave)) ?
-      '<details class="ics-box"><summary>&#128198; Aggiungi questa agenda al tuo calendario</summary>' +
-      '<p>Questo indirizzo è un calendario che si aggiorna da solo (formato ICS). In Google Calendar: <b>Altri calendari → + → Da URL</b>; sul telefono Samsung o iPhone: <b>Aggiungi calendario da URL / Calendario con sottoscrizione</b>.</p>' +
-      '<div class="ics-riga"><input type="text" readonly id="ics-url" value="' + e(inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics") + '"><button type="button" id="ics-copia">Copia</button></div>' +
-      '<p class="piccolo">Chi ha questo indirizzo vede gli appuntamenti del cantiere: condividilo solo con chi deve averli.</p></details>' : "") +
     '<p class="nota">Ogni appuntamento arriva su WhatsApp a chi lavora in questo cantiere (' + avvisoChi + '), nella sua lingua. ' +
     'Chi non ha scritto a TIX nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso. ' +
     'Le «Lavorazioni» arrivano solo alle persone scelte in «Chi».</p>' +
@@ -527,7 +535,12 @@ const STILE =
   ".es-r .es-c{display:flex;gap:8px;margin-top:6px}.dl-c .es-r select{flex:1;margin-top:0}.dl-c .es-r input{width:90px;flex:none;margin-top:0}" +
   // ---- calendario del mese (28/10/2026): griglia come Google Calendar, con un colore per tipo di appuntamento
   ".t-consegna{--tc:#F59E0B}.t-fornitore{--tc:#8B5CF6}.t-sopralluogo{--tc:#0EA5E9}.t-collaudo{--tc:#10B981}.t-riunione{--tc:#EC4899}.t-lavorazione{--tc:#F97316}.t-altro{--tc:#64748B}" +
-  "@media (min-width:760px){main{max-width:1060px}main>.ag,main>.tit,main>.vuoto,main>details,main>.nota,main>.ag-btn,main>.avviso{max-width:720px;margin-left:auto;margin-right:auto}}" +
+  "@media (min-width:760px){main{max-width:1060px}main>.ag,main>.tit,main>.vuoto,main>details,main>.nota,main>.ag-btn,main>.avviso,main>.collega{max-width:720px;margin-left:auto;margin-right:auto}}" +
+  ".collega{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:12px 14px;margin:0 0 16px}.collega-t{font-weight:800;color:#23302A;margin:0 0 8px}" +
+  ".collega-t small{font-weight:500;color:#5b6560;margin-left:4px}.collega-b{display:flex;flex-wrap:wrap;gap:8px}" +
+  ".cb{flex:1 1 150px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--bordo);background:#fff;color:#23302A;font-weight:700;text-decoration:none}" +
+  ".cb:hover,.cb:focus-visible{border-color:var(--ar);color:var(--ar-s)}.collega-altro{margin-top:10px}.collega-altro summary{cursor:pointer;font-size:.86rem;font-weight:700;color:var(--accento)}" +
+  ".collega-altro .ics-riga{margin-top:8px}.collega-altro p{font-size:.84rem;color:#444;margin:8px 0 0}" +
   ".cal{position:relative;margin:4px 0 18px;padding:18px 18px 14px;border-radius:24px;background:linear-gradient(180deg,#FFFFFF,#F7F9FB);" +
   "border:1px solid rgba(15,23,42,.08);box-shadow:0 1px 2px rgba(15,23,42,.05),0 24px 48px -28px rgba(15,23,42,.35);overflow:hidden}" +
   ".cal:before{content:'';position:absolute;inset:-40% -10% auto auto;width:60%;height:120%;background:radial-gradient(closest-side,rgba(194,122,18,.10),transparent);pointer-events:none}" +
