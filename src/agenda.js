@@ -539,6 +539,8 @@ const STILE =
   // ---- calendario del mese (28/10/2026): griglia come Google Calendar, con un colore per tipo di appuntamento
   ".t-consegna{--tc:#F59E0B}.t-fornitore{--tc:#8B5CF6}.t-sopralluogo{--tc:#0EA5E9}.t-collaudo{--tc:#10B981}.t-riunione{--tc:#EC4899}.t-lavorazione{--tc:#F97316}.t-altro{--tc:#64748B}" +
   "@media (min-width:760px){main{max-width:1060px}main>.ag,main>.tit,main>.vuoto,main>details,main>.nota,main>.ag-btn,main>.avviso,main>.collega{max-width:720px;margin-left:auto;margin-right:auto}}" +
+  // 31/10/2026 (Filippo): sul computer la pagina è larga fino a 1000 px, come le schede del cantiere
+  "@media screen and (min-width:760px){main{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){main{max-width:min(1000px,calc(100vw - 200px))}}@media screen and (min-width:760px){main>.ag,main>.tit,main>.vuoto,main>details,main>.nota,main>.ag-btn,main>.avviso,main>.collega{max-width:none}}" +
   ".collega{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:12px 14px;margin:0 0 16px}.collega-t{font-weight:800;color:#23302A;margin:0 0 8px}" +
   ".collega-t small{font-weight:500;color:#5b6560;margin-left:4px}.collega-b{display:flex;flex-wrap:wrap;gap:8px}" +
   ".cb{flex:1 1 150px;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--bordo);background:#fff;color:#23302A;font-weight:700;text-decoration:none}" +

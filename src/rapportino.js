@@ -261,6 +261,8 @@ const STILE =
   "header .logo-impresa img{display:block;height:52px;width:auto;max-width:240px;object-fit:contain}" +
   "@media (max-width:640px){header{grid-template-columns:1fr auto}header .centro{grid-column:1/-1;grid-row:2;margin-top:12px}header .dx{grid-column:2}header .logo{height:36px}header .logo-impresa img{height:40px}}" +
   "main{max-width:680px;margin:0 auto;padding:16px 16px 0}" +
+  // 31/10/2026 (Filippo): sul computer la pagina è larga fino a 1000 px, come le schede del cantiere
+  "@media screen and (min-width:760px){main{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){main{max-width:min(1000px,calc(100vw - 200px))}}" +
   "a.indietro{display:inline-flex;align-items:center;min-height:44px;padding:0 12px 0 0;margin:-8px 0 4px;font-size:.95rem;font-weight:800;color:#0A7D48;text-decoration:none}" +
   ".avviso{background:#fff;border-left:4px solid var(--ar);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:.92rem}" +
   ".cal,.pannello{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:12px 14px;margin:0 0 14px}" +

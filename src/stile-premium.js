@@ -70,7 +70,7 @@ export const PREMIUM_PORTALE = "<style id=\"tx-premium\">" +
   // 5. immagini: angoli molto arrotondati e bordo leggero di contenimento
   ".mini{border-radius:14px;border:0;outline:1px solid rgba(16,27,43,.10);outline-offset:-1px;box-shadow:" + OMBRA_1 + "}" +
   ".griglia{gap:8px}.griglia img{border-radius:14px;outline:1px solid rgba(16,27,43,.08);outline-offset:-1px}" +
-  ".griglia span{border-radius:6px;background:rgba(16,24,38,.6);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}" +
+  ".griglia a span{border-radius:6px;background:rgba(16,24,38,.6);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}" +
   // 6. campi e pulsanti: bordi morbidi e finitura lucida
   "input,select,textarea{border-radius:12px;transition:border-color .25s " + C + ",box-shadow .25s " + C + "}" +
   "input:focus,select:focus,textarea:focus{outline:none;border-color:#1B2F4A;box-shadow:0 0 0 4px rgba(27,47,74,.12)}" +

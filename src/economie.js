@@ -118,6 +118,8 @@ function pagina(base, h, p, mese, imprese, scelta, lista, torna) {
     "@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531;--ar:#cfe0ff;--v:#7fd6a3}}" +
     "*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--b);color:var(--t)}" +
     "main{max-width:960px;margin:0 auto;padding:20px 12px 40px}.ec-torna{display:inline-block;margin:0 0 12px;color:var(--ar);font-weight:600;text-decoration:none}" +
+    // 31/10/2026 (Filippo): sul computer la pagina è larga fino a 1000 px, come le schede del cantiere
+    "@media screen and (min-width:760px){main{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){main{max-width:min(1000px,calc(100vw - 200px))}}" +
     ".ec-card{background:var(--c);border:1px solid var(--l);border-radius:14px;padding:18px 18px 14px}" +
     ".ec-testa{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}" +
     ".ec-testa p{margin:0;font-size:.88rem;color:var(--s)}.ec-testa h1{margin:2px 0 0;font-size:1.3rem;color:var(--ar)}" +
