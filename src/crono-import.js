@@ -303,6 +303,7 @@ const STILE =
   ".ris .num div{background:var(--sfondo);border-radius:10px;padding:8px;text-align:center}.ris .num b{display:block;font-size:1.3rem;font-variant-numeric:tabular-nums}.ris .num small{font-size:.76rem;color:#4A524E}" +
   ".ris .av{border-left:4px solid #C27A12;background:#FFF7EA;border-radius:8px;padding:6px 10px;margin:6px 0;font-size:.86rem}" +
   ".tab{width:100%;border-collapse:collapse;font-size:.86rem;margin-top:8px;table-layout:fixed}.tab td{padding:6px;border-top:1px solid #EEF0EF;vertical-align:top}.tab .d{font-size:.78rem;font-weight:400;font-variant-numeric:tabular-nums;color:#4A524E;margin-top:1px}" +
+  '@media print{.box::before,.att::before,.ris::before{display:none!important}.box,.att,.ris{border:1.5px solid #1B2F4A!important}}' +
   // 30/10/2026 sera (Filippo): linea sfumata blu TIX → arancione sui riquadri della pagina
   '.box,.att,.ris{position:relative;border-color:transparent!important}.box::before,.att::before,.ris::before{content:"";position:absolute;inset:-1px;background:linear-gradient(135deg,#1B2F4A,#F26A10);padding:2px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;border-radius:inherit}@media (prefers-color-scheme:dark){.box::before,.att::before,.ris::before{background:linear-gradient(135deg,#6F8FBF,#F26A10)}}' +
   ".tab tr.r td{font-weight:700}.tab tr.c td.n::before{content:'\\25C6  ';color:#C27A12}.tab td.n{overflow-wrap:anywhere}" +
