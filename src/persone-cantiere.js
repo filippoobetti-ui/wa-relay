@@ -541,7 +541,7 @@ export function personeIniezione(base, token, commessa) {
 const STILE = "[hidden]{display:none!important}:root{--navy:#1B2F4A;--navy-2:#24405f;--arancio:#F26A10;--verde:#0A7D48;--ambra:#B86E0B;--rosso:#B3261E;--bg:#F3F5F7;--carta:#fff;--testo:#17212E;--tenue:#5B6672;--bordo:#D9DFE6;--chip:#EAF0F6;--verde-f:#E3F3EA;--ambra-f:#FCF1DE}" +
   "@media (prefers-color-scheme:dark){:root{--bg:#0F1722;--carta:#172231;--testo:#E8EDF3;--tenue:#9AA8B8;--bordo:#2A3A4E;--chip:#203047;--verde-f:#123A28;--ambra-f:#3A2A10;--verde:#3FBF7F;--ambra:#E2A44A;--rosso:#F07A6E;color-scheme:dark}}" +
   "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--testo);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.45}" +
-  ".testa{background:var(--navy);color:#fff;padding:16px max(16px,env(safe-area-inset-left)) 20px}.in{max-width:720px;margin:0 auto}" +
+  ".testa{background:var(--navy);color:#fff;padding:16px max(16px,env(safe-area-inset-left)) 20px}.in{max-width:720px;margin:0 auto}@media screen and (min-width:760px){.in{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){.in{max-width:min(1000px,calc(100vw - 200px))}}" +
   ".torna{color:#C9D6E5;font-size:.9rem;text-decoration:none}.testa h1{font-size:1.7rem;margin:8px 0 2px}.testa p{margin:0;color:#C9D6E5;font-size:.95rem}" +
   ".riass{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.riass span{background:var(--navy-2);border-radius:10px;padding:6px 10px;font-size:.85rem}" +
   ".corpo{padding:16px max(16px,env(safe-area-inset-left)) 110px}.barra{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.barra h2{font-size:1.25rem;margin:0}" +
