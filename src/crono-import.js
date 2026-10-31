@@ -262,7 +262,7 @@ function paginaCrono(base, tok, c, d, h, spentoRelay, apri) {
         '<p class="nota" style="margin-top:0">Vanno bene il <b>PDF</b> stampato da Project o da Primavera, il file <b>XML</b> di Project (File → Salva con nome → XML), il file <b>XER</b> o <b>XML</b> di Primavera, un <b>Excel</b> o <b>CSV</b> con nome, inizio e fine delle lavorazioni, oppure una <b>foto</b> nitida. Massimo 18 MB.</p>') +
     '<section id="lavoro" hidden><div class="tit" id="w-tit">Lettura del file</div><div id="w-corpo"></div></section>' +
     (elenco ? '<div class="tit">Ultimi file ricevuti</div>' + elenco : "") +
-    '<p class="nota">Il file viene letto in automatico e ti mostriamo cosa abbiamo trovato: <b>nel giornale non cambia nulla finché non premi «Conferma»</b>. ' +
+    '<p class="nota">Il file viene letto in automatico e ti mostriamo cosa abbiamo trovato: <b>nel diario non cambia nulla finché non premi «Conferma»</b>. ' +
     "Alla conferma il nuovo cronoprogramma diventa quello in uso; quello di prima resta in archivio e le lavorazioni già registrate (con lo stesso nome) tengono date reali e avanzamento.</p>" +
     '<p class="nota">Puoi anche mandarlo su WhatsApp a TIX scrivendo nel messaggio «cronoprogramma» e il nome del cantiere: ricevi lo stesso riepilogo da confermare.</p>' +
     "<noscript><p class=\"nota\"><b>Per caricare il file serve JavaScript attivo nel browser.</b></p></noscript>" +
@@ -371,7 +371,7 @@ function azione(a){
   fetch(D.base+'/cronoprogramma/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:D.t,c:D.c,id:idCorrente,azione:a})})
   .then(function(r){return r.json()}).then(function(r){
     if(a==='annulla'){mostra('Annullato','<div class="att">Ok, non ho caricato nulla: il cronoprogramma resta quello di prima.</div>');return}
-    if(r.esito==='ok'){mostra('Cronoprogramma caricato','<div class="ok"><b>Fatto: è la versione '+esc(r.versione)+' del cronoprogramma, con '+esc(r.righe)+' righe.</b>'+(r.riportate?' '+esc(r.riportate)+' lavorazioni tengono date reali e avanzamento.':'')+' Da adesso si aggiorna con i messaggi del giornale.</div><div class="az"><button type="button" class="si" id="b-torna">Vai al cantiere</button></div>');q('#b-torna').onclick=function(){location.href=D.torna};return}
+    if(r.esito==='ok'){mostra('Cronoprogramma caricato','<div class="ok"><b>Fatto: è la versione '+esc(r.versione)+' del cronoprogramma, con '+esc(r.righe)+' righe.</b>'+(r.riportate?' '+esc(r.riportate)+' lavorazioni tengono date reali e avanzamento.':'')+' Da adesso si aggiorna con i messaggi del diario.</div><div class="az"><button type="button" class="si" id="b-torna">Vai al cantiere</button></div>');q('#b-torna').onclick=function(){location.href=D.torna};return}
     errore(r.esito==='stato'?'Questo file non è più da confermare ('+(r.stato||'')+'). Ricarica la pagina.':'Non sono riuscito a caricare il cronoprogramma: riprova tra un minuto.');
   }).catch(function(){if(b1)b1.disabled=false;if(b2)b2.disabled=false;errore('Connessione assente: riprova.')});
 }

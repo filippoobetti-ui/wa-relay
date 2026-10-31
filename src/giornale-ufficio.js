@@ -74,7 +74,7 @@ function ricorda(v){try{if(v)localStorage.setItem('gl_rp_autore',v);}catch(x){}}
 function chiudi(ov){if(ov&&ov.parentNode)ov.parentNode.removeChild(ov);}
 function finestra(){var ov=el('div','gl-gu-ov'),bx=el('div','gl-gu-bx');ov.appendChild(bx);ov.addEventListener('click',function(e){if(e.target===ov)chiudi(ov);});document.body.appendChild(ov);return {ov:ov,bx:bx};}
 function dIt(s){var p=String(s||'').split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:'';}
-function errore(r){if(!r)return 'Operazione non riuscita. Riprova.';if(r.esito==='gettone')return 'Collegamento non valido o scaduto: ricarica la pagina.';if(r.esito==='chiuso')return 'Il cantiere è chiuso: il giornale non si modifica.';if(r.esito==='incerto')return 'Non ho avuto risposta: ricarica la pagina tra un minuto per vedere se è stato salvato.';return r.messaggio||'Operazione non riuscita. Riprova.';}
+function errore(r){if(!r)return 'Operazione non riuscita. Riprova.';if(r.esito==='gettone')return 'Collegamento non valido o scaduto: ricarica la pagina.';if(r.esito==='chiuso')return 'Il cantiere è chiuso: il diario non si modifica.';if(r.esito==='incerto')return 'Non ho avuto risposta: ricarica la pagina tra un minuto per vedere se è stato salvato.';return r.messaggio||'Operazione non riuscita. Riprova.';}
 /* ---------- Correggi ---------- */
 function correggi(mid){
  var w=finestra(),bx=w.bx;bx.innerHTML='<h3>Correggi la voce</h3><p>Caricamento…</p>';
@@ -116,7 +116,7 @@ function correggi(mid){
 function aggiungi(){
  var w=finestra(),bx=w.bx;
  bx.innerHTML='<h3>Aggiungi una voce di oggi</h3>'+
-  '<div class="gl-gu-ok">La voce entra nel giornale di oggi e nel diario di stasera (chiusura alle '+esc(STATO.ora_chiusura)+'), segnata «Ufficio» con il tuo nome.</div>'+
+  '<div class="gl-gu-ok">La voce entra nel diario di oggi e nel PDF di stasera (chiusura alle '+esc(STATO.ora_chiusura)+'), segnata «Ufficio» con il tuo nome.</div>'+
   '<label for="gl-gu-s">Sezione</label><select id="gl-gu-s"><option value="LAV">Lavorazioni</option><option value="NOTE">Note</option><option value="VISITA">Visite</option><option value="SAL">SAL</option></select>'+
   '<label for="gl-gu-t">Testo</label><textarea id="gl-gu-t" rows="5" maxlength="4000" placeholder="es. Getto del solaio del piano 1 completato"></textarea>'+
   '<label for="gl-gu-a">Inserita da <span style="font-weight:400;color:#666">(nome e cognome)</span></label><input type="text" id="gl-gu-a" maxlength="120" autocomplete="name">'+
