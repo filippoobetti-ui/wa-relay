@@ -597,7 +597,8 @@ const INVITO_HTML = '<div class="velo" id="velo-inv" hidden><div class="foglio" 
   '<div id="stampa"><div class="inv"><div class="qr" id="i-qr" role="img" aria-label="Codice QR dell\'invito"></div><div style="min-width:0"><div class="p-sub">Codice personale</div><div class="codice" id="i-cod"></div><div class="link" id="i-link"></div></div></div></div>' +
   '<div class="azioni"><a class="btn wa" id="i-cond" target="_blank" rel="noopener">Condividi su WhatsApp</a><button class="btn" type="button" id="i-copia">Copia il link</button>' +
   '<a class="btn" id="i-mail">Prepara l\'email</a><button class="btn" type="button" id="i-stampa">Stampa il QR</button><button class="btn" type="button" id="i-nuovo">Nuovo codice</button></div>' +
-  '<p class="sotto" style="margin-top:12px">«Prepara l\'email» apre la tua posta con il testo pronto: l\'email parte dal tuo indirizzo, quando la invii tu.</p>' +
+  '<p class="sotto" style="margin-top:12px">«Condividi su WhatsApp» apre una chat con la persona e il messaggio parte dal <b>tuo</b> numero: va bene lo stesso, perché TIX riceve il primo messaggio solo quando la persona apre il link e scrive. Se preferisci non usare il tuo numero, usa «Copia il link» e mandalo da un altro canale (email, SMS o QR stampato).</p>' +
+  '<p class="sotto" style="margin-top:8px">«Prepara l\'email» apre la tua posta con il testo pronto: l\'email parte dal tuo indirizzo, quando la invii tu.</p>' +
   '<div class="fine"><button class="btn pr" type="button" data-chiudi>Fatto</button></div></div></div>';
 
 const PAGINA_JS = String.raw`
