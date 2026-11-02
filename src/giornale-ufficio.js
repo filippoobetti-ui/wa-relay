@@ -483,13 +483,16 @@ function riapri(){
 }
 /* ---------- tasti nella pagina ---------- */
 function mettiTasti(){
- document.querySelectorAll('.voce[data-mid]').forEach(function(n){
+ document.querySelectorAll('.voce[data-mid],.fx-ev[data-mid]').forEach(function(n){
   if(n.querySelector('.gl-gu-b'))return;
   var mid=n.getAttribute('data-mid');if(!mid)return;
   var b=el('button','gl-gu-b','&#9998; Correggi');b.type='button';b.title='Correggi il testo della voce';
   var cf=STATO.conferme&&STATO.conferme[mid],sg=null;
   if(cf){var ok=cf==='confermata'||cf==='corretta';sg=el('span','gl-gu-cf'+(ok?' ok':''),ok?(cf==='corretta'?'&#10003; Corretta da chi l’ha scritta':'&#10003; Confermata da chi l’ha scritta'):'&#9888; Da confermare');sg.title=ok?'Chi ha mandato il messaggio ha risposto alla domanda «Ho capito così?»':'La correzione automatica era incerta e chi ha scritto non l’ha confermata: controlla il testo con «Correggi»';}
   b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();correggi(mid);});
+  /* 02/11/2026 diario-giornata-1: nella giornata nuova (.fx-ev) «Correggi» e il segno vanno nella riga dell'autore */
+  var chi=n.classList.contains('fx-ev')?n.querySelector(':scope > .chi'):null;
+  if(chi){chi.appendChild(b);if(sg)chi.insertBefore(sg,b);return;}
   var file=null,ll=n.querySelectorAll('a.link');
   for(var i=0;i<ll.length;i++){if(/Apri il file/.test(ll[i].textContent||'')){file=ll[i];break;}}
   if(!file&&ll.length)file=ll[ll.length-1];
