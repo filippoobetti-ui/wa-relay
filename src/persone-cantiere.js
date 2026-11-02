@@ -154,6 +154,15 @@ export async function portalePersone(request, env, base, inUrl, h) {
       r = await h.rpc(env, "rubrica_salva", { p_token: tok, p_dati: rub }, 15000).catch(() => null);
     }
     else if (az === "rubrica_elimina" && Number.isInteger(id) && id > 0) r = await h.rpc(env, "rubrica_elimina", { p_token: tok, p_id: id }, 15000).catch(() => null);
+    // Accesso professionisti (03/11/2026, src/professionisti.js): stato, invito, sezioni e avvisi, «Togli l'accesso».
+    else if (az.indexOf("prof_") === 0 && env.PROFESSIONISTI === "off") return json({ esito: "spento" });
+    else if (az === "prof_stato" && UUID.test(c)) r = await h.rpc(env, "prof_persone_stato", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+    else if ((az === "prof_invita" || az === "prof_salva") && Number.isInteger(id) && id > 0) {
+      const sez = Array.isArray(b.sezioni) ? b.sezioni.map(String).filter((s) => /^[a-z]{1,20}$/.test(s)).slice(0, 10) : [];
+      r = await h.rpc(env, az === "prof_invita" ? "prof_invita" : "prof_permesso_salva",
+        { p_token: tok, p_persona: id, p_sezioni: sez, p_avvisi: b.avvisi === "no" ? "no" : "subito" }, 15000).catch(() => null);
+    }
+    else if (az === "prof_revoca" && Number.isInteger(id) && id > 0) r = await h.rpc(env, "prof_permesso_revoca", { p_token: tok, p_persona: id }, 15000).catch(() => null);
     else return json({ esito: "errore" }, 400);
     return r ? json(r) : json({ esito: "incerto" });
   }
@@ -177,13 +186,13 @@ function pagina(base, tok, c, d, h) {
     .replace(/</g, "\\u003c").replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
-    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + "</style></head><body>" +
+    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + PROF_CSS + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok + "&c=" + c) + '">&larr; Torna al cantiere</a>' +
     '<h1>Persone del cantiere</h1><p id="sotto"></p><div class="riass" id="riass"></div></div></header>' +
     '<main class="corpo"><div class="in"><div class="barra"><h2>Chi lavora qui</h2><button class="btn pr" id="apri-scelta" type="button">&#128211; Scegli contatto da rubrica oppure nuovo contatto</button></div>' +
     '<div id="gruppi"></div><p class="nota">Entra in TIX solo chi aggiungi qui. Ogni persona riceve un link personale: lo apre, invia il messaggio già scritto e il cantiere si attiva. Il link vale 14 giorni.</p></div></main>' +
-    SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + PAGINA_JS + "})();</script></body></html>";
+    SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + PROF_HTML + '<div class="toast" id="toast" hidden></div>' +
+    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
 }
 
 // Rubrica (26/10/2026, persone-cantiere-4): i contatti dell'impresa con i dati anagrafici (GET /rubrica?t=).
@@ -702,6 +711,85 @@ $("i-copia").addEventListener("click",function(){var l=$("i-link").textContent;
 $("i-stampa").addEventListener("click",function(){segnaInviato();window.print();});
 $("i-nuovo").addEventListener("click",function(){if(!corrente)return;chiama("modifica",{id:corrente.id,dati:{nuovo_codice:true}}).then(function(r){if(r.esito==="ok"){sostituisci(r.persona);mostraInvito(r.persona);toast("Nuovo codice creato: il vecchio non vale più");}});});
 disegna();`;
+
+// Accesso professionisti (03/11/2026, chat 02A, src/professionisti.js). Per DL, CSE, strutturista, committente e PM con partita IVA
+// che hanno «Vede l'area riservata»: riquadro con lo stato dell'accesso ai documenti (sola lettura), «Dai l'accesso e manda
+// l'invito», «Cambia» (sezioni e avvisi per email) e «Togli l'accesso». Lo stato arriva da prof_persone_stato: se la funzione
+// è spenta (o in «prova» e non è l'accesso di Filippo) il riquadro non compare.
+const PROF_CSS = ".pf{margin-top:10px;border-top:1px solid var(--bordo);padding-top:10px}.pf-t{font-weight:700;font-size:.93rem}" +
+  ".pf-s{color:var(--tenue);font-size:.86rem;margin-top:2px}.pf-s b{color:var(--testo);font-weight:600}.pf .azioni{margin-top:8px}" +
+  ".pf-c{display:block;font-weight:600;font-size:.9rem;margin:14px 0 4px}#pf-sez .spunta{margin-top:6px}";
+
+const PROF_HTML = '<div class="velo" id="velo-prof" hidden><form class="foglio" id="form-prof" novalidate aria-labelledby="t-prof">' +
+  '<h2 id="t-prof">Accesso ai documenti per <span id="pf-nome"></span></h2>' +
+  '<p class="sotto">Riceve un\'email per scegliersi la password ed entra da app.tixcantiere.it. Vede solo questo cantiere e solo le sezioni che scegli, in sola lettura: non può firmare, correggere o caricare niente. TIX annota quando apre e scarica i documenti.</p>' +
+  '<div id="pf-mail-box"><label class="c" for="pf-mail">Email</label><input class="campo" id="pf-mail" type="email" maxlength="120" autocomplete="off"></div>' +
+  '<span class="pf-c">Cosa vede</span><div id="pf-sez"></div>' +
+  '<span class="pf-c">Avvisi per email</span>' +
+  '<label class="spunta"><input type="radio" name="pf-avv" value="subito" checked> <span>A ogni documento nuovo (se ne carichi più di uno di fila arriva un\'email sola)</span></label>' +
+  '<label class="spunta"><input type="radio" name="pf-avv" value="no"> <span>Nessuna email</span></label>' +
+  '<p class="errore" id="pf-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="pf-ok">Manda l\'invito</button></div></form></div>';
+
+const PROF_JS = String.raw`
+var PROF=null,PFC=null,_disegnaPf=disegna;
+var PMSG={ruolo:"Questo ruolo non può avere l'accesso ai documenti.",area:"Prima accendi «Vede l'area riservata».",email:"Serve un'email valida.",sezioni:"Scegli almeno una sezione.",
+  troppi:"Hai già mandato 3 inviti a questa persona nell'ultima ora: riprova più tardi.",disattivato:"Questo accesso è stato disattivato: scrivici su WhatsApp.",spento:"L'accesso professionisti non è attivo.",
+  persona:"Persona non trovata: ricarica la pagina.",nessuno:"Non c'è un accesso da cambiare: manda prima l'invito.",gettone:"Accesso scaduto: ricarica la pagina.",cantiere:"Cantiere non trovato: ricarica la pagina."};
+function pfStato(a){if(!a)return "Non ha ancora l'accesso ai documenti.";
+  if(a.stato==="attivo")return "<b>Attivo</b>"+(a.ultimo_accesso?" · ultimo accesso il "+esc(a.ultimo_accesso):"")+(a.aperture?" · ha aperto la Sicurezza "+a.aperture+(a.aperture===1?" volta":" volte")+(a.ultima_apertura?", l'ultima il "+esc(a.ultima_apertura):""):"");
+  if(a.stato==="invitato")return "Invito mandato il "+esc(a.invitato_il||"")+" a <b>"+esc(a.email||"")+"</b>: deve ancora scegliere la password.";
+  if(a.stato==="invito_scaduto")return "L'invito del "+esc(a.invitato_il||"")+" è scaduto: mandane uno nuovo.";
+  if(a.stato==="revocato")return "Accesso tolto il "+esc(a.revocato_il||"")+".";
+  return "Accesso disattivato: scrivici su WhatsApp.";}
+function pfBox(p,x){var a=x.accesso,h='<div class="pf"><div class="pf-t">&#128273; Accesso ai documenti, in sola lettura</div>';
+  if(!p.vede_area)return h+'<div class="pf-s">Per dargli l\'accesso ai documenti accendi «Vede l\'area riservata».</div></div>';
+  h+='<div class="pf-s">'+pfStato(a)+'</div>';
+  if(a&&a.stato!=="revocato"){var nomi=(a.sezioni||[]).map(function(k){var s=(PROF.sezioni||[]).filter(function(z){return z.chiave===k;})[0];return s?s.etichetta:k;});
+    h+='<div class="pf-s">Vede: <b>'+esc(nomi.join(", "))+'</b> · avvisi per email: <b>'+(a.avvisi==="no"?"nessuno":"a ogni documento nuovo")+'</b></div>';
+    if(a.avvisi_n)h+='<div class="pf-s">Documenti avvisati per email: '+a.avvisi_n+(a.ultimo_avviso?" · l'ultimo avviso è partito il "+esc(a.ultimo_avviso):"")+'</div>';}
+  h+='<div class="azioni">';
+  if(!a||a.stato==="revocato")h+='<button class="btn sm pr" type="button" data-pf-inv="'+p.id+'">'+(a?"Ridai l'accesso e manda l'invito":"Dai l'accesso e manda l'invito")+'</button>';
+  else if(a.stato==="invitato"||a.stato==="invito_scaduto")h+='<button class="btn sm" type="button" data-pf-inv="'+p.id+'">Manda di nuovo l\'invito</button>';
+  if(a&&(a.stato==="attivo"||a.stato==="invitato"))h+='<button class="btn sm" type="button" data-pf-cambia="'+p.id+'">Cambia</button>';
+  if(a&&a.stato!=="revocato")h+='<button class="btn sm rosso" type="button" data-pf-togli="'+p.id+'">Togli l\'accesso</button>';
+  return h+'</div></div>';}
+function pfDisegna(){if(!PROF)return;persone.forEach(function(p){var x=PROF.persone&&PROF.persone[String(p.id)];if(!x||!x.ammesso)return;
+  var b=document.querySelector('#gruppi [data-togli="'+p.id+'"]');if(!b)return;var art=b.closest("article");if(!art||art.querySelector(".pf"))return;
+  var d=document.createElement("div");d.innerHTML=pfBox(p,x);art.insertBefore(d.firstChild,art.querySelector(".azioni"));});}
+disegna=function(){_disegnaPf();pfDisegna();};
+function pfErr(t){$("pf-err").textContent=t||"";$("pf-err").hidden=!t;}
+function pfApri(p,modo){var x=PROF.persone[String(p.id)],a=x&&x.accesso;PFC={id:p.id,modo:modo};pfErr("");
+  $("pf-nome").textContent=p.nome;$("pf-mail").value=p.email||"";$("pf-mail-box").hidden=modo!=="invita";
+  $("pf-ok").textContent=modo==="invita"?"Manda l'invito":"Salva";
+  var sel=(a&&a.stato!=="revocato"&&a.sezioni)?a.sezioni:null;
+  $("pf-sez").innerHTML=(PROF.sezioni||[]).map(function(s){var on=sel?sel.indexOf(s.chiave)>=0:s.aperta;
+    return '<label class="spunta"><input type="checkbox" value="'+esc(s.chiave)+'"'+(on&&s.aperta?" checked":"")+(s.aperta?"":" disabled")+'> <span>'+esc(s.etichetta)+(s.aperta?"":" (non ancora accesa)")+'</span></label>';}).join("")+
+    '<p class="sotto" style="margin:6px 0 0">Diario, DDT, Cronoprogramma e SAL arriveranno qui più avanti.</p>';
+  var avv=(a&&a.avvisi==="no")?"no":"subito";document.querySelectorAll('input[name="pf-avv"]').forEach(function(r){r.checked=r.value===avv;});
+  $("velo-prof").hidden=false;}
+$("gruppi").addEventListener("click",function(e){var b=e.target.closest("button");if(!b||!PROF)return;
+  var id=b.dataset.pfInv||b.dataset.pfCambia||b.dataset.pfTogli;if(!id)return;var i=trova(id);if(i<0)return;var p=persone[i];
+  if(b.dataset.pfInv)pfApri(p,"invita");
+  else if(b.dataset.pfCambia)pfApri(p,"salva");
+  else if(b.dataset.pfTogli){if(!b.dataset.conferma){b.dataset.conferma="1";b.textContent="Tocca di nuovo per confermare";return;}
+    b.disabled=true;chiama("prof_revoca",{id:p.id}).then(function(r){if(r.esito==="ok"){PROF.persone[String(p.id)].accesso=r.accesso;disegna();toast("Accesso ai documenti tolto a "+p.nome);}
+      else{b.disabled=false;toast(PMSG[r.esito]||"Non riuscito: riprova");}}).catch(function(){b.disabled=false;toast("Non riuscito: controlla la connessione");});}
+});
+$("form-prof").addEventListener("submit",function(e){e.preventDefault();if(!PFC)return;var i=trova(PFC.id);if(i<0)return;var p=persone[i],ok=$("pf-ok");
+  var sez=[].slice.call(document.querySelectorAll("#pf-sez input:checked")).map(function(c){return c.value;});
+  var avv=(document.querySelector('input[name="pf-avv"]:checked')||{}).value==="no"?"no":"subito",mail=$("pf-mail").value.trim();
+  if(!sez.length){pfErr(PMSG.sezioni);return;}
+  if(PFC.modo==="invita"&&!/^[^@\s<>"]+@[^@\s<>"]+\.[a-z]{2,}$/i.test(mail)){pfErr(PMSG.email);$("pf-mail").focus();return;}
+  ok.disabled=true;pfErr("");
+  var prima=(PFC.modo==="invita"&&mail.toLowerCase()!==String(p.email||"").toLowerCase())
+    ?chiama("modifica",{id:p.id,dati:{email:mail}}).then(function(r){if(r.esito!=="ok")throw r;sostituisci(r.persona);p=r.persona;}):Promise.resolve();
+  prima.then(function(){return chiama(PFC.modo==="invita"?"prof_invita":"prof_salva",{id:p.id,sezioni:sez,avvisi:avv});})
+  .then(function(r){ok.disabled=false;if(r.esito==="ok"){PROF.persone[String(p.id)].accesso=r.accesso;$("velo-prof").hidden=true;disegna();
+      toast(PFC.modo!=="invita"?"Salvato":r.gia_attivo?"Fatto: ha già la password, gli abbiamo scritto che c'è un cantiere nuovo":"Invito mandato a "+mail);}
+    else pfErr(PMSG[r.esito]||r.messaggio||"Non riuscito: riprova.");})
+  .catch(function(r){ok.disabled=false;pfErr((r&&r.messaggio)||"Non riuscito: controlla la connessione e riprova.");});
+});
+chiama("prof_stato",{}).then(function(r){if(r&&r.esito==="ok"){PROF=r;disegna();}}).catch(function(){});`;
 
 // Generatore di codici QR (byte, correzione M, versioni 1–9), senza servizi esterni.
 // Segue l'algoritmo dello standard ISO/IEC 18004 come nella libreria di riferimento di Project Nayuki (MIT).
