@@ -6,6 +6,8 @@
 //   POST /agenda/crea   {t, c, dati}                → RPC agenda_crea, poi gli avvisi partono subito da qui
 //   POST /agenda/azione {t, id, azione, dati}       → RPC agenda_modifica (sposta, annulla, avvenuto, riapri, cliente, aggiorna)
 //                                                     azione «modifica» (29/10/2026) → RPC agenda_modifica_tutto: tutti i dati del modulo
+//   POST /agenda/contatto {t, c, dati, aggiungi_email} → nuovo contatto nella Rubrica dell'impresa con rubrica_salva (02/11/2026)
+//   GET  /agenda?t=…&c=…&vista=mese                 → la pagina si apre con il mese intero a tutto schermo (02/11/2026)
 // Gli avvisi: il database decide chi riceve e il testo (agenda_avvisi_lista, nella lingua di ciascuno, una riga per
 // persona e versione, mai doppi); qui si spedisce con il token WhatsApp e si segna l'esito (agenda_avviso_segna).
 // La stessa funzione la chiama anche il database (trigger → pg_net → POST /admin {azione: agenda_avvisa}) per gli
@@ -202,6 +204,93 @@ function pulisciDati(d) {
   return o;
 }
 
+// ---------------------------------------------------------------------------- nuovo contatto dall'agenda
+// 02/11/2026 (agenda-contatti-1, Filippo: «quando apro un cantiere, nell'Agenda devo poter aggiungere sempre un contatto nuovo;
+// ora scelgo solo i nomi già in Rubrica e per aggiungerne uno devo uscire e tornare alla Home»).
+// Il contatto entra nella Rubrica dell'impresa del cantiere con rubrica_salva, la stessa funzione della pagina Rubrica
+// (stessi controlli, stesse frasi, nessuna funzione nuova nel database). Se c'è già un contatto con la stessa email o lo
+// stesso cellulare si usa quello e lo si dice; se ha il cellulare ma non l'email, l'email si scrive nel suo contatto solo
+// dopo la conferma («aggiungi_email» = id del contatto). Si spegne con AGENDA_CONTATTI = "off" oppure con
+// PERSONE_CANTIERE = "off" (che spegne la Rubrica): niente pulsante e niente rotta, l'agenda resta com'era.
+const EMAIL_OK = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+function contattiAccesi(env) { return env.AGENDA_CONTATTI !== "off" && env.PERSONE_CANTIERE !== "off"; }
+// stessa regola di _pc_telefono nel database: solo cifre, «00» iniziale tolto, cellulare italiano di 10 cifre con il 39 davanti
+function telefonoDb(x) {
+  const d = String(x == null ? "" : x).replace(/[^0-9]/g, "");
+  if (d.indexOf("00") === 0) return d.slice(2);
+  return d.length === 10 && d.charAt(0) === "3" ? "39" + d : d;
+}
+function contattoBreve(p, email) {
+  return { id: Number(p.id) || 0, nome: String(p.nome || ""), email: String(email == null ? p.email || "" : email).trim(), impresa: String(p.impresa || "") };
+}
+async function contattoNuovo(env, h, tok, c, b) {
+  const d = b.dati && typeof b.dati === "object" ? b.dati : {};
+  const s = (k, n) => String(d[k] == null ? "" : d[k]).trim().slice(0, n);
+  const nome = s("nome", 120), email = s("email", 120).toLowerCase(), impresa = s("impresa", 120), ruolo = s("ruolo", 20).toLowerCase();
+  const telefono = s("telefono", 30), tel = telefonoDb(telefono);
+  // stessi controlli e stesse frasi di rubrica_salva (che li rifà comunque prima di salvare)
+  if (nome.length < 2) return { esito: "errore", campo: "nome", messaggio: "Scrivi nome e cognome." };
+  if (tel && (tel.length < 10 || tel.length > 15)) {
+    return { esito: "errore", campo: "telefono", messaggio: "Il numero di cellulare non sembra giusto: scrivilo con il prefisso, per esempio +39 333 123 4567." };
+  }
+  if (email && !EMAIL_OK.test(email)) return { esito: "errore", campo: "email", messaggio: "L'email non sembra giusta." };
+  // accesso al cantiere come la pagina dell'agenda, e i contatti con l'email della sua impresa
+  const inv = await h.rpc(env, "agenda_inviti_rubrica", { p_token: tok, p_commessa: c }, 10000).catch(() => null);
+  if (!inv) return { esito: "incerto" };
+  if (inv.esito !== "ok") return { esito: String(inv.esito || "errore") };
+  // la Rubrica che vede chi è entrato (la stessa della pagina Rubrica), con i cellulari, per riconoscere i contatti già presenti
+  const rub = await h.rpc(env, "persone_rubrica", { p_token: tok }, 15000).catch(() => null);
+  if (!rub) return { esito: "incerto" };
+  if (rub.esito !== "ok") return { esito: String(rub.esito || "errore") };
+  const tutti = Array.isArray(rub.persone) ? rub.persone : [];
+  let az = "";
+  if (rub.filippo === true) {
+    // accesso «Tutte le aziende»: l'impresa del cantiere è quella dei suoi contatti con l'email (agenda_inviti_rubrica)…
+    const ids = new Set((Array.isArray(inv.contatti) ? inv.contatti : []).map((k) => Number(k.id)));
+    const x = tutti.find((p) => ids.has(Number(p.id)) && p.azienda_id);
+    if (x) az = String(x.azienda_id).toLowerCase();
+    else {
+      // …oppure, se non ne ha ancora, l'azienda con lo stesso nome della pagina Persone del cantiere (stesso nome di persone_rubrica)
+      const el = await h.rpc(env, "persone_cantiere_elenco", { p_token: tok, p_commessa: c }, 10000).catch(() => null);
+      const nomeImp = el && el.esito === "ok" ? String(el.impresa || "") : "";
+      const cand = nomeImp ? (Array.isArray(rub.aziende) ? rub.aziende : []).filter((a) => String(a.nome || "") === nomeImp) : [];
+      if (cand.length === 1) az = String(cand[0].id || "").toLowerCase();
+    }
+    if (!UUID.test(az)) return { esito: "errore", messaggio: "Non trovo l'impresa di questo cantiere: aggiungi il contatto dalla Rubrica." };
+  }
+  const mie = rub.filippo === true ? tutti.filter((p) => String(p.azienda_id || "").toLowerCase() === az) : tutti;
+  // già in Rubrica con la stessa email: si usa quello
+  if (email) {
+    const p = mie.find((x) => String(x.email || "").trim().toLowerCase() === email);
+    if (p) return { esito: "gia", per: "email", contatto: contattoBreve(p) };
+  }
+  // già in Rubrica con lo stesso cellulare
+  if (tel) {
+    const p = mie.find((x) => x.telefono && telefonoDb(x.telefono) === tel);
+    if (p) {
+      const sua = String(p.email || "").trim();
+      if (EMAIL_OK.test(sua)) return { esito: "gia", per: "telefono", contatto: contattoBreve(p), email_diversa: !!email && sua.toLowerCase() !== email };
+      if (email && Number(b.aggiungi_email) === Number(p.id)) {
+        // confermato: si scrive l'email nel suo contatto, con rubrica_salva; gli altri dati restano quelli della Rubrica
+        const dati = { id: String(p.id), nome: String(p.nome || ""), email };
+        for (const k of ["telefono", "impresa", "partita_iva", "codice_fiscale", "ruolo", "tipo_rapporto", "note"]) if (p[k] != null && p[k] !== "") dati[k] = String(p[k]);
+        const r = await h.rpc(env, "rubrica_salva", { p_token: tok, p_dati: dati }, 15000).catch(() => null);
+        if (!r) return { esito: "incerto" };
+        if (r.esito !== "ok") return { esito: r.esito === "gettone" ? "gettone" : "errore", messaggio: (r.messaggio ? r.messaggio + " " : "") + "Puoi completare il contatto nella Rubrica." };
+        return { esito: "gia", per: "telefono", email_aggiunta: true, contatto: contattoBreve(p, email) };
+      }
+      return { esito: "senza_email", contatto: contattoBreve(p) };
+    }
+  }
+  // contatto nuovo, come «+ Nuovo contatto» della pagina Rubrica
+  const dati = { nome, telefono, email, impresa, ruolo };
+  if (rub.filippo === true) dati.azienda_id = az;
+  const r = await h.rpc(env, "rubrica_salva", { p_token: tok, p_dati: dati }, 15000).catch(() => null);
+  if (!r) return { esito: "incerto" };
+  if (r.esito !== "ok" || !Number(r.id)) return { esito: r.esito === "gettone" ? "gettone" : "errore", campo: String(r.campo || ""), messaggio: String(r.messaggio || "") };
+  return { esito: "ok", contatto: { id: Number(r.id), nome, email, impresa } };
+}
+
 export async function portaleAgenda(request, env, base, inUrl, h) {
   if (!env.SUPABASE_SERVICE_KEY) {
     return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
@@ -283,6 +372,18 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     if (az === "sposta" || az === "annulla") { try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {} }
     return json({ esito: "ok", id, inviati: avvisi ? avvisi.inviati : null });
   }
+  // Nuovo contatto dall'agenda (02/11/2026, agenda-contatti-1): vedi contattoNuovo qui sopra
+  if (sotto === "/agenda/contatto") {
+    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    if (!contattiAccesi(env)) return json({ esito: "spento" }, 404);
+    const b = await leggiCorpo(request);
+    if (b.errore) return json({ esito: "errore" }, b.errore);
+    const tok = String(b.t || "").toLowerCase();
+    if (!GETTONE.test(tok)) return json({ esito: "gettone" }, 403);
+    const c = String(b.c || "").toLowerCase();
+    if (!UUID.test(c)) return json({ esito: "errore" }, 400);
+    return json(await contattoNuovo(env, h, tok, c, b));
+  }
   if (sotto !== "/agenda") return new Response("Not Found", { status: 404 });
   const metodo = request.method;
   if (metodo !== "GET" && metodo !== "HEAD") {
@@ -301,8 +402,15 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
   }
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return Response.redirect(inUrl.origin + torna, 303);
-  // Inviti (30/10/2026): i contatti della Rubrica dell'impresa con email, per «Invita dalla Rubrica»
-  try { const rb = await h.rpc(env, "agenda_inviti_rubrica", { p_token: tok, p_commessa: c }, 8000); if (rb && rb.esito === "ok") d.rubrica = rb.contatti; } catch (e) {}
+  // Inviti (30/10/2026): i contatti della Rubrica dell'impresa con email, per «Invita dalla Rubrica»;
+  // nuovo contatto (02/11/2026): anche i ruoli della pagina Rubrica (persone_cantiere_ruoli), letti insieme
+  const [rb, ru] = await Promise.all([
+    h.rpc(env, "agenda_inviti_rubrica", { p_token: tok, p_commessa: c }, 8000).catch(() => null),
+    contattiAccesi(env) ? h.rpc(env, "persone_cantiere_ruoli", {}, 8000).catch(() => null) : null
+  ]);
+  if (rb && rb.esito === "ok") d.rubrica = rb.contatti;
+  d.contatto_nuovo = contattiAccesi(env);
+  if (ru && typeof ru === "object" && !Array.isArray(ru)) d.ruoli = ru;
   let pagina = metodo === "HEAD" ? null : paginaAgenda(base, tok, c, d, Object.assign({ origine: inUrl.origin }, h));
   // Cestino (17/10/2026): pulsante su ogni appuntamento e sezione «Cestino» (src/cestino.js)
   if (pagina && d.chiuso !== true && pagina.lastIndexOf("</body>") !== -1) {
@@ -405,6 +513,13 @@ export function paginaAgenda(base, tok, c, d, h) {
   // «Lavorazioni» prima voce del Tipo e scelta di partenza del nuovo appuntamento (29/10/2026, Filippo);
   // la legenda del calendario resta nell'ordine di TIPI
   const opzTipo = ["lavorazione"].concat(Object.keys(TIPI).filter((k) => k !== "lavorazione")).map((k) => '<option value="' + k + '">' + TIPI[k] + "</option>").join("");
+  // Nuovo contatto dall'agenda (02/11/2026, agenda-contatti-1): pulsante sempre presente nell'elenco degli invitati (anche con la
+  // Rubrica vuota) e piccolo modulo #ag-nc; i ruoli sono quelli della pagina Rubrica, nello stesso ordine
+  const nuovoOk = d.contatto_nuovo === true;
+  const ruoli = d.ruoli && typeof d.ruoli === "object" ? d.ruoli : {};
+  const opzRuolo = '<option value="">—</option>' + Object.keys(ruoli).filter((k) => /^[a-z_]{1,20}$/.test(k) && ruoli[k] && ruoli[k].etichetta)
+    .sort((a, b) => (Number(ruoli[a].ordine) || 99) - (Number(ruoli[b].ordine) || 99))
+    .map((k) => '<option value="' + e(k) + '">' + e(ruoli[k].etichetta) + "</option>").join("");
   const pers = Array.isArray(d.persone) ? d.persone : [];
   const sceltaChi = pers.length
     ? pers.map((p) => '<label class="pc"><input type="checkbox" class="f-pers" value="' + e(p.id) + '"> ' + e(p.nome) + "</label>").join("")
@@ -415,7 +530,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     "<title>Agenda - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     "<style>" + STILE + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
-    '<div class="centro"><h1>Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
+    '<div class="centro"><h1 title="Doppio clic: mese intero">Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + torna + '">&larr; Torna al cantiere</a>' +
     (d.chiuso ? '<div class="avviso">Cantiere chiuso: l\'agenda resta consultabile, non si aggiungono appuntamenti.</div>' : "") +
     // Calendario del mese: lo disegna lo script (CALENDARIO); senza JavaScript resta l'elenco qui sotto
@@ -449,8 +564,15 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<label id="l-note">Note <small>(facoltative)</small><textarea id="f-n" maxlength="600" rows="2" placeholder="es. serve la gru, tenere libero il piazzale"></textarea></label>' +
     // Inviti (30/10/2026, Filippo): contatti della Rubrica invitati all'appuntamento, con email e invito al calendario
     '<div id="l-inv"><div class="chi-t">Invita dalla Rubrica <small>(ricevono un’email con l’invito da aggiungere al calendario)</small></div>' +
-    (rubrica.length ? '<input type="search" id="f-inv-q" placeholder="Cerca per nome, impresa o email" autocomplete="off"><div class="cr-l" id="f-inv"></div><p class="cr-avv" id="f-inv-sel"></p>'
-      : '<p class="piccolo">In Rubrica non ci sono contatti con l’email: aggiungila nella Rubrica per poterli invitare.</p>') + "</div>" +
+    (nuovoOk
+      // agenda-contatti-1 (02/11/2026): ricerca ed elenco ci sono sempre (nascosti finché la Rubrica non ha contatti con l'email),
+      // accanto c'è «+ Nuovo contatto»; sotto, l'esito dell'ultimo contatto aggiunto
+      ? '<div class="inv-r"><input type="search" id="f-inv-q" placeholder="Cerca per nome, impresa o email" autocomplete="off"' + (rubrica.length ? "" : " hidden") + ">" +
+        '<button type="button" class="inv-nuovo" id="f-inv-nuovo">+ Nuovo contatto</button></div>' +
+        '<p class="piccolo" id="f-inv-vuota"' + (rubrica.length ? " hidden" : "") + '>In Rubrica non ci sono ancora contatti con l’email: tocca «+ Nuovo contatto» per aggiungerne uno e invitarlo.</p>' +
+        '<div class="cr-l" id="f-inv"' + (rubrica.length ? "" : " hidden") + '></div><p class="cr-avv" id="f-inv-sel"></p><p class="msg ok" id="f-inv-esito" aria-live="polite"></p>'
+      : (rubrica.length ? '<input type="search" id="f-inv-q" placeholder="Cerca per nome, impresa o email" autocomplete="off"><div class="cr-l" id="f-inv"></div><p class="cr-avv" id="f-inv-sel"></p>'
+        : '<p class="piccolo">In Rubrica non ci sono contatti con l’email: aggiungila nella Rubrica per poterli invitare.</p>')) + "</div>" +
     '<div id="l-opz" class="opz">' +
     '<label class="ck"><input type="checkbox" id="f-avv" checked> <span id="t-avv" data-tutti="' + e("Avvisa su WhatsApp chi lavora in cantiere (" + avvisoChi + ")") + '">Avvisa su WhatsApp chi lavora in cantiere (' + e(avvisoChi) + ")</span></label>" +
     '<label class="ck"><input type="checkbox" id="f-cli"> Visibile anche al cliente</label>' +
@@ -471,8 +593,113 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<div class="dl-c" id="gio-l"></div>' +
     '<div class="dl-b"><button type="button" class="no" id="gio-no">Chiudi</button>' +
     (d.chiuso ? "" : '<button type="button" class="si" id="gio-nuovo">+ Nuovo appuntamento</button>') + "</div></dialog>" +
-    "<script>var GL_AG=" + dati + ";" + CALENDARIO + SCRIPT + "</script></body></html>";
+    // «Mese intero» (02/11/2026, agenda-contatti-1): il calendario a tutto schermo, come la giornata; lo script ci sposta dentro
+    // il calendario (#cal) finché la finestra è aperta
+    '<dialog id="ag-mese" aria-label="' + e("Mese intero · " + (cant.nome || "")) + '"><div id="mese-c"></div></dialog>' +
+    // «+ Nuovo contatto» (02/11/2026, agenda-contatti-1): piccolo modulo sopra quello dell'appuntamento
+    (nuovoOk ? '<dialog id="ag-nc" aria-labelledby="nc-tit"><form method="dialog" id="nc-form" novalidate>' +
+      '<div class="dl-t"><h2 id="nc-tit">Nuovo contatto</h2><p>Entra nella Rubrica dell’impresa e tra gli invitati di questo appuntamento.</p></div>' +
+      '<div class="dl-c"><label for="nc-nome">Nome e cognome</label><input type="text" id="nc-nome" maxlength="120" autocomplete="off" required>' +
+      '<label for="nc-mail">Email <small>(serve per l’invito)</small></label><input type="email" id="nc-mail" maxlength="120" autocomplete="off" inputmode="email" placeholder="nome@esempio.it">' +
+      '<label for="nc-tel">Cellulare (WhatsApp) <small>(facoltativo)</small></label><input type="tel" id="nc-tel" maxlength="20" inputmode="tel" autocomplete="off" placeholder="333 123 4567">' +
+      '<div class="riga2"><div><label for="nc-imp">Impresa o ente <small>(facoltativo)</small></label><input type="text" id="nc-imp" maxlength="120" list="nc-imp-l" autocomplete="off" placeholder="es. Studio Rossi"></div>' +
+      '<div><label for="nc-ruolo">Ruolo <small>(facoltativo)</small></label><select id="nc-ruolo">' + opzRuolo + "</select></div></div>" +
+      '<datalist id="nc-imp-l"></datalist><div class="nc-dom" id="nc-dom" hidden></div>' +
+      '<p class="piccolo nc-nota">Lo ritrovi nella Rubrica, dove puoi completarlo o eliminarlo.</p><p class="msg" id="nc-msg" aria-live="polite"></p></div>' +
+      '<div class="dl-b"><button type="button" class="no" id="nc-no">Annulla</button><button type="submit" class="si" id="nc-si">Salva e invita</button></div>' +
+      "</form></dialog>" : "") +
+    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CALENDARIO + SCRIPT + "</script></body></html>";
 }
+
+// Telefono con bandierina e prefisso del paese, Italia di base (30/10/2026, telefono-paese-1): copia del blocco TEL_JS di
+// src/persone-cantiere.js (stesso elenco dei paesi e stesse regole di Rubrica e Persone del cantiere), chiusa in GL_TEL per
+// non lasciare nomi globali. Se cambia l'elenco dei paesi là, va cambiato anche qui (02/11/2026, agenda-contatti-1).
+const TEL_JS = "var GL_TEL=(function(){" + String.raw`
+var TEL_PAESI=[
+["it","Italia","39","v:#009246,#fff,#ce2b37"],
+["al","Albania","355","s:#e41e20",'<path d="M15 4l3.5 4-1.5 1 2 3-4 4-4-4 2-3-1.5-1z" fill="#000"/>'],
+["dz","Algeria","213","v:#006233,#fff",'<circle cx="15" cy="10" r="4.5" fill="#d21034"/><circle cx="16.4" cy="10" r="3.7" fill="#fff"/>'],
+["at","Austria","43","h:#ed2939,#fff,#ed2939"],
+["bd","Bangladesh","880","s:#006a4e",'<circle cx="13" cy="10" r="6" fill="#f42a41"/>'],
+["be","Belgio","32","v:#000,#fdda24,#ef3340"],
+["ba","Bosnia ed Erzegovina","387","s:#002395",'<path d="M9 0h12v20z" fill="#fecb00"/>'],
+["br","Brasile","55","s:#009c3b",'<path d="M15 2l13 8-13 8L2 10z" fill="#ffdf00"/><circle cx="15" cy="10" r="4.5" fill="#002776"/>'],
+["bg","Bulgaria","359","h:#fff,#00966e,#d62612"],
+["cn","Cina","86","s:#de2910","*6,6,3.5,#ffde00"],
+["ci","Costa d'Avorio","225","v:#f77f00,#fff,#009e60"],
+["hr","Croazia","385","h:#ff0000,#fff,#171796"],
+["ec","Ecuador","593","h:#ffdd00,#ffdd00,#034ea2,#ed1c24"],
+["eg","Egitto","20","h:#ce1126,#fff,#000"],
+["ph","Filippine","63","h:#0038a8,#ce1126",'<path d="M0 0l17.3 10L0 20z" fill="#fff"/><circle cx="5.5" cy="10" r="2" fill="#fcd116"/>'],
+["fr","Francia","33","v:#0055a4,#fff,#ef4135"],
+["gm","Gambia","220","h:#ce1126,#0c1c8c,#3a7728",'<rect y="6.2" width="30" height="1" fill="#fff"/><rect y="12.8" width="30" height="1" fill="#fff"/>'],
+["ge","Georgia","995","s:#fff",'<rect x="13" width="4" height="20" fill="#f00"/><rect y="8" width="30" height="4" fill="#f00"/>'],
+["de","Germania","49","h:#000,#dd0000,#ffce00"],
+["gh","Ghana","233","h:#ce1126,#fcd116,#006b3f","*15,10,3.2,#000"],
+["in","India","91","h:#ff9933,#fff,#138808",'<circle cx="15" cy="10" r="2.5" fill="none" stroke="#000080" stroke-width=".8"/>'],
+["xk","Kosovo","383","s:#244aa5",'<path d="M11 8h8l-1 6h-6z" fill="#d0a650"/>'],
+["mk","Macedonia del Nord","389","s:#d20000",'<circle cx="15" cy="10" r="3.5" fill="#ffe600"/>'],
+["ml","Mali","223","v:#14b53a,#fcd116,#ce1126"],
+["ma","Marocco","212","s:#c1272d","o15,10,4,#006233"],
+["md","Moldavia","373","v:#0046ae,#ffd200,#cc092f"],
+["ng","Nigeria","234","v:#008751,#fff,#008751"],
+["nl","Paesi Bassi","31","h:#ae1c28,#fff,#21468b"],
+["pk","Pakistan","92","s:#01411c",'<rect width="7.5" height="20" fill="#fff"/><circle cx="18" cy="10" r="5" fill="#fff"/><circle cx="19.6" cy="8.8" r="4.3" fill="#01411c"/>'],
+["pe","Perù","51","v:#d91023,#fff,#d91023"],
+["pl","Polonia","48","h:#fff,#dc143c"],
+["pt","Portogallo","351","s:#f00",'<rect width="12" height="20" fill="#060"/><circle cx="12" cy="10" r="3.5" fill="#fc0"/>'],
+["gb","Regno Unito","44","s:#012169",'<path d="M0 0l30 20M30 0L0 20" stroke="#fff" stroke-width="4"/><path d="M0 0l30 20M30 0L0 20" stroke="#c8102e" stroke-width="1.4"/><path d="M15 0v20M0 10h30" stroke="#fff" stroke-width="6"/><path d="M15 0v20M0 10h30" stroke="#c8102e" stroke-width="3.4"/>'],
+["ro","Romania","40","v:#002b7f,#fcd116,#ce1126"],
+["ru","Russia","7","h:#fff,#0039a6,#d52b1e"],
+["sm","San Marino","378","h:#fff,#5eb6e4"],
+["sn","Senegal","221","v:#00853f,#fdef42,#e31b23","*15,10,3,#00853f"],
+["rs","Serbia","381","h:#c6363c,#0c4076,#fff"],
+["es","Spagna","34","h:#aa151b,#f1bf00,#f1bf00,#aa151b"],
+["lk","Sri Lanka","94","s:#ffb700",'<rect x="11" y="1.5" width="17.5" height="17" fill="#8d153a"/><rect x="1.5" y="1.5" width="4" height="17" fill="#00534e"/><rect x="6" y="1.5" width="4" height="17" fill="#eb7400"/>'],
+["ch","Svizzera","41","s:#da291c",'<path d="M13 4h4v4h4v4h-4v4h-4v-4H9V8h4z" fill="#fff"/>'],
+["tn","Tunisia","216","s:#e70013",'<circle cx="15" cy="10" r="5" fill="#fff"/><circle cx="15.6" cy="10" r="3.6" fill="#e70013"/><circle cx="16.7" cy="10" r="2.9" fill="#fff"/>'],
+["tr","Turchia","90","s:#e30a17",'<circle cx="12" cy="10" r="5" fill="#fff"/><circle cx="13.3" cy="10" r="4" fill="#e30a17"/>',"*18.6,10,2,#fff"],
+["ua","Ucraina","380","h:#0057b7,#ffd700"],
+["hu","Ungheria","36","h:#ce2939,#fff,#477050"],
+["xx","Altro paese (scrivi il numero con +)","","s:#e5e7eb",'<circle cx="15" cy="10" r="6" fill="none" stroke="#6b7280" stroke-width="1.2"/><path d="M9 10h12M15 4c-3 3-3 9 0 12M15 4c3 3 3 9 0 12" fill="none" stroke="#6b7280" stroke-width="1"/>']
+];
+function telStella(cx,cy,r,col,vuota){var p=[];for(var i=0;i<10;i++){var a=Math.PI/5*i-Math.PI/2,rr=i%2?r*.4:r;p.push((cx+rr*Math.cos(a)).toFixed(2)+","+(cy+rr*Math.sin(a)).toFixed(2));}
+  return '<polygon points="'+p.join(" ")+'" '+(vuota?'fill="none" stroke="'+col+'" stroke-width=".9"':'fill="'+col+'"')+'/>';}
+function telBandiera(pa){var s='<svg viewBox="0 0 30 20" aria-hidden="true" focusable="false">',spec=pa[3],t=spec.charAt(0),c=spec.slice(2).split(",");
+  if(t==="s")s+='<rect width="30" height="20" fill="'+c[0]+'"/>';
+  else c.forEach(function(col,i){var n=c.length;s+=t==="v"?'<rect x="'+(30/n*i)+'" width="'+(30/n+.05)+'" height="20" fill="'+col+'"/>':'<rect y="'+(20/n*i)+'" width="30" height="'+(20/n+.05)+'" fill="'+col+'"/>';});
+  pa.slice(4).forEach(function(x){if(x.charAt(0)==="*"||x.charAt(0)==="o"){var q=x.slice(1).split(",");s+=telStella(+q[0],+q[1],+q[2],q[3],x.charAt(0)==="o");}else s+=x;});
+  return s+'</svg>';}
+function telPaese(cod){for(var i=0;i<TEL_PAESI.length;i++)if(TEL_PAESI[i][0]===cod)return TEL_PAESI[i];return TEL_PAESI[0];}
+function telScegli(inp,cod){var pa=telPaese(cod);inp.dataset.paese=pa[0];var b=inp.parentNode.querySelector(".tel-paese");
+  b.innerHTML=telBandiera(pa)+'<span>'+(pa[2]?"+"+pa[2]:"+")+'</span>';b.setAttribute("aria-label","Paese del numero: "+pa[1]+(pa[2]?", prefisso +"+pa[2]:"")+". Tocca per cambiarlo");
+  inp.placeholder=pa[2]==="39"?"333 123 4567":(pa[2]?"numero senza prefisso":"+ prefisso e numero");}
+function telImposta(id,num){var inp=document.getElementById(id);if(!inp)return;num=String(num||"").replace(/[^0-9]/g,"");var cod="it",resto=num;
+  if(num){var m=null;TEL_PAESI.forEach(function(pa){if(pa[2]&&num.indexOf(pa[2])===0&&num.length>pa[2].length+5&&(!m||pa[2].length>m[2].length))m=pa;});
+    if(m){cod=m[0];resto=num.slice(m[2].length);}else{cod="xx";resto="+"+num;}}
+  telScegli(inp,cod);inp.value=resto;}
+function telValore(id){var inp=document.getElementById(id);if(!inp)return "";var v=inp.value.trim();if(!v)return "";
+  if(v.charAt(0)==="+"||v.indexOf("00")===0)return v;var pa=telPaese(inp.dataset.paese||"it");if(!pa[2])return v;
+  var n=v.replace(/[^0-9]/g,"");if(pa[2]!=="39")n=n.replace(/^0+/,"");return "+"+pa[2]+n;}
+function telMonta(id){var inp=document.getElementById(id);if(!inp||inp.parentNode.classList.contains("tel-box"))return;
+  var box=document.createElement("div");box.className="tel-box";inp.parentNode.insertBefore(box,inp);
+  var b=document.createElement("button");b.type="button";b.className="tel-paese";b.setAttribute("aria-haspopup","listbox");b.setAttribute("aria-expanded","false");
+  box.appendChild(b);box.appendChild(inp);var lista=null;
+  function chiudi(){if(lista){lista.remove();lista=null;b.setAttribute("aria-expanded","false");document.removeEventListener("mousedown",fuori,true);}}
+  function fuori(e){if(!box.contains(e.target))chiudi();}
+  function disegna(q){var h="";q=(q||"").toLowerCase();TEL_PAESI.forEach(function(pa){if(q&&(pa[1].toLowerCase().indexOf(q)<0&&("+"+pa[2]).indexOf(q)<0))return;
+    h+='<button type="button" class="tel-op" role="option" data-c="'+pa[0]+'" aria-selected="'+(pa[0]===inp.dataset.paese)+'">'+telBandiera(pa)+'<span>'+pa[1]+'</span><b>'+(pa[2]?"+"+pa[2]:"")+'</b></button>';});
+    lista.querySelector(".tel-ops").innerHTML=h||'<p style="margin:6px;opacity:.7">Nessun paese trovato</p>';}
+  b.addEventListener("click",function(){if(lista){chiudi();return;}
+    lista=document.createElement("div");lista.className="tel-lista";lista.setAttribute("role","listbox");lista.setAttribute("aria-label","Paese del numero");
+    lista.innerHTML='<input type="search" placeholder="Cerca il paese" aria-label="Cerca il paese"><div class="tel-ops"></div>';box.appendChild(lista);disegna("");
+    b.setAttribute("aria-expanded","true");var c=lista.querySelector("input");c.addEventListener("input",function(){disegna(c.value);});
+    lista.addEventListener("click",function(e){var o=e.target.closest(".tel-op");if(!o)return;var vecchio=inp.value;telScegli(inp,o.getAttribute("data-c"));
+      if(o.getAttribute("data-c")==="xx"&&vecchio&&vecchio.charAt(0)!=="+")inp.value="+"+vecchio;chiudi();inp.focus();});
+    lista.addEventListener("keydown",function(e){if(e.key==="Escape"){e.stopPropagation();chiudi();b.focus();}});
+    document.addEventListener("mousedown",fuori,true);var sel=lista.querySelector('[aria-selected="true"]');if(sel)sel.scrollIntoView({block:"nearest"});c.focus();});
+  telScegli(inp,"it");}
+` + "return{monta:telMonta,imposta:telImposta,valore:telValore};})();";
 
 const STILE =
   ":root{--accento:#0A7D48;--bordo:#d5dcd8;--sfondo:#F4F6F5;--ar:#C27A12;--ar-s:#8A4A06;--ar-c:#FFF7EA;--ar-b:#F1D7AE}" +
@@ -603,7 +830,33 @@ const STILE =
   ":root:not([data-theme=light]) .cal-d.fest{background:rgba(255,255,255,.025)}:root:not([data-theme=light]) .cal-d.pieno{background:rgba(217,138,28,.08);border-color:rgba(217,138,28,.3)}" +
   ":root:not([data-theme=light]) .cal-num{color:#CBD5E1}:root:not([data-theme=light]) .cal-e{color:#F1F5F9;background:color-mix(in srgb,var(--tc) 22%,#141A24)}" +
   ":root:not([data-theme=light]) .cal-e b{color:color-mix(in srgb,var(--tc) 60%,#fff)}:root:not([data-theme=light]) .cal-n button,:root:not([data-theme=light]) .cal-oggi{background:rgba(255,255,255,.06);color:#F1F5F9;border-color:rgba(255,255,255,.12)}" +
-  ":root:not([data-theme=light]) .cal-leg{color:#94A3B8}:root:not([data-theme=light]) .cal-pt i{box-shadow:0 0 0 2px #141A24,0 0 8px var(--tc)}}";
+  ":root:not([data-theme=light]) .cal-leg{color:#94A3B8}:root:not([data-theme=light]) .cal-pt i{box-shadow:0 0 0 2px #141A24,0 0 8px var(--tc)}}" +
+  // nuovo contatto dall'agenda (02/11/2026, agenda-contatti-1): pulsante accanto alla ricerca degli invitati e modulo #ag-nc
+  ".inv-r{display:flex;gap:8px;align-items:stretch;margin-top:6px}.dl-c .inv-r input{flex:1;min-width:0;margin-top:0}" +
+  ".inv-nuovo{flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--ar);background:var(--ar-c);color:var(--ar-s);font:inherit;font-size:.92rem;font-weight:700;cursor:pointer;white-space:nowrap}" +
+  ".inv-nuovo:hover,.inv-nuovo:focus-visible{background:var(--ar);color:#fff;outline:none}.inv-r input[hidden]+.inv-nuovo{flex:1}" +
+  "#l-inv [hidden],#ag-nc [hidden]{display:none!important}#f-inv-vuota{margin:8px 0 0}#f-inv-esito{margin-top:8px}" +
+  "@media (max-width:420px){.inv-r{flex-wrap:wrap}.dl-c .inv-r input,.inv-nuovo{flex:1 1 100%}}" +
+  "#ag-nc{--bg:#fff;--testo:#111}#ag-nc .riga2>div{min-width:0}#ag-nc .nc-nota{margin:10px 0 0}" +
+  ".nc-dom{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--ar-c);border:1px solid var(--ar-b);color:#5A3A06;font-size:.9rem;font-weight:600}" +
+  // telefono con bandierina e prefisso del paese, Italia di base (come Rubrica e Persone del cantiere, telefono-paese-1)
+  "#ag-nc .tel-box{position:relative;display:flex;gap:6px;margin-top:4px}#ag-nc .tel-box input{flex:1;min-width:0;width:auto;margin-top:0}" +
+  ".tel-paese{flex:0 0 auto;display:flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;border:1px solid var(--bordo);border-radius:10px;background:var(--bg);color:var(--testo);font:inherit;font-weight:600;cursor:pointer}" +
+  ".tel-paese svg,.tel-op svg{width:24px;height:16px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.18);flex:0 0 auto}" +
+  ".tel-paese:focus-visible,.tel-op:focus-visible{outline:2px solid #2563eb;outline-offset:1px}" +
+  ".tel-lista{position:absolute;left:0;top:calc(100% + 4px);z-index:30;width:min(300px,86vw);max-height:280px;overflow:auto;padding:6px;border:1px solid var(--bordo);border-radius:12px;background:var(--bg);color:var(--testo);box-shadow:0 12px 32px rgba(0,0,0,.18)}" +
+  "#ag-nc .tel-lista input{width:100%;box-sizing:border-box;margin:0 0 6px;padding:8px 10px;border:1px solid var(--bordo);border-radius:8px;font:inherit;font-size:.95rem;background:var(--bg);color:var(--testo)}" +
+  ".tel-op{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:0;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}" +
+  ".tel-op:hover,.tel-op[aria-selected=true]{background:rgba(37,99,235,.1)}.tel-op b{margin-left:auto;font-weight:600;opacity:.75}" +
+  // mese intero a tutto schermo (02/11/2026): come la giornata (#ag-gio), con il calendario che riempie la finestra
+  "#ag-mese{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;margin:0;padding:0;border-radius:0;overflow:hidden;background:#F7F9FB}#ag-mese[open]{display:flex;flex-direction:column}" +
+  "#mese-c{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}#ag-mese .cal{margin:0;min-height:100%;border:0;border-radius:0;box-shadow:none;padding:18px max(16px,calc((100vw - 1400px)/2)) 16px}" +
+  "#ag-mese .cal-gi{display:none}#ag-mese .cal-d{min-height:max(84px,calc((100dvh - 256px)/6))}" +
+  ".cal-cant{display:block;margin-top:2px;font-size:.9rem;font-weight:600;letter-spacing:0;color:#64748B;overflow-wrap:anywhere}" +
+  ".cal-chiudi{min-height:40px;padding:0 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0F172A;font:inherit;font-weight:700;cursor:pointer}.cal-chiudi:hover{box-shadow:0 6px 16px -8px rgba(15,23,42,.4)}" +
+  "@media (max-width:759px){#ag-mese .cal{padding:12px 10px}#ag-mese .cal-d{min-height:max(56px,calc((100dvh - 268px)/6))}.cal-chiudi{min-height:38px;padding:0 12px}}" +
+  "header .centro h1{-webkit-user-select:none;user-select:none;touch-action:manipulation}" +
+  "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) #ag-mese{background:#0F141D}:root:not([data-theme=light]) .cal-chiudi{background:rgba(255,255,255,.06);color:#F1F5F9;border-color:rgba(255,255,255,.12)}}";
 
 // Calendario del mese (28/10/2026): richiesta di Filippo, «l'agenda si apre con tutto il mese; in ogni giorno un segno
 // se ci sono impegni; come Google Calendar ma più bello». Sul computer ogni giorno mostra fino a 3 impegni (ora e titolo,
@@ -612,6 +865,7 @@ const STILE =
 // «Giornata» (30/10/2026, Filippo): il tocco su un giorno apre anche la pagina di quel giorno (finestra #ag-gio, SCRIPT).
 const CALENDARIO = String.raw`(function(){try{
 var D=GL_AG,box=document.getElementById('cal');if(!box)return;
+var dm=document.getElementById('ag-mese'),dmC=document.getElementById('mese-c'),segno=null,CANT=(document.querySelector('header .centro p')||{}).textContent||'';
 var MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 var GS=['Lun','Mar','Mer','Gio','Ven','Sab','Dom'],GL=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'];
 var T=D.tipi||{},per={};
@@ -624,9 +878,11 @@ var o=String(D.oggi||'').split('-'),Y=+o[0]||new Date().getFullYear(),M=(+o[1]||
 function disegna(){
  var primo=new Date(Date.UTC(Y,M,1)),off=(primo.getUTCDay()+6)%7,inizio=new Date(Date.UTC(Y,M,1-off)),h='',tot=0;
  for(var k in per)if(k.slice(0,7)===iso(Y,M,1).slice(0,7))tot+=per[k].length;
- h+='<div class="cal-t"><h2 class="cal-m">'+cap(MESI[M])+' '+Y+(tot?'<small>'+tot+(tot===1?' impegno':' impegni')+'</small>':'')+'</h2>'+
+ h+='<div class="cal-t"><h2 class="cal-m">'+cap(MESI[M])+' '+Y+(tot?'<small>'+tot+(tot===1?' impegno':' impegni')+'</small>':'')+
+  (dmC&&box.parentNode===dmC&&CANT?'<span class="cal-cant">'+esc(CANT)+'</span>':'')+'</h2>'+
   '<button type="button" class="cal-oggi" data-v="oggi">Oggi</button><div class="cal-n"><button type="button" data-v="-1" aria-label="Mese precedente">‹</button>'+
-  '<button type="button" data-v="1" aria-label="Mese successivo">›</button></div>'+(D.chiuso?'':'<button type="button" class="cal-piu" data-v="nuovo">+ Nuovo</button>')+'</div>';
+  '<button type="button" data-v="1" aria-label="Mese successivo">›</button></div>'+(D.chiuso?'':'<button type="button" class="cal-piu" data-v="nuovo">+ Nuovo</button>')+
+  (dmC&&box.parentNode===dmC?'<button type="button" class="cal-chiudi" data-v="chiudi">Chiudi</button>':'')+'</div>';
  h+='<div class="cal-g" role="grid">';for(var w=0;w<7;w++)h+='<div class="cal-w" role="columnheader">'+GS[w]+'</div>';
  for(var i=0;i<42;i++){var dt=new Date(inizio.getTime()+i*864e5),g=iso(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()),l=per[g]||[];
   if(i===35&&dt.getUTCMonth()!==M)break;
@@ -648,10 +904,27 @@ function giorno(g){var p=g.split('-'),dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]))
 box.addEventListener('click',function(ev){var b=ev.target.closest('[data-v],[data-g]');if(!b||!box.contains(b))return;var v=b.getAttribute('data-v');
  if(v==='-1'||v==='1'){M+=+v;if(M<0){M=11;Y--;}if(M>11){M=0;Y++;}disegna();return;}
  if(v==='oggi'){Y=+o[0];M=+o[1]-1;sel=D.oggi;disegna();return;}
+ if(v==='chiudi'){if(dm&&dm.open)dm.close();if(window.glAgMeseRimetti)window.glAgMeseRimetti();return;}
  if(v==='nuovo'){if(window.glAgNuovo)window.glAgNuovo(b.getAttribute('data-g')||sel);return;}
- if(v==='vai'){ev.preventDefault();var r=document.querySelector('.ag[data-id="'+b.getAttribute('data-id')+'"]');if(r){var dt=r.closest('details');if(dt)dt.open=true;r.scrollIntoView({behavior:'smooth',block:'center'});r.classList.remove('lampo');void r.offsetWidth;r.classList.add('lampo');}return;}
+ if(v==='vai'){ev.preventDefault();if(dm&&dm.open)dm.close();var r=document.querySelector('.ag[data-id="'+b.getAttribute('data-id')+'"]');if(r){var dt=r.closest('details');if(dt)dt.open=true;r.scrollIntoView({behavior:'smooth',block:'center'});r.classList.remove('lampo');void r.offsetWidth;r.classList.add('lampo');}return;}
  var g=b.getAttribute('data-g');if(g){sel=g;var p=g.split('-');if(+p[1]-1!==M||+p[0]!==Y){Y=+p[0];M=+p[1]-1;}disegna();if(window.glAgGiorno)window.glAgGiorno(g);}});
 box.hidden=false;disegna();
+/* «Mese intero» (02/11/2026, agenda-contatti-1, Filippo: «doppio clic sull'icona Agenda e si apre la schermata del mese intero»):
+   il calendario a tutto schermo, come la giornata. Si apre con ?vista=mese (doppio clic o doppio tocco sulla scheda «Agenda» o sul
+   pulsante «Apri l'agenda…» del cantiere) e con il doppio clic sul titolo «Agenda» di questa pagina. Il calendario si sposta nella
+   finestra e torna al suo posto alla chiusura; chiudendo si toglie «vista=mese» dall'indirizzo. Un tocco su un giorno apre la giornata. */
+function meseApri(){if(!dm||!dmC||typeof dm.showModal!=='function'||dm.open)return;segno=document.createComment('calendario');box.parentNode.insertBefore(segno,box);
+ dmC.appendChild(box);disegna();dm.showModal();dmC.scrollTop=0;}
+/* il calendario torna al suo posto (anche se il segnaposto non c'è più: subito dopo «Torna al cantiere»); si può chiamare più volte */
+function meseRimetti(){if(dmC&&box.parentNode===dmC){if(segno&&segno.parentNode)segno.parentNode.insertBefore(box,segno);
+  else{var mm=document.querySelector('main');if(mm)mm.insertBefore(box,mm.children[1]||null);}disegna();}
+ if(segno&&segno.parentNode)segno.parentNode.removeChild(segno);segno=null;}
+if(dm){dm.addEventListener('close',function(){meseRimetti();
+ try{var u=new URL(location.href);if(u.searchParams.get('vista')==='mese'){u.searchParams.delete('vista');history.replaceState(history.state,'',u.pathname+u.search+u.hash);}}catch(x){}});
+ var h1=document.querySelector('header .centro h1'),u1=0;
+ if(h1)h1.addEventListener('click',function(ev){var o=Date.now();if(ev.detail>1||o-u1<350){u1=0;try{window.getSelection().removeAllRanges();}catch(x){}meseApri();return;}u1=o;});}
+window.glAgMese=meseApri;window.glAgMeseRimetti=meseRimetti;
+if(/[?&]vista=mese(&|$)/.test(location.search))meseApri();
 }catch(x){}})();
 `;
 
@@ -696,15 +969,71 @@ function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=
 function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(corpo)}).then(function(r){return r.json();});}
 /* Inviti (30/10/2026): contatti della Rubrica con email; i scelti restano sempre in cima all'elenco */
 var RUB=D.rubrica||[],invSel={},invL=document.getElementById('f-inv'),invQ=document.getElementById('f-inv-q'),invS=document.getElementById('f-inv-sel');
-function invRender(){if(!invL)return;var q=(invQ.value||'').toLowerCase().trim(),h='',n=0,lista=RUB.slice().sort(function(a,b){return (invSel[b.id]?1:0)-(invSel[a.id]?1:0);});
+function invRender(){if(!invL)return;var vu=document.getElementById('f-inv-vuota');if(vu){vu.hidden=RUB.length>0;invL.hidden=!RUB.length;invQ.hidden=!RUB.length;}
+ var q=(invQ.value||'').toLowerCase().trim(),h='',n=0,lista=RUB.slice().sort(function(a,b){return (invSel[b.id]?1:0)-(invSel[a.id]?1:0);});
  for(var i=0;i<lista.length;i++){var k=lista[i],sel=!!invSel[k.id];if(!sel&&q&&(k.n+' '+k.i+' '+k.e).toLowerCase().indexOf(q)===-1)continue;if(!sel&&n>=80)continue;n++;
   h+='<label class="cr-i'+(sel?' sel':'')+'"><input type="checkbox" value="'+k.id+'"'+(sel?' checked':'')+'><span>'+esc(k.n)+'<small>'+[k.i,k.e].filter(Boolean).map(esc).join(' · ')+'</small></span></label>';}
- invL.innerHTML=h||'<div class="cr-vuoto">Nessun contatto con queste parole.</div>';var c=Object.keys(invSel).length;
+ invL.innerHTML=h||'<div class="cr-vuoto">Nessun contatto con queste parole'+(vu?': tocca «+ Nuovo contatto» per aggiungerlo.':'.')+'</div>';var c=Object.keys(invSel).length;
  invS.textContent=c?(c===1?'1 invitato: riceve l’email':c+' invitati: ricevono l’email')+' quando salvi.':'';}
 if(invL){invQ.addEventListener('input',invRender);invL.addEventListener('change',function(ev){var c=ev.target;if(!c||c.type!=='checkbox')return;
  if(c.checked){if(Object.keys(invSel).length>=30){c.checked=false;return;}invSel[c.value]=1;}else delete invSel[c.value];invRender();});}
 function invitati(){return Object.keys(invSel).map(Number);}
-function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;invSel={};if(invQ)invQ.value='';invRender();mostra('l-inv',true);tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
+function invEsito(t){var el=document.getElementById('f-inv-esito');if(el)el.textContent=t;}
+/* «+ Nuovo contatto» (02/11/2026, agenda-contatti-1): piccolo modulo sopra quello dell'appuntamento. Il contatto entra nella Rubrica
+   dell'impresa (POST /agenda/contatto → rubrica_salva, come la pagina Rubrica) e subito tra gli invitati; se c'è già (stessa email
+   o stesso cellulare) si usa quello e lo si dice. L'email con l'invito parte quando si salva l'appuntamento, come per gli altri. */
+var nc=document.getElementById('ag-nc'),ncB=document.getElementById('f-inv-nuovo');
+if(nc&&ncB&&typeof nc.showModal==='function'&&window.GL_TEL){
+ var ncF=document.getElementById('nc-form'),ncNome=document.getElementById('nc-nome'),ncMail=document.getElementById('nc-mail'),ncTel=document.getElementById('nc-tel'),
+  ncImp=document.getElementById('nc-imp'),ncRuolo=document.getElementById('nc-ruolo'),ncMsg=document.getElementById('nc-msg'),ncSi=document.getElementById('nc-si'),
+  ncNo=document.getElementById('nc-no'),ncDom=document.getElementById('nc-dom'),ncOcc=false,ncSolo=false,ncConf=0;
+ GL_TEL.monta('nc-tel');
+ var ncM=function(cl,t){ncMsg.className='msg '+cl;ncMsg.textContent=t;};
+ var ncTesto=function(){ncSi.textContent=ncConf?'Sì, aggiungi l’email e invita':ncSolo?'Salva solo in Rubrica':'Salva e invita';};
+ var ncAzzera=function(){ncConf=0;ncDom.hidden=true;ncDom.textContent='';ncTesto();};
+ /* stessa regola di _pc_telefono nel database */
+ var ncTelDb=function(v){var d=String(v||'').replace(/[^0-9]/g,'');if(d.indexOf('00')===0)return d.slice(2);return d.length===10&&d.charAt(0)==='3'?'39'+d:d;};
+ var ncApri=function(){var q=invQ?(invQ.value||'').trim():'';ncNome.value='';ncMail.value='';GL_TEL.imposta('nc-tel','');ncImp.value='';ncRuolo.value='';
+  /* quello che era scritto nella ricerca va nel campo giusto: email, cellulare o nome */
+  if(q){if(q.indexOf('@')>0)ncMail.value=q;else if(/^[+0-9][0-9 ().\/-]{5,}$/.test(q))ncTel.value=q;else ncNome.value=q;}
+  var v={},hh='';RUB.forEach(function(k){if(k.i)v[k.i]=1;});Object.keys(v).sort().forEach(function(x){hh+='<option value="'+esc(x)+'">';});
+  document.getElementById('nc-imp-l').innerHTML=hh;
+  ncSolo=false;ncOcc=false;ncAzzera();ncSi.disabled=false;ncNo.disabled=false;ncM('','');nc.showModal();
+  setTimeout(function(){try{(ncNome.value?ncMail:ncNome).focus();}catch(x){}},50);};
+ ncB.addEventListener('click',ncApri);
+ [ncMail,ncTel].forEach(function(x){x.addEventListener('input',function(){if(ncConf)ncAzzera();if(x===ncMail&&ncSolo&&ncMail.value.trim()){ncSolo=false;ncTesto();}});});
+ ncNo.addEventListener('click',function(){if(!ncOcc)nc.close();});
+ nc.addEventListener('cancel',function(ev){if(ncOcc)ev.preventDefault();});
+ /* il contatto va nell'elenco (se ha l'email) e tra gli invitati, in cima; sotto l'elenco resta la frase con l'esito */
+ var ncScegli=function(k,testo){var id=Number(k.id)||0,mail=String(k.email||''),c=null,pieno=false;
+  for(var i=0;i<RUB.length;i++)if(RUB[i].id===id){c=RUB[i];break;}
+  if(mail&&id){if(c)c.e=mail;else RUB.push({id:id,n:String(k.nome||''),e:mail,i:String(k.impresa||'')});
+   if(!invSel[id]&&Object.keys(invSel).length>=30)pieno=true;else invSel[id]=1;}
+  if(invQ)invQ.value='';invRender();invEsito(pieno?'✓ '+String(k.nome||'')+' è nella Rubrica, ma non tra gli invitati: al massimo 30 per appuntamento.':testo);nc.close();};
+ ncF.addEventListener('submit',function(ev){ev.preventDefault();if(ncOcc)return;
+  var nome=ncNome.value.trim(),mail=ncMail.value.trim(),tel=GL_TEL.valore('nc-tel'),td=ncTelDb(tel);
+  if(nome.length<2){ncM('ko','Scrivi nome e cognome.');ncNome.focus();return;}
+  if(mail&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ncM('ko','L’email non sembra giusta.');ncMail.focus();return;}
+  if(td&&(td.length<10||td.length>15)){ncM('ko','Il numero di cellulare non sembra giusto: scrivilo con il prefisso, per esempio +39 333 123 4567.');ncTel.focus();return;}
+  if(!mail&&!ncSolo){ncSolo=true;ncTesto();ncM('ko','Per l’invito serve l’email: scrivila qui sopra. Senza email il contatto va solo nella Rubrica e non riceve l’invito.');ncMail.focus();return;}
+  ncOcc=true;ncSi.disabled=true;ncNo.disabled=true;ncM('','Un momento…');
+  var corpo={t:D.t,c:D.c,dati:{nome:nome,email:mail,telefono:tel,impresa:ncImp.value.trim(),ruolo:ncRuolo.value}};if(ncConf)corpo.aggiungi_email=ncConf;
+  post('contatto',corpo).then(function(j){ncOcc=false;ncSi.disabled=false;ncNo.disabled=false;j=j||{};var k=j.contatto||{},nm=k.nome||nome;
+   if(j.esito==='ok'){ncScegli(k,k.email?'✓ '+nm+' è nella Rubrica e tra gli invitati: riceve l’email quando salvi l’appuntamento.'
+     :'✓ '+nm+' è nella Rubrica. Non è tra gli invitati perché manca l’email.');return;}
+   if(j.esito==='gia'){ncScegli(k,j.email_aggiunta?'✓ '+nm+' era già nella Rubrica con questo cellulare: ho aggiunto l’email al suo contatto ed è tra gli invitati.'
+     :j.per==='email'?'✓ '+nm+' era già nella Rubrica con questa email: ho usato quel contatto ed è tra gli invitati.'
+     :'✓ '+nm+' era già nella Rubrica con questo cellulare: ho usato quel contatto ed è tra gli invitati'+(j.email_diversa?' (l’invito va alla sua email della Rubrica, '+k.email+').':'.'));return;}
+   if(j.esito==='senza_email'){
+    if(mail){ncConf=Number(k.id)||0;ncDom.textContent=nm+' è già nella Rubrica con questo cellulare, ma senza email. Aggiungo '+mail+' al suo contatto e lo invito?';ncDom.hidden=false;ncTesto();ncM('','');}
+    else{ncSolo=false;ncTesto();ncM('ko',nm+' è già nella Rubrica con questo cellulare, ma senza email: scrivila qui sopra per invitarlo.');ncMail.focus();}
+    return;}
+   if(j.esito==='gettone'){location.href=D.base+'/';return;}
+   if(j.esito==='incerto'){ncM('ko','Non ho avuto risposta: riprova tra un minuto. Se il contatto è stato salvato, lo trovi già nella Rubrica.');return;}
+   ncM('ko',j.messaggio||'Non sono riuscito a salvare il contatto: riprova tra poco.');
+   var f={nome:ncNome,email:ncMail,telefono:ncTel}[j.campo];if(f){try{f.focus();}catch(x){}}
+  }).catch(function(){ncOcc=false;ncSi.disabled=false;ncNo.disabled=false;ncM('ko','Il servizio non risponde: controlla la connessione e riprova.');});});}
+function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;invSel={};if(invQ)invQ.value='';invRender();invEsito('');mostra('l-inv',true);tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
  fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='lavorazione';favv.checked=true;fcli.checked=false;fsera.checked=false;
  fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
  crSel={};if(crQ)crQ.value='';crRender();
@@ -719,7 +1048,7 @@ function apriModifica(b){var x={};try{x=JSON.parse(b.getAttribute('data-app'))||
  favv.checked=x.avv!==false;fcli.checked=!!x.cli;fsera.checked=!!x.sera;fluogo.value=x.luogo||'';fchi.value=x.chi||'';
  var ps=x.pers||[];for(var i=0;i<fpers.length;i++)fpers[i].checked=ps.indexOf(fpers[i].value)!==-1;
  crSel={};(x.att||[]).forEach(function(id){crSel[id]=1;});if(crQ)crQ.value='';crRender();
- invSel={};(x.inv||[]).forEach(function(id){invSel[id]=1;});if(invQ)invQ.value='';invRender();mostra('l-inv',true);
+ invSel={};(x.inv||[]).forEach(function(id){invSel[id]=1;});if(invQ)invQ.value='';invRender();invEsito('');mostra('l-inv',true);
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Salva le modifiche';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
 form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)return;
  if(!fg.value){m('ko','Indica il giorno.');return;}
