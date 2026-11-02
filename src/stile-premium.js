@@ -156,6 +156,11 @@ export const PREMIUM_PORTALE = "<style id=\"tx-premium\">" +
   "@media (prefers-color-scheme:dark){.gl-pc-b,.gl-xl-b{background-image:none;box-shadow:0 8px 18px -12px rgba(0,0,0,.6)}" +
   ".gl-xl-bx{background-image:" + RIFLESSO_SCURO + "}.gl-xl-az button{background-image:none}.gl-xl-bx label.op{border-color:#3a4540}}" +
   "@media (prefers-reduced-motion:reduce){.gl-pc-b:hover,.gl-xl-b:hover,.gl-xl-az button:hover{transform:none}}" +
+  // 11. pulsante «Sicurezza» della pagina del cantiere (02/11/2026, sicurezza-1): stessa finitura, con l'anello verde
+  ".gl-sc-b{border-radius:12px;background-image:linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,0));box-shadow:0 0 0 3px rgba(8,127,91,.14),0 8px 18px -12px rgba(6,95,70,.5);" +
+  "transition:transform .25s " + C + ",box-shadow .25s " + C + ",background-color .25s " + C + ",color .25s " + C + "}" +
+  ".gl-sc-b:hover{transform:translateY(-1px);background-image:" + LUCIDO + ";box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 10px 22px -12px rgba(6,95,70,.6)}.gl-sc-b:active{transform:scale(.985)}" +
+  "@media (prefers-color-scheme:dark){.gl-sc-b{background-image:none}}@media (prefers-reduced-motion:reduce){.gl-sc-b:hover{transform:none}}" +
   "</style>";
 
 // Aggiunge lo strato a una risposta HTML del portale (le altre risposte passano intatte).
