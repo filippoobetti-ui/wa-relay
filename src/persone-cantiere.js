@@ -596,9 +596,9 @@ const INVITO_HTML = '<div class="velo" id="velo-inv" hidden><div class="foglio" 
   '<h2 id="t-inv">Invito per <span id="i-nome"></span></h2><p class="sotto" id="i-scade"></p>' +
   '<div id="stampa"><div class="inv"><div class="qr" id="i-qr" role="img" aria-label="Codice QR dell\'invito"></div><div style="min-width:0"><div class="p-sub">Codice personale</div><div class="codice" id="i-cod"></div><div class="link" id="i-link"></div></div></div></div>' +
   '<div class="azioni"><a class="btn wa" id="i-cond" target="_blank" rel="noopener">Condividi su WhatsApp</a><button class="btn" type="button" id="i-copia">Copia il link</button>' +
-  '<a class="btn" id="i-mail">Prepara l\'email</a><button class="btn" type="button" id="i-stampa">Stampa il QR</button><button class="btn" type="button" id="i-nuovo">Nuovo codice</button></div>' +
+  '<a class="btn" id="i-mail">Prepara l\'email</a><a class="btn" id="i-mail-gmail" target="_blank" rel="noopener">Apri in Gmail</a><button class="btn" type="button" id="i-stampa">Stampa il QR</button><button class="btn" type="button" id="i-nuovo">Nuovo codice</button></div>' +
   '<p class="sotto" style="margin-top:12px">«Condividi su WhatsApp» apre una chat con la persona e il messaggio parte dal <b>tuo</b> numero: va bene lo stesso, perché TIX riceve il primo messaggio solo quando la persona apre il link e scrive. Se preferisci non usare il tuo numero, usa «Copia il link» e mandalo da un altro canale (email, SMS o QR stampato).</p>' +
-  '<p class="sotto" style="margin-top:8px">«Prepara l\'email» apre la tua posta con il testo pronto: l\'email parte dal tuo indirizzo, quando la invii tu.</p>' +
+  '<p class="sotto" style="margin-top:8px">«Prepara l\'email» apre il programma di posta del dispositivo, «Apri in Gmail» apre Gmail nel browser: in tutti e due il testo è pronto e l\'email parte dal tuo indirizzo, quando la invii tu.</p>' +
   '<div class="fine"><button class="btn pr" type="button" data-chiudi>Fatto</button></div></div></div>';
 
 const PAGINA_JS = String.raw`
@@ -693,9 +693,10 @@ function mostraInvito(p){
     "\n\nPer attivare l'accesso apra questo collegamento dal telefono e invii il messaggio già scritto:\n"+inv.link+
     "\n\nI suoi dati li ha inseriti "+(D.impresa||"l'impresa")+", che ne è titolare; TIX li usa per suo conto. Informativa: www.tixcantiere.it/privacy-policy\nIl diario di cantiere non sostituisce il giornale dei lavori della Direzione Lavori.";
   $("i-mail").href="mailto:"+encodeURIComponent(p.email||"")+"?subject="+encodeURIComponent((D.impresa||"")+" ti ha aggiunto al cantiere "+D.cantiere.nome+" su TIX")+"&body="+encodeURIComponent(corpo);
+$("i-mail-gmail").href="https://mail.google.com/mail/?view=cm&fs=1&to="+encodeURIComponent(p.email||"")+"&su="+encodeURIComponent((D.impresa||"")+" ti ha aggiunto al cantiere "+D.cantiere.nome+" su TIX")+"&body="+encodeURIComponent(corpo);
   $("velo-inv").hidden=false;
 }
-$("i-cond").addEventListener("click",segnaInviato);$("i-mail").addEventListener("click",segnaInviato);
+$("i-cond").addEventListener("click",segnaInviato);$("i-mail").addEventListener("click",segnaInviato);$("i-mail-gmail").addEventListener("click",segnaInviato);
 $("i-copia").addEventListener("click",function(){var l=$("i-link").textContent;
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(l).then(function(){toast("Link copiato");segnaInviato();},function(){toast("Tieni premuto il link per copiarlo");});}else toast("Tieni premuto il link per copiarlo");});
 $("i-stampa").addEventListener("click",function(){segnaInviato();window.print();});
