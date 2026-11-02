@@ -58,11 +58,12 @@ export function giornaleUfficioIniezione(base, token, commessa) {
     ".gl-gu-ok{background:#E3F3EA;border-left:4px solid #0A7D48;border-radius:8px;padding:8px 10px;font-size:.86rem;margin:0 0 6px}" +
     ".gl-gu-avv{background:#fdeaea;border-left:4px solid #c62828;border-radius:8px;padding:8px 10px;font-size:.86rem;margin:0 0 6px}" +
     ".gl-gu-stor{font-size:.8rem;color:#5b6560;margin:8px 0 0}.gl-gu-stor div{margin:3px 0}" +
+    ".gl-gu-cf{display:inline-flex;align-items:center;gap:4px;margin:8px 8px 0 0;padding:2px 10px;min-height:28px;border:1px solid #E8B04A;border-radius:999px;background:#FFF4E0;color:#8A5300;font-size:.82rem;font-weight:700;vertical-align:middle;cursor:help}.gl-gu-cf.ok{background:#E3F3EA;color:#0A7D48;border-color:#9ED3B5}" +
     ".gl-gu-err{color:#a11;font-size:.88rem;margin:10px 0 0}" +
     ".gl-gu-az{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}" +
     ".gl-gu-az button{padding:10px 16px;border-radius:10px;border:1px solid #c9d1cd;background:#fff;color:#1b1f1d;font:inherit;font-weight:600;cursor:pointer}" +
     ".gl-gu-az button.pr{background:#c62828;border-color:#c62828;color:#fff}.gl-gu-az button.ag{background:#C27A12;border-color:#C27A12;color:#fff}.gl-gu-az button[disabled]{opacity:.55;cursor:wait}" +
-    "@media (prefers-color-scheme:dark){.gl-gu-bx{background:#1a201d;color:#eef2f0}.gl-gu-bx h3{color:#cfe0ff}.gl-gu-bx textarea,.gl-gu-bx input[type=text],.gl-gu-bx select{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-gu-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-gu-ok{background:#123224}.gl-gu-avv{background:#3a1c1c}.gl-gu-nota{background:#3a2f12;color:#f3e2bd}}" +
+    "@media (prefers-color-scheme:dark){.gl-gu-bx{background:#1a201d;color:#eef2f0}.gl-gu-bx h3{color:#cfe0ff}.gl-gu-bx textarea,.gl-gu-bx input[type=text],.gl-gu-bx select{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-gu-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-gu-ok{background:#123224}.gl-gu-avv{background:#3a1c1c}.gl-gu-nota{background:#3a2f12;color:#f3e2bd}.gl-gu-cf{background:#3a2f12;color:#f3e2bd}.gl-gu-cf.ok{background:#123224;color:#bfe8cf}}" +
     "</style>";
   const script = "<script>" + String.raw`(function(){try{
 var CFG=` + cfg + String.raw`,STATO=null;
@@ -73,6 +74,7 @@ function autore(){try{return localStorage.getItem('gl_rp_autore')||'';}catch(x){
 function ricorda(v){try{if(v)localStorage.setItem('gl_rp_autore',v);}catch(x){}}
 function chiudi(ov){if(ov&&ov.parentNode)ov.parentNode.removeChild(ov);}
 function finestra(){var ov=el('div','gl-gu-ov'),bx=el('div','gl-gu-bx');ov.appendChild(bx);ov.addEventListener('click',function(e){if(e.target===ov)chiudi(ov);});document.body.appendChild(ov);return {ov:ov,bx:bx};}
+var STATI_CF={da_mandare:'da mandare',in_invio:'in invio',mandata:'mandata, ancora senza risposta',confermata:'confermata da chi ha scritto',correggi_attesa:'ha scelto «Correggi», si aspetta la frase giusta',corretta:'corretta da chi ha scritto',scaduta:'senza risposta',solo_segno:'non chiesta (traduzione, limite del giorno o diario chiuso): da controllare',errore:'non partita'};
 function dIt(s){var p=String(s||'').split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:'';}
 function errore(r){if(!r)return 'Operazione non riuscita. Riprova.';if(r.esito==='gettone')return 'Collegamento non valido o scaduto: ricarica la pagina.';if(r.esito==='chiuso')return 'Il cantiere è chiuso: il diario non si modifica.';if(r.esito==='incerto')return 'Non ho avuto risposta: ricarica la pagina tra un minuto per vedere se è stato salvato.';return r.messaggio||'Operazione non riuscita. Riprova.';}
 /* ---------- Correggi ---------- */
@@ -84,6 +86,7 @@ function correggi(mid){
   for(var i=0;i<cc.length;i++)if(cc[i].dopo_chiusura)ultimo=cc[i].dopo;
   var stor='';
   if(v.testo_trasmesso)stor+='<div>Testo mandato dal cantiere: «'+esc(v.testo_trasmesso)+'»</div>';
+  if(v.conferma)stor+='<div>Domanda di TIX a chi ha scritto («Ho capito così?»), '+esc(v.conferma.il)+': '+esc(STATI_CF[v.conferma.stato]||v.conferma.stato)+(v.conferma.testo_mandato?' · testo arrivato: «'+esc(v.conferma.testo_mandato)+'»':'')+'</div>';
   for(var j=0;j<cc.length;j++)stor+='<div>'+esc(cc[j].il)+' · '+esc(cc[j].da)+(cc[j].dopo_chiusura?' (dopo la chiusura)':'')+': «'+esc(cc[j].dopo)+'» — '+esc(cc[j].motivo)+'</div>';
   bx.innerHTML='<h3>Correggi la voce</h3><div class="meta">'+esc(dIt(v.data))+' ore '+esc(v.ora)+' · '+esc(v.sezione)+' · '+esc(v.mittente)+'</div>'+
    (v.chiusa?'<div class="gl-gu-avv">Il diario del '+esc(dIt(v.data))+' è già chiuso e non cambia. La correzione resta registrata a parte, con il testo di prima, chi l’ha fatta e perché, e va nell’email del sabato.</div>':
@@ -143,12 +146,15 @@ function mettiTasti(){
   if(n.querySelector('.gl-gu-b'))return;
   var mid=n.getAttribute('data-mid');if(!mid)return;
   var b=el('button','gl-gu-b','&#9998; Correggi');b.type='button';b.title='Correggi il testo della voce';
+  var cf=STATO.conferme&&STATO.conferme[mid],sg=null;
+  if(cf){var ok=cf==='confermata'||cf==='corretta';sg=el('span','gl-gu-cf'+(ok?' ok':''),ok?(cf==='corretta'?'&#10003; Corretta da chi l’ha scritta':'&#10003; Confermata da chi l’ha scritta'):'&#9888; Da confermare');sg.title=ok?'Chi ha mandato il messaggio ha risposto alla domanda «Ho capito così?»':'La correzione automatica era incerta e chi ha scritto non l’ha confermata: controlla il testo con «Correggi»';}
   b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();correggi(mid);});
   var file=null,ll=n.querySelectorAll('a.link');
   for(var i=0;i<ll.length;i++){if(/Apri il file/.test(ll[i].textContent||'')){file=ll[i];break;}}
   if(!file&&ll.length)file=ll[ll.length-1];
   if(file)file.insertAdjacentElement('afterend',b);
   else{var tx=n.querySelectorAll(':scope > .testo');if(tx.length)tx[tx.length-1].insertAdjacentElement('afterend',b);else n.appendChild(b);}
+  if(sg)b.insertAdjacentElement('afterend',sg);
  });
  var pg=document.getElementById('p-g');
  if(pg&&!pg.querySelector('.gl-gu-add,.gl-gu-nota')){
