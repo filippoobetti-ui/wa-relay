@@ -51,7 +51,9 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   const tok = studioGettone(request);
   if (sotto === "/studio/esci") {
     if (tok) await h.rpc(env, "prof_esci", { p_token: tok }, 8000).catch(() => null);
-    return vai(base + "/?esci=1", cookieTogli(base));
+    // 03/11/2026: «uscito» e non «esci», che nella pagina d'ingresso cancellerebbe anche l'accesso dell'impresa ricordato
+    // dal browser (gl_portale_t): chi è anche utente di un'impresa torna lì, gli altri vedono la pagina d'ingresso.
+    return vai(base + "/?uscito=1", cookieTogli(base));
   }
   if (!tok) return vai(base + "/");
   if (sotto === "/studio" || sotto === "/studio/") return elenco(request, env, base, h, tok);
@@ -270,9 +272,13 @@ function pagina(request, base, h, titolo, utente, sottotitolo, corpo, stato) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>" + e(titolo) + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + "</style></head><body>" +
     '<header class="testa"><div class="in"><div class="riga"><a class="marchio" href="' + e(base + "/studio") + '"><img src="' + e(base + "/icona-192.png") + '" alt="">TIX · Area professionisti</a>' +
-    '<span class="chi">' + e(u.nome || u.email || "") + ' <a class="esci" href="' + e(base + "/studio/esci") + '">Esci</a></span></div>' +
+    '<span class="chi">' + e(u.nome || u.email || "") + ' <a class="esci" id="impresa" href="' + e(base + "/") + '" hidden>La tua impresa</a>' +
+    '<a class="esci" href="' + e(base + "/studio/esci") + '">Esci</a></span></div>' +
     "<h1>" + e(titolo) + "</h1>" + (sottotitolo ? "<p>" + sottotitolo + "</p>" : "") + "</div></header>" +
-    '<main class="corpo"><div class="in">' + corpo + "</div></main></body></html>";
+    '<main class="corpo"><div class="in">' + corpo + "</div></main>" +
+    // chi è anche utente di un'impresa (accesso ricordato dal browser) ci torna con un tocco, senza uscire
+    "<script>(function(){try{var s=localStorage.getItem(\"gl_portale_t\");if(s&&/^[0-9a-f]{64}$/.test(s)){var a=document.getElementById(\"impresa\");" +
+    "a.href=" + JSON.stringify(base) + "+\"/?t=\"+s;a.hidden=false}}catch(e){}})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: stato || 200, headers: h.headers() });
 }
 
