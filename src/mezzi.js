@@ -92,7 +92,8 @@ function pagina(base, h, tok, a, d, torna) {
     '<a class="mz-torna" href="' + e(torna) + '">‹ Torna ai cantieri</a>' +
     '<section class="mz-card"><div class="mz-testa"><div><p class="mz-chi">' + e(az ? az.nome : "Tutte le aziende") + "</p>" +
     '<h1><span class="mz-ic">' + icona + "</span>Mezzi e attrezzature</h1></div>" +
-    (az ? '<button type="button" class="mz-b mz-pr" id="mz-nuovo">+ Aggiungi</button>' : "") + "</div>" +
+    (az ? '<div class="mz-az-t"><button type="button" class="mz-b" id="mz-carica">&#128229; Carica da file</button>' +
+      '<button type="button" class="mz-b mz-pr" id="mz-nuovo">+ Aggiungi</button></div>' : "") + "</div>" +
     scelta +
     (az
       ? '<p class="mz-spiega">I prezzi che scrivi qui sono quelli <b>di base</b>, + IVA, per tutti i cantieri. Se con un committente hai concordato un prezzo diverso, lo scrivi solo in quel cantiere, nel <b>Registro delle economie</b>. Un prezzo cambiato vale da oggi in poi: i giorni passati restano con il prezzo di allora.</p>' +
@@ -105,8 +106,8 @@ function pagina(base, h, tok, a, d, torna) {
     "</section>" +
     '<p class="mz-piede">Su WhatsApp operai e capocantiere non vedono mai i prezzi. Le ore dei mezzi in economia si scrivono nel Registro delle economie di ogni cantiere.</p>' +
     "</main>" +
-    MODULO +
-    "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script></body></html>";
+    MODULO + (az ? CARICA_HTML : "") +
+    "<script>" + SCRIPT.replace("__CFG__", cfg).replace("__CARICA__", az ? CARICA_JS : "") + "</script></body></html>";
 }
 
 const MODULO =
@@ -130,6 +131,20 @@ const MODULO =
   '<p class="mz-msg" id="mz-msg" aria-live="polite"></p>' +
   '<div class="mz-az"><button type="button" class="mz-b mz-pr" id="mz-salva">Salva</button><button type="button" class="mz-b" id="mz-annulla">Annulla</button>' +
   '<button type="button" class="mz-b mz-togli" id="mz-togli" hidden>Togli dall\'elenco</button></div>' +
+  "</div></div>";
+
+// 03/11/2026 (Filippo): «Carica da file». L'elenco dei mezzi (Excel, CSV o PDF) si legge nel browser, come «Importa da file»
+// della Rubrica; si mostra l'elenco da controllare, con i nomi già presenti o ripetuti tolti e segnalati; «Aggiungi» salva gli
+// altri uno per uno con mezzi_salva (che fa tutti i controlli). C'è anche il modello da scaricare (CSV per Excel).
+const CARICA_HTML = '<div class="mz-velo" id="mz-velo-c" hidden><div class="mz-mod" role="dialog" aria-modal="true" aria-labelledby="mz-c-t">' +
+  '<h2 id="mz-c-t">Carica mezzi e attrezzature da file</h2>' +
+  '<p class="mz-spiega">Carica l\'elenco dei tuoi mezzi e delle attrezzature: Excel (.xlsx, .xls), CSV oppure PDF, una riga per mezzo. ' +
+  'TIX legge nome, tipo, targa o matricola, proprietà o noleggio, operatore, prezzo e unità e prepara l\'elenco da controllare. ' +
+  'Quelli che hai già in elenco vengono tolti da soli. Il file resta sul tuo dispositivo: a TIX arrivano solo i mezzi che aggiungi.</p>' +
+  '<p class="mz-spiega"><button type="button" class="mz-link" id="mz-modello">Scarica il modello Excel</button> se vuoi partire da un foglio già pronto.</p>' +
+  '<label class="mz-file" for="mz-c-file"><input type="file" id="mz-c-file" accept=".xlsx,.xls,.ods,.csv,.txt,.pdf">&#128196;&nbsp;<span id="mz-c-nome">Scegli il file</span></label>' +
+  '<p class="mz-msg" id="mz-c-stato" aria-live="polite"></p><div id="mz-c-ant"></div><p class="mz-msg ko" id="mz-c-err" hidden></p>' +
+  '<div class="mz-az"><button type="button" class="mz-b" id="mz-c-chiudi">Chiudi</button><button type="button" class="mz-b mz-pr" id="mz-c-ok" hidden>Aggiungi</button></div>' +
   "</div></div>";
 
 const STILE =
@@ -174,7 +189,129 @@ const STILE =
   ".mz-avviso{margin:12px 0 0;padding:10px 12px;border-radius:10px;border:1px solid var(--dv-b);background:var(--dv-f);color:var(--dv);font-size:.86rem}.mz-avviso[hidden]{display:none}" +
   ".mz-storico{margin:12px 0 0;font-size:.84rem;color:var(--s)}.mz-storico ul{margin:6px 0 0;padding:0;list-style:none}.mz-storico li{padding:6px 0;border-top:1px solid var(--l)}.mz-storico b{color:var(--t)}" +
   ".mz-az{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}" +
+  // «Carica da file»
+  ".mz-az-t{display:flex;gap:8px;flex-wrap:wrap}.mz-link{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--me);text-decoration:underline;cursor:pointer}" +
+  ".mz-file{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;min-height:64px;margin:12px 0 4px;border:2px dashed var(--me-b);border-radius:12px;cursor:pointer;font-weight:700;color:var(--me-s);background:rgba(231,244,245,.45)}" +
+  ".mz-file:hover{border-color:var(--me)}.mz-file input{position:absolute;opacity:0;width:1px;height:1px}" +
+  ".mz-ries{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}.mz-ries span{padding:3px 9px;border-radius:999px;font-size:.8rem;font-weight:700;background:var(--me-f);color:var(--me-s)}" +
+  ".mz-l{max-height:46vh;overflow:auto;border:1px solid var(--l);border-radius:10px;margin-top:8px}" +
+  ".mz-r{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-bottom:1px solid var(--l)}.mz-r:last-child{border-bottom:0}.mz-r>span{flex:1;min-width:0}" +
+  ".mz-r input{margin-top:4px}.mz-r b{display:block}.mz-r small{display:block;color:var(--s);overflow-wrap:anywhere}.mz-r .perche{color:var(--dv);font-weight:600}.mz-r.no{opacity:.6}" +
+  ".mz-r select{font:inherit;font-size:.82rem;padding:3px 6px;border-radius:8px;border:1px solid rgba(16,27,43,.2);margin-top:4px}" +
   "@media (max-width:640px){.mz-campi{grid-template-columns:minmax(0,1fr)}.mz-togli{margin-left:0}}";
+
+// «Carica da file»: lettura del file nel browser (librerie da cdnjs, come la Rubrica), riconoscimento delle colonne, anteprima
+const CARICA_JS = String.raw`
+var IMP=[];
+var LIB={xlsx:"https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",pdf:"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",pdfw:"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"};
+function libreria(u){return new Promise(function(ok,ko){if(document.querySelector('script[data-lib="'+u+'"]'))return ok();var s=document.createElement('script');s.src=u;s.setAttribute('data-lib',u);
+ s.onload=function(){ok();};s.onerror=function(){ko(new Error('non riesco a caricare il lettore del file: controlla la connessione'));};document.head.appendChild(s);});}
+function pul(s){return String(s==null?'':s).replace(/\s+/g,' ').trim();}
+function senzaAccenti(s){return pul(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');}
+function normNome(s){return senzaAccenti(s).replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+function cStato(t){$('mz-c-stato').className='mz-msg';$('mz-c-stato').textContent=t;}
+function cErr(t){var e=$('mz-c-err');e.textContent=t||'';e.hidden=!t;}
+var ALIAS={scheda:['scheda','mezzo o attrezzatura','classe'],tipo:['tipo','tipologia','categoria','genere'],
+ nome:['nome','nome per riconoscerlo','descrizione','denominazione','mezzo','macchina','attrezzatura','articolo','bene','cespite'],
+ marca:['marca e modello','marca'],modello:['modello'],targa:['targa','matricola','targa o matricola','telaio','numero di serie','n. serie','seriale','n serie'],
+ proprieta:['proprieta','possesso','di proprieta o a noleggio','proprieta o noleggio','noleggio','a noleggio','nolo'],noleggiatore:['noleggiato da','noleggiatore','fornitore'],
+ operatore:['operatore','con operatore','autista','con autista'],prezzo:['prezzo','costo','tariffa','prezzo orario','prezzo giornaliero','costo orario','euro','importo'],
+ unita:['unita','u.m.','um','unita di misura','per'],note:['note','annotazioni','osservazioni']};
+function campoDi(t){t=senzaAccenti(t).replace(/[:*()€]/g,'').trim();if(!t||t.length>40)return '';
+ for(var k in ALIAS)for(var i=0;i<ALIAS[k].length;i++){var a=ALIAS[k][i];if(t===a||(a.length>3&&t.indexOf(a)===0))return k;}return '';}
+var ATTR=/martell|flessibil|smerigl|trapan|idropul|generator|gruppo elettr|compressor|betonier|saldatric|piastra|costipat|vibrator|trabattell|motopomp|\bsega\b|clipper|tagliasfalt|taglia giunt|carotatric|pulitric|levigatric|avvitator|demolitor|tassellator|miscelator|aspirator|ponteggio/;
+var MEZZO=/escavat|camion|autocarr|autogru|\bgru\b|\bpala\b|terna|bobcat|minipala|rullo|sollevator|piattaform|furgon|autobetonier|pompa|dumper|muletto|carrello elev|trattor|ribaltabil|motrice|semirimorch|bilico|autovettura|\bauto\b/;
+function schedaDi(c){var s=senzaAccenti(c.scheda);if(/attrezz/.test(s))return 'attrezzatura';if(/mezz|macchin|autom/.test(s))return 'mezzo';
+ var t=senzaAccenti(c.tipo+' '+c.nome);if(ATTR.test(t))return 'attrezzatura';if(MEZZO.test(t))return 'mezzo';
+ var u=senzaAccenti(c.unita+' '+c.intest_prezzo);if(/giorn|gg/.test(u))return 'attrezzatura';return 'mezzo';}
+function unitaDi(c,sch){var u=senzaAccenti(c.unita+' '+c.intest_prezzo+' '+String(c.prezzo).replace(/[\d.,€\s]+/g,' '));if(/mezza/.test(u))return 'mezza_giornata';if(/giorn|\bgg\b|\bg\b|\bday\b/.test(u))return 'giorno';if(/\bor[ae]\b|\bh\b|orari/.test(u))return 'ora';return sch==='mezzo'?'ora':'giorno';}
+function operatoreDi(c,sch){if(sch!=='mezzo')return false;var o=senzaAccenti(c.operatore);if(!o)return true;if(/^(no|n|senza|freddo|a freddo|false|0)$/.test(o)||/senza|freddo/.test(o))return false;return true;}
+function prezzoDi(s){var t=pul(s).replace(/€|eur(o)?/gi,'').replace(/\s/g,'');if(!t)return '';
+ // «35 €/giorno», «60 all'ora»: si tiene il numero (l'unità la legge unitaDi)
+ var m=t.match(/^(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\/|al|all|a|per|x)?[a-z'\/ ]*$/i);if(m)t=m[1];
+ if(/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(t))t=t.replace(/\./g,'').replace(',','.');else t=t.replace(',','.');
+ return /^\d{1,6}(\.\d{1,2})?$/.test(t)?t.replace('.',','):'?';}
+// righe (array di celle) → mezzi, con la riga d'intestazione oppure senza (testo libero)
+function daTabella(righe){righe=righe.map(function(r){return (r||[]).map(pul);}).filter(function(r){return r.some(Boolean);});
+ var mappa=null,inizio=0,intPrezzo='';
+ for(var i=0;i<Math.min(righe.length,8)&&!mappa;i++){var m={},n=0;righe[i].forEach(function(c,j){var k=campoDi(c);if(k&&!(k in m)){m[k]=j;n++;if(k==='prezzo')intPrezzo=c;}});
+  if(n>=2&&('nome' in m||'tipo' in m)){mappa=m;inizio=i+1;}}
+ return righe.slice(inizio).map(function(r){var c={scheda:'',tipo:'',nome:'',marca:'',modello:'',targa:'',proprieta:'',noleggiatore:'',operatore:'',prezzo:'',unita:'',note:'',intest_prezzo:intPrezzo};
+  if(mappa){for(var k in mappa)c[k]=r[mappa[k]]||'';if(!c.nome)c.nome=c.tipo;}else daTesto(r.join(' | '),c);return c;});}
+var RE_EURO=/(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:€|eur)|€\s*(\d+(?:[.,]\d{1,2})?)/i,RE_TARGA=/\b[A-Z]{2}\s?\d{3}\s?[A-Z]{2}\b/;
+function daTesto(t,c){var s=' '+t+' ',m;
+ if((m=s.match(RE_EURO))){c.prezzo=m[1]||m[2];s=s.replace(m[0],' ');var dopo=t.slice(t.indexOf(m[0])+m[0].length,t.indexOf(m[0])+m[0].length+20);c.unita=/giorn|gg/i.test(dopo)?'giorno':/or[ae]|\/h/i.test(dopo)?'ora':'';}
+ if((m=s.match(RE_TARGA))){c.targa=m[0];s=s.replace(m[0],' ');}
+ if(/nolegg/i.test(s))c.proprieta='noleggio';if(/senza operatore|a freddo/i.test(s))c.operatore='no';
+ var parti=s.split(/\s*(?:\||;|\t|\s[-–—]\s)\s*/).map(pul).filter(function(x){return /[A-Za-zÀ-ÿ]{2}/.test(x);});c.nome=(parti[0]||'');return c;}
+function leggiCsv(testo){var r1=testo.split(/\r?\n/)[0]||'',sep=[';',',','\t'].sort(function(a,b){return r1.split(b).length-r1.split(a).length;})[0];
+ var righe=[],riga=[],cella='',q=false;
+ for(var i=0;i<testo.length;i++){var ch=testo[i];
+  if(q){if(ch==='"'){if(testo[i+1]==='"'){cella+='"';i++;}else q=false;}else cella+=ch;}
+  else if(ch==='"')q=true;else if(ch===sep){riga.push(cella);cella='';}else if(ch==='\n'){riga.push(cella.replace(/\r$/,''));righe.push(riga);riga=[];cella='';}else cella+=ch;}
+ if(cella||riga.length){riga.push(cella);righe.push(riga);}return righe;}
+function leggiPdf(buf){return libreria(LIB.pdf).then(function(){var lib=window.pdfjsLib;lib.GlobalWorkerOptions.workerSrc=LIB.pdfw;return lib.getDocument({data:buf}).promise;}).then(function(doc){
+ var pagine=[];for(var p=1;p<=Math.min(doc.numPages,50);p++)pagine.push(p);
+ return pagine.reduce(function(pr,n){return pr.then(function(righe){return doc.getPage(n).then(function(pg){return pg.getTextContent();}).then(function(tc){
+  var linee={};tc.items.forEach(function(it){if(!pul(it.str))return;var y=Math.round(it.transform[5]/3);(linee[y]=linee[y]||[]).push(it);});
+  Object.keys(linee).map(Number).sort(function(a,b){return b-a;}).forEach(function(y){var it=linee[y].sort(function(a,b){return a.transform[4]-b.transform[4];}),celle=[],cur='',fine=null;
+   it.forEach(function(x){var x0=x.transform[4];if(fine!==null&&x0-fine>12){celle.push(cur);cur='';}cur+=(cur&&fine!==null&&x0-fine>1.5?' ':'')+x.str;fine=x0+(x.width||0);});celle.push(cur);righe.push(celle);});
+  return righe;});});},Promise.resolve([]));});}
+function leggiFile(f){var nome=f.name.toLowerCase(),ext=nome.slice(nome.lastIndexOf('.')+1);
+ if(ext==='csv'||ext==='txt')return f.text().then(function(t){return daTabella(leggiCsv(t));});
+ if(ext==='pdf')return f.arrayBuffer().then(leggiPdf).then(daTabella);
+ if(ext==='xlsx'||ext==='xls'||ext==='ods')return Promise.all([libreria(LIB.xlsx),f.arrayBuffer()]).then(function(x){var wb=window.XLSX.read(x[1],{type:'array'}),righe=[];
+  wb.SheetNames.forEach(function(n){righe=righe.concat(window.XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:''}));});return daTabella(righe);});
+ return Promise.reject(new Error('questo tipo di file non si può leggere: salvalo come Excel, CSV o PDF'));}
+function controlla(){var gia={},visti={};(D.mezzi||[]).forEach(function(m){gia[normNome(m.nome)]=m;});
+ IMP.forEach(function(c){c.nome=pul(c.nome).slice(0,80);c.sch=c.sch||schedaDi(c);c.un=unitaDi(c,c.sch);c.op=operatoreDi(c,c.sch);c.pz=prezzoDi(c.prezzo);c.stato='nuovo';c.perche='';
+  var nn=normNome(c.nome);
+  if(c.nome.length<2){c.stato='salta';c.perche='Manca il nome: lo salto.';return;}
+  if(gia[nn]){c.stato='doppio';c.perche='È già nel tuo elenco: non lo aggiungo.';return;}
+  if(visti[nn]){c.stato='doppio';c.perche='È ripetuto nel file: lo aggiungo una volta sola.';return;}visti[nn]=1;
+  if(c.pz==='?')c.perche='Prezzo non riconosciuto («'+pul(c.prezzo)+'»): lo salvo senza prezzo.';else if(!c.pz)c.perche='Senza prezzo: lo scrivi dopo.';});
+ disegna();}
+function disegna(){var nuovi=IMP.filter(function(c){return c.stato==='nuovo';}),dop=IMP.filter(function(c){return c.stato==='doppio';}),sal=IMP.filter(function(c){return c.stato==='salta';});
+ var h='<div class="mz-ries"><span>'+nuovi.length+' da aggiungere</span>'+(dop.length?'<span>'+dop.length+' già presenti o doppi, tolti</span>':'')+(sal.length?'<span>'+sal.length+' senza nome, saltati</span>':'')+'</div><div class="mz-l">';
+ IMP.forEach(function(c,i){var no=c.stato!=='nuovo';
+  var det=[c.tipo,pul((c.marca+' '+c.modello)),c.targa,senzaAccenti(c.proprieta)==='noleggio'||/nolegg/.test(senzaAccenti(c.proprieta))?'a noleggio'+(c.noleggiatore?' da '+c.noleggiatore:''):'',
+   c.sch==='mezzo'?(c.op?'con operatore':'senza operatore'):'',c.pz&&c.pz!=='?'?euro(c.pz.replace(',','.'))+' € '+UN[c.un]:''].filter(Boolean).join(' · ');
+  h+='<label class="mz-r'+(no?' no':'')+'"><input type="checkbox" data-i="'+i+'"'+(no?' disabled':(c.scelto===false?'':' checked'))+'><span><b>'+es(c.nome||'(senza nome)')+'</b><small>'+es(det)+'</small>'+
+   (no?'':'<select data-s="'+i+'" aria-label="Scheda"><option value="mezzo"'+(c.sch==='mezzo'?' selected':'')+'>Automezzi e macchine</option><option value="attrezzatura"'+(c.sch==='attrezzatura'?' selected':'')+'>Attrezzature</option></select>')+
+   (c.perche?'<small class="perche">'+es(c.perche)+'</small>':'')+'</span></label>';});
+ $('mz-c-ant').innerHTML=h+'</div>';var n=nuovi.filter(function(c){return c.scelto!==false;}).length;
+ var ok=$('mz-c-ok');ok.hidden=!nuovi.length;ok.disabled=!n;ok.textContent='Aggiungi '+n+(n===1?' mezzo':' mezzi');}
+$('mz-c-ant').addEventListener('change',function(e){var x=e.target;if(!x)return;
+ if(x.type==='checkbox'){IMP[+x.getAttribute('data-i')].scelto=x.checked;disegna();}
+ else if(x.hasAttribute('data-s')){var c=IMP[+x.getAttribute('data-s')];c.sch=x.value;c.un='';c.op=undefined;c.un=unitaDi(c,c.sch);c.op=operatoreDi(c,c.sch);disegna();}});
+$('mz-carica').onclick=function(){IMP=[];$('mz-c-file').value='';$('mz-c-nome').textContent='Scegli il file';$('mz-c-ant').innerHTML='';$('mz-c-ok').hidden=true;cErr('');
+ cStato('Il file si legge qui, sul tuo dispositivo.');$('mz-velo-c').hidden=false;};
+$('mz-c-chiudi').onclick=function(){$('mz-velo-c').hidden=true;};
+$('mz-velo-c').addEventListener('click',function(ev){if(ev.target===this)this.hidden=true;});
+$('mz-modello').onclick=function(){var testo='﻿Scheda;Tipo;Nome;Marca e modello;Targa o matricola;Proprietà;Noleggiato da;Operatore;Prezzo €;Unità;Note\r\n'+
+ 'Automezzi e macchine;Escavatore cingolato;Escavatore Kubota 8 t;Kubota KX080;7731;Di proprietà;;Con operatore;75,00;ora;\r\n'+
+ 'Automezzi e macchine;Autocarro ribaltabile;Camion Iveco 3 assi;Iveco Trakker;FX482KL;Di proprietà;;Con operatore;65,00;ora;\r\n'+
+ 'Attrezzature;Martello demolitore;Martello demolitore Hilti;Hilti TE 1000;;Di proprietà;;;25,00;giorno;\r\n';
+ var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([testo],{type:'text/csv;charset=utf-8'}));a.download='TIX modello mezzi e attrezzature.csv';document.body.appendChild(a);a.click();
+ setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);};
+$('mz-c-file').addEventListener('change',function(){var f=this.files&&this.files[0];if(!f)return;cErr('');$('mz-c-ok').hidden=true;$('mz-c-ant').innerHTML='';
+ if(f.size>20*1024*1024){cErr('Il file è troppo grande (più di 20 MB).');return;}
+ $('mz-c-nome').textContent=f.name;cStato('Leggo il file…');
+ leggiFile(f).then(function(l){IMP=l.filter(function(c){return c&&pul(c.nome);}).slice(0,500);
+  if(!IMP.length){cStato('');cErr('Nel file non ho trovato mezzi. Va bene un elenco con il nome e, se vuoi, tipo, targa e prezzo: un mezzo per riga. Puoi partire dal modello.');return;}
+  cStato('Ho trovato '+IMP.length+(IMP.length===1?' riga':' righe')+' in «'+f.name+'». Controlla l\'elenco e tocca «Aggiungi».');controlla();})
+ .catch(function(e){cStato('');cErr('Non sono riuscito a leggere il file: '+(e&&e.message?e.message:e)+'.');});});
+$('mz-c-ok').onclick=function(){var da=IMP.filter(function(c){return c.stato==='nuovo'&&c.scelto!==false;});if(!da.length)return;
+ var ok=this,fatti=0,errori=[],i=0;ok.disabled=true;cErr('');
+ function prossimo(){if(i>=da.length)return Promise.resolve();var c=da[i++];cStato('Aggiungo '+i+' di '+da.length+'…');
+  var nol=/nolegg/.test(senzaAccenti(c.proprieta));
+  var dati={scheda:c.sch,tipo:pul(c.tipo).slice(0,60),nome:c.nome,marca_modello:pul(c.marca+' '+c.modello).slice(0,80),targa:pul(c.targa).slice(0,30),
+   proprieta:nol?'noleggio':'proprieta',noleggiatore:nol?pul(c.noleggiatore).slice(0,120):'',con_operatore:!!c.op,unita:c.un,prezzo:c.pz&&c.pz!=='?'?c.pz:'',note:pul(c.note).slice(0,300)};
+  return chiama('salva',dati).then(function(r){if(r&&r.esito==='ok')fatti++;else errori.push(c.nome+(r&&r.messaggio?' ('+r.messaggio+')':''));}).then(prossimo);}
+ prossimo().then(function(){ok.disabled=false;ok.hidden=true;
+  if(errori.length){cStato('Aggiunti '+fatti+(fatti===1?' mezzo':' mezzi')+'.');cErr('Non aggiunti: '+errori.join('; ')+'.');$('mz-c-chiudi').onclick=ricarica;}
+  else ricarica();});};
+`;
 
 const SCRIPT = String.raw`(function(){try{
 var C=__CFG__;if(!C.d)return;var D=C.d,S='mezzo',corr=null;
@@ -229,5 +366,6 @@ Array.prototype.forEach.call(document.querySelectorAll('.mz-tabs button'),functi
 var n=$('mz-nuovo');if(n)n.onclick=function(){apri(null);};
 // dopo un salvataggio si torna sulla stessa scheda
 if(location.hash==='#attrezzatura'){S='attrezzatura';Array.prototype.forEach.call(document.querySelectorAll('.mz-tabs button'),function(x){x.classList.toggle('on',x.getAttribute('data-s')===S);});}
+__CARICA__
 carte();qual();
 }catch(e){}})();`;
