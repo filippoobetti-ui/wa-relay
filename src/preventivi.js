@@ -12,13 +12,14 @@
 //   GET  /preventivi/excel?t&id[&rev]               → file per Excel (CSV)
 //   POST /preventivi/firmato?t&id&nome              → copia firmata (corpo = il file, .pdf o .p7m)
 //   GET  /preventivi/firmato?t&id                   → scarica la copia firmata
-// «Prepara con l'IA» (03/11/2026, preventivi-ia-1): nella bozza si allegano file o link (computo SOLO in Excel, tavole e
-// relazioni in PDF); la funzione preventivo-ia li legge e l'IA compila le voci, segnate verde / giallo / rosso, da controllare.
+// «Prepara con TIX» (03/11/2026, preventivi-ia-1; nome e logo TIX da preventivi-tix-1): nella bozza si allegano file o link
+// (computo SOLO in Excel, tavole e relazioni in PDF); la funzione preventivo-ia li legge e TIX, con l'intelligenza artificiale,
+// compila le voci, segnate verde / giallo / rosso, da controllare.
 //   POST /preventivi/api  azione ia_dati | ia_nuova | ia_lavoro | ia_link | ia_tipo_file | ia_togli_file | ia_controlla |
 //                         ia_parti | ia_annulla | ia_conferma | ia_scegli | ia_conferma_verdi | ia_togli_ia
 //   POST /preventivi/ia/file?t&id&nome              → un file per la lettura (corpo = il file, Excel o PDF, fino a 18 MB)
 // Interruttori: impostazioni.preventivi_attiva (no / prova = solo Filippo / si) e PREVENTIVI = "off" nel Worker;
-// per l'IA anche impostazioni.preventivi_ia_attiva (no / prova / si).
+// per «Prepara con TIX» anche impostazioni.preventivi_ia_attiva (no / prova / si).
 // ============================================================================
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -27,7 +28,7 @@ const AZIONI = new Set(["nuovo", "intestazione", "voce", "togli_voce", "sposta_v
   "annulla_esito", "elimina"]);
 const AZIONI_IA = new Set(["nuova", "lavoro", "link", "tipo_file", "togli_file", "controlla", "parti", "annulla", "conferma", "scegli",
   "conferma_verdi", "togli_ia"]);
-// file per «Prepara con l'IA»: estensione → tipo del contenuto e prime cifre del file
+// file per «Prepara con TIX»: estensione → tipo del contenuto e prime cifre del file
 const FILE_IA = {
   pdf: ["application/pdf", [0x25, 0x50, 0x44, 0x46]],
   xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", [0x50, 0x4b]],
@@ -162,7 +163,7 @@ async function api(request, env, h) {
     r = await h.rpc(env, "preventivo_ia_dati", { p_token: tok, p_id: dati.id }, 15000).catch(() => null);
   } else if (az.startsWith("ia_") && AZIONI_IA.has(az.slice(3)) && UUID.test(dati.id || "")) {
     r = await h.rpc(env, "preventivo_ia_azione", { p_token: tok, p_id: dati.id, p_azione: az.slice(3), p_dati: dati }, 15000).catch(() => null);
-    // un file tolto dalla lettura non serve più nell'archivio (solo se è davvero un file temporaneo dell'IA)
+    // un file tolto dalla lettura non serve più nell'archivio (solo se è davvero un file temporaneo di «Prepara con TIX»)
     if (r && r.esito === "ok" && az === "ia_togli_file" && /^preventivi\/[0-9a-f-]{36}\/ia\/[0-9a-f-]{36}\/[^/]+$/.test(String(r.percorso || ""))) {
       await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso).split("/").map(encodeURIComponent).join("/"), {
         method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
@@ -236,7 +237,7 @@ const MODALI =
   '<p class="pv-msg" id="pv-es-msg" aria-live="polite"></p>' +
   '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-es-ok">Salva</button><button type="button" class="pv-b" data-chiudi>Annulla</button></div>' +
   "</div></div>" +
-  // «Prepara con l'IA»: le voci simili al posto di quella proposta
+  // «Prepara con TIX»: le voci simili al posto di quella proposta
   '<div class="pv-velo" id="pv-v-alt" hidden><div class="pv-mod largo" role="dialog" aria-modal="true" aria-labelledby="pv-alt-t">' +
   '<h2 id="pv-alt-t">Scegli un\'altra voce</h2><p class="pv-vo-fonte" id="pv-alt-voce"></p>' +
   '<div class="pv-ris" id="pv-alt-lista"></div>' +
@@ -245,13 +246,20 @@ const MODALI =
   "</div></div>" +
   '<input type="file" id="pv-file" accept=".pdf,.p7m,application/pdf" hidden>';
 
-// «Prepara con l'IA» (preventivi-ia-1): riquadro nella bozza e segni sulle voci (verde / giallo / rosso)
+// «Prepara con TIX» (preventivi-ia-1): riquadro nella bozza e segni sulle voci (verde / giallo / rosso)
 const STILE_IA =
   ".pv-ia{margin:18px 0 0;padding:14px;border-radius:14px;border:1.5px solid var(--pv);background:linear-gradient(180deg,#fff,var(--pv-f));box-shadow:0 0 0 4px rgba(102,116,28,.10)}" +
   ".pv-ia.chiuso{border-style:dashed;box-shadow:none}" +
-  ".pv-ia-t{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.pv-ia-t>div{flex:1;min-width:220px}.pv-ia-t h3{margin:0;font-size:1.05rem;color:var(--pv-s)}" +
+  ".pv-ia-t{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.pv-ia-t>div{flex:1;min-width:220px}.pv-ia-t h3{display:flex;align-items:center;flex-wrap:wrap;gap:.3em;margin:0;font-size:1.05rem;color:var(--pv-s)}" +
   ".pv-ia-t p{margin:3px 0 0;font-size:.86rem;color:var(--s);line-height:1.45}" +
-  ".pv-ia-ic{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#A7B54A,#66741C 55%,#4A5512)}.pv-ia-ic svg{width:20px;height:20px}" +
+  ".pv-ia-ic{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#fff;box-shadow:0 0 0 2px #1B2F4A,0 6px 14px -6px rgba(27,47,74,.5)}.pv-ia-ic svg{width:24px;height:24px;margin:2px 0 0 1px}" +
+  ".pv-tix-defs{position:absolute;width:0;height:0;overflow:hidden}.pv-tix{display:inline-block;vertical-align:middle;flex:none;height:.95em;width:2.45em;margin:0 .05em}" +
+  ".pv-tix-et{display:inline-flex;align-items:center;padding:2px 7px;border-radius:7px;background:#fff}.pv-tix-et .pv-tix{margin:0}" +
+  ".pv-arg,.pv-ia-x,.pv-mis-r button,button.pv-ia-ic{border:1px solid #8E9AA6!important;background:linear-gradient(90deg,#8E9AA6 0%,#E9EEF1 25%,#B4BEC6 50%,#F4F7F8 75%,#8E9AA6 100%) 0 0/200% 100%!important;animation:pv-arg 3.2s linear infinite;box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:pointer}" +
+  ".pv-arg{color:#1B2F4A!important;font-weight:800}.pv-ia-x,.pv-mis-r button{color:#8a2b2b!important;border-radius:50%!important}" +
+  ".pv-mis-r button{width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;font-size:1rem;line-height:1;justify-self:center}" +
+  "button.pv-ia-ic{padding:0;font:inherit;box-shadow:0 0 0 2px #1B2F4A,0 6px 14px -6px rgba(27,47,74,.5)}button.pv-ia-ic:focus-visible{outline:2px solid #F26A10;outline-offset:3px}" +
+  "@keyframes pv-arg{to{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){.pv-arg,.pv-ia-x,.pv-mis-r button,button.pv-ia-ic{animation:none}}" +
   ".pv-ia .pv-c{margin-top:12px}" +
   ".pv-ia-cari{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}" +
   ".pv-ia-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:110px;padding:14px;border-radius:14px;border:2px dashed var(--pv-b);background:#fff;text-align:center;color:var(--pv-s);cursor:pointer;min-width:0}" +
@@ -507,7 +515,7 @@ function disegna(){
   '<label class="pv-c tutta"><span class="pv-et">Note per il cliente <small>facoltative, vanno nel preventivo</small></span><textarea data-c="note" rows="2" maxlength="2000"'+(bozza?'':' disabled')+'>'+es(F.note||'')+'</textarea></label></div>'+
   (bozza?'<div class="pv-az"><button type="button" class="pv-b sm pv-pr" id="pv-salva-int">Salva i dati</button><span class="pv-msg" id="pv-int-msg"></span></div>':'');
  if(c&&!k)h+='<p class="pv-info">Nel cantiere non c\'è un computo caricato nella sezione SAL: le voci si prendono dal prezzario o si scrivono a mano.</p>';
- // «Prepara con l'IA» (lo riempie disegnaIa)
+ // «Prepara con TIX» (lo riempie disegnaIa)
  if(bozza)h+='<div id="pv-ia"></div>';
  // ricerca
  if(bozza){
@@ -521,8 +529,8 @@ function disegna(){
  var VI=bozza&&IA&&IA.voci_ia||{},nIa=0,nVerdi=0;
  V.forEach(function(v){var x=VI[String(v.id)];if(x&&!x.confermata){nIa++;if(x.livello==='verde')nVerdi++;}});
  h+='<div class="pv-voci"><h3>Voci del preventivo</h3>';
- if(nIa)h+='<div class="pv-ia-barra">Voci preparate dall\'IA da controllare: '+nIa+' <button type="button" class="pv-b sm pv-pr" data-iaaz="conferma_verdi"'+(nVerdi?'':' disabled')+'>Conferma tutte le verdi ('+nVerdi+')</button>'+
-  '<button type="button" class="pv-b sm" data-iaaz="togli_ia">Togli le voci dell\'IA non controllate</button></div>';
+ if(nIa)h+='<div class="pv-ia-barra">Voci preparate da TIX da controllare: '+nIa+' <button type="button" class="pv-b sm pv-pr" data-iaaz="conferma_verdi"'+(nVerdi?'':' disabled')+'>Conferma tutte le verdi ('+nVerdi+')</button>'+
+  '<button type="button" class="pv-b sm" data-iaaz="togli_ia">Togli le voci di TIX non controllate</button></div>';
  if(!V.length)h+='<p class="pv-vuoto">Nessuna voce ancora.'+(bozza?' Cercala qui sopra o aggiungi una voce libera.':'')+'</p>';
  else h+='<div class="pv-vt th"><span>Nr</span><span>Fonte</span><span>Descrizione</span><span>U.M.</span><span class="n">Quantità</span><span class="n">Prezzo</span><span class="n">Importo</span></div>';
  V.forEach(function(v,i){var x=VI[String(v.id)],daVedere=x&&!x.confermata;
@@ -534,7 +542,7 @@ function disegna(){
    (v.misure&&v.misure.length?misureHtml(v.misure):'')+
    (bozza?'<div class="pv-vbt">'+(daVedere?(num(v.prezzo)?'<button type="button" class="pv-b sm pv-pr" data-iaok="'+v.id+'">Va bene</button>':'<button type="button" class="pv-b sm pv-pr" data-mod="'+v.id+'">Metti il prezzo</button>')+
     ((x.alternative||[]).length?'<button type="button" class="pv-b sm" data-iaalt="'+v.id+'">Scegli un\'altra ('+x.alternative.length+')</button>':''):'')+
-    '<button type="button" class="pv-b sm" data-mod="'+v.id+'">Modifica</button><button type="button" class="pv-b sm" data-su="'+v.id+'"'+(i?'':' disabled')+'>↑</button><button type="button" class="pv-b sm" data-giu="'+v.id+'"'+(i<V.length-1?'':' disabled')+'>↓</button>'+
+    '<button type="button" class="pv-b sm" data-mod="'+v.id+'">Modifica</button><button type="button" class="pv-b sm pv-arg" data-su="'+v.id+'"'+(i?'':' disabled')+'>↑</button><button type="button" class="pv-b sm pv-arg" data-giu="'+v.id+'"'+(i<V.length-1?'':' disabled')+'>↓</button>'+
     (daVedere?'<button type="button" class="pv-b sm pv-togli" data-iatogli="'+v.id+'">Togli</button>':'')+'</div>':'')+'</div>';});
  h+='</div>';
  // revisioni
@@ -590,14 +598,14 @@ function lega(){
  Array.prototype.forEach.call(app.querySelectorAll('[data-fonte]'),function(b){b.onclick=function(){FONTE=b.getAttribute('data-fonte');Array.prototype.forEach.call(app.querySelectorAll('[data-fonte]'),function(x){x.classList.toggle('on',x===b);});cerca();};});
  var q=$('pv-q');if(q){var tm=null;q.oninput=function(){clearTimeout(tm);tm=setTimeout(cerca,350);};q.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();clearTimeout(tm);cerca();}};}
  var lib=$('pv-libera');if(lib)lib.onclick=function(){modulo({fonte:'libera',descrizione:'',unita:'',prezzo:'',quantita:'',misure:[]});};
- // voci preparate dall'IA
+ // voci preparate da TIX
  Array.prototype.forEach.call(app.querySelectorAll('[data-iaok]'),function(b){b.onclick=function(){b.disabled=true;
   api('ia_conferma',{id:F.id,voce_id:b.getAttribute('data-iaok')}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
  Array.prototype.forEach.call(app.querySelectorAll('[data-iatogli]'),function(b){b.onclick=function(){if(!confirm('Togliere questa voce dal preventivo?'))return;b.disabled=true;
   api('togli_voce',{id:F.id,voce_id:b.getAttribute('data-iatogli')}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
  Array.prototype.forEach.call(app.querySelectorAll('[data-iaalt]'),function(b){b.onclick=function(){alternative(b.getAttribute('data-iaalt'));};});
  Array.prototype.forEach.call(app.querySelectorAll('[data-iaaz]'),function(b){b.onclick=function(){var az=b.getAttribute('data-iaaz');
-  if(az==='togli_ia'&&!confirm('Togliere tutte le voci preparate dall\'IA che non hai ancora controllato?'))return;b.disabled=true;
+  if(az==='togli_ia'&&!confirm('Togliere tutte le voci preparate da TIX che non hai ancora controllato?'))return;b.disabled=true;
   api('ia_'+az,{id:F.id}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
 }
 function salvaInt(){var d={id:F.id};Array.prototype.forEach.call(document.querySelectorAll('#pv-app [data-c]'),function(x){var k=x.getAttribute('data-c');d[k]=x.type==='checkbox'?x.checked:x.value;});
@@ -657,7 +665,7 @@ $('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=m
  if(!M.length&&!String($('pv-vo-q').value).trim()){msg($('pv-vo-msg'),'Scrivi la quantità, oppure le righe di misura.','ko');return;}
  b.disabled=true;msg($('pv-vo-msg'),'Un momento…');
  api('voce',d).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-voce',false);
-  // una voce dell'IA corretta a mano è controllata
+  // una voce di TIX corretta a mano è controllata
   var x=v.id&&IA&&IA.voci_ia&&IA.voci_ia[String(v.id)];if(x&&!x.confermata)api('ia_conferma',{id:F.id,voce_id:String(v.id)}).then(carica);else carica();}
   else msg($('pv-vo-msg'),msgErr(r),'ko');});};
 $('pv-vo-togli').onclick=function(){if(!VOCE||!VOCE.id||!confirm('Togliere questa voce dal preventivo?'))return;
@@ -687,17 +695,29 @@ $('pv-file').onchange=function(){var f=this.files&&this.files[0],m=$('pv-az-msg'
   .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
   .then(function(r){if(r&&r.esito==='ok'){carica();}else if(m){m.textContent=msgErr(r);m.className='pv-msg ko';}});};
 
-// ---------------------------------------------------------------- Prepara con l'IA
+// ---------------------------------------------------------------- Prepara con TIX
 var IA=null,IA_T=null,IA_MSG=null;
-var STELLA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>';
+// logo vero di TIX (/marchio-tix.svg, senza il riflesso): spunta e lettere, disegnati una volta in testa al riquadro
+var LOGO='<svg class="pv-tix-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>'+
+ '<linearGradient id="pvt-g1" gradientUnits="userSpaceOnUse" x1="130" y1="300" x2="700" y2="950"><stop offset="0" stop-color="#FF9A3D"/><stop offset=".55" stop-color="#F26A10"/><stop offset="1" stop-color="#D9480A"/></linearGradient>'+
+ '<linearGradient id="pvt-g2" gradientUnits="userSpaceOnUse" x1="1352" y1="503" x2="1868" y2="925"><stop offset="0" stop-color="#FF9A3D"/><stop offset=".5" stop-color="#F26A10"/><stop offset="1" stop-color="#D9480A"/></linearGradient>'+
+ '<linearGradient id="pvt-g3" gradientUnits="userSpaceOnUse" x1="0" y1="503" x2="0" y2="925"><stop offset="0" stop-color="#3A5577"/><stop offset=".45" stop-color="#1B2F4A"/><stop offset="1" stop-color="#1B2F4A"/></linearGradient></defs>'+
+ '<symbol id="pvt-spunta" viewBox="110 255 870 710"><path fill="url(#pvt-g1)" d="M130 682L178 636C208 608 248 612 268 640L343 746C515 500 700 328 962 270C760 365 598 560 434 878C404 936 334 948 296 902Z"/></symbol>'+
+ '<symbol id="pvt-scritta" viewBox="742 493 1136 442"><path fill="url(#pvt-g3)" d="M838 503L1218 503L1200 605L1078 605L1018 925L890 925L950 605L752 605ZM1268 503L1392 503L1312 925L1188 925Z"/>'+
+ '<path fill="url(#pvt-g2)" d="M1410 503L1550 503L1828 925L1688 925ZM1728 503L1868 503L1492 925L1352 925Z"/><path fill="none" stroke="#1B2F4A" stroke-width="11" stroke-linecap="round" d="M1615 708L1516 558M1615 708L1749 558M1615 708L1471 870M1615 708L1722 870"/>'+
+ '<g fill="#1B2F4A"><circle cx="1516" cy="558" r="22"/><circle cx="1749" cy="558" r="22"/><circle cx="1471" cy="870" r="22"/><circle cx="1722" cy="870" r="22"/><circle cx="1615" cy="708" r="34"/></g></symbol></svg>';
+// variante C scelta da Filippo il 03/11: la spunta come icona, le lettere TIX nel titolo e, su un'etichetta bianca, nel pulsante
+var SPUNTA='<svg aria-hidden="true" focusable="false"><use href="#pvt-spunta"/></svg>';
+var TIX='<svg class="pv-tix" role="img" aria-label="TIX"><use href="#pvt-scritta"/></svg>';
+var TIXET='<span class="pv-tix-et">'+TIX+'</span>';
 var NUVOLA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>';
 var TIPI={computo:'Computo (Excel)',relazione:'Relazione (PDF)',tavole:'Tavole (PDF)'};
-var PASSI={controllo:'Controllo dei file',stima:'Pronto da leggere',attesa:'In coda',lettura:'L\'IA sta leggendo'};
+var PASSI={controllo:'Controllo dei file',stima:'Pronto da leggere',attesa:'In coda',lettura:'TIX sta leggendo'};
 function usd(n){n=num(n);return n>0&&n<0.01?'meno di 0,01':n.toFixed(2).replace('.',',');}
 function ora(x){var d=new Date(x);return isNaN(d)?'':String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1).replace('.',',')+' MB';}
 function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
-function tagIa(x){return '<span class="pv-ia-tag '+(x.confermata?'ok':es(x.livello))+'">'+(x.confermata?'IA · controllata':({verde:'IA · sicura',giallo:'IA · da guardare',rosso:'IA · da controllare'})[x.livello]||'IA')+'</span>';}
+function tagIa(x){return '<span class="pv-ia-tag '+(x.confermata?'ok':es(x.livello))+'">'+(x.confermata?'TIX · controllata':({verde:'TIX · sicura',giallo:'TIX · da guardare',rosso:'TIX · da controllare'})[x.livello]||'TIX')+'</span>';}
 function caricaIa(){if(!CFG.id)return;api('ia_dati',{id:CFG.id}).then(function(r){var prima=IA;IA=r&&r.esito==='ok'&&r.attiva?r:null;
  if(IA&&IA.voci_ia&&Object.keys(IA.voci_ia).length||prima&&prima.voci_ia&&Object.keys(prima.voci_ia).length)disegna();else disegnaIa();pianificaIa();});}
 function inCorso(){var l=IA&&IA.lettura;return !!l&&['controllo','attesa','lettura'].indexOf(l.stato)>=0;}
@@ -708,20 +728,21 @@ function msgIa(t,cl){IA_MSG=t?{t:t,cl:cl||''}:null;var m=$('pv-ia-msg');if(m)msg
 function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';return;}
  var l=IA.lettura,s=l?l.stato:'',h;
  if(!l||['preparazione','controllo','stima','attesa','lettura'].indexOf(s)<0){
-  h='<div class="pv-ia chiuso"><div class="pv-ia-t"><span class="pv-ia-ic">'+STELLA+'</span><div><h3>Prepara con l\'IA</h3><p>Allega quello che hai ricevuto: computo metrico <b>in Excel</b>, tavole e relazioni in PDF, oppure i loro link. L\'IA compila le voci con i prezzi del contratto e del prezzario; tu controlli e decidi: niente parte da solo.</p></div>'+
-   '<button type="button" class="pv-b pv-pr" id="pv-ia-apri">'+(s==='pronta'?'Prepara di nuovo':'Prepara con l\'IA')+'</button></div>';
+  h=LOGO+'<div class="pv-ia chiuso"><div class="pv-ia-t"><button type="button" class="pv-ia-ic" id="pv-ia-apri-ic" aria-label="Prepara con TIX">'+SPUNTA+'</button><div><h3>Prepara con '+TIX+'</h3><p>Allega quello che hai ricevuto: computo metrico <b>in Excel</b>, tavole e relazioni in PDF, oppure i loro link. TIX li legge con l\'intelligenza artificiale e compila le voci con i prezzi del contratto e del prezzario; tu controlli e decidi: niente parte da solo.</p></div>'+
+   '<button type="button" class="pv-b pv-pr" id="pv-ia-apri">'+'Prepara con '+TIXET+'</button></div>';
   if(s==='pronta')h+=esitoIa(l);
   if(s==='errore')h+='<p class="pv-msg ko">'+es(l.errore||'La lettura non è riuscita.')+'</p>';
   if(s==='annullata')h+='<p class="pv-msg">L\'ultima lettura è stata annullata.</p>';
   box.innerHTML=h+'</div>';
+  $('pv-ia-apri-ic').onclick=function(){$('pv-ia-apri').click();};
   $('pv-ia-apri').onclick=function(){var b=this;b.disabled=true;api('ia_nuova',{id:CFG.id}).then(function(r){b.disabled=false;if(r&&r.esito==='ok')caricaIa();else alert(msgErr(r));});};
   return;}
  var mod=s==='preparazione'||s==='stima',F2=l.file||[];
- h='<div class="pv-ia"><div class="pv-ia-t"><span class="pv-ia-ic">'+STELLA+'</span><div><h3>Prepara con l\'IA</h3><p>'+
+ h=LOGO+'<div class="pv-ia"><div class="pv-ia-t"><span class="pv-ia-ic">'+SPUNTA+'</span><div><h3>Prepara con '+TIX+'</h3><p>'+
   (mod?'Il computo metrico <b>solo in Excel</b>; tavole e relazioni in PDF. Prima TIX controlla i file e ti dice quanto costa; poi decidi tu se partire.':'Puoi chiudere la pagina: il lavoro continua e le voci compaiono qui sotto.')+'</p></div>'+
   '<button type="button" class="pv-b sm" id="pv-ia-annulla">Annulla</button></div>';
  if(mod){
-  h+='<label class="pv-c tutta"><span class="pv-et">Cosa c\'è da fare <small>due righe con le tue parole: aiuta l\'IA a non sbagliare</small></span><textarea id="pv-ia-lavoro" rows="2" maxlength="1000" placeholder="es. Rifacimento dei due bagni al piano primo, sanitari forniti dal cliente">'+es(l.lavoro||'')+'</textarea></label>'+
+  h+='<label class="pv-c tutta"><span class="pv-et">Cosa c\'è da fare <small>due righe con le tue parole: aiuta TIX a non sbagliare</small></span><textarea id="pv-ia-lavoro" rows="2" maxlength="1000" placeholder="es. Rifacimento dei due bagni al piano primo, sanitari forniti dal cliente">'+es(l.lavoro||'')+'</textarea></label>'+
    '<div class="pv-ia-cari"><label class="pv-ia-drop" id="pv-ia-drop"><input type="file" id="pv-ia-file" multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf" hidden>'+NUVOLA+'<b>Aggiungi file (anche più di uno)</b><small>Computo metrico <b>solo in Excel</b> · tavole e relazioni in PDF · fino a 18 MB per file</small></label>'+
    '<div class="pv-ia-link"><b>Oppure incolla un link</b><div class="pv-ia-lb"><input id="pv-ia-url" placeholder="https://drive.google.com/…" maxlength="600" autocomplete="off">'+
    '<select id="pv-ia-url-tipo"><option value="relazione">Relazione</option><option value="tavole">Tavole</option><option value="computo">Computo (Excel)</option></select><button type="button" class="pv-b sm pv-pr" id="pv-ia-url-ok">Aggiungi</button></div>'+
@@ -730,7 +751,7 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
  h+='<div class="pv-ia-file">'+F2.map(function(f){return rigaFileIa(f,mod);}).join('')+'</div>';
  if(!F2.length)h+='<p class="pv-vuoto">Nessun file ancora.</p>';
  if(l.errore&&mod)h+='<p class="pv-msg ko">'+es(l.errore)+'</p>';
- if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa la lettura con l\'IA.</span></div>';
+ if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa preparare le voci.</span></div>';
  if(s==='stima')h+=stimaIa(l);
  if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito meno di un minuto.':(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.'))+
   (l.partita_il?' Partita alle '+ora(l.partita_il)+'.':'')+' Puoi chiudere la pagina: il lavoro continua.</small></div></div>';
@@ -745,18 +766,18 @@ function rigaFileIa(f,mod){var est=f.fonte==='link'?'LINK':(/\.(xlsx|xls|xlsm|od
    '<label class="pv-ia-sp"><input type="checkbox" data-ialeggi="'+f.id+'"'+(f.leggi?' checked':'')+'> Leggi</label><button type="button" class="pv-ia-x" data-iax="'+f.id+'" title="Togli" aria-label="Togli">×</button>'
    :'<span class="pv-ia-st">'+es(TIPI[f.tipo]||'')+(f.leggi?'':' · non letto')+'</span>')+'</div>';}
 function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',costo=sub?t.usd_subito:t.usd_senza_fretta;
- var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con l\'IA · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
+ var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con TIX · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
   '<div><span>Relazioni</span><b>'+(t.pagine_relazioni||0)+' pag.</b><small>lette come testo</small></div>'+
-  '<div><span>Tavole</span><b>'+(t.pagine_tavole||0)+' pag.</b><small>lette dall\'IA in PDF</small></div>'+
+  '<div><span>Tavole</span><b>'+(t.pagine_tavole||0)+' pag.</b><small>lette da TIX in PDF</small></div>'+
   '<div class="soldi"><span>Costo stimato</span><b>'+usd(costo)+' $</b><small>+ IVA · '+(sub?'pochi minuti':'di solito entro un\'ora')+'</small></div></div>';
  if((t.avvisi||[]).length)h+='<p class="pv-avviso">'+t.avvisi.map(es).join('<br>')+'</p>';
  h+='<div class="pv-ia-vel"><span class="et">Velocità</span><button type="button" class="pv-chip'+(sub?'':' on')+'" data-iamod="batch">Senza fretta <em>· metà prezzo</em></button>'+
   '<button type="button" class="pv-chip'+(sub?' on':'')+'" data-iamod="subito">Subito <em>· prezzo pieno</em></button></div>'+
   '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-parti">Prepara il preventivo</button><button type="button" class="pv-b" id="pv-ia-ricontrolla">Controlla di nuovo</button>'+
-  '<span class="pv-ia-nota">Le voci che ci sono già restano. Quelle dell\'IA si aggiungono sotto, segnate, e le controlli una per una prima di mandare il preventivo.</span></div>';
+  '<span class="pv-ia-nota">Le voci che ci sono già restano. Quelle di TIX si aggiungono sotto, segnate, e le controlli una per una prima di mandare il preventivo.</span></div>';
  return h;}
 function esitoIa(l){var r=l.riepilogo||{},h='<div class="pv-ia-esito"><p class="pv-ia-rie">Ultima lettura: '+pl(r.scritte,'voce aggiunta','voci aggiunte')+' · '+(r.per_codice||0)+' con il prezzo per codice · '+
-  pl(r.scelte_ia,'scelta dall\'IA','scelte dall\'IA')+' · '+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole · costo '+usd(l.costo_usd)+' $ + IVA</p>';
+  pl(r.scelte_ia,'scelta da TIX','scelte da TIX')+' · '+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole · costo '+usd(l.costo_usd)+' $ + IVA</p>';
  if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
  h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
   (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file non restano in TIX: resta questo elenco, con le impronte.</small></details></div>';
@@ -764,7 +785,7 @@ function esitoIa(l){var r=l.riepilogo||{},h='<div class="pv-ia-esito"><p class="
 function azIa(az,d,b){if(b)b.disabled=true;msgIa('Un momento…');d=d||{};d.id=CFG.id;
  return api('ia_'+az,d).then(function(r){if(b)b.disabled=false;if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');return r;});}
 function legaIa(l){
- var an=$('pv-ia-annulla');if(an)an.onclick=function(){if(confirm('Annullare «Prepara con l\'IA»? I file allegati si tolgono.'))azIa('annulla',{},an);};
+ var an=$('pv-ia-annulla');if(an)an.onclick=function(){if(confirm('Annullare «Prepara con TIX»? I file allegati si tolgono.'))azIa('annulla',{},an);};
  var lv=$('pv-ia-lavoro');if(lv)lv.onchange=function(){azIa('lavoro',{lavoro:lv.value});};
  var fi=$('pv-ia-file');if(fi)fi.onchange=function(){caricaFileIa(fi.files);};
  var dr=$('pv-ia-drop');if(dr){dr.ondragover=function(e){e.preventDefault();dr.classList.add('su');};dr.ondragleave=function(){dr.classList.remove('su');};
@@ -994,7 +1015,7 @@ async function caricaFirmato(request, env, inUrl, h) {
   return json({ esito: "ok", sha256: sha });
 }
 
-// ---------------------------------------------------------------------------- «Prepara con l'IA»: un file per la lettura
+// ---------------------------------------------------------------------------- «Prepara con TIX»: un file per la lettura
 // Il computo in Excel, tavole e relazioni in PDF (il resto lo controlla la funzione preventivo-ia). Il file va in
 // «preventivi/<impresa>/ia/<lettura>/…» solo finché serve: la funzione lo toglie quando la lettura finisce, e con l'impresa
 // si cancella comunque tutta la cartella «preventivi/<impresa>/».
