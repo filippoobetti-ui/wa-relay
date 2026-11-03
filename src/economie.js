@@ -782,12 +782,16 @@ export function economieIniezione(base, token, commessa) {
     ".gl-azioni.gl-az4{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:900px){.gl-azioni.gl-az4{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
     "@media screen and (min-width:901px){.gl-azioni.gl-az4{width:min(1600px,calc(100vw - 96px));max-width:none;margin-left:calc(50% - min(800px,calc(50vw - 48px)));box-sizing:border-box}}" +
     "@media (max-width:640px){.gl-azioni,.gl-azioni.gl-az4{grid-template-columns:minmax(0,1fr)}}" +
+    // preventivi-1 (03/11/2026, chat 02B): con il quinto pulsante «Preventivi» 5 colonne sul computer, 3 fino a 900 px, 1 sul telefono
+    ".gl-azioni.gl-az5{grid-template-columns:repeat(5,minmax(0,1fr))}@media (max-width:900px){.gl-azioni.gl-az5{grid-template-columns:repeat(3,minmax(0,1fr))}}" +
+    "@media screen and (min-width:901px){.gl-azioni.gl-az5{width:min(1600px,calc(100vw - 96px));max-width:none;margin-left:calc(50% - min(800px,calc(50vw - 48px)));box-sizing:border-box}}" +
+    "@media (max-width:640px){.gl-azioni.gl-az5{grid-template-columns:minmax(0,1fr)}}" +
     "</style>" +
     "<script>(function(){try{var e=document.createElement('a');e.className='gl-ec-b';e.href=" + JSON.stringify(u) + ";e.innerHTML='&#128221; Registro delle economie';" +
     "function riga(){var nav=document.querySelector('nav.schede');var r=document.querySelector('.gl-azioni');" +
     "if(!r){r=document.createElement('div');r.className='gl-azioni';if(nav&&nav.parentNode)nav.parentNode.insertBefore(r,nav.nextSibling);else document.body.insertBefore(r,document.body.firstChild);}" +
-    "var p=document.querySelector('.gl-pc-b'),x=document.querySelector('.gl-xl-b'),s=document.querySelector('.gl-sc-b');" +
-    "[p,x,e,s].forEach(function(b){if(b)r.appendChild(b);});if(s)r.classList.add('gl-az4');" +
-    "document.querySelectorAll('.gl-pc-barra,.gl-xl-barra,.gl-sc-barra').forEach(function(v){if(!v.children.length)v.parentNode.removeChild(v);});}" +
+    "var p=document.querySelector('.gl-pc-b'),x=document.querySelector('.gl-xl-b'),s=document.querySelector('.gl-sc-b'),w=document.querySelector('.gl-pv-b');" +
+    "[p,x,e,s,w].forEach(function(b){if(b)r.appendChild(b);});var n=r.children.length;r.classList.toggle('gl-az4',n===4||(!!s&&n<4));r.classList.toggle('gl-az5',n>=5);" +
+    "document.querySelectorAll('.gl-pc-barra,.gl-xl-barra,.gl-sc-barra,.gl-pv-barra').forEach(function(v){if(!v.children.length)v.parentNode.removeChild(v);});}" +
     "riga();if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',riga);setTimeout(riga,0);}catch(err){}})();</script>";
 }
