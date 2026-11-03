@@ -14,6 +14,11 @@
 //   POST /economie/riporta  {t, c, id, si}          → riporta o togli una riga del subappaltatore dal committente
 // Il database decide tutto (RPC registro_economie_portale, economie_impresa_portale, economia_riporta): righe, totali,
 // stato dei giorni e file per Excel. Si spegne con ECONOMIE_SUB = "off" (pagina e pulsante).
+// 03/11/2026 (mezzi-1): il registro si legge con registro_economie_euro, che con impostazioni.mezzi_attiva accesa aggiunge alla
+// scheda «Per il committente» prezzi e importi (+ IVA) della manodopera per qualifica, i mezzi e le attrezzature in economia
+// (src/mezzi.js) e i prezzi concordati per questo cantiere; spenta, dà gli stessi dati di prima.
+//   POST /economie/mezzo   {t, c, dati, togli}   → mezzo in economia: aggiungi, correggi o togli (solo l'ufficio)
+//   POST /economie/prezzo  {t, c, dati}          → prezzo concordato per questo cantiere (vuoto = torna al prezzo di base)
 // ============================================================================
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -34,6 +39,22 @@ function num(x) {
   return (Math.round(n * 100) / 100).toString().replace(".", ",");
 }
 function ore(x) { return num(x) + " h"; }
+// 03/11/2026 (mezzi-1): euro con due decimali e separatore delle migliaia («1.430,50 €»); vuoto se manca
+function euro(x) {
+  if (x == null || x === "") return "";
+  const n = Number(x);
+  if (!isFinite(n)) return "";
+  const [i, dec] = n.toFixed(2).split(".");
+  return i.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + dec + " €";
+}
+function corto(x, max) { return String(x == null ? "" : x).replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max); }
+const UNITA = { ora: ["h", "ore", "all'ora", "ora"], giorno: ["g", "giornate", "al giorno", "giornata"], mezza_giornata: ["½ g", "mezze giornate", "a mezza giornata", "mezza giornata"] };
+function quantita(q, u) { return num(q) + " " + (UNITA[u] || UNITA.ora)[0]; }
+function quantitaTesto(o) {   // {ora: 5.5, giorno: 1} → «5,5 ore · 1 giornata»
+  return Object.keys(o || {}).filter((k) => Number(o[k]) > 0).map((k) => num(o[k]) + " " + (UNITA[k] || UNITA.ora)[Number(o[k]) === 1 ? 3 : 1]).join(" · ");
+}
+// la scheda «Per il committente» con gli euro (solo quando il database li manda)
+function conEuro(d, s) { return !!(d && d.euro === true && s.k === "committente"); }
 function lista(a) { return Array.isArray(a) ? a : []; }
 function parte(d, k) { const x = d && d[k]; return x && typeof x === "object" ? Object.assign({}, VUOTA, x) : VUOTA; }
 
@@ -94,6 +115,31 @@ export async function portaleEconomie(request, env, base, inUrl, h) {
     return json(r || { esito: "errore" }, r ? 200 : 503);
   }
 
+  // 03/11/2026 (mezzi-1): mezzi e attrezzature in economia e prezzi concordati del cantiere; i controlli li fa il database
+  if (sotto === "/economie/mezzo" || sotto === "/economie/prezzo") {
+    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    let d = null;
+    try { d = await request.json(); } catch (e) { d = null; }
+    const tok = String(d && d.t || "").match(/^[0-9a-fA-F]{64}$/) ? String(d.t).toLowerCase() : "";
+    const c = String(d && d.c || "").toLowerCase();
+    if (!tok || !UUID.test(c)) return json({ esito: "errore" }, 400);
+    const x = d && d.dati && typeof d.dati === "object" ? d.dati : {};
+    let r = null;
+    if (sotto === "/economie/prezzo") {
+      r = await h.rpc(env, "prezzo_economia_salva", { p_token: tok, p_azienda: "", p_commessa: c, p_dati: {
+        voce: corto(x.voce, 20), mezzo_id: corto(x.mezzo_id, 36), qualifica: corto(x.qualifica, 20), prezzo: corto(x.prezzo, 20) } }, 15000).catch(() => null);
+    } else if (d && d.togli) {
+      const id = Number(x.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ esito: "errore" }, 400);
+      r = await h.rpc(env, "economia_mezzo_togli", { p_token: tok, p_commessa: c, p_id: id }, 15000).catch(() => null);
+    } else {
+      r = await h.rpc(env, "economia_mezzo_salva", { p_token: tok, p_commessa: c, p_dati: {
+        id: corto(x.id, 20), data: corto(x.data, 10), mezzo_id: corto(x.mezzo_id, 36), quantita: corto(x.quantita, 12),
+        descrizione: corto(x.descrizione, 300) } }, 15000).catch(() => null);
+    }
+    return json(r || { esito: "errore" }, r ? 200 : 503);
+  }
+
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   }
@@ -109,7 +155,7 @@ export async function portaleEconomie(request, env, base, inUrl, h) {
   if (sotto === "/economie/stampa") return stampaLista(request, env, base, inUrl, h, p, indietro);
 
   if (sotto === "/economie/excel") {
-    const r = await h.rpc(env, "registro_economie_portale", { p_token: p.tok, p_commessa: p.c, p_mese: p.mese, p_csv: p.scheda }, 20000).catch(() => null);
+    const r = await h.rpc(env, "registro_economie_euro", { p_token: p.tok, p_commessa: p.c, p_mese: p.mese, p_csv: p.scheda }, 20000).catch(() => null);
     if (!r) return h.risposta(h.foglio(base, "Scarica Excel", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
     if (r.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
     if (r.esito !== "ok" || typeof r.csv !== "string") return h.risposta(h.foglio(base, "Scarica Excel", "Non è stato possibile preparare il file per questo cantiere.", indietro), 400);
@@ -129,7 +175,7 @@ export async function portaleEconomie(request, env, base, inUrl, h) {
     });
   }
 
-  const d = await h.rpc(env, "registro_economie_portale", { p_token: p.tok, p_commessa: p.c, p_mese: p.mese, p_csv: "" }, 20000).catch(() => null);
+  const d = await h.rpc(env, "registro_economie_euro", { p_token: p.tok, p_commessa: p.c, p_mese: p.mese, p_csv: "" }, 20000).catch(() => null);
   if (!d) return h.risposta(h.foglio(base, "Registro delle economie", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Registro delle economie", "Questa pagina non è disponibile per questo cantiere.", indietro), 400);
@@ -170,6 +216,21 @@ function perGiorno(x) {
   lista(x.per_giorno).forEach((t) => { if (String(t.data) in idx) gruppi[idx[String(t.data)]].ore = t.ore; });
   return gruppi;
 }
+// 03/11/2026 (mezzi-1): con gli euro, sotto ogni giorno anche i mezzi e le attrezzature in economia (dopo la manodopera) e il
+// totale del giorno in euro; i giorni con soli mezzi entrano al loro posto in ordine di data
+function perGiornoEuro(x, d) {
+  const gruppi = perGiorno(x), idx = {};
+  gruppi.forEach((g, i) => { idx[g.data] = i; g.euro = 0; g.senza = 0; });
+  lista(d.mezzi).forEach((m) => {
+    const g = String(m.data || "");
+    if (!(g in idx)) { idx[g] = gruppi.length; gruppi.push({ data: g, righe: [], ore: 0, euro: 0, senza: 0 }); }
+    gruppi[idx[g]].righe.push(Object.assign({ _mz: true }, m));
+  });
+  lista(d.importi && d.importi.per_giorno).forEach((t) => {
+    if (String(t.data) in idx) { gruppi[idx[String(t.data)]].euro = t.totale; gruppi[idx[String(t.data)]].senza = Number(t.senza_prezzo) || 0; }
+  });
+  return gruppi.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+}
 
 function fonteTesto(v) {
   if (v.fonte === "rapportino") return "Rapportino n. " + (v.numero == null ? "-" : v.numero) + (Number(v.versione) > 1 ? " (versione " + v.versione + ")" : "");
@@ -194,7 +255,7 @@ function pagina(base, h, p, d, torna) {
   const radio = SCHEDE.map((s) => '<input type="radio" name="rg-s" class="rg-r" id="rg-s-' + s.k + '" value="' + s.k + '"' + (s.k === p.scheda ? " checked" : "") + ">").join("");
   const schede = '<nav class="rg-tabs" aria-label="Parti del registro">' + SCHEDE.map((s) =>
     '<label for="rg-s-' + s.k + '"><span>' + e(s.t) + "</span><b>" + ore(parte(d, s.k).ore) + "</b></label>").join("") + "</nav>";
-  const cfg = JSON.stringify({ u: base + "/economie/riporta", t: p.tok, c: p.c }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ u: base + "/economie/riporta", um: base + "/economie/mezzo", up: base + "/economie/prezzo", t: p.tok, c: p.c }).replace(/</g, "\\u003c");
 
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
@@ -218,7 +279,13 @@ function pagina(base, h, p, d, torna) {
 function pannello(base, h, p, d, s) {
   const e = h.esc, x = parte(d, s.k), sub = s.k === "sub", norm = s.k === "normali";
   const q = "?t=" + p.tok + "&c=" + p.c + "&mese=" + d.mese + "&scheda=" + s.k;
-  const cifre = [
+  const eu = conEuro(d, s), im = (eu && d.importi) || {}, nMezzi = eu ? lista(d.mezzi).length : 0;
+  const cifre = eu ? [
+    ["Manodopera · " + ore(im.manodopera_ore), euro(im.manodopera) || "0,00 €"],
+    ["Automezzi e macchine" + (quantitaTesto(im.mezzi_quantita) ? " · " + quantitaTesto(im.mezzi_quantita) : ""), euro(im.mezzi) || "0,00 €"],
+    ["Attrezzature" + (quantitaTesto(im.attrezzature_quantita) ? " · " + quantitaTesto(im.attrezzature_quantita) : ""), euro(im.attrezzature) || "0,00 €"],
+    ["Totale del mese + IVA", euro(im.totale) || "0,00 €"]
+  ] : [
     [norm ? "Ore normali" : "Ore in economia", ore(x.ore)],
     [norm ? "Giorni con ore" : "Giorni con economie", String(x.giorni)],
     sub ? ["Imprese", String(x.gruppi)] : norm ? ["Persone o squadre", String(x.gruppi)] : ["Registrazioni", String(x.n_righe)],
@@ -236,36 +303,44 @@ function pannello(base, h, p, d, s) {
     ? "Giorno «firmato dall'ufficio»: c'è il rapportino del giorno registrato e valgono le sue righe «Ore normali». Giorno «da confermare»: valgono le timbrature, arrotondate alla mezz'ora come nella bozza del rapportino delle 22."
     : "Giorno «firmato dall'ufficio»: c'è il rapportino del giorno registrato e valgono le sue righe. Giorno «da confermare»: valgono i messaggi WhatsApp. Se l'ufficio ha scritto il rapportino senza le righe arrivate da WhatsApp, contano anche quelle. " +
       (sub ? "Sono gli stessi numeri delle liste del mese dei subappaltatori." : "Sono gli stessi numeri del rapportino settimanale delle ore in economia.");
-  const az = x.n_righe ? '<div class="rg-az"><a class="rg-b" href="' + e(base + "/economie/foglio" + q) + '" target="_blank" rel="noopener">&#128424;&#65039; Stampa o salva in PDF</a>' +
+  const pieno = x.n_righe || nMezzi;
+  const az = pieno ? '<div class="rg-az"><a class="rg-b" href="' + e(base + "/economie/foglio" + q) + '" target="_blank" rel="noopener">&#128424;&#65039; Stampa o salva in PDF</a>' +
     '<a class="rg-b rg-xl" href="' + e(base + "/economie/excel" + q) + '">&#128202; Scarica Excel</a></div>' : "";
 
   return '<section class="rg-pan" id="rg-p-' + s.k + '" aria-label="' + e(s.t) + '">' +
     '<p class="rg-spiega">' + e(intro) + "</p>" +
     (sub ? '<p class="rg-wa"><b>Come le scrive il subappaltatore.</b> Su WhatsApp, come sempre: per esempio «2 operai 4 ore spostamento scarico, lavoro extra». Le ore extra di chi è registrato come subappaltatore o autonomo vengono qui, nella sua lista del mese. Se le segna l\'ufficio, nel rapportino del giorno si sceglie «Economia del subappaltatore» e si scrive il suo nome nella squadra.</p>' +
       '<p class="rg-msg" id="rg-msg" aria-live="polite"></p>' : "") +
-    '<div class="rg-cifre">' + cifre.map((c) => "<div><b>" + e(c[1]) + "</b><span>" + e(c[0]) + "</span></div>").join("") + "</div>" +
+    '<div class="rg-cifre' + (eu ? " rg-eu" : "") + '">' + cifre.map((c) => "<div><b>" + e(c[1]) + "</b><span>" + e(c[0]) + "</span></div>").join("") + "</div>" +
     (s.k === "committente" && Number(x.ore_riportate) > 0 ? '<p class="rg-nota">Comprese ' + e(ore(x.ore_riportate)) + " riportate dai subappaltatori.</p>" : "") +
+    (eu ? avvisiEuro(base, h, p, d) : "") +
     az +
-    (x.n_righe ? tabella(base, h, p, d, s, x) + riepiloghi(h, s, x) : '<p class="rg-vuoto">' + e(vuoto) + "</p>") +
+    (eu ? moduliEuro(base, h, p, d) : "") +
+    (pieno ? tabella(base, h, p, d, s, x) + (x.n_righe ? riepiloghi(h, s, x) : "") + (eu && nMezzi ? riepilogoMezzi(h, d) : "") : '<p class="rg-vuoto">' + e(vuoto) + "</p>") +
     (sub && lista(x.per_gruppo).length ? listeSub(base, h, p, d, x) : "") +
     '<p class="rg-fonti">' + e(fonti) + "</p></section>";
 }
 
 // sei colonne in tutte le schede; nei subappaltatori la prima ha l'impresa esecutrice e, sotto, la squadra
-function colonne(s) {
+function colonne(s, eu) {
+  if (eu) return ["Squadra, impresa o mezzo", "Qualifica o tipo", "Operai", "Ore per operaio", "Ore o quantità", "Prezzo + IVA", "Importo", "Descrizione"];
   return [s.k === "sub" ? "Impresa esecutrice e squadra" : s.chi, "Qualifica", "Operai", "Ore per operaio", "Ore totali", s.k === "normali" ? "Dettaglio" : "Descrizione"];
 }
 
 function tabella(base, h, p, d, s, x) {
-  const e = h.esc, cols = colonne(s), n = cols.length;
+  const e = h.esc, eu = conEuro(d, s), cols = colonne(s, eu), n = cols.length;
   const prima = 4, dopo = n - prima - 1; // colonne prima e dopo «Ore totali»
-  const testa = "<thead><tr>" + cols.map((c, i) => "<th" + (i >= prima - 2 && i <= prima ? ' class="n"' : "") + ">" + e(c) + "</th>").join("") + "</tr></thead>";
-  const corpo = perGiorno(x).map((g) => '<tbody class="rg-g">' + testaGiorno(base, h, p, d, g.data, n) +
-    g.righe.map((v) => riga(h, s, v, d.chiuso)).join("") +
-    '<tr class="rg-gt"><td colspan="' + prima + '">Totale del giorno</td><td class="n">' + e(ore(g.ore)) + "</td>" + (dopo ? '<td colspan="' + dopo + '"></td>' : "") + "</tr></tbody>").join("");
+  const numeriche = (i) => (i >= prima - 2 && i <= prima) || (eu && (i === 5 || i === 6));
+  const testa = "<thead><tr>" + cols.map((c, i) => "<th" + (numeriche(i) ? ' class="n"' : "") + ">" + e(c) + "</th>").join("") + "</tr></thead>";
+  // con gli euro: ore del giorno sotto «Ore o quantità» (solo manodopera), importo del giorno sotto «Importo»
+  const totale = (cl, et, o, eur) => '<tr class="' + cl + '"><td colspan="' + prima + '">' + et + '</td><td class="n">' + e(eu && !Number(o) ? "-" : ore(o)) + "</td>" +
+    (eu ? '<td></td><td class="n">' + e(euro(eur) || "0,00 €") + '</td><td></td>' : (dopo ? '<td colspan="' + dopo + '"></td>' : "")) + "</tr>";
+  const corpo = (eu ? perGiornoEuro(x, d) : perGiorno(x)).map((g) => '<tbody class="rg-g">' + testaGiorno(base, h, p, d, g.data, n) +
+    g.righe.map((v) => v._mz ? rigaMezzo(h, v, d.chiuso || d.puo_modificare !== true) : riga(h, s, v, d.chiuso, eu)).join("") +
+    totale("rg-gt", "Totale del giorno", g.ore, g.euro) + "</tbody>").join("");
   // totale del mese in un tbody e non in un tfoot: in stampa il tfoot si ripeterebbe in fondo a ogni pagina
-  const piede = '<tbody class="rg-fine"><tr class="rg-mt"><td colspan="' + prima + '">Totale del mese</td><td class="n">' + e(ore(x.ore)) + "</td>" + (dopo ? '<td colspan="' + dopo + '"></td>' : "") + "</tr></tbody>";
-  return '<div class="rg-tw"><table class="rg-t">' + testa + corpo + piede + "</table></div>";
+  const piede = '<tbody class="rg-fine">' + totale("rg-mt", "Totale del mese" + (eu ? " + IVA" : ""), x.ore, eu && d.importi ? d.importi.totale : 0) + "</tbody>";
+  return '<div class="rg-tw"><table class="rg-t' + (eu ? " rg-teu" : "") + '">' + testa + corpo + piede + "</table></div>";
 }
 
 function testaGiorno(base, h, p, d, iso, n) {
@@ -283,10 +358,19 @@ function testaGiorno(base, h, p, d, iso, n) {
   return '<tr class="rg-gh"><th colspan="' + n + '" scope="colgroup"><span class="rg-dt">' + e(giornoLungo(iso, true)) + "</span>" + st + "</th></tr>";
 }
 
-function riga(h, s, v, chiuso) {
+// 03/11/2026 (mezzi-1): prezzo e importo di una riga; senza prezzo «prezzo mancante» (si scrive in Mezzi e attrezzature)
+function celleEuro(h, v) {
+  const e = h.esc;
+  if (v.prezzo == null) return '<td class="n c-pr"><span class="rg-manca">prezzo mancante</span></td><td class="n c-im">-</td>';
+  return '<td class="n c-pr">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="rg-conc">concordato</span>' : "") + "</td>" +
+    '<td class="n c-im">' + e(euro(v.importo)) + "</td>";
+}
+
+function riga(h, s, v, chiuso, eu) {
   const e = h.esc, sub = s.k === "sub";
   const op = Number(v.operai);
-  const det = (v.qualifica ? e(v.qualifica) + " · " : "") + e(v.operai == null ? "-" : v.operai) + (op === 1 ? " operaio" : " operai") + " × " + e(num(v.ore)) + " h";
+  const det = (v.qualifica ? e(v.qualifica) + " · " : "") + e(v.operai == null ? "-" : v.operai) + (op === 1 ? " operaio" : " operai") + " × " + e(num(v.ore)) + " h" +
+    (eu ? " · " + (v.prezzo == null ? "prezzo mancante" : e(euro(v.importo))) : "");
   const testo = dettaglio(v, s);
   const tag = '<span class="rg-fo">' + e(fonteTesto(v)) + "</span>" +
     (s.k === "committente" && v.riportata ? '<span class="rg-tag">Riportata dal subappaltatore ' + e(v.impresa || "") + "</span>" : "") +
@@ -296,7 +380,7 @@ function riga(h, s, v, chiuso) {
     '<span class="m-det">' + det + "</span></td>" +
     '<td class="c-q">' + (v.qualifica ? e(v.qualifica) : '<span class="rg-nd">non indicata</span>') + "</td>" +
     '<td class="n c-op">' + e(v.operai == null ? "-" : v.operai) + '</td><td class="n c-or">' + e(num(v.ore)) + "</td>" +
-    '<td class="n c-tot">' + e(ore(v.totale)) + "</td>" +
+    '<td class="n c-tot">' + e(ore(v.totale)) + "</td>" + (eu ? celleEuro(h, v) : "") +
     '<td class="c-de">' + (testo ? '<span class="rg-desc">' + e(testo) + "</span>" : "") + tag +
     (sub && !chiuso && v.id ? '<button type="button" class="rg-rip" data-si="' + (v.riportata ? "0" : "1") + '">' +
       (v.riportata ? "Togli dal committente" : "Riporta al committente") + "</button>" : "") + "</td>" +
@@ -315,6 +399,87 @@ function riepiloghi(h, s, x) {
     '<tr class="tot"><td>Totale</td><td class="n">' + e(x.n_righe) + '</td><td class="n">' + e(ore(x.ore)) + "</td></tr></tbody></table></div></div>";
 }
 
+// ---------------------------------------------------------------------------- euro, mezzi e prezzi (03/11/2026, mezzi-1)
+// riga di un mezzo o di un'attrezzatura in economia, sotto la manodopera del giorno
+function rigaMezzo(h, v, bloccato) {
+  const e = h.esc, tipo = v.scheda === "attrezzatura" ? "Attrezzatura" : "Automezzo o macchina";
+  const dati = JSON.stringify({ id: v.id, data: v.data, mezzo_id: v.mezzo_id, quantita: num(v.quantita), descrizione: v.descrizione || "" });
+  return '<tr class="rg-row rg-mz" data-mz="' + e(dati) + '">' +
+    '<td class="c-sq"><b class="rg-mzn">' + e(v.nome) + "</b>" + (v.con_operatore ? '<span class="rg-op">con operatore</span>' : "") +
+    '<span class="m-det">' + e(tipo) + " · " + e(quantita(v.quantita, v.unita)) + " · " + (v.prezzo == null ? "prezzo mancante" : e(euro(v.importo))) + "</span></td>" +
+    '<td class="c-q">' + e(v.tipo || tipo) + '</td><td class="n c-op">-</td><td class="n c-or">-</td>' +
+    '<td class="n c-tot">' + e(quantita(v.quantita, v.unita)) + "</td>" + celleEuro(h, v) +
+    '<td class="c-de">' + (v.descrizione ? '<span class="rg-desc">' + e(v.descrizione) + "</span>" : "") +
+    '<span class="rg-fo">Scritto dall\'ufficio' + (v.autore ? " · " + e(v.autore) : "") + "</span>" +
+    (v.mezzo_tolto ? '<span class="rg-tag">Tolto dall\'elenco dei mezzi</span>' : "") +
+    (bloccato ? "" : '<span class="rg-mz-az"><button type="button" class="rg-rip rg-mz-mod">Correggi</button><button type="button" class="rg-rip rg-mz-tog">Togli</button></span>') +
+    "</td></tr>";
+}
+
+// righe senza prezzo e promemoria sui mezzi con operatore
+function avvisiEuro(base, h, p, d) {
+  const e = h.esc, im = d.importi || {};
+  const senza = (Number(im.manodopera_senza_prezzo) || 0) + (Number(im.mezzi_senza_prezzo) || 0);
+  const conOp = lista(d.mezzi).some((m) => m.con_operatore);
+  return (senza ? '<p class="rg-avv"><b>' + senza + (senza === 1 ? " riga senza prezzo" : " righe senza prezzo") + "</b>: non entrano nei totali in euro. " +
+      'Scrivi i prezzi di base in <a href="' + e(base + "/mezzi?t=" + p.tok) + '">Mezzi e attrezzature</a> (anche quello per le ore senza qualifica), oppure quelli di questo cantiere in «Prezzi di questo cantiere».</p>' : "") +
+    (conOp ? '<p class="rg-nota">I mezzi «con operatore» comprendono chi li guida: le sue ore non vanno scritte anche tra la manodopera.</p>' : "");
+}
+
+// «+ Mezzo in economia» e «Prezzi di questo cantiere» (solo l'ufficio, cantiere aperto)
+function moduliEuro(base, h, p, d) {
+  const e = h.esc;
+  if (d.chiuso || d.puo_modificare !== true) return "";
+  const el = lista(d.mezzi_elenco);
+  const opz = (k, t) => {
+    const a = el.filter((m) => m.scheda === k);
+    return a.length ? '<optgroup label="' + e(t) + '">' + a.map((m) => '<option value="' + e(m.id) + '" data-u="' + e(m.unita) + '">' + e(m.nome) +
+      " · " + e(m.prezzo == null ? "prezzo da scrivere" : euro(m.prezzo) + " " + (UNITA[m.unita] || UNITA.ora)[2]) + "</option>").join("") + "</optgroup>" : "";
+  };
+  const oggi = String(d.oggi || ""), primo = d.mese + "-01";
+  const giorno = d.corrente ? oggi : (d.mese + "-" + String(new Date(Date.UTC(Number(d.mese.slice(0, 4)), Number(d.mese.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0"));
+  const mezzo = '<details class="rg-dt-box" id="rg-mz-box"><summary>+ Mezzo o attrezzatura in economia</summary>' +
+    (el.length
+      ? '<div class="rg-form"><input type="hidden" id="mz-id" value="">' +
+        '<label>Giorno<input type="date" id="mz-data" min="' + e(primo) + '" max="' + e(oggi) + '" value="' + e(giorno) + '"></label>' +
+        '<label class="lar">Mezzo o attrezzatura<select id="mz-mezzo"><option value="">Scegli…</option>' + opz("mezzo", "Automezzi e macchine") + opz("attrezzatura", "Attrezzature") + "</select></label>" +
+        '<label>Quantità <small id="mz-un">ore</small><input id="mz-q" inputmode="decimal" maxlength="8" placeholder="es. 3"></label>' +
+        '<label class="lar">Descrizione <small>facoltativa</small><input id="mz-de" maxlength="300" placeholder="es. Demolizione muro lato nord"></label>' +
+        '<div class="rg-form-az"><button type="button" class="rg-b rg-pr" id="mz-salva">Salva</button><button type="button" class="rg-b" id="mz-annulla">Annulla</button></div>' +
+        '<p class="rg-msg" id="mz-msg" aria-live="polite"></p></div>'
+      : '<p class="rg-nota">Prima aggiungi i mezzi e le attrezzature dell\'impresa in <a href="' + e(base + "/mezzi?t=" + p.tok) + '">Mezzi e attrezzature</a>.</p>') +
+    "</details>";
+  // prezzi: qualifiche e mezzi, con il prezzo di base e quello concordato per questo cantiere (se c'è)
+  const conc = lista(d.prezzi_cantiere);
+  const baseMezzo = (m) => { const c = conc.find((x) => x.voce === "mezzo" && x.mezzo_id === m.id); return c ? c.base : m.prezzo; };
+  const voci = lista(d.qualifiche).map((q) => ({ voce: "qualifica", k: q.qualifica, nome: q.etichetta, u: "all'ora", base: q.base, conc: q.origine === "concordato" ? q.prezzo : null }))
+    .concat(el.map((m) => ({ voce: "mezzo", k: m.id, nome: m.nome, u: (UNITA[m.unita] || UNITA.ora)[2], base: baseMezzo(m), conc: m.origine === "concordato" ? m.prezzo : null })));
+  const prezzi = '<details class="rg-dt-box" id="rg-pz-box"><summary>Prezzi di questo cantiere' + (conc.length ? " · " + conc.length + " concordati" : "") + "</summary>" +
+    '<p class="rg-nota">Se con questo committente hai concordato prezzi diversi da quelli di base, scrivili qui: valgono solo per questo cantiere, da oggi in poi (se è il primo prezzo concordato di una voce, per tutto il cantiere). Lascia vuoto per usare il prezzo di base. Prezzi + IVA.</p>' +
+    '<div class="rg-tw"><table class="rg-mini rg-pz"><thead><tr><th>Voce</th><th class="n">Di base</th><th class="n">Concordato per questo cantiere</th></tr></thead><tbody>' +
+    voci.map((v) => "<tr><td>" + e(v.nome) + ' <span class="rg-u">' + e(v.u) + '</span></td><td class="n">' + e(v.base == null ? "-" : euro(v.base)) + "</td>" +
+      '<td class="n"><input class="rg-pz-in" inputmode="decimal" maxlength="12" data-voce="' + e(v.voce) + '" data-k="' + e(v.k) + '" data-prima="' + e(v.conc == null ? "" : num(v.conc)) + '" value="' + e(v.conc == null ? "" : num(v.conc)) + '" placeholder="come di base" aria-label="Prezzo concordato ' + e(v.nome) + '"></td></tr>').join("") +
+    "</tbody></table></div>" +
+    '<div class="rg-form-az"><button type="button" class="rg-b rg-pr" id="pz-salva">Salva i prezzi di questo cantiere</button></div><p class="rg-msg" id="pz-msg" aria-live="polite"></p></details>';
+  return '<div class="rg-moduli">' + mezzo + prezzi + "</div>";
+}
+
+// riepilogo del mese dei mezzi e delle attrezzature
+function riepilogoMezzi(h, d) {
+  const e = h.esc, per = {}, ordine = [];
+  lista(d.mezzi).forEach((m) => {
+    if (!(m.mezzo_id in per)) { per[m.mezzo_id] = { nome: m.nome, scheda: m.scheda, unita: m.unita, q: 0, imp: 0, senza: false }; ordine.push(m.mezzo_id); }
+    const r = per[m.mezzo_id];
+    r.q += Number(m.quantita) || 0;
+    if (m.importo == null) r.senza = true; else r.imp += Number(m.importo) || 0;
+  });
+  const im = d.importi || {};
+  return '<div class="rg-riep rg-riep1"><div><h3>Mezzi e attrezzature</h3><table class="rg-mini"><thead><tr><th>Mezzo o attrezzatura</th><th class="n">Quantità</th><th class="n">Importo</th></tr></thead><tbody>' +
+    ordine.map((k) => { const r = per[k]; return "<tr><td>" + e(r.nome) + '</td><td class="n">' + e(quantita(r.q, r.unita)) + '</td><td class="n">' + e(euro(r.imp)) + (r.senza ? " *" : "") + "</td></tr>"; }).join("") +
+    '<tr class="tot"><td>Totale</td><td class="n"></td><td class="n">' + e(euro((Number(im.mezzi) || 0) + (Number(im.attrezzature) || 0))) + "</td></tr></tbody></table>" +
+    (ordine.some((k) => per[k].senza) ? '<p class="rg-nota">* alcune righe sono senza prezzo e non sono contate.</p>' : "") + "</div></div>";
+}
+
 // Scheda dei subappaltatori: la lista del mese di ogni impresa, da stampare e firmare (come prima)
 function listeSub(base, h, p, d, x) {
   const e = h.esc;
@@ -331,27 +496,41 @@ function listeSub(base, h, p, d, x) {
 // Niente collegamenti nel foglio: il PDF può girare fuori dall'impresa e non deve portarsi dietro l'accesso.
 function foglio(base, h, p, d) {
   const e = h.esc, s = SCHEDE.find((y) => y.k === p.scheda) || SCHEDE[0], x = parte(d, s.k), cant = d.cantiere || {};
-  const cols = colonne(s), n = cols.length, prima = 4, dopo = n - prima - 1;
+  const eu = conEuro(d, s), im = (eu && d.importi) || {};
+  const cols = colonne(s, eu), n = cols.length, prima = 4, dopo = n - prima - 1;
   const titolo = "Registro delle economie — " + s.foglio;
-  const corpo = perGiorno(x).map((g) => {
+  // 03/11/2026 (mezzi-1): con gli euro, prezzo e importo di ogni riga, mezzi del giorno e totali in euro
+  const celle = (v) => !eu ? "" : v.prezzo == null ? '<td class="n">mancante</td><td class="n">-</td>'
+    : '<td class="n">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="fo">concordato</span>' : "") + '</td><td class="n">' + e(euro(v.importo)) + "</td>";
+  const tot = (cl, et, o, eur) => '<tr class="' + cl + '"><td colspan="' + prima + '">' + et + '</td><td class="n">' + e(eu || cl === "mt" ? ore(o) : num(o)) + "</td>" +
+    (eu ? '<td></td><td class="n">' + e(euro(eur) || "0,00 €") + "</td><td></td>" : (dopo ? '<td colspan="' + dopo + '"></td>' : "")) + "</tr>";
+  const rigaMz = (v) => "<tr><td><b>" + e(v.nome) + "</b>" + (v.con_operatore ? '<span class="fo">con operatore</span>' : "") + "</td><td>" + e(v.tipo || (v.scheda === "attrezzatura" ? "Attrezzatura" : "Automezzo o macchina")) + "</td>" +
+    '<td class="n">-</td><td class="n">-</td><td class="n">' + e(quantita(v.quantita, v.unita)) + "</td>" + celle(v) +
+    '<td><span class="de">' + e(v.descrizione || "") + '</span><span class="fo">Scritto dall\'ufficio</span></td></tr>';
+  const corpo = (eu ? perGiornoEuro(x, d) : perGiorno(x)).map((g) => {
     const gg = (d.giorni && d.giorni[g.data]) || {};
     const st = gg.firmato
       ? '<span class="st ok">Firmato dall\'ufficio</span>' + lista(gg.rapportini).map((r) => '<span class="fo">Rapportino n. ' + e(r.numero) +
           (Number(r.versione) > 1 ? " (versione " + e(r.versione) + ")" : "") + (r.registrato_il ? ", registrato il " + e(r.registrato_il) : "") + (r.autore ? " da " + e(r.autore) : "") + "</span>").join("")
       : '<span class="st da">Da confermare</span>';
     return '<tbody class="g"><tr class="gh"><th colspan="' + n + '">' + e(giornoLungo(g.data, true) + " " + g.data.slice(0, 4)) + st + "</th></tr>" +
-      g.righe.map((v) => "<tr><td>" + (s.k === "sub" ? "<b>" + e(v.impresa || "") + '</b><span class="fo">' + e(v.squadra || "-") + "</span>" : e(v.squadra || "-")) + "</td><td>" + e(v.qualifica || "-") + "</td>" +
-        '<td class="n">' + e(v.operai == null ? "-" : v.operai) + '</td><td class="n">' + e(num(v.ore)) + '</td><td class="n">' + e(num(v.totale)) + "</td>" +
+      g.righe.map((v) => v._mz ? rigaMz(v) : "<tr><td>" + (s.k === "sub" ? "<b>" + e(v.impresa || "") + '</b><span class="fo">' + e(v.squadra || "-") + "</span>" : e(v.squadra || "-")) + "</td><td>" + e(v.qualifica || "-") + "</td>" +
+        '<td class="n">' + e(v.operai == null ? "-" : v.operai) + '</td><td class="n">' + e(num(v.ore)) + '</td><td class="n">' + e(num(v.totale)) + "</td>" + celle(v) +
         '<td><span class="de">' + e(dettaglio(v, s)) + '</span><span class="fo">' + e(fonteTesto(v)) + "</span>" +
         (s.k === "committente" && v.riportata ? '<span class="fo">Riportata dal subappaltatore ' + e(v.impresa || "") + "</span>" : "") +
         (s.k === "sub" && v.riportata ? '<span class="fo">Riportata al committente</span>' : "") + "</td></tr>").join("") +
-      '<tr class="gt"><td colspan="' + prima + '">Totale del giorno</td><td class="n">' + e(num(g.ore)) + "</td>" + (dopo ? '<td colspan="' + dopo + '"></td>' : "") + "</tr></tbody>";
+      tot("gt", "Totale del giorno", g.ore, g.euro) + "</tbody>";
   }).join("");
   const q = lista(x.per_qualifica), g = lista(x.per_gruppo);
-  const cifre = [
+  const cifre = eu ? [
+    ["Manodopera · " + ore(im.manodopera_ore), euro(im.manodopera) || "0,00 €"],
+    ["Automezzi e macchine", euro(im.mezzi) || "0,00 €"], ["Attrezzature", euro(im.attrezzature) || "0,00 €"],
+    ["Totale del mese + IVA", euro(im.totale) || "0,00 €"]
+  ] : [
     [s.k === "normali" ? "Ore normali" : "Ore in economia", ore(x.ore)], ["Giorni", String(x.giorni)], ["Registrazioni", String(x.n_righe)],
     ["Giorni firmati dall'ufficio", x.giorni_firmati + " su " + x.giorni]
   ].concat(Number(x.ore_riportate) > 0 ? [[s.k === "sub" ? "Riportate al committente" : "Riportate dai subappaltatori", ore(x.ore_riportate)]] : []);
+  const senza = eu ? (Number(im.manodopera_senza_prezzo) || 0) + (Number(im.mezzi_senza_prezzo) || 0) : 0;
   const piede = e((d.impresa || "") + " · " + (cant.nome || "") + " · " + s.foglio + " · " + (d.mese_testo || ""));
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
@@ -365,9 +544,10 @@ function foglio(base, h, p, d) {
     '<table class="dati"><tr><td class="et">Cantiere</td><td>' + e(cant.nome || "-") + '</td><td class="et">Ubicazione</td><td>' + e(cant.ubicazione || "-") + "</td></tr>" +
     '<tr><td class="et">Committente</td><td>' + e(cant.committente || "-") + '</td><td class="et">Direzione Lavori</td><td>' + e(cant.direttore_lavori || "-") + "</td></tr></table>" +
     '<div class="cifre">' + cifre.map((c) => "<div><b>" + e(c[1]) + "</b><span>" + e(c[0]) + "</span></div>").join("") + "</div>" +
-    (x.n_righe
-      ? '<table class="t"><thead><tr>' + cols.map((c, i) => "<th" + (i >= prima - 2 && i <= prima ? ' class="n"' : "") + ">" + e(c) + "</th>").join("") + "</tr></thead>" + corpo +
-        '<tbody><tr class="mt"><td colspan="' + prima + '">Totale del mese</td><td class="n">' + e(ore(x.ore)) + "</td>" + (dopo ? '<td colspan="' + dopo + '"></td>' : "") + "</tr></tbody></table>" +
+    (senza ? '<p class="nota">' + e(senza + (senza === 1 ? " riga è senza prezzo" : " righe sono senza prezzo") + " e non sono contate nei totali in euro. Prezzi + IVA.") + "</p>" : "") +
+    (x.n_righe || (eu && lista(d.mezzi).length)
+      ? '<table class="t"><thead><tr>' + cols.map((c, i) => "<th" + ((i >= prima - 2 && i <= prima) || (eu && (i === 5 || i === 6)) ? ' class="n"' : "") + ">" + e(c) + "</th>").join("") + "</tr></thead>" + corpo +
+        "<tbody>" + tot("mt", "Totale del mese" + (eu ? " + IVA" : ""), x.ore, im.totale) + "</tbody></table>" +
         '<div class="riep"><div><h2>Per qualifica</h2><table class="t"><thead><tr><th>Qualifica</th><th class="n">Giornate-uomo</th><th class="n">Ore</th></tr></thead><tbody>' +
         q.map((r) => "<tr><td>" + e(r.qualifica) + '</td><td class="n">' + e(r.operai) + '</td><td class="n">' + e(num(r.ore)) + "</td></tr>").join("") + "</tbody></table></div>" +
         "<div><h2>" + e(s.gruppo) + '</h2><table class="t"><thead><tr><th>' + (s.k === "sub" ? "Impresa" : e(s.chi)) + '</th><th class="n">Righe</th><th class="n">Ore</th></tr></thead><tbody>' +
@@ -446,6 +626,23 @@ const STILE =
   ".rg-lista span{display:block;font-size:.84rem;color:var(--s)}" +
   ".rg-fonti{margin:18px 0 0;font-size:.82rem;color:var(--s);line-height:1.45}" +
   ".rg-msg{font-size:.88rem;color:#b3261e;margin:0 0 10px}.rg-msg:empty{display:none}" +
+  // 03/11/2026 (mezzi-1): euro, mezzi in economia (petrolio, il colore di «Mezzi e attrezzature») e prezzi del cantiere
+  ".rg-cifre.rg-eu span{display:block}.rg-cifre.rg-eu div:last-child{background:linear-gradient(180deg,#24406A,#1B2F4A);border-color:#1B2F4A}" +
+  ".rg-cifre.rg-eu div:last-child b,.rg-cifre.rg-eu div:last-child span{color:#fff}" +
+  ".rg-avv{margin:0 0 10px;padding:10px 12px;border-radius:10px;border:1px solid #F7B98A;background:#FFF3E8;color:#9A4308;font-size:.88rem;line-height:1.45}.rg-avv a{color:#9A4308;font-weight:700}" +
+  ".rg-manca{font-size:.78rem;font-weight:700;color:#9A4308;white-space:normal}.rg-conc{display:block;font-size:.7rem;font-weight:700;color:#9A4308}" +
+  ".rg-op{display:block;font-size:.78rem;color:#0B6E79}.rg-mzn{color:#08505A}.rg-t tr.rg-mz td{background:rgba(231,244,245,.5)}" +
+  ".rg-mz-az{display:flex;gap:6px;flex-wrap:wrap}.rg-mz-az .rg-rip{display:inline-block}" +
+  ".rg-moduli{display:grid;gap:10px;margin:0 0 14px}" +
+  ".rg-dt-box{border:1px solid var(--l);border-radius:12px;background:var(--c);padding:0 14px}.rg-dt-box[open]{padding-bottom:12px}" +
+  ".rg-dt-box summary{cursor:pointer;padding:12px 0;font-weight:700;color:#0B6E79;list-style:none}.rg-dt-box summary::-webkit-details-marker{display:none}" +
+  ".rg-dt-box summary::before{content:'\\25B8  '}.rg-dt-box[open] summary::before{content:'\\25BE  '}" +
+  ".rg-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}" +
+  ".rg-form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;font-weight:700}.rg-form label.lar{grid-column:span 2}.rg-form small{font-weight:500;color:var(--s)}" +
+  ".rg-form input,.rg-form select,.rg-pz-in{font:inherit;min-height:40px;padding:6px 10px;border:1px solid var(--l);border-radius:10px;background:var(--c);color:var(--t)}" +
+  ".rg-form-az{display:flex;gap:8px;flex-wrap:wrap;grid-column:1/-1;margin-top:8px}.rg-b.rg-pr{background:#0B6E79;border-color:#0B6E79;color:#fff}.rg-b.rg-pr:hover{background:#08505A}" +
+  ".rg-pz-in{width:9em;text-align:right}.rg-u{font-size:.78rem;color:var(--s)}.rg-pz td{vertical-align:middle}.rg-riep1{grid-template-columns:minmax(0,1fr)}" +
+  "@media (max-width:680px){.rg-t td.c-pr,.rg-t td.c-im{display:none}.rg-mz-az .rg-rip{width:auto;flex:1}.rg-form{grid-template-columns:minmax(0,1fr)}.rg-form label.lar{grid-column:auto}.rg-pz-in{width:7em}}" +
   "@media (max-width:680px){.rg-cifre{grid-template-columns:repeat(2,minmax(0,1fr))}.rg-riep{grid-template-columns:minmax(0,1fr)}.rg-az .rg-b{flex:1 1 100%}" +
   // sul telefono la tabella diventa un elenco di righe
   ".rg-t thead{display:none}.rg-t,.rg-t tbody,.rg-t tfoot,.rg-t tr,.rg-t th,.rg-t td{display:block;width:100%}" +
@@ -504,6 +701,31 @@ fetch(CFG.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON
 .then(function(x){return x.json();}).then(function(j){if(!j||j.esito!=='ok'){errore(b);return;}
 var tg=tr.querySelector('.rg-tag');if(tg)tg.hidden=!si;b.textContent='Salvato: aggiorno i totali…';
 metti('scheda','sub','r-'+id);location.reload();}).catch(function(){errore(b);});});});
+// 03/11/2026 (mezzi-1): mezzi in economia (aggiungi, correggi, togli) e prezzi concordati del cantiere
+function q(i){return document.getElementById(i);}
+function posta(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(x){return x.json();}).catch(function(){return null;});}
+function torna(){metti('scheda','committente');location.reload();}
+var box=q('rg-mz-box'),ms=q('mz-msg'),sel=q('mz-mezzo');
+function unita(){if(!sel)return;var o=sel.options[sel.selectedIndex],u=o?o.getAttribute('data-u'):'';q('mz-un').textContent=u==='giorno'?'giornate':u==='mezza_giornata'?'mezze giornate':'ore';}
+if(sel)sel.addEventListener('change',unita);
+function pulisci(){q('mz-id').value='';q('mz-q').value='';q('mz-de').value='';sel.value='';unita();if(ms)ms.textContent='';q('mz-salva').textContent='Salva';}
+if(q('mz-annulla'))q('mz-annulla').onclick=function(){pulisci();if(box)box.open=false;};
+if(q('mz-salva'))q('mz-salva').onclick=function(){var b=this;b.disabled=true;if(ms)ms.textContent='';
+posta(CFG.um,{t:CFG.t,c:CFG.c,dati:{id:q('mz-id').value,data:q('mz-data').value,mezzo_id:sel.value,quantita:q('mz-q').value,descrizione:q('mz-de').value}}).then(function(j){
+b.disabled=false;if(j&&j.esito==='ok'){torna();return;}if(ms)ms.textContent=j&&j.messaggio?j.messaggio:'Non è stato possibile salvare. Riprova tra qualche minuto.';});};
+function dati(b){var tr=b.closest('tr'),v={};try{v=JSON.parse(tr.getAttribute('data-mz'))||{};}catch(e){}return v;}
+document.querySelectorAll('.rg-mz-mod').forEach(function(b){b.addEventListener('click',function(){var v=dati(b);if(!q('mz-id'))return;
+q('mz-id').value=v.id||'';q('mz-data').value=v.data||'';sel.value=v.mezzo_id||'';unita();q('mz-q').value=String(v.quantita||'');q('mz-de').value=v.descrizione||'';
+q('mz-salva').textContent='Salva la correzione';box.open=true;box.scrollIntoView({behavior:'smooth',block:'center'});});});
+document.querySelectorAll('.rg-mz-tog').forEach(function(b){b.addEventListener('click',function(){var v=dati(b);
+if(b.getAttribute('data-ok')!=='1'){b.setAttribute('data-ok','1');b.textContent='Confermi? Premi ancora';return;}
+b.disabled=true;posta(CFG.um,{t:CFG.t,c:CFG.c,togli:true,dati:{id:v.id}}).then(function(j){if(j&&j.esito==='ok'){torna();return;}b.disabled=false;b.textContent='Non riuscito: riprova';});});});
+if(q('pz-salva'))q('pz-salva').onclick=function(){var b=this,pm=q('pz-msg'),err=[],k=0;
+var ins=[].slice.call(document.querySelectorAll('.rg-pz-in')).filter(function(i){return i.value.trim().replace(',','.')!==i.getAttribute('data-prima').replace(',','.');});
+if(!ins.length){if(pm)pm.textContent='Nessun prezzo cambiato.';return;}b.disabled=true;if(pm)pm.textContent='';
+(function va(){if(k>=ins.length){b.disabled=false;if(err.length){if(pm)pm.textContent=err.join(' ');}else torna();return;}
+var i=ins[k++],vo=i.getAttribute('data-voce'),dd={voce:vo,prezzo:i.value.trim()};if(vo==='mezzo')dd.mezzo_id=i.getAttribute('data-k');else dd.qualifica=i.getAttribute('data-k');
+posta(CFG.up,{t:CFG.t,c:CFG.c,dati:dd}).then(function(j){if(!j||j.esito!=='ok')err.push((j&&j.messaggio)||'Un prezzo non è stato salvato: riprova.');va();});})();};
 }catch(e){}})();`;
 
 // Pulsante nella pagina del cantiere, accanto a «Persone del cantiere» e «Scarica in Excel».
