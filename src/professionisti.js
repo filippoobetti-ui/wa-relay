@@ -283,8 +283,11 @@ const STILE = "[hidden]{display:none!important}" +
   "--ro-f:#3A1A18;--ro:#F07A6E;--am-f:#3A2410;--am:#F5B37A;--gr-f:#243244;--gr:#B7C3D1;color-scheme:dark}}" +
   "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif;font-size:16px;line-height:1.45}" +
   ".testa{background:var(--navy);color:#fff;padding:14px 16px 20px}.in{max-width:720px;margin:0 auto}" +
-  // 31/10/2026 (Filippo): sul computer le pagine sono larghe fino a 1000 px, con almeno 90 px per lato
-  "@media screen and (min-width:760px){.in{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){.in{max-width:min(1000px,calc(100vw - 200px))}}" +
+  // 31/10/2026 (Filippo): sul computer le pagine sono larghe fino a 1600 px (dal 03/11/2026, prima 1000), con almeno 48 px per lato;
+  // da 1300 px di schermo l'elenco dei cantieri va su due colonne, come quello dell'impresa
+  "@media screen and (min-width:760px){.in{max-width:min(1600px,calc(100vw - 48px))}}@media screen and (min-width:900px){.in{max-width:min(1600px,calc(100vw - 96px))}}" +
+  "@media screen and (min-width:1300px){.corpo .in:has(>a.scheda){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;align-items:start}" +
+  ".corpo .in:has(>a.scheda)>:not(a.scheda){grid-column:1/-1}}" +
   ".riga{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}" +
   ".marchio{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:700}.marchio img{width:32px;height:32px;border-radius:8px}" +
   ".chi{color:#C9D6E5;font-size:.9rem;display:flex;align-items:center;gap:10px;overflow-wrap:anywhere}" +
