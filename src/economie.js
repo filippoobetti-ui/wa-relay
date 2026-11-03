@@ -363,6 +363,11 @@ function testaGiorno(base, h, p, d, iso, n) {
     st = '<span class="rg-st da">Da confermare</span><a class="rg-rl" href="' + e(base + "/rapportino?t=" + p.tok + "&c=" + p.c + "&g=" + iso) + '">' +
       (g.bozza ? "Bozza del rapportino pronta: controlla e firma" : "Apri il rapportino del giorno") + "</a>";
   }
+  // 03/11/2026 (economie-foto-1): le foto allegate alle economie del giorno nel Diario
+  const ft = lista(g.foto);
+  if (ft.length) st += '<span class="rg-ft">&#128247; ' + (ft.length === 1 ? "1 foto" : ft.length + " foto") + ft.map((f) =>
+    '<a href="' + e(f.url) + '" target="_blank" rel="noopener noreferrer" title="Foto delle ' + e(f.ora) + '"><img src="' + e(f.url) +
+    '" alt="Foto delle ' + e(f.ora) + '" loading="lazy"></a>').join("") + "</span>";
   return '<tr class="rg-gh"><th colspan="' + n + '" scope="colgroup"><span class="rg-dt">' + e(giornoLungo(iso, true)) + "</span>" + st + "</th></tr>";
 }
 
@@ -638,6 +643,9 @@ const STILE =
   ".rg-st.ok{background:#1B2F4A;color:#fff}.rg-st.da{background:#FFF3E8;color:#9A4308;border:1px solid #F7B98A}" +
   ".rg-rl{display:inline-block;font-size:.82rem;font-weight:600;color:var(--ar);margin-right:8px}.rg-chi{display:inline-block;font-size:.8rem;color:var(--s);margin-right:8px}" +
   ".rg-desc{display:block;margin:0 0 2px;white-space:pre-line}.rg-nd{color:var(--s);font-size:.82rem}" +
+  // 03/11/2026 economie-foto-1: le foto allegate alle economie del giorno, dal Diario
+  ".rg-ft{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;vertical-align:middle;margin:2px 8px 0 0;font-size:.8rem;font-weight:600;color:var(--s)}" +
+  ".rg-ft a{display:block;line-height:0}.rg-ft img{display:block;height:40px;width:auto;max-width:72px;object-fit:cover;border-radius:5px;border:1px solid var(--l)}" +
   ".rg-fo,.rg-tag{display:inline-block;margin:3px 6px 0 0;padding:0 8px;border-radius:999px;font-size:.74rem;line-height:1.7}" +
   ".rg-fo{background:var(--z);border:1px solid var(--l);color:var(--s)}.rg-tag{background:#FFF3E8;color:#9A4308;font-weight:700}.rg-tag[hidden]{display:none}" +
   ".m-det{display:none}" +

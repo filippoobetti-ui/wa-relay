@@ -24,6 +24,7 @@
 // Diario, oggi e nei giorni chiusi, con manodopera, mezzi e attrezzature. Sezione «Economie extracontrattuali» nelle due finestre
 // e «Correggi» sulle voci di economia; i numeri li sistema il database (economia_diario), interruttore economie_diario_attivo.
 //   POST {base}/giornale/ufficio  { t, c, azione: "economia_contesto" | "economia_salva", dati }
+//   (03/11/2026 economie-foto-1: in dati.foto i message_id delle foto del giorno allegate; il contesto dà foto e voce.foto)
 // ---------------------------------------------------------------------------
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -282,6 +283,14 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-ec-per input{width:auto;margin:0}.gl-ec-r{display:flex;gap:6px;align-items:center;margin:0 0 6px}.gl-ec-r select{flex:1;min-width:0}" +
     ".gl-gu-bx .gl-ec-r input{width:96px;flex:none}.gl-ec-r button{flex:none;width:36px;min-height:36px;border:1px solid #d5dbd8;border-radius:8px;background:#fff;cursor:pointer;font-size:1.1rem}" +
     ".gl-gu-bx .gl-ec-piu{margin:0 0 8px}@media (prefers-color-scheme:dark){.gl-ec-r button{background:#232b27;color:#eef2f0;border-color:#3a4540}}" +
+    // 03/11/2026 economie-foto-1: la striscia delle foto del giorno, si toccano quelle da allegare
+    ".gl-ec-ft{display:flex;gap:8px;overflow-x:auto;padding:3px 3px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}" +
+    ".gl-gu-bx .gl-ec-fo{position:relative;flex:none;display:block;width:92px;height:92px;min-height:0;margin:0;padding:0;border:2px solid #d5dbd8;border-radius:10px;background:#EEF1F5;overflow:hidden;cursor:pointer;scroll-snap-align:start;box-shadow:none;opacity:.8}" +
+    ".gl-gu-bx .gl-ec-fo img{display:block;width:100%;height:100%;object-fit:cover}" +
+    ".gl-gu-bx .gl-ec-fo span{position:absolute;left:0;right:0;bottom:0;padding:2px 0;background:rgba(0,0,0,.55);color:#fff;font-size:.74rem;font-weight:700;text-align:center;line-height:1.3}" +
+    ".gl-gu-bx .gl-ec-fo i{display:none;position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:#0A7D48;color:#fff;font-style:normal;font-size:.85rem;font-weight:800;line-height:24px;text-align:center}" +
+    ".gl-gu-bx .gl-ec-fo[aria-pressed=true]{border-color:#0A7D48;box-shadow:0 0 0 2px #0A7D48;opacity:1}.gl-gu-bx .gl-ec-fo[aria-pressed=true] i{display:block}" +
+    ".gl-gu-bx .gl-ec-fo:focus-visible{outline:3px solid #1B2F4A;outline-offset:1px}.gl-ec-fn{margin-top:0}" +
     ".gl-int{margin:10px 0 6px;padding:10px 12px 12px;border:1px solid #F1D7AE;border-left:4px solid #C27A12;border-radius:12px;background:#FFF9F0}" +
     ".gl-int-t{font-weight:800;color:#8A4A06}.gl-int-s{font-size:.84rem;color:#5b6560;margin:2px 0}" +
     ".gl-int-v{background:#fff;border:1px solid #D9DEE5;border-radius:10px;padding:8px 10px;margin:8px 0 0}" +
@@ -412,6 +421,11 @@ function economia(g,mid){
    '<label>Mezzi e attrezzature</label>'+((r.mezzi||[]).length?'<div class="gl-ec-mz"></div><button type="button" class="gl-ag-b gl-ec-piu">+ Aggiungi un mezzo o un’attrezzatura</button>'
      :'<div class="gl-ag-aiuto">Nel parco dell’impresa non ci sono ancora mezzi o attrezzature: si aggiungono nella pagina «Mezzi e attrezzature».</div>')+
    '<label for="gl-ec-d">Lavoro fatto <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ec-d" maxlength="300" placeholder="es. scavo a mano lato sud">'+
+   // 03/11/2026 economie-foto-1: le foto del giorno nel Diario, si toccano quelle da allegare (solo collegamenti, nessuna copia)
+   '<label>Foto del giorno <span class="gl-ag-fac">(tocca quelle da allegare)</span></label>'+((r.foto||[]).length?'<div class="gl-ec-ft">'+r.foto.map(function(f,i){
+     return '<button type="button" class="gl-ec-fo" data-i="'+i+'" aria-pressed="false" title="'+esc('Foto delle '+f.ora+(f.testo?' · '+f.testo:''))+'"><img src="'+esc(f.url)+'" alt="Foto delle '+esc(f.ora)+'" loading="lazy"><span>'+esc(f.ora)+'</span><i aria-hidden="true">&#10003;</i></button>';}).join('')+
+     '</div><div class="gl-ag-aiuto gl-ec-fn">Nessuna foto allegata.</div>'
+     :'<div class="gl-ag-aiuto">Quel giorno nel Diario non ci sono foto. Quelle mandate dal cantiere su WhatsApp compaiono qui.</div>')+
    '<label for="gl-ec-m">Motivo '+(mid?'della correzione':'<span class="gl-ag-fac">(facoltativo)</span>')+'</label><input type="text" id="gl-ec-m" maxlength="300">'+
    '<label for="gl-ec-a">Inserita da <span class="gl-ag-fac">(nome e cognome)</span></label><input type="text" id="gl-ec-a" maxlength="120" autocomplete="name">'+
    '<div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="pr">'+(mid?'Salva la correzione':'Aggiungi l’economia')+'</button></div>';
@@ -424,6 +438,13 @@ function economia(g,mid){
   q('#gl-ec-i').value=rg.impresa||'';q('#gl-ec-sq').value=rg.squadra||'';q('#gl-ec-q').value=rg.qualifica||'';
   q('#gl-ec-o').value=rg.operai||'';q('#gl-ec-h').value=rg.ore?Number(rg.ore):'';q('#gl-ec-d').value=v.descrizione||'';q('#gl-ec-a').value=autore();
   if(mz){(v.mezzi||[]).forEach(function(x){riga(x.id,Number(x.quantita));});if(!(v.mezzi||[]).length&&!mid)riga('',null);q('.gl-ec-piu').onclick=function(){riga('',null);};}
+  var fo=bx.querySelectorAll('.gl-ec-fo'),fn=q('.gl-ec-fn'),gia_f=v.foto||[];
+  function contaFoto(){var n=0;fo.forEach(function(b){if(b.getAttribute('aria-pressed')==='true')n++;});if(fn)fn.textContent=n?(n===1?'1 foto allegata':n+' foto allegate')+' (al massimo 20).':'Nessuna foto allegata.';return n;}
+  fo.forEach(function(b){var f=r.foto[Number(b.getAttribute('data-i'))];if(gia_f.indexOf(f.mid)>=0)b.setAttribute('aria-pressed','true');
+   b.onclick=function(){var on=b.getAttribute('aria-pressed')!=='true';if(on&&contaFoto()>=20){no('Al massimo 20 foto per economia.');return;}b.setAttribute('aria-pressed',on?'true':'false');contaFoto();};});
+  contaFoto();
+  setTimeout(function(){var p=bx.querySelector('.gl-ec-fo[aria-pressed=true]');if(p)p.parentNode.scrollLeft=Math.max(0,p.offsetLeft-p.parentNode.offsetLeft-8);},0);
+  function no(x){err.textContent=x;err.style.display='block';}
   q('.an').onclick=function(){chiudi(w.ov);};
   pr.onclick=function(){
    function no(x){err.textContent=x;err.style.display='block';}
@@ -431,7 +452,8 @@ function economia(g,mid){
    if(mz)mz.querySelectorAll('.gl-ec-r').forEach(function(d){var id=d.querySelector('select').value,qt=d.querySelector('input').value.trim();if(!id&&!qt)return;if(!id||!(Number(qt.replace(',','.'))>0))male='Per ogni mezzo o attrezzatura scegli dall’elenco e scrivi la quantità.';mezzi.push({id:id,quantita:qt});});
    if(male)return no(male);
    var dati={data:r.data,mid:mid||'',per:per(),impresa:q('#gl-ec-i').value.trim(),squadra:q('#gl-ec-sq').value.trim(),qualifica:q('#gl-ec-q').value,
-    operai:q('#gl-ec-o').value.trim(),ore:q('#gl-ec-h').value.trim(),descrizione:q('#gl-ec-d').value.trim(),motivo:q('#gl-ec-m').value.trim(),autore:q('#gl-ec-a').value.trim(),mezzi:mezzi};
+    operai:q('#gl-ec-o').value.trim(),ore:q('#gl-ec-h').value.trim(),descrizione:q('#gl-ec-d').value.trim(),motivo:q('#gl-ec-m').value.trim(),autore:q('#gl-ec-a').value.trim(),mezzi:mezzi,
+    foto:Array.prototype.filter.call(fo,function(b){return b.getAttribute('aria-pressed')==='true';}).map(function(b){return r.foto[Number(b.getAttribute('data-i'))].mid;})};
    if(dati.per==='impresa'&&!dati.impresa)return no('Scrivi l’impresa subappaltatrice.');
    if(!(Number(dati.operai)>0)&&!mezzi.length&&!mid)return no('Scrivi la manodopera (operai e ore) o almeno un mezzo o un’attrezzatura.');
    if((Number(dati.operai)>0)!==(Number(String(dati.ore).replace(',','.'))>0))return no('Scrivi sia il numero di operai sia le ore per operaio.');
