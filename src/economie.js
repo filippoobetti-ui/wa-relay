@@ -26,10 +26,12 @@ const MESE = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 const GIORNO = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 const SETTIMANA = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+// 03/11/2026 (Filippo): sotto il nome di ogni scheda una riga che dice cosa contiene («economie extracontrattuali»,
+// «presenze di ogni giorno»); anche nel titolo del foglio da stampare
 const SCHEDE = [
-  { k: "committente", t: "Per il committente", foglio: "Economie per il committente", chi: "Squadra o impresa", gruppo: "Per squadra o impresa" },
-  { k: "sub", t: "Dei subappaltatori", foglio: "Economie dei subappaltatori", chi: "Squadra", gruppo: "Per impresa" },
-  { k: "normali", t: "Ore normali", foglio: "Ore normali", chi: "Persona o squadra", gruppo: "Per persona o squadra" }
+  { k: "committente", t: "Per il committente", sotto: "economie extracontrattuali", foglio: "Economie extracontrattuali per il committente", chi: "Squadra o impresa", gruppo: "Per squadra o impresa" },
+  { k: "sub", t: "Dei subappaltatori", sotto: "economie extracontrattuali", foglio: "Economie extracontrattuali dei subappaltatori", chi: "Squadra", gruppo: "Per impresa" },
+  { k: "normali", t: "Ore normali", sotto: "presenze di ogni giorno", foglio: "Ore normali", chi: "Persona o squadra", gruppo: "Per persona o squadra" }
 ];
 const VUOTA = { righe: [], ore: 0, n_righe: 0, giorni: 0, giorni_firmati: 0, ore_riportate: 0, gruppi: 0, per_giorno: [], per_qualifica: [], per_gruppo: [] };
 
@@ -257,7 +259,7 @@ function pagina(base, h, p, d, torna) {
   const cant = d.cantiere || {};
   const radio = SCHEDE.map((s) => '<input type="radio" name="rg-s" class="rg-r" id="rg-s-' + s.k + '" value="' + s.k + '"' + (s.k === p.scheda ? " checked" : "") + ">").join("");
   const schede = '<nav class="rg-tabs" aria-label="Parti del registro">' + SCHEDE.map((s) =>
-    '<label for="rg-s-' + s.k + '"><span>' + e(s.t) + "</span><b>" + ore(parte(d, s.k).ore) + "</b></label>").join("") + "</nav>";
+    '<label for="rg-s-' + s.k + '"><span>' + e(s.t) + "</span><b>" + e(s.sotto) + " · " + ore(parte(d, s.k).ore) + "</b></label>").join("") + "</nav>";
   const cfg = JSON.stringify({ u: base + "/economie/riporta", um: base + "/economie/mezzo", up: base + "/economie/prezzo", t: p.tok, c: p.c }).replace(/</g, "\\u003c");
 
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -266,7 +268,8 @@ function pagina(base, h, p, d, torna) {
     "<style>" + STILE + "</style></head><body><main>" +
     '<a class="rg-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="rg-card"><div class="rg-testa"><div><p>' + e(cant.nome || "") + (d.impresa ? " · " + e(d.impresa) : "") + "</p>" +
-    "<h1>Registro delle economie</h1></div>" +
+    "<h1>Registro delle economie</h1>" +
+    '<p class="rg-sott">Lavori extracontrattuali pagati a ore di operai, mezzi e attrezzature, e ore normali di ogni giorno.</p></div>' +
     '<form class="rg-mese" method="get" action="' + e(base + "/economie") + '"><input type="hidden" name="t" value="' + e(p.tok) + '">' +
     '<input type="hidden" name="c" value="' + e(p.c) + '"><input type="hidden" name="scheda" id="rg-sch" value="' + e(p.scheda) + '">' +
     '<select name="mese" aria-label="Mese" onchange="this.form.submit()">' + opzMesi + "</select></form></div>" +
@@ -597,6 +600,7 @@ const STILE =
   "@media (prefers-color-scheme:dark){.rg-card::before{background:linear-gradient(135deg,#6F8FBF,#F26A10)}}" +
   ".rg-testa{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 6px}" +
   ".rg-testa p{margin:0;font-size:.88rem;color:var(--s)}.rg-testa h1{margin:2px 0 0;font-size:1.35rem;color:var(--ar)}" +
+  ".rg-testa p.rg-sott{margin:3px 0 0;font-size:.86rem}" +
   ".rg-mese select{font:inherit;padding:8px 10px;border:1px solid var(--l);border-radius:10px;background:var(--c);color:var(--t)}" +
   ".rg-agg{margin:0 0 14px;font-size:.86rem;color:var(--s)}.rg-agg b{color:var(--t);text-transform:capitalize}" +
   ".rg-chiuso{margin:0 0 12px;padding:8px 12px;border-radius:10px;background:var(--z);font-size:.88rem}" +
