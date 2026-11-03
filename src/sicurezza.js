@@ -749,8 +749,8 @@ const STILE =
   "background:radial-gradient(1100px 600px at 100% -10%,rgba(242,106,16,.05),transparent 60%),radial-gradient(900px 600px at -10% 0%,rgba(27,47,74,.06),transparent 60%),#F8FAFC}" +
   "h1,h2,h3{letter-spacing:-.02em}svg{display:block}" +
   "main{max-width:960px;margin:0 auto;padding:16px 16px 48px}" +
-  // 31/10/2026 (Filippo): sul computer le pagine del cantiere sono larghe fino a 1000 px
-  "@media screen and (min-width:760px){main{max-width:min(1000px,calc(100vw - 48px));padding:20px 12px 56px}}@media screen and (min-width:900px){main{max-width:min(1000px,calc(100vw - 200px))}}" +
+  // 31/10/2026 (Filippo): sul computer le pagine del cantiere sono larghe fino a 1600 px (dal 03/11/2026)
+  "@media screen and (min-width:760px){main{max-width:min(1600px,calc(100vw - 48px));padding:20px 12px 56px}}@media screen and (min-width:900px){main{max-width:min(1600px,calc(100vw - 96px))}}" +
   ".sc-torna{display:inline-block;margin:0 0 12px;padding:6px 14px;border-radius:999px;border:1px solid var(--l);background:var(--c);color:var(--navy);font-weight:600;text-decoration:none}" +
   // cornice sfumata blu TIX → arancione, come le altre pagine del cantiere
   ".sc-card{position:relative;background:var(--c);border:1px solid transparent;border-radius:16px;padding:18px 18px 16px;background-image:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,0) 44%);box-shadow:var(--ombra)}" +

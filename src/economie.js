@@ -386,8 +386,8 @@ const STILE =
   "@media (prefers-color-scheme:dark){:root{--t:#eef2f0;--s:#a9b3ae;--b:#111513;--c:#1a201d;--l:#2c3531;--ar:#cfe0ff;--z:#161c1a}}" +
   "*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--b);color:var(--t)}" +
   "main{max-width:960px;margin:0 auto;padding:20px 12px 40px}" +
-  // 31/10/2026 (Filippo): sul computer la pagina è larga fino a 1000 px, come le schede del cantiere
-  "@media screen and (min-width:760px){main{max-width:min(1000px,calc(100vw - 48px))}}@media screen and (min-width:900px){main{max-width:min(1000px,calc(100vw - 200px))}}" +
+  // 31/10/2026 (Filippo): sul computer la pagina è larga fino a 1600 px (dal 03/11/2026), come le schede del cantiere
+  "@media screen and (min-width:760px){main{max-width:min(1600px,calc(100vw - 48px))}}@media screen and (min-width:900px){main{max-width:min(1600px,calc(100vw - 96px))}}" +
   // «Torna al cantiere» su una pastiglia: si legge sia sul fondo chiaro dello strato premium sia nel tema scuro senza premium
   ".rg-torna{display:inline-block;margin:0 0 12px;padding:6px 14px;border-radius:999px;border:1px solid var(--l);background:var(--c);color:var(--ar);font-weight:600;text-decoration:none}" +
   // cornice sfumata blu TIX → arancione, come le altre pagine del cantiere (30/10/2026)
@@ -520,7 +520,7 @@ export function economieIniezione(base, token, commessa) {
     // sicurezza-1 (02/11/2026): con il quarto pulsante «Sicurezza» 4 colonne sul computer (riga larga come le schede, fino a
     // 1000 px), 2×2 fino a 900 px, 1 sul telefono
     ".gl-azioni.gl-az4{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:900px){.gl-azioni.gl-az4{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
-    "@media screen and (min-width:901px){.gl-azioni.gl-az4{width:min(1000px,calc(100vw - 200px));max-width:none;margin-left:calc(50% - min(500px,calc(50vw - 100px)));box-sizing:border-box}}" +
+    "@media screen and (min-width:901px){.gl-azioni.gl-az4{width:min(1600px,calc(100vw - 96px));max-width:none;margin-left:calc(50% - min(800px,calc(50vw - 48px)));box-sizing:border-box}}" +
     "@media (max-width:640px){.gl-azioni,.gl-azioni.gl-az4{grid-template-columns:minmax(0,1fr)}}" +
     "</style>" +
     "<script>(function(){try{var e=document.createElement('a');e.className='gl-ec-b';e.href=" + JSON.stringify(u) + ";e.innerHTML='&#128221; Registro delle economie';" +
