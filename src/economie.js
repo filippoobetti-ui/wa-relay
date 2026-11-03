@@ -310,8 +310,10 @@ function pannello(base, h, p, d, s) {
     : "Giorno «firmato dall'ufficio»: c'è il rapportino del giorno registrato e valgono le sue righe. Giorno «da confermare»: valgono i messaggi WhatsApp. Se l'ufficio ha scritto il rapportino senza le righe arrivate da WhatsApp, contano anche quelle. " +
       (sub ? "Sono gli stessi numeri delle liste del mese dei subappaltatori." : "Sono gli stessi numeri del rapportino settimanale delle ore in economia.");
   const pieno = x.n_righe || nMezzi;
-  const az = pieno ? '<div class="rg-az"><a class="rg-b" href="' + e(base + "/economie/foglio" + q) + '" target="_blank" rel="noopener">&#128424;&#65039; Stampa o salva in PDF</a>' +
-    '<a class="rg-b rg-xl" href="' + e(base + "/economie/excel" + q) + '">&#128202; Scarica Excel</a></div>' : "";
+  // 03/11/2026 (Filippo): i pulsanti ci sono sempre; con il mese vuoto il foglio dice «Nessuna riga in questo mese» (utile da dare
+  // alla DL come prova che nel mese non ci sono state economie) e il file per Excel ha solo le intestazioni
+  const az = '<div class="rg-az"><a class="rg-b" href="' + e(base + "/economie/foglio" + q) + '" target="_blank" rel="noopener">&#128424;&#65039; Stampa o salva in PDF</a>' +
+    '<a class="rg-b rg-xl" href="' + e(base + "/economie/excel" + q) + '">&#128202; Scarica Excel</a></div>';
 
   return '<section class="rg-pan" id="rg-p-' + s.k + '" aria-label="' + e(s.t) + '">' +
     '<p class="rg-spiega">' + e(intro) + "</p>" +
