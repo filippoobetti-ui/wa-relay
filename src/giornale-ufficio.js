@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Giornale modificabile dall'ufficio (23/10/2026, richiesta di Filippo): nella scheda «Giornale» del cantiere
 // - «Correggi», rosso, accanto ad «Apri il file» (o sotto il testo se la voce non ha file);
-// - «+ Aggiungi una voce di oggi» in cima alla scheda.
+// - «+ Aggiungi una voce di oggi» in cima alla scheda (dal 03/11/2026, voce-oggi-1: dentro la giornata di oggi, accanto a «In corso»).
 // Regole (le decide il database, giornale_ufficio):
 // - prima della chiusura del diario (22:00 del giorno della voce) la correzione cambia il testo e il diario della sera
 //   mostra anche il testo mandato dal cantiere;
@@ -257,6 +257,8 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     // 02/11/2026 (aggiunte-giorni-passati-1): «Aggiungi a questo giorno», la sua finestra e l'Integrazione al diario nel giorno
     ".gl-ag-b{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:auto;margin:10px 0 4px;padding:0 14px;min-height:40px;border:1px solid #C27A12;border-radius:10px;background:#FFF7EA;color:#8A4A06;font:inherit;font-size:.9rem;font-weight:700;letter-spacing:normal;text-transform:none;cursor:pointer;box-shadow:none}" +
     ".gl-ag-b:hover,.gl-ag-b:focus-visible{background:#C27A12;color:#fff;outline:none}@media (max-width:640px){.gl-ag-b{width:100%}}" +
+    // 03/11/2026 voce-oggi-1: la giornata «Oggi» vuota, finché non arriva la prima voce
+    ".gl-gu-vt{margin:10px 0 4px;color:#5B6672;font-size:.88rem}@media (prefers-color-scheme:dark){.gl-gu-vt{color:#b9c2cc}}" +
     ".gl-int{margin:10px 0 6px;padding:10px 12px 12px;border:1px solid #F1D7AE;border-left:4px solid #C27A12;border-radius:12px;background:#FFF9F0}" +
     ".gl-int-t{font-weight:800;color:#8A4A06}.gl-int-s{font-size:.84rem;color:#5b6560;margin:2px 0}" +
     ".gl-int-v{background:#fff;border:1px solid #D9DEE5;border-radius:10px;padding:8px 10px;margin:8px 0 0}" +
@@ -501,12 +503,35 @@ function mettiTasti(){
   if(sg)b.insertAdjacentElement('afterend',sg);
  });
  var pg=document.getElementById('p-g');
- if(pg&&!pg.querySelector('.gl-gu-add,.gl-gu-nota')){
+ if(pg&&!pg.querySelector('.gl-gu-add,.gl-gu-nota,.gl-gu-oggi')){
   var x;
-  if(STATO.oggi_chiuso){x=el('div','gl-gu-nota',CFG.ag?'Il diario di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+') e non cambia. Le voci si possono ancora correggere; per aggiungere qualcosa usa «+ Aggiungi a questo giorno» sotto la data del giorno.':'Il diario di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+'). Le voci si possono ancora correggere; per aggiungere qualcosa usa «Nuovo rapportino» nella scheda Rapportini.');}
-  else{x=el('button','gl-gu-add','+ Aggiungi una voce di oggi');x.type='button';x.addEventListener('click',aggiungi);}
-  pg.insertBefore(x,pg.firstChild);
+  if(STATO.oggi_chiuso){x=el('div','gl-gu-nota',CFG.ag?'Il diario di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+') e non cambia. Le voci si possono ancora correggere; per aggiungere qualcosa usa «+ Aggiungi a questo giorno» sotto la data del giorno.':'Il diario di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+'). Le voci si possono ancora correggere; per aggiungere qualcosa usa «Nuovo rapportino» nella scheda Rapportini.');pg.insertBefore(x,pg.firstChild);}
+  else{
+   /* 03/11/2026 voce-oggi-1 (Filippo): «+ Aggiungi una voce di oggi» dentro la giornata di oggi, accanto a «In corso», come
+      «+ Aggiungi a questo giorno» nei giorni passati. Se oggi non ci sono ancora voci si mostra una giornata «Oggi» vuota.
+      Senza la vista nuova delle giornate resta la barra in cima alla scheda. */
+   x=el('button','gl-ag-b gl-gu-oggi','+ Aggiungi una voce di oggi');x.type='button';x.title='Aggiungi una voce al diario di oggi';
+   x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();aggiungi();});
+   var go=pg.querySelector('details.gf[data-g="'+STATO.oggi+'"]'),tit=pg.querySelector('.gf-tit');
+   if(!go&&tit&&/^\d{4}-\d{2}-\d{2}$/.test(STATO.oggi||''))go=giornataVuota(tit);
+   var br=go?go.querySelector('.fx-barra'):null;
+   if(br){var dg=br.querySelector(':scope > .gl-dg');if(dg)dg.insertAdjacentElement('afterend',x);else br.appendChild(x);}
+   else{x.className='gl-gu-add';pg.insertBefore(x,pg.firstChild);}
+  }
  }
+}
+function giornataVuota(tit){
+ var p=STATO.oggi.split('-'),d=new Date(+p[0],+p[1]-1,+p[2]);
+ var gg=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'][d.getDay()];
+ var mm=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'][d.getMonth()];
+ var g=el('details','gf oggi gl-gu-vuota',null);g.open=true;g.setAttribute('data-g',STATO.oggi);
+ g.innerHTML='<summary><span class="gf-box"><span class="t">'+gg.slice(0,3).toUpperCase()+'</span><span class="d">'+p[2]+'/'+p[1]+'</span><span class="a">'+p[0]+'</span></span>'+
+  '<span class="gf-m"><span class="g"><span class="og">Oggi</span><span class="dt">'+gg+' '+p[2]+' '+mm+'</span></span><span class="c"><b>0</b> registrazioni &middot; <b>0</b> foto &middot; <b>0</b> DDT</span></span>'+
+  '<span class="gf-st"><span class="gf-p co">&#9679; in corso</span></span></summary>'+
+  '<div class="fx"><div class="fx-barra"><span class="fx-stato co">&#9679; In corso: il diario si chiude alle '+esc(STATO.ora_chiusura)+'</span></div>'+
+  '<div class="gl-gu-vt">Ancora nessuna voce oggi. Quelle mandate su WhatsApp compaiono qui; dall’ufficio puoi aggiungerne una con il pulsante.</div></div>';
+ tit.insertAdjacentElement('afterend',g);
+ return g;
 }
 function avvio(){collegamenti();riapri();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',avvio);else setTimeout(avvio,0);
