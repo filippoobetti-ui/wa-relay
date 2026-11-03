@@ -14,7 +14,8 @@
 //   GET  /preventivi/firmato?t&id                   → scarica la copia firmata
 // «Prepara con TIX» (03/11/2026, preventivi-ia-1; nome e logo TIX da preventivi-tix-1): nella bozza si allegano file o link
 // (computo SOLO in Excel, tavole e relazioni in PDF); la funzione preventivo-ia li legge e TIX, con l'intelligenza artificiale,
-// compila le voci, segnate verde / giallo / rosso, da controllare.
+// compila le voci, segnate verde / giallo / rosso, da controllare. Dal 03/11 sera (preventivi-pdf-1) relazioni e tavole le legge
+// Claude in PDF: la funzione non li apre più (ogni sua chiamata ha ~2 secondi di calcolo).
 //   POST /preventivi/api  azione ia_dati | ia_nuova | ia_lavoro | ia_link | ia_tipo_file | ia_togli_file | ia_controlla |
 //                         ia_parti | ia_annulla | ia_conferma | ia_scegli | ia_conferma_verdi | ia_togli_ia
 //   POST /preventivi/ia/file?t&id&nome              → un file per la lettura (corpo = il file, Excel o PDF, fino a 18 MB)
@@ -717,6 +718,8 @@ function usd(n){n=num(n);return n>0&&n<0.01?'meno di 0,01':n.toFixed(2).replace(
 function ora(x){var d=new Date(x);return isNaN(d)?'':String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1).replace('.',',')+' MB';}
 function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
+// pagine dei PDF se si conoscono per tutti i file, altrimenti il numero dei file
+function docTxt(p,n){p=num(p);n=num(n);return p?p+' pag.':n?pl(n,'file','file'):'0';}
 function tagIa(x){return '<span class="pv-ia-tag '+(x.confermata?'ok':es(x.livello))+'">'+(x.confermata?'TIX · controllata':({verde:'TIX · sicura',giallo:'TIX · da guardare',rosso:'TIX · da controllare'})[x.livello]||'TIX')+'</span>';}
 function caricaIa(){if(!CFG.id)return;api('ia_dati',{id:CFG.id}).then(function(r){var prima=IA;IA=r&&r.esito==='ok'&&r.attiva?r:null;
  if(IA&&IA.voci_ia&&Object.keys(IA.voci_ia).length||prima&&prima.voci_ia&&Object.keys(prima.voci_ia).length)disegna();else disegnaIa();pianificaIa();});}
@@ -753,7 +756,7 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
  if(l.errore&&mod)h+='<p class="pv-msg ko">'+es(l.errore)+'</p>';
  if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa preparare le voci.</span></div>';
  if(s==='stima')h+=stimaIa(l);
- if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito meno di un minuto.':(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.'))+
+ if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito qualche minuto: TIX controlla un file per volta.':(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.'))+
   (l.partita_il?' Partita alle '+ora(l.partita_il)+'.':'')+' Puoi chiudere la pagina: il lavoro continua.</small></div></div>';
  h+='<p class="pv-msg'+(IA_MSG&&IA_MSG.cl?' '+IA_MSG.cl:'')+'" id="pv-ia-msg" aria-live="polite">'+es(IA_MSG?IA_MSG.t:'')+'</p></div>';
  box.innerHTML=h;
@@ -767,8 +770,8 @@ function rigaFileIa(f,mod){var est=f.fonte==='link'?'LINK':(/\.(xlsx|xls|xlsm|od
    :'<span class="pv-ia-st">'+es(TIPI[f.tipo]||'')+(f.leggi?'':' · non letto')+'</span>')+'</div>';}
 function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',costo=sub?t.usd_subito:t.usd_senza_fretta;
  var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con TIX · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
-  '<div><span>Relazioni</span><b>'+(t.pagine_relazioni||0)+' pag.</b><small>lette come testo</small></div>'+
-  '<div><span>Tavole</span><b>'+(t.pagine_tavole||0)+' pag.</b><small>lette da TIX in PDF</small></div>'+
+  '<div><span>Relazioni</span><b>'+docTxt(t.pagine_relazioni,t.file_relazioni)+'</b><small>lette da TIX in PDF</small></div>'+
+  '<div><span>Tavole</span><b>'+docTxt(t.pagine_tavole,t.file_tavole)+'</b><small>lette da TIX in PDF</small></div>'+
   '<div class="soldi"><span>Costo stimato</span><b>'+usd(costo)+' $</b><small>+ IVA · '+(sub?'pochi minuti':'di solito entro un\'ora')+'</small></div></div>';
  if((t.avvisi||[]).length)h+='<p class="pv-avviso">'+t.avvisi.map(es).join('<br>')+'</p>';
  h+='<div class="pv-ia-vel"><span class="et">Velocità</span><button type="button" class="pv-chip'+(sub?'':' on')+'" data-iamod="batch">Senza fretta <em>· metà prezzo</em></button>'+
