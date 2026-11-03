@@ -19,6 +19,11 @@
 // Un file per richiesta: prima il controllo dell'accesso e del giorno, poi il tipo letto dai primi byte, l'archivio privato
 // wa-media (documenti/<cantiere>/integrazioni/<giorno>/…) e l'impronta SHA-256, calcolata qui e registrata nel database.
 // Interruttore: AGGIUNTE_GIORNI = "off" toglie pulsanti e caricamenti (le integrazioni già fatte restano leggibili).
+//
+// 03/11/2026 (economie-diario-1, decisione di Filippo): le economie extracontrattuali si inseriscono e si correggono solo dal
+// Diario, oggi e nei giorni chiusi, con manodopera, mezzi e attrezzature. Sezione «Economie extracontrattuali» nelle due finestre
+// e «Correggi» sulle voci di economia; i numeri li sistema il database (economia_diario), interruttore economie_diario_attivo.
+//   POST {base}/giornale/ufficio  { t, c, azione: "economia_contesto" | "economia_salva", dati }
 // ---------------------------------------------------------------------------
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -219,10 +224,21 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
   const azione = String(b.azione || "");
   if (!/^[0-9a-f]{64}$/.test(t)) return jsonRisposta({ esito: "gettone" }, 403);
   const giorno = azione === "aggiungi_giorno" ? "aggiungi" : azione === "file_togli" ? "file_togli" : "";
-  if (!UUID.test(c) || (AZIONI.indexOf(azione) === -1 && !giorno)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
+  const eco = azione === "economia_contesto" ? "contesto" : azione === "economia_salva" ? "salva" : "";
+  if (!UUID.test(c) || (AZIONI.indexOf(azione) === -1 && !giorno && !eco)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
   const d = b.dati && typeof b.dati === "object" ? b.dati : {};
   const s = (v, n) => String(v == null ? "" : v).slice(0, n);
   if (giorno) return azioneGiorno(env, h, t, c, giorno, d, s);
+  // 03/11/2026 economie-diario-1: economie extracontrattuali dal Diario (database: economia_diario)
+  if (eco) {
+    const mezzi = Array.isArray(d.mezzi) ? d.mezzi.slice(0, 11).map((x) => ({ id: s(x && x.id, 40), quantita: s(x && x.quantita, 12) })) : [];
+    const dati = { mid: s(d.mid, 300), data: s(d.data, 10), per: s(d.per, 20), impresa: s(d.impresa, 120), squadra: s(d.squadra, 120),
+                   qualifica: s(d.qualifica, 20), operai: s(d.operai, 6), ore: s(d.ore, 8), descrizione: s(d.descrizione, 300),
+                   motivo: s(d.motivo, 600), autore: s(d.autore, 120), mezzi };
+    const r = await h.rpc(env, "economia_diario", { p_token: t, p_commessa: c, p_azione: eco, p_dati: dati }, 20000).catch(() => null);
+    if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
+    return jsonRisposta(r);
+  }
   const dati = { mid: s(d.mid, 300), testo: s(d.testo, 4000), motivo: s(d.motivo, 600), autore: s(d.autore, 120), sezione: s(d.sezione, 10) };
   const r = await h.rpc(env, "giornale_ufficio", { p_token: t, p_commessa: c, p_azione: azione, p_dati: dati }, 15000).catch(() => null);
   if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
@@ -259,6 +275,13 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-ag-b:hover,.gl-ag-b:focus-visible{background:#C27A12;color:#fff;outline:none}@media (max-width:640px){.gl-ag-b{width:100%}}" +
     // 03/11/2026 voce-oggi-1: la giornata «Oggi» vuota, finché non arriva la prima voce
     ".gl-gu-vt{margin:10px 0 4px;color:#5B6672;font-size:.88rem}@media (prefers-color-scheme:dark){.gl-gu-vt{color:#b9c2cc}}" +
+    // 03/11/2026 economie-diario-1: finestra delle economie (per chi, mezzi e attrezzature)
+    ".gl-ec-per{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 6px}.gl-ec-per label{display:inline-flex;align-items:center;gap:6px;font-weight:600;margin:0}" +
+    ".gl-gu-bx input[type=number]{display:block;width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #c9d1cd;border-radius:8px;font:inherit;font-size:1rem;background:#fff;color:#1b1f1d}" +
+    "@media (prefers-color-scheme:dark){.gl-gu-bx input[type=number]{background:#111513;color:#eef2f0;border-color:#3a4540}}" +
+    ".gl-ec-per input{width:auto;margin:0}.gl-ec-r{display:flex;gap:6px;align-items:center;margin:0 0 6px}.gl-ec-r select{flex:1;min-width:0}" +
+    ".gl-gu-bx .gl-ec-r input{width:96px;flex:none}.gl-ec-r button{flex:none;width:36px;min-height:36px;border:1px solid #d5dbd8;border-radius:8px;background:#fff;cursor:pointer;font-size:1.1rem}" +
+    ".gl-gu-bx .gl-ec-piu{margin:0 0 8px}@media (prefers-color-scheme:dark){.gl-ec-r button{background:#232b27;color:#eef2f0;border-color:#3a4540}}" +
     ".gl-int{margin:10px 0 6px;padding:10px 12px 12px;border:1px solid #F1D7AE;border-left:4px solid #C27A12;border-radius:12px;background:#FFF9F0}" +
     ".gl-int-t{font-weight:800;color:#8A4A06}.gl-int-s{font-size:.84rem;color:#5b6560;margin:2px 0}" +
     ".gl-int-v{background:#fff;border:1px solid #D9DEE5;border-radius:10px;padding:8px 10px;margin:8px 0 0}" +
@@ -338,12 +361,13 @@ function aggiungi(){
  var w=finestra(),bx=w.bx;
  bx.innerHTML='<h3>Aggiungi una voce di oggi</h3>'+
   '<div class="gl-gu-ok">La voce entra nel diario di oggi e nel PDF di stasera (chiusura alle '+esc(STATO.ora_chiusura)+'), segnata «Ufficio» con il tuo nome.</div>'+
-  '<label for="gl-gu-s">Sezione</label><select id="gl-gu-s"><option value="LAV">Lavorazioni</option><option value="NOTE">Note</option><option value="VISITA">Visite</option><option value="SAL">SAL</option></select>'+
+  '<label for="gl-gu-s">Sezione</label><select id="gl-gu-s"><option value="LAV">Lavorazioni</option><option value="NOTE">Note</option><option value="VISITA">Visite</option><option value="SAL">SAL</option>'+(STATO.economie?'<option value="ECO">Economie extracontrattuali</option>':'')+'</select>'+
   '<label for="gl-gu-t">Testo</label><textarea id="gl-gu-t" rows="5" maxlength="4000" placeholder="es. Getto del solaio del piano 1 completato"></textarea>'+
   '<label for="gl-gu-a">Inserita da <span style="font-weight:400;color:#666">(nome e cognome)</span></label><input type="text" id="gl-gu-a" maxlength="120" autocomplete="name">'+
   '<div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="ag">Aggiungi la voce</button></div>';
  var s=bx.querySelector('#gl-gu-s'),t=bx.querySelector('#gl-gu-t'),a=bx.querySelector('#gl-gu-a'),err=bx.querySelector('.gl-gu-err'),ag=bx.querySelector('.ag');
  a.value=autore();
+ s.addEventListener('change',function(){if(s.value==='ECO'){chiudi(w.ov);economia(STATO.oggi,null);}});
  bx.querySelector('.an').onclick=function(){chiudi(w.ov);};
  ag.onclick=function(){
   var tv=t.value.trim(),av=a.value.trim();
@@ -357,6 +381,69 @@ function aggiungi(){
   }).catch(function(){ag.disabled=false;no('Connessione assente. Riprova.');});
  };
  setTimeout(function(){try{t.focus();}catch(x){}},50);
+}
+/* ---------- Economie extracontrattuali (03/11/2026, economie-diario-1): l'unico posto dove si inseriscono e si correggono ----------
+   g = giorno (AAAA-MM-GG) per una economia nuova, mid = voce da correggere. Il database (economia_diario) decide dove vanno i numeri:
+   Diario o Integrazione al diario, presenze, bozza o versione nuova del rapportino firmato, mezzi del giorno. */
+var QUAL=[['','—'],['comune','Comune'],['qualificato','Qualificato'],['specializzato','Specializzato'],['capo_squadra','Capo squadra']];
+var UNITA={ora:'ore',giorno:'giorni',mezza_giornata:'mezze giornate'};
+function economia(g,mid){
+ var w=finestra(),bx=w.bx,tit=mid?'Correggi l’economia':'Economie extracontrattuali';
+ bx.innerHTML='<h3>'+tit+'</h3><p>Caricamento…</p>';
+ chiama('economia_contesto',mid?{mid:mid}:{data:g}).then(function(r){
+  if(!r||r.esito!=='ok'){bx.innerHTML='<h3>'+tit+'</h3><p class="gl-gu-err">'+esc(r&&r.esito==='spento'?'Le economie dal Diario non sono ancora attive.':errore(r))+'</p><div class="gl-gu-az"><button type="button" class="an">Chiudi</button></div>';bx.querySelector('.an').onclick=function(){chiudi(w.ov);};return;}
+  var v=r.voce||{},rg=v.riga||{},gi=dIt(r.data),rp=r.rapportino,gia='';
+  (r.gia.manodopera||[]).forEach(function(x){if(!x.questa)gia+='<div>'+esc(x.per)+' · '+esc(x.squadra||'')+' · '+esc(x.operai)+' × '+esc(x.ore)+' ore'+(x.qualifica?' ('+esc(x.qualifica.replace('_',' '))+')':'')+'</div>';});
+  (r.gia.mezzi||[]).forEach(function(x){if(!x.questa)gia+='<div>'+esc(x.nome)+' · '+esc(x.quantita)+' '+esc(UNITA[x.unita]||x.unita)+'</div>';});
+  var opz='<option value="">Scegli…</option>'+['mezzo','attrezzatura'].map(function(k){var l=(r.mezzi||[]).filter(function(m){return m.scheda===k;});
+   return l.length?'<optgroup label="'+(k==='mezzo'?'Mezzi':'Attrezzature')+'">'+l.map(function(m){return '<option value="'+esc(m.id)+'">'+esc(m.nome)+(m.targa?' ('+esc(m.targa)+')':'')+' · '+esc(UNITA[m.unita]||m.unita)+'</option>';}).join('')+'</optgroup>':'';}).join('');
+  bx.innerHTML='<h3>'+tit+' · '+esc(gi)+'</h3>'+
+   (r.aperto?'<div class="gl-gu-ok">Entra nel diario di oggi (chiusura alle '+esc(r.ora_chiusura)+'), nel Registro delle economie e nel rapportino della sera.</div>'
+    :'<div class="gl-gu-nota">Il diario del '+esc(gi)+' è chiuso e non cambia: '+(mid?'la correzione':'l’economia')+' va nell’<b>Integrazione al diario</b> di quel giorno e nel Registro delle economie.'+
+     (rp&&rp.stato==='registrato'?' Il rapportino n. '+esc(rp.numero)+' di quel giorno è firmato: le ore entrano in una sua versione nuova, firmata con il tuo nome.':rp&&rp.stato==='bozza'?' Le ore entrano anche nella bozza del rapportino di quel giorno.':'')+'</div>')+
+   (mid&&v.testo?'<div class="meta">Voce di adesso'+(v.ora?' delle '+esc(v.ora):'')+': «'+esc(v.testo)+'»</div>':'')+
+   (gia?'<div class="gl-gu-stor"><b>Già registrate quel giorno</b>'+gia+'</div>':'')+
+   '<label>Per chi</label><div class="gl-ec-per"><label><input type="radio" name="gl-ec-p" value="committente"> Committente</label><label><input type="radio" name="gl-ec-p" value="impresa"> Subappaltatore</label></div>'+
+   '<div class="gl-ec-imp" hidden><label for="gl-ec-i">Impresa subappaltatrice</label><input type="text" id="gl-ec-i" maxlength="120" autocomplete="organization"></div>'+
+   '<div class="gl-ag-2"><div><label for="gl-ec-sq">Squadra <span class="gl-ag-fac">(facoltativa)</span></label><input type="text" id="gl-ec-sq" maxlength="120"></div>'+
+   '<div><label for="gl-ec-q">Qualifica</label><select id="gl-ec-q">'+QUAL.map(function(q){return '<option value="'+q[0]+'">'+q[1]+'</option>';}).join('')+'</select></div></div>'+
+   '<div class="gl-ag-2"><div><label for="gl-ec-o">Operai</label><input type="number" id="gl-ec-o" min="0" max="200" step="1" inputmode="numeric"></div>'+
+   '<div><label for="gl-ec-h">Ore per operaio</label><input type="number" id="gl-ec-h" min="0" max="24" step="0.5" inputmode="decimal"></div></div>'+
+   '<label>Mezzi e attrezzature</label>'+((r.mezzi||[]).length?'<div class="gl-ec-mz"></div><button type="button" class="gl-ag-b gl-ec-piu">+ Aggiungi un mezzo o un’attrezzatura</button>'
+     :'<div class="gl-ag-aiuto">Nel parco dell’impresa non ci sono ancora mezzi o attrezzature: si aggiungono nella pagina «Mezzi e attrezzature».</div>')+
+   '<label for="gl-ec-d">Lavoro fatto <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ec-d" maxlength="300" placeholder="es. scavo a mano lato sud">'+
+   '<label for="gl-ec-m">Motivo '+(mid?'della correzione':'<span class="gl-ag-fac">(facoltativo)</span>')+'</label><input type="text" id="gl-ec-m" maxlength="300">'+
+   '<label for="gl-ec-a">Inserita da <span class="gl-ag-fac">(nome e cognome)</span></label><input type="text" id="gl-ec-a" maxlength="120" autocomplete="name">'+
+   '<div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="pr">'+(mid?'Salva la correzione':'Aggiungi l’economia')+'</button></div>';
+  var q=function(x){return bx.querySelector(x);},imp=q('.gl-ec-imp'),mz=q('.gl-ec-mz'),err=q('.gl-gu-err'),pr=q('.pr');
+  function per(){var p=q('input[name="gl-ec-p"]:checked');return p?p.value:'committente';}
+  function riga(id,qt){var d=el('div','gl-ec-r');d.innerHTML='<select>'+opz+'</select><input type="number" min="0" max="999" step="0.5" inputmode="decimal" placeholder="quantità"><button type="button" title="Togli" aria-label="Togli il mezzo">&times;</button>';
+   d.querySelector('select').value=id||'';d.querySelector('input').value=qt==null?'':qt;d.querySelector('button').onclick=function(){d.parentNode.removeChild(d);};mz.appendChild(d);}
+  bx.querySelectorAll('input[name="gl-ec-p"]').forEach(function(x){x.checked=x.value===(rg.destinatario||'committente');x.onchange=function(){imp.hidden=per()!=='impresa';};});
+  imp.hidden=per()!=='impresa';
+  q('#gl-ec-i').value=rg.impresa||'';q('#gl-ec-sq').value=rg.squadra||'';q('#gl-ec-q').value=rg.qualifica||'';
+  q('#gl-ec-o').value=rg.operai||'';q('#gl-ec-h').value=rg.ore?Number(rg.ore):'';q('#gl-ec-d').value=v.descrizione||'';q('#gl-ec-a').value=autore();
+  if(mz){(v.mezzi||[]).forEach(function(x){riga(x.id,Number(x.quantita));});if(!(v.mezzi||[]).length&&!mid)riga('',null);q('.gl-ec-piu').onclick=function(){riga('',null);};}
+  q('.an').onclick=function(){chiudi(w.ov);};
+  pr.onclick=function(){
+   function no(x){err.textContent=x;err.style.display='block';}
+   var mezzi=[],male='';
+   if(mz)mz.querySelectorAll('.gl-ec-r').forEach(function(d){var id=d.querySelector('select').value,qt=d.querySelector('input').value.trim();if(!id&&!qt)return;if(!id||!(Number(qt.replace(',','.'))>0))male='Per ogni mezzo o attrezzatura scegli dall’elenco e scrivi la quantità.';mezzi.push({id:id,quantita:qt});});
+   if(male)return no(male);
+   var dati={data:r.data,mid:mid||'',per:per(),impresa:q('#gl-ec-i').value.trim(),squadra:q('#gl-ec-sq').value.trim(),qualifica:q('#gl-ec-q').value,
+    operai:q('#gl-ec-o').value.trim(),ore:q('#gl-ec-h').value.trim(),descrizione:q('#gl-ec-d').value.trim(),motivo:q('#gl-ec-m').value.trim(),autore:q('#gl-ec-a').value.trim(),mezzi:mezzi};
+   if(dati.per==='impresa'&&!dati.impresa)return no('Scrivi l’impresa subappaltatrice.');
+   if(!(Number(dati.operai)>0)&&!mezzi.length&&!mid)return no('Scrivi la manodopera (operai e ore) o almeno un mezzo o un’attrezzatura.');
+   if((Number(dati.operai)>0)!==(Number(String(dati.ore).replace(',','.'))>0))return no('Scrivi sia il numero di operai sia le ore per operaio.');
+   if(mid&&dati.motivo.length<5)return no('Scrivi il motivo della correzione.');
+   if(!dati.autore)return no('Scrivi chi inserisce l’economia (nome e cognome).');
+   pr.disabled=true;err.style.display='none';ricorda(dati.autore);
+   chiama('economia_salva',dati).then(function(x){
+    if(x&&x.esito==='ok'){if(!x.aperto)try{sessionStorage.setItem('gl_ag_giorno',r.data);}catch(e){}location.reload();return;}
+    pr.disabled=false;no(errore(x));
+   }).catch(function(){pr.disabled=false;no('Connessione assente. Riprova.');});
+  };
+ }).catch(function(){bx.innerHTML='<h3>'+tit+'</h3><p class="gl-gu-err">Connessione assente. Riprova.</p>';});
 }
 /* ---------- Aggiungi a questo giorno (02/11/2026): giorni chiusi, con foto e PDF ---------- */
 var SEZ=[['LAV','Lavorazioni'],['DDT','Forniture e consegne (DDT)'],['VISITA','Visite'],['NOTE','Note'],['SAL','SAL'],['FIR','Rifiuti']];
@@ -375,7 +462,7 @@ function aggiungiGiorno(g){
  bx.setAttribute('role','dialog');bx.setAttribute('aria-modal','true');bx.setAttribute('aria-label','Aggiungi al diario del '+gi);
  bx.innerHTML='<h3>Aggiungi al diario del '+esc(gi)+'</h3>'+
   '<div class="gl-gu-nota">Il diario '+(oggi?'di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+')':'del '+esc(gi)+' è chiuso')+' e non cambia. Quello che aggiungi va nell’<b>Integrazione al diario del '+esc(gi)+'</b>: un documento a parte, con il tuo nome, la data di oggi e la sua impronta, che resta sempre insieme al diario di quel giorno. Dopo il salvataggio non si modifica.</div>'+
-  '<label for="gl-ag-s">Sezione</label><select id="gl-ag-s">'+SEZ.map(function(s){return '<option value="'+s[0]+'">'+s[1]+'</option>';}).join('')+'</select>'+
+  '<label for="gl-ag-s">Sezione</label><select id="gl-ag-s">'+SEZ.map(function(s){return '<option value="'+s[0]+'">'+s[1]+'</option>';}).join('')+(STATO.economie?'<option value="ECO">Economie extracontrattuali</option>':'')+'</select>'+
   '<div class="gl-ag-ddt gl-ag-2" hidden><div><label for="gl-ag-for">Fornitore <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ag-for" maxlength="160" autocomplete="off"></div>'+
   '<div><label for="gl-ag-num">Numero del DDT <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ag-num" maxlength="60" autocomplete="off"></div></div>'+
   '<label for="gl-ag-t">Testo</label><textarea id="gl-ag-t" rows="4" maxlength="4000"></textarea>'+
@@ -389,7 +476,7 @@ function aggiungiGiorno(g){
  var s=bx.querySelector('#gl-ag-s'),dd=bx.querySelector('.gl-ag-ddt'),fo=bx.querySelector('#gl-ag-for'),nu=bx.querySelector('#gl-ag-num'),t=bx.querySelector('#gl-ag-t'),fi=bx.querySelector('#gl-ag-f'),ul=bx.querySelector('.gl-ag-lista'),m=bx.querySelector('#gl-ag-m'),a=bx.querySelector('#gl-ag-a'),pr=bx.querySelector('.gl-ag-pr'),err=bx.querySelector('.gl-gu-err'),ag=bx.querySelector('.ag'),an=bx.querySelector('.an');
  a.value=autore();
  function no(x){err.textContent=x;err.style.display='block';}
- function sezione(){var d=s.value==='DDT';dd.hidden=!d;t.placeholder=d?'es. Consegna di 12 m³ di calcestruzzo C25/30 per il solaio del piano 1':'es. Getto del solaio del piano 1 completato';}
+ function sezione(){if(s.value==='ECO'){esci();economia(g,null);return;}var d=s.value==='DDT';dd.hidden=!d;t.placeholder=d?'es. Consegna di 12 m³ di calcestruzzo C25/30 per il solaio del piano 1':'es. Getto del solaio del piano 1 completato';}
  s.addEventListener('change',sezione);sezione();
  function disegna(){
   ul.innerHTML='';
@@ -491,7 +578,9 @@ function mettiTasti(){
   var b=el('button','gl-gu-b','&#9998; Correggi');b.type='button';b.title='Correggi il testo della voce';
   var cf=STATO.conferme&&STATO.conferme[mid],sg=null;
   if(cf){var ok=cf==='confermata'||cf==='corretta';sg=el('span','gl-gu-cf'+(ok?' ok':''),ok?(cf==='corretta'?'&#10003; Corretta da chi l’ha scritta':'&#10003; Confermata da chi l’ha scritta'):'&#9888; Da confermare');sg.title=ok?'Chi ha mandato il messaggio ha risposto alla domanda «Ho capito così?»':'La correzione automatica era incerta e chi ha scritto non l’ha confermata: controlla il testo con «Correggi»';}
-  b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();correggi(mid);});
+  /* 03/11/2026 economie-diario-1: su una voce di economia «Correggi» riapre la finestra con i numeri */
+  var eco=STATO.economie&&!!n.querySelector('.fx-tag.ECO,.tag.ECO');
+  b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();if(eco)economia(null,mid);else correggi(mid);});
   /* 02/11/2026 diario-giornata-1: nella giornata nuova (.fx-ev) «Correggi» e il segno vanno nella riga dell'autore */
   var chi=n.classList.contains('fx-ev')?n.querySelector(':scope > .chi'):null;
   if(chi){chi.appendChild(b);if(sg)chi.insertBefore(sg,b);return;}

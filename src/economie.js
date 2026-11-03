@@ -344,7 +344,7 @@ function tabella(base, h, p, d, s, x) {
   const totale = (cl, et, o, eur) => '<tr class="' + cl + '"><td colspan="' + prima + '">' + et + '</td><td class="n">' + e(eu && !Number(o) ? "-" : ore(o)) + "</td>" +
     (eu ? '<td></td><td class="n">' + e(euro(eur) || "0,00 €") + '</td><td></td>' : (dopo ? '<td colspan="' + dopo + '"></td>' : "")) + "</tr>";
   const corpo = (eu ? perGiornoEuro(x, d) : perGiorno(x)).map((g) => '<tbody class="rg-g">' + testaGiorno(base, h, p, d, g.data, n) +
-    g.righe.map((v) => v._mz ? rigaMezzo(h, v, d.chiuso || d.puo_modificare !== true) : riga(h, s, v, d.chiuso, eu)).join("") +
+    g.righe.map((v) => v._mz ? rigaMezzo(h, v, d.chiuso || d.puo_modificare !== true || d.solo_diario === true) : riga(h, s, v, d.chiuso, eu)).join("") +
     totale("rg-gt", "Totale del giorno", g.ore, g.euro) + "</tbody>").join("");
   // totale del mese in un tbody e non in un tfoot: in stampa il tfoot si ripeterebbe in fondo a ogni pagina
   const piede = '<tbody class="rg-fine">' + totale("rg-mt", "Totale del mese" + (eu ? " + IVA" : ""), x.ore, eu && d.importi ? d.importi.totale : 0) + "</tbody>";
@@ -455,7 +455,10 @@ function moduliEuro(base, h, p, d) {
   };
   const oggi = String(d.oggi || ""), primo = d.mese + "-01";
   const giorno = d.corrente ? oggi : (d.mese + "-" + String(new Date(Date.UTC(Number(d.mese.slice(0, 4)), Number(d.mese.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0"));
-  const mezzo = '<details class="rg-dt-box" id="rg-mz-box"><summary>+ Mezzo o attrezzatura in economia</summary>' +
+  // 03/11/2026 (economie-diario-1, Filippo): con le economie dal Diario accese il Registro è solo da leggere, tranne i prezzi
+  const mezzo = d.solo_diario === true
+    ? '<p class="rg-nota rg-diario">Le economie si inseriscono e si correggono solo dal <b>Diario</b> del giorno: «+ Aggiungi una voce» → «Economie extracontrattuali», con manodopera, mezzi e attrezzature. Qui si leggono, si stampano e si scrivono i prezzi.</p>'
+    : '<details class="rg-dt-box" id="rg-mz-box"><summary>+ Mezzo o attrezzatura in economia</summary>' +
     (el.length
       ? '<div class="rg-form"><input type="hidden" id="mz-id" value="">' +
         '<label>Giorno<input type="date" id="mz-data" min="' + e(primo) + '" max="' + e(oggi) + '" value="' + e(giorno) + '"></label>' +
