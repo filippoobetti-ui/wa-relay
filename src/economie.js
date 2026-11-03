@@ -125,7 +125,10 @@ export async function portaleEconomie(request, env, base, inUrl, h) {
     if (!tok || !UUID.test(c)) return json({ esito: "errore" }, 400);
     const x = d && d.dati && typeof d.dati === "object" ? d.dati : {};
     let r = null;
-    if (sotto === "/economie/prezzo") {
+    if (sotto === "/economie/prezzo" && x.voce === "contratto") {
+      // 03/11/2026 (mezzi-3): riferimento del contratto d'appalto del cantiere
+      r = await h.rpc(env, "contratto_economie_salva", { p_token: tok, p_commessa: c, p_riferimento: corto(x.riferimento, 300) }, 15000).catch(() => null);
+    } else if (sotto === "/economie/prezzo") {
       r = await h.rpc(env, "prezzo_economia_salva", { p_token: tok, p_azienda: "", p_commessa: c, p_dati: {
         voce: corto(x.voce, 20), mezzo_id: corto(x.mezzo_id, 36), qualifica: corto(x.qualifica, 20), prezzo: corto(x.prezzo, 20) } }, 15000).catch(() => null);
     } else if (d && d.togli) {
@@ -362,7 +365,7 @@ function testaGiorno(base, h, p, d, iso, n) {
 function celleEuro(h, v) {
   const e = h.esc;
   if (v.prezzo == null) return '<td class="n c-pr"><span class="rg-manca">prezzo mancante</span></td><td class="n c-im">-</td>';
-  return '<td class="n c-pr">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="rg-conc">concordato</span>' : "") + "</td>" +
+  return '<td class="n c-pr">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="rg-conc">da contratto</span>' : "") + "</td>" +
     '<td class="n c-im">' + e(euro(v.importo)) + "</td>";
 }
 
@@ -421,8 +424,17 @@ function avvisiEuro(base, h, p, d) {
   const e = h.esc, im = d.importi || {};
   const senza = (Number(im.manodopera_senza_prezzo) || 0) + (Number(im.mezzi_senza_prezzo) || 0);
   const conOp = lista(d.mezzi).some((m) => m.con_operatore);
-  return (senza ? '<p class="rg-avv"><b>' + senza + (senza === 1 ? " riga senza prezzo" : " righe senza prezzo") + "</b>: non entrano nei totali in euro. " +
-      'Scrivi i prezzi di base in <a href="' + e(base + "/mezzi?t=" + p.tok) + '">Mezzi e attrezzature</a> (anche quello per le ore senza qualifica), oppure quelli di questo cantiere in «Prezzi di questo cantiere».</p>' : "") +
+  // 03/11/2026 (mezzi-3): prezzi del contratto d'appalto del cantiere: riferimento in vista, oppure l'invito a scriverli
+  const rif = d.contratto && d.contratto.riferimento ? String(d.contratto.riferimento) : "";
+  const conContratto = lista(d.prezzi_cantiere).length > 0;
+  const contratto = conContratto || rif
+    ? '<p class="rg-contr"><b>Prezzi da contratto d\'appalto</b>' + (rif ? ": " + e(rif) : "") +
+      (conContratto ? "" : " · nessun prezzo scritto: vale il listino dell'impresa") + "</p>"
+    : (d.chiuso || d.puo_modificare !== true ? "" :
+      '<p class="rg-avv rg-avv-c"><b>Questo cantiere usa il listino dell\'impresa.</b> Se il contratto d\'appalto prevede prezzi diversi per le ore in economia (per esempio 28 €/ora invece di 35), scrivili qui: valgono solo per questo cantiere. ' +
+      '<button type="button" class="rg-b rg-pr" id="rg-apri-contratto">Scrivi i prezzi del contratto</button></p>');
+  return contratto + (senza ? '<p class="rg-avv"><b>' + senza + (senza === 1 ? " riga senza prezzo" : " righe senza prezzo") + "</b>: non entrano nei totali in euro. " +
+      'Scrivi i prezzi di base in <a href="' + e(base + "/mezzi?t=" + p.tok) + '">Mezzi e attrezzature</a> (anche quello per le ore senza qualifica), oppure quelli del contratto di questo cantiere in «Prezzi del contratto d\'appalto».</p>' : "") +
     (conOp ? '<p class="rg-nota">I mezzi «con operatore» comprendono chi li guida: le sue ore non vanno scritte anche tra la manodopera.</p>' : "");
 }
 
@@ -454,13 +466,21 @@ function moduliEuro(base, h, p, d) {
   const baseMezzo = (m) => { const c = conc.find((x) => x.voce === "mezzo" && x.mezzo_id === m.id); return c ? c.base : m.prezzo; };
   const voci = lista(d.qualifiche).map((q) => ({ voce: "qualifica", k: q.qualifica, nome: q.etichetta, u: "all'ora", base: q.base, conc: q.origine === "concordato" ? q.prezzo : null }))
     .concat(el.map((m) => ({ voce: "mezzo", k: m.id, nome: m.nome, u: (UNITA[m.unita] || UNITA.ora)[2], base: baseMezzo(m), conc: m.origine === "concordato" ? m.prezzo : null })));
-  const prezzi = '<details class="rg-dt-box" id="rg-pz-box"><summary>Prezzi di questo cantiere' + (conc.length ? " · " + conc.length + " concordati" : "") + "</summary>" +
-    '<p class="rg-nota">Se con questo committente hai concordato prezzi diversi da quelli di base, scrivili qui: valgono solo per questo cantiere, da oggi in poi (se è il primo prezzo concordato di una voce, per tutto il cantiere). Lascia vuoto per usare il prezzo di base. Prezzi + IVA.</p>' +
-    '<div class="rg-tw"><table class="rg-mini rg-pz"><thead><tr><th>Voce</th><th class="n">Di base</th><th class="n">Concordato per questo cantiere</th></tr></thead><tbody>' +
-    voci.map((v) => "<tr><td>" + e(v.nome) + ' <span class="rg-u">' + e(v.u) + '</span></td><td class="n">' + e(v.base == null ? "-" : euro(v.base)) + "</td>" +
-      '<td class="n"><input class="rg-pz-in" inputmode="decimal" maxlength="12" data-voce="' + e(v.voce) + '" data-k="' + e(v.k) + '" data-prima="' + e(v.conc == null ? "" : num(v.conc)) + '" value="' + e(v.conc == null ? "" : num(v.conc)) + '" placeholder="come di base" aria-label="Prezzo concordato ' + e(v.nome) + '"></td></tr>').join("") +
-    "</tbody></table></div>" +
-    '<div class="rg-form-az"><button type="button" class="rg-b rg-pr" id="pz-salva">Salva i prezzi di questo cantiere</button></div><p class="rg-msg" id="pz-msg" aria-live="polite"></p></details>';
+  // 03/11/2026 (mezzi-3): «Prezzi del contratto d'appalto»: riferimento del contratto, un prezzo per tutte le qualifiche, poi
+  // manodopera e mezzi voce per voce
+  const rif = d.contratto && d.contratto.riferimento ? String(d.contratto.riferimento) : "";
+  const riga = (v) => "<tr><td>" + e(v.nome) + ' <span class="rg-u">' + e(v.u) + '</span></td><td class="n">' + e(v.base == null ? "-" : euro(v.base)) + "</td>" +
+    '<td class="n"><input class="rg-pz-in" inputmode="decimal" maxlength="12" data-voce="' + e(v.voce) + '" data-k="' + e(v.k) + '" data-prima="' + e(v.conc == null ? "" : num(v.conc)) + '" value="' + e(v.conc == null ? "" : num(v.conc)) + '" placeholder="come listino" aria-label="Prezzo da contratto ' + e(v.nome) + '"></td></tr>';
+  const man = voci.filter((v) => v.voce === "qualifica"), mz = voci.filter((v) => v.voce === "mezzo");
+  const prezzi = '<details class="rg-dt-box" id="rg-pz-box">' + "<summary>Prezzi del contratto d'appalto di questo cantiere" + (conc.length ? " · " + conc.length + (conc.length === 1 ? " prezzo" : " prezzi") : "") + "</summary>" +
+    '<p class="rg-nota">I prezzi delle economie previsti dal contratto d\'appalto di questo cantiere. Valgono solo qui e prendono il posto del listino dell\'impresa per tutte le economie del cantiere, anche quelle già scritte. Se più avanti il contratto cambia (per esempio un atto aggiuntivo), il prezzo nuovo vale da quel giorno in poi. Lascia vuoto per usare il listino. Prezzi + IVA.</p>' +
+    '<div class="rg-form rg-pz-testa"><label class="lar">Riferimento del contratto <small>compare nel registro, nella stampa e nell\'Excel</small><input id="pz-rif" maxlength="300" value="' + e(rif) + '" data-prima="' + e(rif) + '" placeholder="es. Contratto n. 45 del 12/09/2026, art. 18 del capitolato"></label>' +
+    '<label>Stesso prezzo per tutte le qualifiche <small>€/ora + IVA</small><input id="pz-tutti" inputmode="decimal" maxlength="12" placeholder="es. 28"></label>' +
+    '<div class="rg-pz-app"><button type="button" class="rg-b" id="pz-applica">Applica a tutte le qualifiche</button></div></div>' +
+    '<div class="rg-tw"><table class="rg-mini rg-pz"><thead><tr><th>Manodopera</th><th class="n">Listino dell\'impresa</th><th class="n">Da contratto d\'appalto</th></tr></thead><tbody>' + man.map(riga).join("") + "</tbody>" +
+    (mz.length ? '<thead><tr><th>Mezzi e attrezzature</th><th class="n">Listino dell\'impresa</th><th class="n">Da contratto d\'appalto</th></tr></thead><tbody>' + mz.map(riga).join("") + "</tbody>" : "") +
+    "</table></div>" +
+    '<div class="rg-form-az"><button type="button" class="rg-b rg-pr" id="pz-salva">Salva i prezzi del contratto</button></div><p class="rg-msg" id="pz-msg" aria-live="polite"></p></details>';
   return '<div class="rg-moduli">' + mezzo + prezzi + "</div>";
 }
 
@@ -501,7 +521,7 @@ function foglio(base, h, p, d) {
   const titolo = "Registro delle economie — " + s.foglio;
   // 03/11/2026 (mezzi-1): con gli euro, prezzo e importo di ogni riga, mezzi del giorno e totali in euro
   const celle = (v) => !eu ? "" : v.prezzo == null ? '<td class="n">mancante</td><td class="n">-</td>'
-    : '<td class="n">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="fo">concordato</span>' : "") + '</td><td class="n">' + e(euro(v.importo)) + "</td>";
+    : '<td class="n">' + e(euro(v.prezzo)) + (v.origine === "concordato" ? '<span class="fo">da contratto</span>' : "") + '</td><td class="n">' + e(euro(v.importo)) + "</td>";
   const tot = (cl, et, o, eur) => '<tr class="' + cl + '"><td colspan="' + prima + '">' + et + '</td><td class="n">' + e(eu || cl === "mt" ? ore(o) : num(o)) + "</td>" +
     (eu ? '<td></td><td class="n">' + e(euro(eur) || "0,00 €") + "</td><td></td>" : (dopo ? '<td colspan="' + dopo + '"></td>' : "")) + "</tr>";
   const rigaMz = (v) => "<tr><td><b>" + e(v.nome) + "</b>" + (v.con_operatore ? '<span class="fo">con operatore</span>' : "") + "</td><td>" + e(v.tipo || (v.scheda === "attrezzatura" ? "Attrezzatura" : "Automezzo o macchina")) + "</td>" +
@@ -544,6 +564,7 @@ function foglio(base, h, p, d) {
     '<table class="dati"><tr><td class="et">Cantiere</td><td>' + e(cant.nome || "-") + '</td><td class="et">Ubicazione</td><td>' + e(cant.ubicazione || "-") + "</td></tr>" +
     '<tr><td class="et">Committente</td><td>' + e(cant.committente || "-") + '</td><td class="et">Direzione Lavori</td><td>' + e(cant.direttore_lavori || "-") + "</td></tr></table>" +
     '<div class="cifre">' + cifre.map((c) => "<div><b>" + e(c[1]) + "</b><span>" + e(c[0]) + "</span></div>").join("") + "</div>" +
+    (eu && d.contratto && d.contratto.riferimento ? '<p class="sotto"><b>Prezzi da contratto d\'appalto:</b> ' + e(d.contratto.riferimento) + "</p>" : "") +
     (senza ? '<p class="nota">' + e(senza + (senza === 1 ? " riga è senza prezzo" : " righe sono senza prezzo") + " e non sono contate nei totali in euro. Prezzi + IVA.") + "</p>" : "") +
     (x.n_righe || (eu && lista(d.mezzi).length)
       ? '<table class="t"><thead><tr>' + cols.map((c, i) => "<th" + ((i >= prima - 2 && i <= prima) || (eu && (i === 5 || i === 6)) ? ' class="n"' : "") + ">" + e(c) + "</th>").join("") + "</tr></thead>" + corpo +
@@ -641,6 +662,9 @@ const STILE =
   ".rg-form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;font-weight:700}.rg-form label.lar{grid-column:span 2}.rg-form small{font-weight:500;color:var(--s)}" +
   ".rg-form input,.rg-form select,.rg-pz-in{font:inherit;min-height:40px;padding:6px 10px;border:1px solid var(--l);border-radius:10px;background:var(--c);color:var(--t)}" +
   ".rg-form-az{display:flex;gap:8px;flex-wrap:wrap;grid-column:1/-1;margin-top:8px}.rg-b.rg-pr{background:#0B6E79;border-color:#0B6E79;color:#fff}.rg-b.rg-pr:hover{background:#08505A}" +
+  ".rg-msg.inf{color:var(--s)}.rg-contr{margin:0 0 10px;padding:8px 12px;border-radius:10px;border:1px solid #F7B98A;background:#FFFBF7;font-size:.88rem;color:var(--t)}.rg-contr b{color:#9A4308}" +
+  ".rg-avv-c{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.rg-avv-c .rg-b{flex:none}" +
+  ".rg-pz-testa{margin:4px 0 10px}.rg-pz-app{display:flex;align-items:flex-end}.rg-pz thead+tbody+thead th{padding-top:14px}" +
   ".rg-pz-in{width:9em;text-align:right}.rg-u{font-size:.78rem;color:var(--s)}.rg-pz td{vertical-align:middle}.rg-riep1{grid-template-columns:minmax(0,1fr)}" +
   "@media (max-width:680px){.rg-t td.c-pr,.rg-t td.c-im{display:none}.rg-mz-az .rg-rip{width:auto;flex:1}.rg-form{grid-template-columns:minmax(0,1fr)}.rg-form label.lar{grid-column:auto}.rg-pz-in{width:7em}}" +
   "@media (max-width:680px){.rg-cifre{grid-template-columns:repeat(2,minmax(0,1fr))}.rg-riep{grid-template-columns:minmax(0,1fr)}.rg-az .rg-b{flex:1 1 100%}" +
@@ -720,12 +744,20 @@ q('mz-salva').textContent='Salva la correzione';box.open=true;box.scrollIntoView
 document.querySelectorAll('.rg-mz-tog').forEach(function(b){b.addEventListener('click',function(){var v=dati(b);
 if(b.getAttribute('data-ok')!=='1'){b.setAttribute('data-ok','1');b.textContent='Confermi? Premi ancora';return;}
 b.disabled=true;posta(CFG.um,{t:CFG.t,c:CFG.c,togli:true,dati:{id:v.id}}).then(function(j){if(j&&j.esito==='ok'){torna();return;}b.disabled=false;b.textContent='Non riuscito: riprova';});});});
-if(q('pz-salva'))q('pz-salva').onclick=function(){var b=this,pm=q('pz-msg'),err=[],k=0;
+// 03/11/2026 (mezzi-3): prezzi del contratto d'appalto: «Scrivi i prezzi del contratto» apre il riquadro; «Applica» copia lo
+// stesso prezzo su tutte le qualifiche; «Salva» manda il riferimento (se cambiato) e i prezzi cambiati
+var pzb=q('rg-pz-box');
+if(q('rg-apri-contratto'))q('rg-apri-contratto').onclick=function(){if(!pzb)return;pzb.open=true;pzb.scrollIntoView({behavior:'smooth',block:'start'});var r=q('pz-rif');if(r)setTimeout(function(){r.focus();},300);};
+if(q('pz-applica'))q('pz-applica').onclick=function(){var v=q('pz-tutti').value.trim();if(!v){q('pz-tutti').focus();return;}
+document.querySelectorAll('.rg-pz-in[data-voce=qualifica]').forEach(function(i){i.value=v;});var pm=q('pz-msg');if(pm){pm.className='rg-msg inf';}if(pm)pm.textContent='Prezzo copiato su tutte le qualifiche: ora premi «Salva i prezzi del contratto».';};
+if(q('pz-salva'))q('pz-salva').onclick=function(){var b=this,pm=q('pz-msg'),err=[],k=0,rif=q('pz-rif');
 var ins=[].slice.call(document.querySelectorAll('.rg-pz-in')).filter(function(i){return i.value.trim().replace(',','.')!==i.getAttribute('data-prima').replace(',','.');});
-if(!ins.length){if(pm)pm.textContent='Nessun prezzo cambiato.';return;}b.disabled=true;if(pm)pm.textContent='';
+var cambiaRif=rif&&rif.value.trim()!==rif.getAttribute('data-prima');
+if(pm)pm.className='rg-msg';if(!ins.length&&!cambiaRif){if(pm)pm.textContent='Nessun prezzo cambiato.';return;}b.disabled=true;if(pm)pm.textContent='';
+(cambiaRif?posta(CFG.up,{t:CFG.t,c:CFG.c,dati:{voce:'contratto',riferimento:rif.value.trim()}}).then(function(j){if(!j||j.esito!=='ok')err.push('Il riferimento del contratto non è stato salvato: riprova.');}):Promise.resolve()).then(function(){
 (function va(){if(k>=ins.length){b.disabled=false;if(err.length){if(pm)pm.textContent=err.join(' ');}else torna();return;}
 var i=ins[k++],vo=i.getAttribute('data-voce'),dd={voce:vo,prezzo:i.value.trim()};if(vo==='mezzo')dd.mezzo_id=i.getAttribute('data-k');else dd.qualifica=i.getAttribute('data-k');
-posta(CFG.up,{t:CFG.t,c:CFG.c,dati:dd}).then(function(j){if(!j||j.esito!=='ok')err.push((j&&j.messaggio)||'Un prezzo non è stato salvato: riprova.');va();});})();};
+posta(CFG.up,{t:CFG.t,c:CFG.c,dati:dd}).then(function(j){if(!j||j.esito!=='ok')err.push((j&&j.messaggio)||'Un prezzo non è stato salvato: riprova.');va();});})();});};
 }catch(e){}})();`;
 
 // Pulsante nella pagina del cantiere, accanto a «Persone del cantiere» e «Scarica in Excel».

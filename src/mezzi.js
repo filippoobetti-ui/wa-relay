@@ -96,11 +96,11 @@ function pagina(base, h, tok, a, d, torna) {
       '<button type="button" class="mz-b mz-pr" id="mz-nuovo">+ Aggiungi</button></div>' : "") + "</div>" +
     scelta +
     (az
-      ? '<p class="mz-spiega">I prezzi che scrivi qui sono quelli <b>di base</b>, + IVA, per tutti i cantieri. Se con un committente hai concordato un prezzo diverso, lo scrivi solo in quel cantiere, nel <b>Registro delle economie</b>. Un prezzo cambiato vale da oggi in poi: i giorni passati restano con il prezzo di allora.</p>' +
+      ? '<p class="mz-spiega">I prezzi che scrivi qui sono il <b>listino dell\'impresa</b>, + IVA, per tutti i cantieri. Se il contratto d\'appalto di un cantiere prevede prezzi diversi (per esempio 28 €/ora invece di 35), li scrivi solo in quel cantiere: <b>Registro delle economie → Prezzi del contratto d\'appalto</b>. Un prezzo cambiato vale da oggi in poi: i giorni passati restano con il prezzo di allora.</p>' +
         '<nav class="mz-tabs" aria-label="Schede"><button type="button" data-s="mezzo" class="on">Automezzi e macchine <small id="mz-n-mezzo">0</small></button>' +
         '<button type="button" data-s="attrezzatura">Attrezzature <small id="mz-n-attrezzatura">0</small></button></nav>' +
         '<div class="mz-griglia" id="mz-griglia"></div>' +
-        '<div class="mz-mano"><div class="mz-mano-t"><h2>Manodopera in economia · prezzi di base</h2><p>Prezzo orario + IVA per qualifica. Nel Registro delle economie ogni riga di ore prende il prezzo della sua qualifica.</p></div>' +
+        '<div class="mz-mano"><div class="mz-mano-t"><h2>Manodopera in economia · listino dell\'impresa</h2><p>Prezzo orario + IVA per qualifica. Nel Registro delle economie ogni riga di ore prende il prezzo della sua qualifica, oppure quello del contratto d\'appalto del cantiere, se l\'hai scritto.</p></div>' +
         '<div class="mz-qual" id="mz-qual"></div><p class="mz-msg" id="mz-msg-q" aria-live="polite"></p></div>'
       : '<p class="mz-spiega">Scegli l\'impresa per vedere e scrivere i suoi mezzi, le attrezzature e i prezzi in economia.</p>') +
     "</section>" +
