@@ -12,13 +12,30 @@
 //   GET  /preventivi/excel?t&id[&rev]               → file per Excel (CSV)
 //   POST /preventivi/firmato?t&id&nome              → copia firmata (corpo = il file, .pdf o .p7m)
 //   GET  /preventivi/firmato?t&id                   → scarica la copia firmata
-// Interruttori: impostazioni.preventivi_attiva (no / prova = solo Filippo / si) e PREVENTIVI = "off" nel Worker.
+// «Prepara con l'IA» (03/11/2026, preventivi-ia-1): nella bozza si allegano file o link (computo SOLO in Excel, tavole e
+// relazioni in PDF); la funzione preventivo-ia li legge e l'IA compila le voci, segnate verde / giallo / rosso, da controllare.
+//   POST /preventivi/api  azione ia_dati | ia_nuova | ia_lavoro | ia_link | ia_tipo_file | ia_togli_file | ia_controlla |
+//                         ia_parti | ia_annulla | ia_conferma | ia_scegli | ia_conferma_verdi | ia_togli_ia
+//   POST /preventivi/ia/file?t&id&nome              → un file per la lettura (corpo = il file, Excel o PDF, fino a 18 MB)
+// Interruttori: impostazioni.preventivi_attiva (no / prova = solo Filippo / si) e PREVENTIVI = "off" nel Worker;
+// per l'IA anche impostazioni.preventivi_ia_attiva (no / prova / si).
 // ============================================================================
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_FILE = 18 * 1024 * 1024;
 const AZIONI = new Set(["nuovo", "intestazione", "voce", "togli_voce", "sposta_voce", "manda", "revisione", "accettato", "rifiutato",
   "annulla_esito", "elimina"]);
+const AZIONI_IA = new Set(["nuova", "lavoro", "link", "tipo_file", "togli_file", "controlla", "parti", "annulla", "conferma", "scegli",
+  "conferma_verdi", "togli_ia"]);
+// file per «Prepara con l'IA»: estensione → tipo del contenuto e prime cifre del file
+const FILE_IA = {
+  pdf: ["application/pdf", [0x25, 0x50, 0x44, 0x46]],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", [0x50, 0x4b]],
+  xlsm: ["application/vnd.ms-excel.sheet.macroEnabled.12", [0x50, 0x4b]],
+  ods: ["application/vnd.oasis.opendocument.spreadsheet", [0x50, 0x4b]],
+  xls: ["application/vnd.ms-excel", [0xd0, 0xcf]],
+  csv: ["text/csv", []],
+};
 
 function json(o, stato) {
   return new Response(JSON.stringify(o), { status: stato || 200, headers: {
@@ -36,9 +53,12 @@ function pulisci(d) {
   const o = {};
   const testi = { id: 36, commessa_id: 36, voce_id: 20, titolo: 200, cliente_nome: 200, cliente_indirizzo: 300, cliente_piva: 40,
     cliente_email: 200, indirizzo_lavoro: 300, note: 2000, validita_giorni: 6, oneri_sicurezza: 20, sconto: 20, prezzario_id: 6,
-    fonte: 12, rif: 60, codice: 60, descrizione: 6000, unita: 20, prezzo: 20, quantita: 20, verso: 4, data: 10, chi: 200, nota: 500 };
+    fonte: 12, rif: 60, codice: 60, descrizione: 6000, unita: 20, prezzo: 20, quantita: 20, verso: 4, data: 10, chi: 200, nota: 500,
+    lavoro: 1000, link: 600, tipo: 12, modalita: 8, file_id: 20, alt: 3 };
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if ("ribasso_applicato" in x) o.ribasso_applicato = x.ribasso_applicato === true || x.ribasso_applicato === "true";
+  if ("leggi" in x) o.leggi = x.leggi === true || x.leggi === "true";
+  if ("conferma_tetto" in x) o.conferma_tetto = x.conferma_tetto === true || x.conferma_tetto === "true";
   if (Array.isArray(x.misure)) {
     o.misure = x.misure.slice(0, 50).map((r) => ({ dove: testo(r && r.dove, 120), parti: testo(r && r.parti, 14), lun: testo(r && r.lun, 14),
       lar: testo(r && r.lar, 14), alt: testo(r && r.alt, 14) }));
@@ -96,6 +116,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/stampa") return stampa(request, env, base, inUrl, h);
   if (sotto === "/preventivi/excel") return excel(request, env, base, inUrl, h);
   if (sotto === "/preventivi/firmato") return request.method === "POST" ? caricaFirmato(request, env, inUrl, h) : scaricaFirmato(request, env, base, inUrl, h);
+  if (sotto === "/preventivi/ia/file") return caricaFileIa(request, env, inUrl, h);
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -137,6 +158,15 @@ async function api(request, env, h) {
     r = await h.rpc(env, "preventivo_estesa", { p_token: tok, p_id: dati.id, p_rif: dati.rif || "" }, 10000).catch(() => null);
   } else if (AZIONI.has(az)) {
     r = await h.rpc(env, "preventivo_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 15000).catch(() => null);
+  } else if (az === "ia_dati" && UUID.test(dati.id || "")) {
+    r = await h.rpc(env, "preventivo_ia_dati", { p_token: tok, p_id: dati.id }, 15000).catch(() => null);
+  } else if (az.startsWith("ia_") && AZIONI_IA.has(az.slice(3)) && UUID.test(dati.id || "")) {
+    r = await h.rpc(env, "preventivo_ia_azione", { p_token: tok, p_id: dati.id, p_azione: az.slice(3), p_dati: dati }, 15000).catch(() => null);
+    // un file tolto dalla lettura non serve più nell'archivio (solo se è davvero un file temporaneo dell'IA)
+    if (r && r.esito === "ok" && az === "ia_togli_file" && /^preventivi\/[0-9a-f-]{36}\/ia\/[0-9a-f-]{36}\/[^/]+$/.test(String(r.percorso || ""))) {
+      await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso).split("/").map(encodeURIComponent).join("/"), {
+        method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+    }
   } else return json({ esito: "errore" }, 400);
   return json(r || { esito: "errore" }, r ? 200 : 503);
 }
@@ -145,12 +175,12 @@ async function api(request, env, h) {
 function pagina(base, h, tok, a, c, id, d, torna) {
   const e = h.esc;
   const cfg = JSON.stringify({ u: base + "/preventivi/api", pagina: base + "/preventivi", stampa: base + "/preventivi/stampa",
-    excel: base + "/preventivi/excel", firmato: base + "/preventivi/firmato", t: tok, a: a, c: c, id: id, d: d, torna: torna })
+    excel: base + "/preventivi/excel", firmato: base + "/preventivi/firmato", ia: base + "/preventivi/ia/file", t: tok, a: a, c: c, id: id, d: d, torna: torna })
     .replace(/</g, "\\u003c");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Preventivi - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main id=\"pv-main\">" +
+    "<style>" + STILE + STILE_IA + "</style></head><body><main id=\"pv-main\">" +
     (id
       ? '<a class="pv-torna" href="' + e(base + "/preventivi?t=" + tok + (a ? "&a=" + a : "") + (c ? "&c=" + c : "")) + '">‹ Tutti i preventivi</a>'
       : '<a class="pv-torna" href="' + e(torna) + '">‹ ' + (c ? "Torna al cantiere" : "Torna ai cantieri") + "</a>") +
@@ -206,7 +236,61 @@ const MODALI =
   '<p class="pv-msg" id="pv-es-msg" aria-live="polite"></p>' +
   '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-es-ok">Salva</button><button type="button" class="pv-b" data-chiudi>Annulla</button></div>' +
   "</div></div>" +
+  // «Prepara con l'IA»: le voci simili al posto di quella proposta
+  '<div class="pv-velo" id="pv-v-alt" hidden><div class="pv-mod largo" role="dialog" aria-modal="true" aria-labelledby="pv-alt-t">' +
+  '<h2 id="pv-alt-t">Scegli un\'altra voce</h2><p class="pv-vo-fonte" id="pv-alt-voce"></p>' +
+  '<div class="pv-ris" id="pv-alt-lista"></div>' +
+  '<p class="pv-msg" id="pv-alt-msg" aria-live="polite"></p>' +
+  '<div class="pv-az"><button type="button" class="pv-b" data-chiudi>Chiudi</button></div>' +
+  "</div></div>" +
   '<input type="file" id="pv-file" accept=".pdf,.p7m,application/pdf" hidden>';
+
+// «Prepara con l'IA» (preventivi-ia-1): riquadro nella bozza e segni sulle voci (verde / giallo / rosso)
+const STILE_IA =
+  ".pv-ia{margin:18px 0 0;padding:14px;border-radius:14px;border:1.5px solid var(--pv);background:linear-gradient(180deg,#fff,var(--pv-f));box-shadow:0 0 0 4px rgba(102,116,28,.10)}" +
+  ".pv-ia.chiuso{border-style:dashed;box-shadow:none}" +
+  ".pv-ia-t{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.pv-ia-t>div{flex:1;min-width:220px}.pv-ia-t h3{margin:0;font-size:1.05rem;color:var(--pv-s)}" +
+  ".pv-ia-t p{margin:3px 0 0;font-size:.86rem;color:var(--s);line-height:1.45}" +
+  ".pv-ia-ic{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#A7B54A,#66741C 55%,#4A5512)}.pv-ia-ic svg{width:20px;height:20px}" +
+  ".pv-ia .pv-c{margin-top:12px}" +
+  ".pv-ia-cari{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}" +
+  ".pv-ia-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:110px;padding:14px;border-radius:14px;border:2px dashed var(--pv-b);background:#fff;text-align:center;color:var(--pv-s);cursor:pointer;min-width:0}" +
+  ".pv-ia-drop.su{border-color:var(--pv);background:var(--pv-f)}.pv-ia-drop svg{width:26px;height:26px}.pv-ia-drop small{color:var(--s);font-size:.8rem;line-height:1.4}" +
+  ".pv-ia-link{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:14px;border:1px solid var(--l);background:#fff;min-width:0}.pv-ia-link small{font-size:.78rem;color:var(--s);line-height:1.4}" +
+  ".pv-ia-lb{display:flex;gap:6px;min-width:0}.pv-ia-lb input{flex:1;min-width:0;min-height:40px;padding:0 10px;border:1.5px solid var(--pv);border-radius:10px;font:inherit}" +
+  ".pv-ia-lb select{min-height:40px;border:1px solid rgba(16,27,43,.2);border-radius:10px;font:inherit;padding:0 6px;max-width:150px}" +
+  ".pv-ia-file{display:flex;flex-direction:column;gap:8px;margin-top:12px}" +
+  ".pv-ia-f{display:grid;grid-template-columns:46px minmax(0,1fr) 190px 80px 34px;gap:10px;align-items:center;padding:9px 12px;border-radius:12px;background:#fff;border:1px solid var(--l)}" +
+  ".pv-ia-f.no{border-color:var(--ko-b);background:var(--ko-f)}.pv-ia-f.pronto{border-color:var(--ok-b)}" +
+  ".pv-ia-f p{margin:0;font-size:.88rem;font-weight:700;overflow-wrap:anywhere}.pv-ia-f small{display:block;font-weight:500;color:var(--s);font-size:.78rem;margin-top:2px;overflow-wrap:anywhere}" +
+  ".pv-ia-f small.m{color:var(--ko)}.pv-ia-f.pronto small.m{color:var(--dv)}" +
+  ".pv-ia-f .tipo{display:flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:10px;font-size:.68rem;font-weight:800;border:1px solid}" +
+  ".pv-ia-f .tipo.xlsx{background:#E8F4EC;border-color:#A9D3B8;color:#1D6F42}.pv-ia-f .tipo.pdf{background:var(--ko-f);border-color:var(--ko-b);color:var(--ko)}.pv-ia-f .tipo.link{background:#EEF2F8;border-color:#C5D0E0;color:var(--navy)}" +
+  ".pv-ia-f select{min-height:36px;border:1px solid rgba(16,27,43,.2);border-radius:9px;font:inherit;font-size:.84rem;padding:0 6px;min-width:0}" +
+  ".pv-ia-sp{display:flex;align-items:center;gap:6px;font-size:.84rem;font-weight:600}.pv-ia-sp input{width:18px;height:18px;accent-color:#66741C}" +
+  ".pv-ia-x{width:32px;height:32px;border-radius:9px;border:1px solid var(--l);background:#fff;color:var(--s);font-size:1.1rem;cursor:pointer}" +
+  ".pv-ia-st{font-size:.8rem;color:var(--s);grid-column:3/-1}" +
+  ".pv-ia-nota{font-size:.8rem;color:var(--s);line-height:1.4;max-width:620px;align-self:center}" +
+  ".pv-ia-stima{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}.pv-ia-stima div{padding:10px 12px;border-radius:12px;background:#fff;border:1px solid var(--l)}" +
+  ".pv-ia-stima span{display:block;font-size:.76rem;color:var(--s);font-weight:600}.pv-ia-stima b{display:block;margin-top:2px;font-size:1.1rem;color:var(--navy)}" +
+  ".pv-ia-stima small{display:block;font-size:.74rem;color:var(--s);margin-top:2px;line-height:1.35}.pv-ia-stima .soldi{border-color:var(--pv-b);background:var(--pv-f)}.pv-ia-stima .soldi b{color:var(--pv-s)}" +
+  ".pv-ia-vel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}.pv-ia-vel .et{font-size:.82rem;font-weight:700;color:var(--s)}.pv-ia-vel em{font-style:normal;font-weight:600;opacity:.85;font-size:.8rem}" +
+  ".pv-ia-att{display:flex;gap:12px;align-items:center;margin-top:12px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--l)}.pv-ia-att b{color:var(--pv-s)}" +
+  ".pv-ia-att small{display:block;color:var(--s);font-size:.82rem;margin-top:3px;line-height:1.4}" +
+  ".pv-ia-gira{flex:none;width:26px;height:26px;border-radius:50%;border:3px solid var(--pv-b);border-top-color:var(--pv);animation:pv-gira 1s linear infinite}@keyframes pv-gira{to{transform:rotate(360deg)}}" +
+  "@media (prefers-reduced-motion:reduce){.pv-ia-gira{animation:none}}" +
+  ".pv-ia-esito{margin-top:10px}.pv-ia-rie{font-size:.84rem;color:var(--s);line-height:1.45}" +
+  ".pv-ia-chiarire{margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid var(--dv-b);background:var(--dv-f)}.pv-ia-chiarire b{color:var(--dv)}.pv-ia-chiarire ol{margin:6px 0 0;padding-left:20px;font-size:.86rem;line-height:1.5}" +
+  ".pv-ia-letti{margin-top:10px;font-size:.82rem;color:var(--s)}.pv-ia-letti summary{cursor:pointer;font-weight:700;color:var(--navy)}.pv-ia-letti div{padding:3px 0;overflow-wrap:anywhere}" +
+  ".pv-ia-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--pv-b);background:var(--pv-f);font-size:.86rem;color:var(--pv-s);font-weight:700}" +
+  ".pv-vt.ia-verde{box-shadow:inset 4px 0 0 var(--ok)}.pv-vt.ia-giallo{box-shadow:inset 4px 0 0 #E0A800;background:#FFFCF2}.pv-vt.ia-rosso{box-shadow:inset 4px 0 0 var(--ko);background:#FFF9F8}" +
+  ".pv-vt.ia-ok{background:none;box-shadow:inset 4px 0 0 var(--gr-b)}" +
+  ".pv-ia-tag{display:inline-flex;align-items:center;gap:5px;margin:0 0 4px;padding:1px 8px;border-radius:999px;font-size:.72rem;font-weight:800;border:1px solid}.pv-ia-tag::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}" +
+  ".pv-ia-tag.verde{background:var(--ok-f);border-color:var(--ok-b);color:var(--ok)}.pv-ia-tag.giallo{background:#FFF8E1;border-color:#F2D88A;color:#8A6100}" +
+  ".pv-ia-tag.rosso{background:var(--ko-f);border-color:var(--ko-b);color:var(--ko)}.pv-ia-tag.ok{background:#fff;border-color:var(--gr-b);color:var(--gr)}" +
+  "@media (max-width:900px){.pv-ia-cari{grid-template-columns:minmax(0,1fr)}.pv-ia-stima{grid-template-columns:1fr 1fr}" +
+  ".pv-ia-f{grid-template-columns:42px minmax(0,1fr) 34px}.pv-ia-f select,.pv-ia-f .pv-ia-sp,.pv-ia-f .pv-ia-st{grid-column:2}.pv-ia-f .pv-ia-x{grid-row:1;grid-column:3}}" +
+  "@media (max-width:640px){.pv-ia-lb{flex-wrap:wrap}.pv-ia-lb input{flex:1 1 100%}.pv-ia-lb select{flex:1;max-width:none}}";
 
 const STILE =
   ":root{--t:#17212E;--s:#5B6672;--c:#fff;--l:rgba(16,27,43,.11);--navy:#1B2F4A;--pv:#66741C;--pv-2:#7D8C27;--pv-s:#4A5512;--pv-f:#F3F5E6;--pv-b:#CDD49D;" +
@@ -404,7 +488,7 @@ $('pv-n-crea').onclick=function(){var b=this;b.disabled=true;msg($('pv-n-msg'),'
 
 // ---------------------------------------------------------------- preventivo
 var P=null,F=null,FONTE='',ULTIMA='';
-function carica(){return api('dati',{id:CFG.id}).then(function(r){if(r&&r.esito==='ok'){D=r;disegna();}else{$('pv-app').innerHTML='<section class="pv-card"><p class="pv-msg ko">'+es(msgErr(r))+'</p></section>';}});}
+function carica(){return api('dati',{id:CFG.id}).then(function(r){if(r&&r.esito==='ok'){D=r;disegna();caricaIa();}else{$('pv-app').innerHTML='<section class="pv-card"><p class="pv-msg ko">'+es(msgErr(r))+'</p></section>';}});}
 function disegna(){
  F=D.preventivo;var bozza=D.stato==='bozza',T=F.totali||{},k=F.contratto,c=F.cantiere;
  var rib=num(k&&k.ribasso_pct);
@@ -423,6 +507,8 @@ function disegna(){
   '<label class="pv-c tutta"><span class="pv-et">Note per il cliente <small>facoltative, vanno nel preventivo</small></span><textarea data-c="note" rows="2" maxlength="2000"'+(bozza?'':' disabled')+'>'+es(F.note||'')+'</textarea></label></div>'+
   (bozza?'<div class="pv-az"><button type="button" class="pv-b sm pv-pr" id="pv-salva-int">Salva i dati</button><span class="pv-msg" id="pv-int-msg"></span></div>':'');
  if(c&&!k)h+='<p class="pv-info">Nel cantiere non c\'è un computo caricato nella sezione SAL: le voci si prendono dal prezzario o si scrivono a mano.</p>';
+ // «Prepara con l'IA» (lo riempie disegnaIa)
+ if(bozza)h+='<div id="pv-ia"></div>';
  // ricerca
  if(bozza){
   h+='<div class="pv-cerca"><h3>Aggiungi una voce</h3><label class="pv-barra"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/></svg>'+
@@ -432,16 +518,24 @@ function disegna(){
  }
  // voci
  var V=F.voci||[];
+ var VI=bozza&&IA&&IA.voci_ia||{},nIa=0,nVerdi=0;
+ V.forEach(function(v){var x=VI[String(v.id)];if(x&&!x.confermata){nIa++;if(x.livello==='verde')nVerdi++;}});
  h+='<div class="pv-voci"><h3>Voci del preventivo</h3>';
+ if(nIa)h+='<div class="pv-ia-barra">Voci preparate dall\'IA da controllare: '+nIa+' <button type="button" class="pv-b sm pv-pr" data-iaaz="conferma_verdi"'+(nVerdi?'':' disabled')+'>Conferma tutte le verdi ('+nVerdi+')</button>'+
+  '<button type="button" class="pv-b sm" data-iaaz="togli_ia">Togli le voci dell\'IA non controllate</button></div>';
  if(!V.length)h+='<p class="pv-vuoto">Nessuna voce ancora.'+(bozza?' Cercala qui sopra o aggiungi una voce libera.':'')+'</p>';
  else h+='<div class="pv-vt th"><span>Nr</span><span>Fonte</span><span>Descrizione</span><span>U.M.</span><span class="n">Quantità</span><span class="n">Prezzo</span><span class="n">Importo</span></div>';
- V.forEach(function(v,i){
-  h+='<div class="pv-vt"><span class="nr">'+(i+1)+'</span><span class="fo">'+fonteHtml(v.fonte,v.codice)+'</span><div class="ds"><p class="pv-ds corta" title="Tocca per leggerla tutta">'+es(v.descrizione)+'</p>'+
+ V.forEach(function(v,i){var x=VI[String(v.id)],daVedere=x&&!x.confermata;
+  h+='<div class="pv-vt'+(x?' ia-'+es(x.livello)+(x.confermata?' ia-ok':''):'')+'"><span class="nr">'+(i+1)+'</span><span class="fo">'+fonteHtml(v.fonte,v.codice)+'</span><div class="ds">'+(x?tagIa(x):'')+'<p class="pv-ds corta" title="Tocca per leggerla tutta">'+es(v.descrizione)+'</p>'+
    (v.fonte!=='libera'&&!v.ribassabile?'<span class="pv-agg">senza ribasso</span>':'')+(v.fonte==='libera'?'<span class="pv-agg">voce dell\'impresa, senza ribasso</span>':'')+
-   (v.prezzo_origine!=null&&num(v.prezzo_origine)!==num(v.prezzo)?'<span class="pv-agg">prezzo di partenza '+euro(v.prezzo_origine)+'</span>':'')+'</div>'+
+   (v.prezzo_origine!=null&&num(v.prezzo_origine)!==num(v.prezzo)?'<span class="pv-agg">prezzo di partenza '+euro(v.prezzo_origine)+'</span>':'')+
+   (daVedere&&x.fonte?'<span class="pv-agg">Da: '+es(x.fonte)+'</span>':'')+(daVedere&&x.nota?'<span class="pv-agg">'+es(x.nota)+'</span>':'')+'</div>'+
    '<span class="um">'+es(v.unita||'')+'</span><span class="n q">'+qta(v.quantita)+'</span><span class="n pu">'+euro(v.prezzo)+'</span><span class="n im">'+euro(v.importo)+'</span>'+
    (v.misure&&v.misure.length?misureHtml(v.misure):'')+
-   (bozza?'<div class="pv-vbt"><button type="button" class="pv-b sm" data-mod="'+v.id+'">Modifica</button><button type="button" class="pv-b sm" data-su="'+v.id+'"'+(i?'':' disabled')+'>↑</button><button type="button" class="pv-b sm" data-giu="'+v.id+'"'+(i<V.length-1?'':' disabled')+'>↓</button></div>':'')+'</div>';});
+   (bozza?'<div class="pv-vbt">'+(daVedere?(num(v.prezzo)?'<button type="button" class="pv-b sm pv-pr" data-iaok="'+v.id+'">Va bene</button>':'<button type="button" class="pv-b sm pv-pr" data-mod="'+v.id+'">Metti il prezzo</button>')+
+    ((x.alternative||[]).length?'<button type="button" class="pv-b sm" data-iaalt="'+v.id+'">Scegli un\'altra ('+x.alternative.length+')</button>':''):'')+
+    '<button type="button" class="pv-b sm" data-mod="'+v.id+'">Modifica</button><button type="button" class="pv-b sm" data-su="'+v.id+'"'+(i?'':' disabled')+'>↑</button><button type="button" class="pv-b sm" data-giu="'+v.id+'"'+(i<V.length-1?'':' disabled')+'>↓</button>'+
+    (daVedere?'<button type="button" class="pv-b sm pv-togli" data-iatogli="'+v.id+'">Togli</button>':'')+'</div>':'')+'</div>';});
  h+='</div>';
  // revisioni
  if((D.revisioni||[]).length){h+='<div class="pv-voci"><h3>Revisioni mandate</h3><ul class="pv-revs">'+D.revisioni.map(function(r){
@@ -463,6 +557,7 @@ function disegna(){
   '<p class="pv-msg" id="pv-az-msg" aria-live="polite"></p></section></div>';
  $('pv-app').innerHTML=h;
  lega();
+ disegnaIa();
  if(bozza&&ULTIMA)cerca();
 }
 function nomePrezzario(){var z=(D.prezzari||[]).filter(function(x){return Number(x.id)===Number(D.prezzario_id);})[0];return z?z.titolo:'Prezzario';}
@@ -495,6 +590,15 @@ function lega(){
  Array.prototype.forEach.call(app.querySelectorAll('[data-fonte]'),function(b){b.onclick=function(){FONTE=b.getAttribute('data-fonte');Array.prototype.forEach.call(app.querySelectorAll('[data-fonte]'),function(x){x.classList.toggle('on',x===b);});cerca();};});
  var q=$('pv-q');if(q){var tm=null;q.oninput=function(){clearTimeout(tm);tm=setTimeout(cerca,350);};q.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();clearTimeout(tm);cerca();}};}
  var lib=$('pv-libera');if(lib)lib.onclick=function(){modulo({fonte:'libera',descrizione:'',unita:'',prezzo:'',quantita:'',misure:[]});};
+ // voci preparate dall'IA
+ Array.prototype.forEach.call(app.querySelectorAll('[data-iaok]'),function(b){b.onclick=function(){b.disabled=true;
+  api('ia_conferma',{id:F.id,voce_id:b.getAttribute('data-iaok')}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
+ Array.prototype.forEach.call(app.querySelectorAll('[data-iatogli]'),function(b){b.onclick=function(){if(!confirm('Togliere questa voce dal preventivo?'))return;b.disabled=true;
+  api('togli_voce',{id:F.id,voce_id:b.getAttribute('data-iatogli')}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
+ Array.prototype.forEach.call(app.querySelectorAll('[data-iaalt]'),function(b){b.onclick=function(){alternative(b.getAttribute('data-iaalt'));};});
+ Array.prototype.forEach.call(app.querySelectorAll('[data-iaaz]'),function(b){b.onclick=function(){var az=b.getAttribute('data-iaaz');
+  if(az==='togli_ia'&&!confirm('Togliere tutte le voci preparate dall\'IA che non hai ancora controllato?'))return;b.disabled=true;
+  api('ia_'+az,{id:F.id}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
 }
 function salvaInt(){var d={id:F.id};Array.prototype.forEach.call(document.querySelectorAll('#pv-app [data-c]'),function(x){var k=x.getAttribute('data-c');d[k]=x.type==='checkbox'?x.checked:x.value;});
  var m=$('pv-int-msg');if(m){m.textContent='Un momento…';m.className='pv-msg';}
@@ -552,7 +656,10 @@ $('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=m
  if(lib){d.codice=$('pv-vo-cod').value;d.unita=$('pv-vo-um').value;}
  if(!M.length&&!String($('pv-vo-q').value).trim()){msg($('pv-vo-msg'),'Scrivi la quantità, oppure le righe di misura.','ko');return;}
  b.disabled=true;msg($('pv-vo-msg'),'Un momento…');
- api('voce',d).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-voce',false);carica();}else msg($('pv-vo-msg'),msgErr(r),'ko');});};
+ api('voce',d).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-voce',false);
+  // una voce dell'IA corretta a mano è controllata
+  var x=v.id&&IA&&IA.voci_ia&&IA.voci_ia[String(v.id)];if(x&&!x.confermata)api('ia_conferma',{id:F.id,voce_id:String(v.id)}).then(carica);else carica();}
+  else msg($('pv-vo-msg'),msgErr(r),'ko');});};
 $('pv-vo-togli').onclick=function(){if(!VOCE||!VOCE.id||!confirm('Togliere questa voce dal preventivo?'))return;
  api('togli_voce',{id:F.id,voce_id:String(VOCE.id)}).then(function(r){if(r&&r.esito==='ok'){velo('pv-v-voce',false);carica();}else msg($('pv-vo-msg'),msgErr(r),'ko');});};
 
@@ -580,7 +687,123 @@ $('pv-file').onchange=function(){var f=this.files&&this.files[0],m=$('pv-az-msg'
   .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
   .then(function(r){if(r&&r.esito==='ok'){carica();}else if(m){m.textContent=msgErr(r);m.className='pv-msg ko';}});};
 
-if(CFG.id)disegna();else elenco();
+// ---------------------------------------------------------------- Prepara con l'IA
+var IA=null,IA_T=null,IA_MSG=null;
+var STELLA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>';
+var NUVOLA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>';
+var TIPI={computo:'Computo (Excel)',relazione:'Relazione (PDF)',tavole:'Tavole (PDF)'};
+var PASSI={controllo:'Controllo dei file',stima:'Pronto da leggere',attesa:'In coda',lettura:'L\'IA sta leggendo'};
+function usd(n){n=num(n);return n>0&&n<0.01?'meno di 0,01':n.toFixed(2).replace('.',',');}
+function ora(x){var d=new Date(x);return isNaN(d)?'':String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1).replace('.',',')+' MB';}
+function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
+function tagIa(x){return '<span class="pv-ia-tag '+(x.confermata?'ok':es(x.livello))+'">'+(x.confermata?'IA · controllata':({verde:'IA · sicura',giallo:'IA · da guardare',rosso:'IA · da controllare'})[x.livello]||'IA')+'</span>';}
+function caricaIa(){if(!CFG.id)return;api('ia_dati',{id:CFG.id}).then(function(r){var prima=IA;IA=r&&r.esito==='ok'&&r.attiva?r:null;
+ if(IA&&IA.voci_ia&&Object.keys(IA.voci_ia).length||prima&&prima.voci_ia&&Object.keys(prima.voci_ia).length)disegna();else disegnaIa();pianificaIa();});}
+function inCorso(){var l=IA&&IA.lettura;return !!l&&['controllo','attesa','lettura'].indexOf(l.stato)>=0;}
+function pianificaIa(){clearTimeout(IA_T);if(!inCorso())return;
+ IA_T=setTimeout(function(){api('ia_dati',{id:CFG.id}).then(function(r){if(!(r&&r.esito==='ok'&&r.attiva)){pianificaIa();return;}
+  var era=IA.lettura&&IA.lettura.stato;IA=r;if(era!=='pronta'&&IA.lettura&&IA.lettura.stato==='pronta'){carica();return;}disegnaIa();pianificaIa();});},6000);}
+function msgIa(t,cl){IA_MSG=t?{t:t,cl:cl||''}:null;var m=$('pv-ia-msg');if(m)msg(m,t,cl);}
+function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';return;}
+ var l=IA.lettura,s=l?l.stato:'',h;
+ if(!l||['preparazione','controllo','stima','attesa','lettura'].indexOf(s)<0){
+  h='<div class="pv-ia chiuso"><div class="pv-ia-t"><span class="pv-ia-ic">'+STELLA+'</span><div><h3>Prepara con l\'IA</h3><p>Allega quello che hai ricevuto: computo metrico <b>in Excel</b>, tavole e relazioni in PDF, oppure i loro link. L\'IA compila le voci con i prezzi del contratto e del prezzario; tu controlli e decidi: niente parte da solo.</p></div>'+
+   '<button type="button" class="pv-b pv-pr" id="pv-ia-apri">'+(s==='pronta'?'Prepara di nuovo':'Prepara con l\'IA')+'</button></div>';
+  if(s==='pronta')h+=esitoIa(l);
+  if(s==='errore')h+='<p class="pv-msg ko">'+es(l.errore||'La lettura non è riuscita.')+'</p>';
+  if(s==='annullata')h+='<p class="pv-msg">L\'ultima lettura è stata annullata.</p>';
+  box.innerHTML=h+'</div>';
+  $('pv-ia-apri').onclick=function(){var b=this;b.disabled=true;api('ia_nuova',{id:CFG.id}).then(function(r){b.disabled=false;if(r&&r.esito==='ok')caricaIa();else alert(msgErr(r));});};
+  return;}
+ var mod=s==='preparazione'||s==='stima',F2=l.file||[];
+ h='<div class="pv-ia"><div class="pv-ia-t"><span class="pv-ia-ic">'+STELLA+'</span><div><h3>Prepara con l\'IA</h3><p>'+
+  (mod?'Il computo metrico <b>solo in Excel</b>; tavole e relazioni in PDF. Prima TIX controlla i file e ti dice quanto costa; poi decidi tu se partire.':'Puoi chiudere la pagina: il lavoro continua e le voci compaiono qui sotto.')+'</p></div>'+
+  '<button type="button" class="pv-b sm" id="pv-ia-annulla">Annulla</button></div>';
+ if(mod){
+  h+='<label class="pv-c tutta"><span class="pv-et">Cosa c\'è da fare <small>due righe con le tue parole: aiuta l\'IA a non sbagliare</small></span><textarea id="pv-ia-lavoro" rows="2" maxlength="1000" placeholder="es. Rifacimento dei due bagni al piano primo, sanitari forniti dal cliente">'+es(l.lavoro||'')+'</textarea></label>'+
+   '<div class="pv-ia-cari"><label class="pv-ia-drop" id="pv-ia-drop"><input type="file" id="pv-ia-file" multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf" hidden>'+NUVOLA+'<b>Aggiungi file (anche più di uno)</b><small>Computo metrico <b>solo in Excel</b> · tavole e relazioni in PDF · fino a 18 MB per file</small></label>'+
+   '<div class="pv-ia-link"><b>Oppure incolla un link</b><div class="pv-ia-lb"><input id="pv-ia-url" placeholder="https://drive.google.com/…" maxlength="600" autocomplete="off">'+
+   '<select id="pv-ia-url-tipo"><option value="relazione">Relazione</option><option value="tavole">Tavole</option><option value="computo">Computo (Excel)</option></select><button type="button" class="pv-b sm pv-pr" id="pv-ia-url-ok">Aggiungi</button></div>'+
+   '<small>Google Drive (file o cartella), OneDrive, Dropbox, condivisi con «Chiunque abbia il link». TIX legge i file e non ne tiene la copia: dopo puoi togliere la condivisione.</small></div></div>';
+ }
+ h+='<div class="pv-ia-file">'+F2.map(function(f){return rigaFileIa(f,mod);}).join('')+'</div>';
+ if(!F2.length)h+='<p class="pv-vuoto">Nessun file ancora.</p>';
+ if(l.errore&&mod)h+='<p class="pv-msg ko">'+es(l.errore)+'</p>';
+ if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa la lettura con l\'IA.</span></div>';
+ if(s==='stima')h+=stimaIa(l);
+ if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito meno di un minuto.':(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.'))+
+  (l.partita_il?' Partita alle '+ora(l.partita_il)+'.':'')+' Puoi chiudere la pagina: il lavoro continua.</small></div></div>';
+ h+='<p class="pv-msg'+(IA_MSG&&IA_MSG.cl?' '+IA_MSG.cl:'')+'" id="pv-ia-msg" aria-live="polite">'+es(IA_MSG?IA_MSG.t:'')+'</p></div>';
+ box.innerHTML=h;
+ legaIa(l);}
+function rigaFileIa(f,mod){var est=f.fonte==='link'?'LINK':(/\.(xlsx|xls|xlsm|ods|csv)$/i.test(f.nome)?'XLSX':'PDF'),info=[];
+ if(f.voci)info.push(f.voci+' voci');if(f.pagine)info.push(f.pagine+(f.pagine===1?' pagina':' pagine'));if(f.byte)info.push(mbTxt(f.byte));
+ var cl=f.stato==='pronto'?' pronto':(f.stato==='rifiutato'||f.stato==='errore')?' no':'';
+ return '<div class="pv-ia-f'+cl+'"><span class="tipo '+est.toLowerCase()+'">'+est+'</span><p>'+es(f.nome)+'<small>'+es(info.length?info.join(' · '):(f.fonte==='link'?f.link:''))+'</small>'+(f.messaggio?'<small class="m">'+es(f.messaggio)+'</small>':'')+'</p>'+
+  (mod?'<select data-iatipo="'+f.id+'" aria-label="Che cos\'è">'+['computo','relazione','tavole'].map(function(t){return '<option value="'+t+'"'+(f.tipo===t?' selected':'')+'>'+TIPI[t]+'</option>';}).join('')+'</select>'+
+   '<label class="pv-ia-sp"><input type="checkbox" data-ialeggi="'+f.id+'"'+(f.leggi?' checked':'')+'> Leggi</label><button type="button" class="pv-ia-x" data-iax="'+f.id+'" title="Togli" aria-label="Togli">×</button>'
+   :'<span class="pv-ia-st">'+es(TIPI[f.tipo]||'')+(f.leggi?'':' · non letto')+'</span>')+'</div>';}
+function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',costo=sub?t.usd_subito:t.usd_senza_fretta;
+ var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con l\'IA · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
+  '<div><span>Relazioni</span><b>'+(t.pagine_relazioni||0)+' pag.</b><small>lette come testo</small></div>'+
+  '<div><span>Tavole</span><b>'+(t.pagine_tavole||0)+' pag.</b><small>lette dall\'IA in PDF</small></div>'+
+  '<div class="soldi"><span>Costo stimato</span><b>'+usd(costo)+' $</b><small>+ IVA · '+(sub?'pochi minuti':'di solito entro un\'ora')+'</small></div></div>';
+ if((t.avvisi||[]).length)h+='<p class="pv-avviso">'+t.avvisi.map(es).join('<br>')+'</p>';
+ h+='<div class="pv-ia-vel"><span class="et">Velocità</span><button type="button" class="pv-chip'+(sub?'':' on')+'" data-iamod="batch">Senza fretta <em>· metà prezzo</em></button>'+
+  '<button type="button" class="pv-chip'+(sub?' on':'')+'" data-iamod="subito">Subito <em>· prezzo pieno</em></button></div>'+
+  '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-parti">Prepara il preventivo</button><button type="button" class="pv-b" id="pv-ia-ricontrolla">Controlla di nuovo</button>'+
+  '<span class="pv-ia-nota">Le voci che ci sono già restano. Quelle dell\'IA si aggiungono sotto, segnate, e le controlli una per una prima di mandare il preventivo.</span></div>';
+ return h;}
+function esitoIa(l){var r=l.riepilogo||{},h='<div class="pv-ia-esito"><p class="pv-ia-rie">Ultima lettura: '+pl(r.scritte,'voce aggiunta','voci aggiunte')+' · '+(r.per_codice||0)+' con il prezzo per codice · '+
+  pl(r.scelte_ia,'scelta dall\'IA','scelte dall\'IA')+' · '+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole · costo '+usd(l.costo_usd)+' $ + IVA</p>';
+ if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
+ h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
+  (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file non restano in TIX: resta questo elenco, con le impronte.</small></details></div>';
+ return h;}
+function azIa(az,d,b){if(b)b.disabled=true;msgIa('Un momento…');d=d||{};d.id=CFG.id;
+ return api('ia_'+az,d).then(function(r){if(b)b.disabled=false;if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');return r;});}
+function legaIa(l){
+ var an=$('pv-ia-annulla');if(an)an.onclick=function(){if(confirm('Annullare «Prepara con l\'IA»? I file allegati si tolgono.'))azIa('annulla',{},an);};
+ var lv=$('pv-ia-lavoro');if(lv)lv.onchange=function(){azIa('lavoro',{lavoro:lv.value});};
+ var fi=$('pv-ia-file');if(fi)fi.onchange=function(){caricaFileIa(fi.files);};
+ var dr=$('pv-ia-drop');if(dr){dr.ondragover=function(e){e.preventDefault();dr.classList.add('su');};dr.ondragleave=function(){dr.classList.remove('su');};
+  dr.ondrop=function(e){e.preventDefault();dr.classList.remove('su');caricaFileIa(e.dataTransfer&&e.dataTransfer.files);};}
+ var uo=$('pv-ia-url-ok');if(uo)uo.onclick=function(){var u=$('pv-ia-url').value.trim();if(!u){msgIa('Incolla il link.','ko');return;}azIa('link',{link:u,tipo:$('pv-ia-url-tipo').value},uo);};
+ var co=$('pv-ia-controlla');if(co)co.onclick=function(){azIa('controlla',{},co);};
+ var rc=$('pv-ia-ricontrolla');if(rc)rc.onclick=function(){azIa('controlla',{},rc);};
+ var pa=$('pv-ia-parti');if(pa)pa.onclick=function(){parti(pa,false);};
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iamod]'),function(b){b.onclick=function(){azIa('lavoro',{modalita:b.getAttribute('data-iamod')},b);};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iatipo]'),function(s){s.onchange=function(){azIa('tipo_file',{file_id:s.getAttribute('data-iatipo'),tipo:s.value});};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-ialeggi]'),function(c){c.onchange=function(){azIa('tipo_file',{file_id:c.getAttribute('data-ialeggi'),leggi:c.checked});};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iax]'),function(b){b.onclick=function(){azIa('togli_file',{file_id:b.getAttribute('data-iax')},b);};});}
+function parti(b,conferma){b.disabled=true;msgIa('Un momento…');
+ api('ia_parti',{id:CFG.id,conferma_tetto:conferma}).then(function(r){b.disabled=false;
+  if(r&&r.esito==='tetto'){msgIa('');if(confirm(r.messaggio))parti(b,true);return;}
+  if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');});}
+function caricaFileIa(files){var L=Array.prototype.slice.call(files||[]);
+ var no=L.filter(function(f){return !/\.(xlsx|xls|xlsm|ods|csv|pdf)$/i.test(f.name)||f.size>18*1024*1024;});
+ L=L.filter(function(f){return no.indexOf(f)<0;});
+ var errori=no.length?['Non caricati: '+no.map(function(f){return f.name;}).join(', ')+' (computo in Excel, tavole e relazioni in PDF, fino a 18 MB).']:[];
+ if(!L.length){msgIa(errori.join(' '),'ko');return;}
+ var i=0;
+ // uno alla volta; se un file non va, si passa al successivo e alla fine si dice quali non sono entrati
+ function uno(){if(i>=L.length){msgIa(errori.join(' '),errori.length?'ko':'');caricaIa();return;}var f=L[i++];msgIa('Carico «'+f.name+'» ('+i+' di '+L.length+')…');
+  fetch(CFG.ia+'?t='+encodeURIComponent(CFG.t)+'&id='+encodeURIComponent(CFG.id)+'&nome='+encodeURIComponent(f.name),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f})
+   .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
+   .then(function(r){if(!(r&&r.esito==='ok'))errori.push('«'+f.name+'»: '+msgErr(r));uno();});}
+ uno();}
+// le voci simili al posto di quella proposta
+function alternative(id){var v=(F.voci||[]).filter(function(x){return String(x.id)===String(id);})[0],x=IA&&IA.voci_ia&&IA.voci_ia[String(id)];if(!v||!x)return;
+ var A=x.alternative||[];$('pv-alt-voce').textContent=v.descrizione.length>220?v.descrizione.slice(0,217)+'…':v.descrizione;msg($('pv-alt-msg'),'');
+ $('pv-alt-lista').innerHTML=A.map(function(c,i){var desc=(c.titolo||'')+(c.descrizione&&c.descrizione!==c.titolo?' — '+c.descrizione:'');
+  return '<div class="pv-ri">'+fonteHtml(c.fonte,c.codice)+'<p>'+es(desc.length>260?desc.slice(0,257)+'…':desc)+'</p><span class="um">'+es(c.unita||'')+'</span><span class="pr"><b>'+euro(c.prezzo)+'</b></span>'+
+   '<button type="button" class="pv-b sm pv-pr" data-alt="'+i+'">Usa questa</button></div>';}).join('')||'<p class="pv-vuoto">Nessuna voce simile.</p>';
+ Array.prototype.forEach.call($('pv-alt-lista').querySelectorAll('[data-alt]'),function(b){b.onclick=function(){b.disabled=true;msg($('pv-alt-msg'),'Un momento…');
+  api('ia_scegli',{id:F.id,voce_id:String(id),alt:b.getAttribute('data-alt')}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-alt',false);carica();}else msg($('pv-alt-msg'),msgErr(r),'ko');});};});
+ velo('pv-v-alt',true);}
+
+if(CFG.id){disegna();caricaIa();}else elenco();
 })();
 `;
 
@@ -769,6 +992,55 @@ async function caricaFirmato(request, env, inUrl, h) {
       method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
   }
   return json({ esito: "ok", sha256: sha });
+}
+
+// ---------------------------------------------------------------------------- «Prepara con l'IA»: un file per la lettura
+// Il computo in Excel, tavole e relazioni in PDF (il resto lo controlla la funzione preventivo-ia). Il file va in
+// «preventivi/<impresa>/ia/<lettura>/…» solo finché serve: la funzione lo toglie quando la lettura finisce, e con l'impresa
+// si cancella comunque tutta la cartella «preventivi/<impresa>/».
+async function caricaFileIa(request, env, inUrl, h) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  const id = uuid(inUrl.searchParams.get("id"));
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[\u0000-\u001f\\/]+/g, " ").trim().slice(0, 180);
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!id) return json({ esito: "errore" }, 400);
+  const est = ((/\.(pdf|xlsx|xlsm|xls|ods|csv)$/i.exec(nome) || [])[1] || "").toLowerCase();
+  if (!est) return json({ esito: "formato", messaggio: "Il computo metrico in Excel; tavole e relazioni in PDF." }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  // prima il controllo dell'accesso e della lettura, poi il file
+  const info = await h.rpc(env, "preventivo_ia_azione", { p_token: tok, p_id: id, p_azione: "file_info", p_dati: {} }, 10000).catch(() => null);
+  if (!info) return json({ esito: "incerto" }, 503);
+  if (info.esito !== "ok") return json({ esito: String(info.esito), messaggio: info.messaggio || "" }, info.esito === "gettone" ? 403 : 400);
+  if (!UUID.test(String(info.azienda_id || "")) || !UUID.test(String(info.lettura_id || ""))) return json({ esito: "errore" }, 400);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
+  const [tipo, firma] = FILE_IA[est];
+  if (firma.some((b, i) => bytes[i] !== b)) return json({ esito: "formato", messaggio: "Il file non è un " + (est === "pdf" ? "PDF" : "file Excel") + " valido." }, 400);
+  const percorso = "preventivi/" + info.azienda_id + "/ia/" + info.lettura_id + "/" + String(Number(info.n) || 1).padStart(2, "0") + "-" + casuale() + "." + est;
+  const indirizzo = supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const up = await fetch(indirizzo, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": tipo, "x-upsert": "false" },
+      body: bytes, signal: ctrl.signal
+    });
+    if (!up.ok) return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } catch (e) {
+    return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } finally { clearTimeout(timer); }
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (x) => x.toString(16).padStart(2, "0")).join("");
+  const r = await h.rpc(env, "preventivo_ia_azione", { p_token: tok, p_id: id, p_azione: "file",
+    p_dati: { path: percorso, nome: nome || ("file." + est), sha256: sha, byte: String(bytes.length) } }, 10000).catch(() => null);
+  if (!r || r.esito !== "ok") {
+    // non registrato: il file non serve
+    await fetch(indirizzo, { method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+    return r ? json({ esito: String(r.esito), messaggio: r.messaggio || "" }) : json({ esito: "incerto" }, 503);
+  }
+  return json({ esito: "ok", file_id: r.file_id, tipo: r.tipo, sha256: sha });
 }
 
 async function scaricaFirmato(request, env, base, inUrl, h) {
