@@ -716,6 +716,8 @@ disegna();`;
 // che hanno «Vede l'area riservata»: riquadro con lo stato dell'accesso ai documenti (sola lettura), «Dai l'accesso e manda
 // l'invito», «Cambia» (sezioni e avvisi per email) e «Togli l'accesso». Lo stato arriva da prof_persone_stato: se la funzione
 // è spenta (o in «prova» e non è l'accesso di Filippo) il riquadro non compare.
+// 04/11/2026 (P2a): le sezioni arrivano da prof_persone_stato (Sicurezza, DDT e documenti, Cronoprogramma) e per una persona
+// nuova sono già spuntate quelle proposte per il suo ruolo («proposte»).
 const PROF_CSS = ".pf{margin-top:10px;border-top:1px solid var(--bordo);padding-top:10px}.pf-t{font-weight:700;font-size:.93rem}" +
   ".pf-s{color:var(--tenue);font-size:.86rem;margin-top:2px}.pf-s b{color:var(--testo);font-weight:600}.pf .azioni{margin-top:8px}" +
   ".pf-c{display:block;font-weight:600;font-size:.9rem;margin:14px 0 4px}#pf-sez .spunta{margin-top:6px}";
@@ -726,7 +728,7 @@ const PROF_HTML = '<div class="velo" id="velo-prof" hidden><form class="foglio" 
   '<div id="pf-mail-box"><label class="c" for="pf-mail">Email</label><input class="campo" id="pf-mail" type="email" maxlength="120" autocomplete="off"></div>' +
   '<span class="pf-c">Cosa vede</span><div id="pf-sez"></div>' +
   '<span class="pf-c">Avvisi per email</span>' +
-  '<label class="spunta"><input type="radio" name="pf-avv" value="subito" checked> <span>A ogni documento nuovo (se ne carichi più di uno di fila arriva un\'email sola)</span></label>' +
+  '<label class="spunta"><input type="radio" name="pf-avv" value="subito" checked> <span>Sì: a ogni documento nuovo della Sicurezza (se ne carichi più di uno di fila arriva un\'email sola) e, per i DDT, un riepilogo la sera alle 20</span></label>' +
   '<label class="spunta"><input type="radio" name="pf-avv" value="no"> <span>Nessuna email</span></label>' +
   '<p class="errore" id="pf-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="pf-ok">Manda l\'invito</button></div></form></div>';
 
@@ -736,7 +738,7 @@ var PMSG={ruolo:"Questo ruolo non può avere l'accesso ai documenti.",area:"Prim
   troppi:"Hai già mandato 3 inviti a questa persona nell'ultima ora: riprova più tardi.",disattivato:"Questo accesso è stato disattivato: scrivici su WhatsApp.",spento:"L'accesso professionisti non è attivo.",
   persona:"Persona non trovata: ricarica la pagina.",nessuno:"Non c'è un accesso da cambiare: manda prima l'invito.",gettone:"Accesso scaduto: ricarica la pagina.",cantiere:"Cantiere non trovato: ricarica la pagina."};
 function pfStato(a){if(!a)return "Non ha ancora l'accesso ai documenti.";
-  if(a.stato==="attivo")return "<b>Attivo</b>"+(a.ultimo_accesso?" · ultimo accesso il "+esc(a.ultimo_accesso):"")+(a.aperture?" · ha aperto la Sicurezza "+a.aperture+(a.aperture===1?" volta":" volte")+(a.ultima_apertura?", l'ultima il "+esc(a.ultima_apertura):""):"");
+  if(a.stato==="attivo")return "<b>Attivo</b>"+(a.ultimo_accesso?" · ultimo accesso il "+esc(a.ultimo_accesso):"")+(a.aperture?" · ha aperto i documenti "+a.aperture+(a.aperture===1?" volta":" volte")+(a.ultima_apertura?", l'ultima il "+esc(a.ultima_apertura):""):"");
   if(a.stato==="invitato")return "Invito mandato il "+esc(a.invitato_il||"")+" a <b>"+esc(a.email||"")+"</b>: deve ancora scegliere la password.";
   if(a.stato==="invito_scaduto")return "L'invito del "+esc(a.invitato_il||"")+" è scaduto: mandane uno nuovo.";
   if(a.stato==="revocato")return "Accesso tolto il "+esc(a.revocato_il||"")+".";
@@ -745,7 +747,7 @@ function pfBox(p,x){var a=x.accesso,h='<div class="pf"><div class="pf-t">&#12827
   if(!p.vede_area)return h+'<div class="pf-s">Per dargli l\'accesso ai documenti accendi «Vede l\'area riservata».</div></div>';
   h+='<div class="pf-s">'+pfStato(a)+'</div>';
   if(a&&a.stato!=="revocato"){var nomi=(a.sezioni||[]).map(function(k){var s=(PROF.sezioni||[]).filter(function(z){return z.chiave===k;})[0];return s?s.etichetta:k;});
-    h+='<div class="pf-s">Vede: <b>'+esc(nomi.join(", "))+'</b> · avvisi per email: <b>'+(a.avvisi==="no"?"nessuno":"a ogni documento nuovo")+'</b></div>';
+    h+='<div class="pf-s">Vede: <b>'+esc(nomi.join(", "))+'</b> · avvisi per email: <b>'+(a.avvisi==="no"?"nessuno":"accesi")+'</b></div>';
     if(a.avvisi_n)h+='<div class="pf-s">Documenti avvisati per email: '+a.avvisi_n+(a.ultimo_avviso?" · l'ultimo avviso è partito il "+esc(a.ultimo_avviso):"")+'</div>';}
   h+='<div class="azioni">';
   if(!a||a.stato==="revocato")h+='<button class="btn sm pr" type="button" data-pf-inv="'+p.id+'">'+(a?"Ridai l'accesso e manda l'invito":"Dai l'accesso e manda l'invito")+'</button>';
@@ -762,9 +764,9 @@ function pfApri(p,modo){var x=PROF.persone[String(p.id)],a=x&&x.accesso;PFC={id:
   $("pf-nome").textContent=p.nome;$("pf-mail").value=p.email||"";$("pf-mail-box").hidden=modo!=="invita";
   $("pf-ok").textContent=modo==="invita"?"Manda l'invito":"Salva";
   var sel=(a&&a.stato!=="revocato"&&a.sezioni)?a.sezioni:null;
-  $("pf-sez").innerHTML=(PROF.sezioni||[]).map(function(s){var on=sel?sel.indexOf(s.chiave)>=0:s.aperta;
+  $("pf-sez").innerHTML=(PROF.sezioni||[]).map(function(s){var on=sel?sel.indexOf(s.chiave)>=0:(x&&x.proposte?x.proposte.indexOf(s.chiave)>=0:s.aperta);
     return '<label class="spunta"><input type="checkbox" value="'+esc(s.chiave)+'"'+(on&&s.aperta?" checked":"")+(s.aperta?"":" disabled")+'> <span>'+esc(s.etichetta)+(s.aperta?"":" (non ancora accesa)")+'</span></label>';}).join("")+
-    '<p class="sotto" style="margin:6px 0 0">Diario, DDT, Cronoprogramma e SAL arriveranno qui più avanti.</p>';
+    '<p class="sotto" style="margin:6px 0 0">Diario, SAL, Economie e Agenda arriveranno qui più avanti.</p>';
   var avv=(a&&a.avvisi==="no")?"no":"subito";document.querySelectorAll('input[name="pf-avv"]').forEach(function(r){r.checked=r.value===avv;});
   $("velo-prof").hidden=false;}
 $("gruppi").addEventListener("click",function(e){var b=e.target.closest("button");if(!b||!PROF)return;

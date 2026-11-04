@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // Accesso professionisti (03/11/2026, chat 02A, «accesso-professionisti-1»): Direttore dei Lavori, CSE, ingegnere strutturista,
 // committente. Entrano con email e password PERSONALI (tabelle prof_* del database) e vedono in sola lettura solo i cantieri in
-// cui l'impresa li ha invitati da «Persone del cantiere», con le sezioni scelte (in P1 solo la Sicurezza).
+// cui l'impresa li ha invitati da «Persone del cantiere», con le sezioni scelte (P1: Sicurezza; dal 04/11/2026, P2a: anche
+// «DDT e documenti» e «Cronoprogramma», con l'interruttore impostazioni.professionisti_p2).
 // «Porta separata»: il loro gettone non è mai un gettone dell'impresa (dashboard_accessi), quindi le pagine e le funzioni
 // dell'impresa non lo riconoscono. Il gettone sta in un cookie HttpOnly (tix_prof), mai nell'indirizzo.
 //   GET      /studio                               → i cantieri del professionista
-//   GET      /studio/cantiere?c=…                  → il cantiere: Sicurezza in sola lettura
-//   GET      /studio/file?c=…&d=…[&scarica=1]      → il file di un documento (registrato in prof_registro)
+//   GET      /studio/cantiere?c=…[&s=…]            → il cantiere, una sezione per volta (sicurezza / ddt / crono), in sola lettura
+//   GET      /studio/file?c=…&d=…[&scarica=1]      → il file di un documento della Sicurezza (registrato in prof_registro)
+//   GET      /studio/ddt?c=…&d=…[&scarica=1]       → la foto di un DDT (registrata in prof_registro)
 //   GET/POST /studio/password?c=…                  → scelta della password (invito o «Password dimenticata?»)
 //   GET      /studio/esci                          → esce
 // L'accesso con email e password passa da /accedi (index.js): prima portale_login, poi prof_login (studioAccedi).
@@ -59,6 +61,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (sotto === "/studio" || sotto === "/studio/") return elenco(request, env, base, h, tok);
   if (sotto === "/studio/cantiere") return cantiere(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/file") return file(request, env, base, inUrl, h, tok);
+  if (sotto === "/studio/ddt") return fileDdt(request, env, base, inUrl, h, tok);
   return new Response("Not Found", { status: 404 });
 }
 
@@ -73,7 +76,7 @@ async function elenco(request, env, base, h, tok) {
     corpo += '<p class="nota">Per ora non hai cantieri. Quando un\'impresa ti dà accesso ai documenti di un cantiere ricevi un\'email e il cantiere compare qui.</p>';
   }
   for (const c of cant) {
-    const sez = (c.sezioni || []).map((s) => s === "sicurezza" ? '<span class="chip sic">Sicurezza</span>' : "").join("");
+    const sez = (c.sezioni || []).map((s) => SEZIONI[s] ? '<span class="chip ' + SEZIONI[s][1] + '">' + SEZIONI[s][0] + "</span>" : "").join("");
     corpo += '<a class="scheda" href="' + e(base + "/studio/cantiere?c=" + c.id) + '">' +
       '<div class="riga"><div class="nome">' + e(c.nome) + '</div>' +
       (c.documenti_nuovi > 0 ? '<span class="nuovi">' + c.documenti_nuovi + (c.documenti_nuovi === 1 ? " documento nuovo" : " documenti nuovi") + '</span>' : "") + '</div>' +
@@ -99,15 +102,32 @@ async function cantiere(request, env, base, inUrl, h, tok) {
       torna + '<p class="nota">Questo cantiere non è più tra quelli che puoi vedere: l\'impresa può aver tolto l\'accesso, oppure il cantiere è chiuso da più di 90 giorni.</p>', 404);
   }
   let corpo = torna;
-  if ((ca.sezioni || []).indexOf("sicurezza") !== -1) {
+  // una sezione per volta: quella chiesta con ?s=, altrimenti la prima aperta (nell'ordine di _prof_sezioni)
+  const sez = (ca.sezioni || []).filter((s) => SEZIONI[s]);
+  const chiesta = String(inUrl.searchParams.get("s") || "");
+  const s = sez.indexOf(chiesta) !== -1 ? chiesta : sez[0];
+  if (sez.length > 1) {
+    corpo += '<nav class="sezioni" aria-label="Sezioni del cantiere">' +sez.map((k) => '<a href="' + e(base + "/studio/cantiere?c=" + c + "&s=" + k) + '"' +
+      (k === s ? ' class="on" aria-current="page"' : "") + ">" + SEZIONI[k][0] + "</a>").join("") + "</nav>";
+  }
+  if (s === "sicurezza") {
     const d = await h.rpc(env, "prof_sicurezza", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     corpo += sicurezza(base, c, d, e);
+  } else if (s === "ddt") {
+    const d = await h.rpc(env, "prof_ddt", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+    corpo += ddt(base, c, d, e);
+  } else if (s === "crono") {
+    const d = await h.rpc(env, "prof_crono", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+    corpo += crono(base, d);
   } else {
     corpo += '<p class="nota">L\'impresa non ti ha ancora aperto nessuna sezione di questo cantiere.</p>';
   }
   const sotto = e(ca.impresa || "") + (ca.ubicazione ? " · " + e(ca.ubicazione) : "") + " · " + e(ca.ruolo || "");
   return pagina(request, base, h, ca.nome, el.utente, sotto, corpo);
 }
+
+// le sezioni che le pagine conoscono: nome della scheda e classe del bollino nell'elenco dei cantieri
+const SEZIONI = { sicurezza: ["Sicurezza", "sic"], ddt: ["DDT e documenti", "ddt"], crono: ["Cronoprogramma", "cro"] };
 
 const STATI = { da_verificare: ["Da verificare", "st-am"], visto_cse: ["Visto dal CSE", "st-ok"], superato: ["Superato", "st-gr"] };
 function giorno(s) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : ""; }
@@ -158,6 +178,53 @@ function riga(base, c, x, e) {
     (st[0] ? '<span class="chip ' + st[1] + '">' + st[0] + "</span>" : "") + "</div>" +
     '<div class="sub">' + meta + "</div>" + (scad ? '<div class="chips">' + scad + "</div>" : "") +
     (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
+}
+
+// ---------------------------------------------------------------------------- DDT e documenti (P2a, 04/11/2026)
+// prof_ddt: i documenti registrati e confermati del cantiere (registro_documenti), il più recente in cima.
+function ddt(base, c, d, e) {
+  let h = '<section class="scheda"><div class="riga"><h2 class="sz"><span class="ic-ddt" aria-hidden="true">&#128666;</span>DDT e documenti</h2><span class="chip">Sola lettura</span></div>';
+  if (!d) return h + '<p class="nota">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p></section>';
+  if (d.esito !== "ok") return h + '<p class="nota">I DDT di questo cantiere non sono disponibili in questo momento.</p></section>';
+  const docs = d.documenti || [];
+  if (!docs.length) h += '<p class="nota">L\'impresa non ha ancora registrato DDT o documenti per questo cantiere.</p>';
+  for (const x of docs) h += rigaDdt(base, c, x, e);
+  h += '<p class="nota">I dati sono letti dalla foto del documento e confermati dall\'impresa. TIX non ne controlla il contenuto: in caso di dubbio fa fede il documento.</p>';
+  return h + "</section>";
+}
+
+function rigaDdt(base, c, x, e) {
+  const titolo = e(x.tipo || "DDT") + (x.numero ? " n. " + e(x.numero) : "") + (x.data ? " del " + e(x.data) : "");
+  const dati = [["Fornitore", x.fornitore], ["Materiale", x.materiale], ["Quantità", x.quantita], ["Ordine", x.ordine], ["CIG", x.cig], ["CUP", x.cup]]
+    .filter((y) => y[1]).map((y) => y[0] + ": <b>" + e(y[1]) + "</b>").join(" · ");
+  const url = base + "/studio/ddt?c=" + c + "&d=" + x.id;
+  const apri = x.foto
+    ? '<div class="azioni"><a class="btn pr" href="' + e(url) + '" target="_blank" rel="noopener">Apri la foto</a><a class="btn" href="' + e(url + "&scarica=1") + '">Scarica</a></div>'
+    : '<p class="sub">La foto di questo documento non è disponibile.</p>';
+  return '<article class="doc"><div class="nome">' + titolo + "</div>" + (dati ? '<div class="sub">' + dati + "</div>" : "") +
+    '<div class="sub">registrato il ' + oraRoma(x.registrato_il) + "</div>" + apri + "</article>";
+}
+
+// prof_ddt restituisce l'ora come timestamptz (UTC): qui si mostra quella di Roma
+function oraRoma(s) {
+  const t = new Date(String(s || ""));
+  if (isNaN(t.getTime())) return "";
+  const p = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(t);
+  const v = (k) => (p.find((x) => x.type === k) || {}).value || "";
+  return v("day") + "/" + v("month") + "/" + v("year") + " alle " + v("hour") + ":" + v("minute");
+}
+
+// ---------------------------------------------------------------------------- Cronoprogramma (P2a, 04/11/2026)
+// prof_crono: lo stesso documento dell'impresa (crono_scheda_html), già senza i «Lavori fuori programma». È HTML del database,
+// con i suoi stili; i caratteri hanno indirizzi relativi alla radice dell'area (caratteri/…), che da /studio non tornerebbero.
+function crono(base, d) {
+  let h = '<section class="scheda"><div class="riga"><h2 class="sz"><span class="ic-cro" aria-hidden="true">&#128197;</span>Cronoprogramma</h2><span class="chip">Sola lettura</span></div>';
+  if (!d) return h + '<p class="nota">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p></section>';
+  if (d.esito !== "ok") return h + '<p class="nota">Il cronoprogramma di questo cantiere non è disponibile in questo momento.</p></section>';
+  if (!d.attivo) return h + '<p class="nota">L\'impresa non ha ancora caricato il cronoprogramma di questo cantiere.</p></section>';
+  const doc = String(d.html || "").replace(/url\(caratteri\//g, "url(" + base + "/caratteri/");
+  return h + '<div class="azioni"><button class="btn" type="button" id="stampa">Stampa</button></div><div class="cro">' + doc + "</div>" +
+    '<p class="nota">È lo stesso cronoprogramma che vede l\'impresa, aggiornato con quello che arriva dal cantiere. I lavori fuori programma non compaiono qui.</p></section>';
 }
 
 // ---------------------------------------------------------------------------- file
@@ -224,6 +291,44 @@ function servi(f, info, scarica, metodo) {
   return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: hd });
 }
 
+// ---------------------------------------------------------------------------- foto di un DDT (P2a, 04/11/2026)
+// prof_ddt_file controlla gettone, cantiere e sezione, scrive nel registro e dà il percorso nell'archivio privato wa-media.
+async function fileDdt(request, env, base, inUrl, h, tok) {
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("d") || "");
+  const scarica = inUrl.searchParams.get("scarica") === "1";
+  const e = h.esc;
+  const indietro = '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "&s=ddt") + '">Torna ai DDT</a>';
+  if (!UUID.test(c) || !/^[0-9]{1,15}$/.test(id)) return h.risposta(h.foglio(base, "Documento non trovato", "", indietro), 404);
+  const info = await h.rpc(env, "prof_ddt_file", { p_token: tok, p_commessa: c, p_id: Number(id) }, 10000).catch(() => null);
+  if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Documento", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (info.esito === "gettone" || info.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (info.esito !== "ok" || String(info.commessa_id || "") !== c) return h.risposta(h.foglio(base, "Documento non disponibile", "", indietro), 404);
+  const ps = String(info.percorso || "");
+  if (!ps || ps.charAt(0) === "/" || ps.indexOf("..") !== -1) return h.risposta(h.foglio(base, "Documento non disponibile", "", indietro), 404);
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (f && f.ok) return serviDdt(f, info, scarica, request.method);
+  if (f && (f.status === 400 || f.status === 404)) return h.risposta(h.foglio(base, "Documento", "La foto di questo documento non è più nell'archivio.", indietro), 404);
+  return h.risposta(h.foglio(base, "Documento", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
+}
+
+// Anche qui il tipo lo decide la riga del database (media_ricevuti.mime), e solo tra quelli che il browser può mostrare.
+const TIPI_DDT = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+function serviDdt(f, info, scarica, metodo) {
+  const tipo = TIPI_DDT.indexOf(info.mime) !== -1 ? info.mime : "application/octet-stream";
+  const nome = String(info.nome || "documento");
+  const ascii = nome.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || "documento";
+  const hd = {
+    "Content-Type": tipo,
+    "Content-Disposition": (scarica || tipo === "application/octet-stream" ? "attachment" : "inline") + '; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff"
+  };
+  const lun = f.headers.get("Content-Length");
+  if (lun && /^[0-9]+$/.test(lun)) hd["Content-Length"] = lun;
+  return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: hd });
+}
+
 // ---------------------------------------------------------------------------- scelta della password
 async function password(request, env, base, inUrl, h) {
   const metodo = request.method;
@@ -278,15 +383,16 @@ function pagina(request, base, h, titolo, utente, sottotitolo, corpo, stato) {
     '<main class="corpo"><div class="in">' + corpo + "</div></main>" +
     // chi è anche utente di un'impresa (accesso ricordato dal browser) ci torna con un tocco, senza uscire
     "<script>(function(){try{var s=localStorage.getItem(\"gl_portale_t\");if(s&&/^[0-9a-f]{64}$/.test(s)){var a=document.getElementById(\"impresa\");" +
-    "a.href=" + JSON.stringify(base) + "+\"/?t=\"+s;a.hidden=false}}catch(e){}})();</script></body></html>";
+    "a.href=" + JSON.stringify(base) + "+\"/?t=\"+s;a.hidden=false}}catch(e){}" +
+    "var b=document.getElementById(\"stampa\");if(b)b.addEventListener(\"click\",function(){window.print()})})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: stato || 200, headers: h.headers() });
 }
 
 const STILE = "[hidden]{display:none!important}" +
   ":root{--navy:#1B2F4A;--arancio:#F26A10;--sic:#0CA678;--sic-s:#065F46;--sic-f:#E6F7F0;--bg:#F3F5F7;--carta:#fff;--t:#17212E;--s:#5B6672;--l:#D9DFE6;--chip:#EAF0F6;" +
-  "--ro:#B3261E;--ro-f:#FDECEA;--am:#9A4308;--am-f:#FFF3E8;--gr:#5B6672;--gr-f:#EEF1F4}" +
+  "--ro:#B3261E;--ro-f:#FDECEA;--am:#9A4308;--am-f:#FFF3E8;--gr:#5B6672;--gr-f:#EEF1F4;--ddt-s:#7A4A12;--ddt-f:#FBF1E4;--cro-s:#1F5E8C;--cro-f:#E7F0F8}" +
   "@media (prefers-color-scheme:dark){:root{--bg:#0F1722;--carta:#172231;--t:#E8EDF3;--s:#9AA8B8;--l:#2A3A4E;--chip:#203047;--sic-f:#0F3326;--sic-s:#7FE0BF;" +
-  "--ro-f:#3A1A18;--ro:#F07A6E;--am-f:#3A2410;--am:#F5B37A;--gr-f:#243244;--gr:#B7C3D1;color-scheme:dark}}" +
+  "--ro-f:#3A1A18;--ro:#F07A6E;--am-f:#3A2410;--am:#F5B37A;--gr-f:#243244;--gr:#B7C3D1;--ddt-s:#F2C792;--ddt-f:#3A2A14;--cro-s:#9CC8EC;--cro-f:#16314A;color-scheme:dark}}" +
   "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif;font-size:16px;line-height:1.45}" +
   ".testa{background:var(--navy);color:#fff;padding:14px 16px 20px}.in{max-width:720px;margin:0 auto}" +
   // 31/10/2026 (Filippo): sul computer le pagine sono larghe fino a 1600 px (dal 03/11/2026, prima 1000), con almeno 48 px per lato;
@@ -323,4 +429,18 @@ const STILE = "[hidden]{display:none!important}" +
   ".btn.pr{background:var(--arancio);border-color:var(--arancio);color:#fff}" +
   ".btn:focus-visible,a:focus-visible{outline:3px solid var(--arancio);outline-offset:2px}" +
   ".nota{border:1px dashed var(--l);border-radius:12px;padding:10px 12px;color:var(--s);font-size:.88rem;margin:14px 0 0}" +
+  // P2a (04/11/2026): schede delle sezioni, DDT e Cronoprogramma. «nav.sezioni» e non «nav.schede»: lo stile premium dà a
+  // nav.schede la barra a vetro delle schede dell'impresa, chiara anche con il tema scuro
+  ".sezioni{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}.sezioni a{padding:7px 14px;border-radius:999px;border:1px solid var(--l);background:var(--carta);color:var(--t);" +
+  "font-weight:700;font-size:.92rem;text-decoration:none;min-height:38px;display:inline-flex;align-items:center}.sezioni a.on{background:var(--navy);border-color:var(--navy);color:#fff}" +
+  ".chip.ddt{background:var(--ddt-f);color:var(--ddt-s)}.chip.cro{background:var(--cro-f);color:var(--cro-s)}" +
+  ".ic-ddt,.ic-cro{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem}" +
+  ".ic-ddt{background:linear-gradient(135deg,#F6C88A,#C9832B 45%,#7A4A12)}.ic-cro{background:linear-gradient(135deg,#8CC4EE,#2F7DB8 45%,#1F5E8C)}" +
+  // il cronoprogramma ha già il suo foglio bianco (.cr-doc), anche con il tema scuro, come quello stampato
+  ".cro{margin-top:12px;overflow-x:auto;color-scheme:light}" +
+  // lo stile premium dà a ogni «.p» l'aspetto di una scheda: nel cronoprogramma «td.p» è la colonna delle percentuali
+  ".cro .cr-tab td.p,.cro .cr-tab td.p:hover{border-radius:0;background-image:none;box-shadow:none;transition:none;transform:none}" +
+  "@media print{.sezioni,#stampa,.cro~.nota{display:none}}" +
+  // lo stile premium dà alle schede un riflesso bianco: con il tema scuro schiarisce il fondo e il titolo non si legge
+  "@media (prefers-color-scheme:dark){.corpo .scheda{background-image:none}.sezioni a.on{background:var(--t);border-color:var(--t);color:var(--bg)}}" +
   "@media (prefers-reduced-motion:reduce){*{transition:none!important}}";
