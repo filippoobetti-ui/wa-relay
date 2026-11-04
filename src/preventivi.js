@@ -15,7 +15,9 @@
 // «Prepara con TIX» (03/11/2026, preventivi-ia-1; nome e logo TIX da preventivi-tix-1): nella bozza si allegano file o link
 // (computo SOLO in Excel, tavole e relazioni in PDF); la funzione preventivo-ia li legge e TIX, con l'intelligenza artificiale,
 // compila le voci, segnate verde / giallo / rosso, da controllare. Dal 03/11 sera (preventivi-pdf-1) relazioni e tavole le legge
-// Claude in PDF: la funzione non li apre più (ogni sua chiamata ha ~2 secondi di calcolo).
+// Claude in PDF: la funzione non li apre più (ogni sua chiamata ha ~2 secondi di calcolo). Dal 04/11 (preventivi-appr-1) si
+// sceglie anche la lettura «Normale» o «Approfondita» (voce per voce: prezzo adeguato con il calcolo, analisi del prezzo,
+// confronto con i prezzi dell'impresa, controllo finale), ognuna con il suo costo.
 //   POST /preventivi/api  azione ia_dati | ia_nuova | ia_lavoro | ia_link | ia_tipo_file | ia_togli_file | ia_controlla |
 //                         ia_parti | ia_annulla | ia_conferma | ia_scegli | ia_conferma_verdi | ia_togli_ia
 //   POST /preventivi/ia/file?t&id&nome              → un file per la lettura (corpo = il file, Excel o PDF, fino a 18 MB)
@@ -56,7 +58,7 @@ function pulisci(d) {
   const testi = { id: 36, commessa_id: 36, voce_id: 20, titolo: 200, cliente_nome: 200, cliente_indirizzo: 300, cliente_piva: 40,
     cliente_email: 200, indirizzo_lavoro: 300, note: 2000, validita_giorni: 6, oneri_sicurezza: 20, sconto: 20, prezzario_id: 6,
     fonte: 12, rif: 60, codice: 60, descrizione: 6000, unita: 20, prezzo: 20, quantita: 20, verso: 4, data: 10, chi: 200, nota: 500,
-    lavoro: 1000, link: 600, tipo: 12, modalita: 8, file_id: 20, alt: 3 };
+    lavoro: 1000, link: 600, tipo: 12, modalita: 8, profondita: 12, file_id: 20, alt: 3 };
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if ("ribasso_applicato" in x) o.ribasso_applicato = x.ribasso_applicato === true || x.ribasso_applicato === "true";
   if ("leggi" in x) o.leggi = x.leggi === true || x.leggi === "true";
@@ -283,7 +285,7 @@ const STILE_IA =
   ".pv-ia-stima{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}.pv-ia-stima div{padding:10px 12px;border-radius:12px;background:#fff;border:1px solid var(--l)}" +
   ".pv-ia-stima span{display:block;font-size:.76rem;color:var(--s);font-weight:600}.pv-ia-stima b{display:block;margin-top:2px;font-size:1.1rem;color:var(--navy)}" +
   ".pv-ia-stima small{display:block;font-size:.74rem;color:var(--s);margin-top:2px;line-height:1.35}.pv-ia-stima .soldi{border-color:var(--pv-b);background:var(--pv-f)}.pv-ia-stima .soldi b{color:var(--pv-s)}" +
-  ".pv-ia-vel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}.pv-ia-vel .et{font-size:.82rem;font-weight:700;color:var(--s)}.pv-ia-vel em{font-style:normal;font-weight:600;opacity:.85;font-size:.8rem}" +
+  ".pv-ia-appr{margin-top:6px;max-width:760px}.pv-ia-vel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}.pv-ia-vel .et{font-size:.82rem;font-weight:700;color:var(--s)}.pv-ia-vel em{font-style:normal;font-weight:600;opacity:.85;font-size:.8rem}" +
   ".pv-ia-att{display:flex;gap:12px;align-items:center;margin-top:12px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--l)}.pv-ia-att b{color:var(--pv-s)}" +
   ".pv-ia-att small{display:block;color:var(--s);font-size:.82rem;margin-top:3px;line-height:1.4}" +
   ".pv-ia-gira{flex:none;width:26px;height:26px;border-radius:50%;border:3px solid var(--pv-b);border-top-color:var(--pv);animation:pv-gira 1s linear infinite}@keyframes pv-gira{to{transform:rotate(360deg)}}" +
@@ -756,7 +758,7 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
  if(l.errore&&mod)h+='<p class="pv-msg ko">'+es(l.errore)+'</p>';
  if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa preparare le voci.</span></div>';
  if(s==='stima')h+=stimaIa(l);
- if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito qualche minuto: TIX controlla un file per volta.':(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.'))+
+ if(!mod)h+='<div class="pv-ia-att"><div class="pv-ia-gira"></div><div><b>'+es(l.passo||PASSI[s]||'')+'</b><small>'+(s==='controllo'?'Di solito qualche minuto: TIX controlla un file per volta.':(l.profondita==='approfondita'?(l.modalita==='subito'?'Lettura approfondita, «Subito»: circa 10 minuti.':'Lettura approfondita, «Senza fretta»: di solito entro due ore, al massimo un giorno.'):(l.modalita==='subito'?'Velocità «Subito»: pochi minuti.':'Velocità «Senza fretta»: di solito entro un\'ora, al massimo un giorno.')))+
   (l.partita_il?' Partita alle '+ora(l.partita_il)+'.':'')+' Puoi chiudere la pagina: il lavoro continua.</small></div></div>';
  h+='<p class="pv-msg'+(IA_MSG&&IA_MSG.cl?' '+IA_MSG.cl:'')+'" id="pv-ia-msg" aria-live="polite">'+es(IA_MSG?IA_MSG.t:'')+'</p></div>';
  box.innerHTML=h;
@@ -768,19 +770,24 @@ function rigaFileIa(f,mod){var est=f.fonte==='link'?'LINK':(/\.(xlsx|xls|xlsm|od
   (mod?'<select data-iatipo="'+f.id+'" aria-label="Che cos\'è">'+['computo','relazione','tavole'].map(function(t){return '<option value="'+t+'"'+(f.tipo===t?' selected':'')+'>'+TIPI[t]+'</option>';}).join('')+'</select>'+
    '<label class="pv-ia-sp"><input type="checkbox" data-ialeggi="'+f.id+'"'+(f.leggi?' checked':'')+'> Leggi</label><button type="button" class="pv-ia-x" data-iax="'+f.id+'" title="Togli" aria-label="Togli">×</button>'
    :'<span class="pv-ia-st">'+es(TIPI[f.tipo]||'')+(f.leggi?'':' · non letto')+'</span>')+'</div>';}
-function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',costo=sub?t.usd_subito:t.usd_senza_fretta;
+function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',ap=l.profondita==='approfondita',manca=ap&&t.usd_appr_batch==null,
+ costo=ap?(sub?t.usd_appr_subito:t.usd_appr_batch):(sub?t.usd_subito:t.usd_senza_fretta);
  var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con TIX · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
   '<div><span>Relazioni</span><b>'+docTxt(t.pagine_relazioni,t.file_relazioni)+'</b><small>lette da TIX in PDF</small></div>'+
   '<div><span>Tavole</span><b>'+docTxt(t.pagine_tavole,t.file_tavole)+'</b><small>lette da TIX in PDF</small></div>'+
-  '<div class="soldi"><span>Costo stimato</span><b>'+usd(costo)+' $</b><small>+ IVA · '+(sub?'pochi minuti':'di solito entro un\'ora')+'</small></div></div>';
+  '<div class="soldi"><span>Costo stimato</span><b>'+(manca?'—':usd(costo)+' $')+'</b><small>'+(manca?'premi «Controlla di nuovo»':'+ IVA · '+(ap?(sub?'circa 10 minuti':'di solito entro due ore'):(sub?'pochi minuti':'di solito entro un\'ora')))+'</small></div></div>';
  if((t.avvisi||[]).length)h+='<p class="pv-avviso">'+t.avvisi.map(es).join('<br>')+'</p>';
+ h+='<div class="pv-ia-vel"><span class="et">Lettura</span><button type="button" class="pv-chip'+(ap?'':' on')+'" data-iaprof="normale">Normale</button>'+
+  '<button type="button" class="pv-chip'+(ap?' on':'')+'" data-iaprof="approfondita">Approfondita <em>· voce per voce</em></button></div>'+
+  (ap?'<p class="pv-ia-nota pv-ia-appr">Più voci simili per ogni voce, con le varianti e i sovrapprezzi; il prezzo adeguato con il calcolo scritto; l\'analisi del prezzo per le voci che nel prezzario non ci sono; il confronto con i tuoi prezzi e un controllo finale di tutte le voci.</p>':'');
  h+='<div class="pv-ia-vel"><span class="et">Velocità</span><button type="button" class="pv-chip'+(sub?'':' on')+'" data-iamod="batch">Senza fretta <em>· metà prezzo</em></button>'+
   '<button type="button" class="pv-chip'+(sub?' on':'')+'" data-iamod="subito">Subito <em>· prezzo pieno</em></button></div>'+
   '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-parti">Prepara il preventivo</button><button type="button" class="pv-b" id="pv-ia-ricontrolla">Controlla di nuovo</button>'+
   '<span class="pv-ia-nota">Le voci che ci sono già restano. Quelle di TIX si aggiungono sotto, segnate, e le controlli una per una prima di mandare il preventivo.</span></div>';
  return h;}
-function esitoIa(l){var r=l.riepilogo||{},h='<div class="pv-ia-esito"><p class="pv-ia-rie">Ultima lettura: '+pl(r.scritte,'voce aggiunta','voci aggiunte')+' · '+(r.per_codice||0)+' con il prezzo per codice · '+
-  pl(r.scelte_ia,'scelta da TIX','scelte da TIX')+' · '+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole · costo '+usd(l.costo_usd)+' $ + IVA</p>';
+function esitoIa(l){var r=l.riepilogo||{},ap=r.profondita==='approfondita',h='<div class="pv-ia-esito"><p class="pv-ia-rie">'+(ap?'Ultima lettura approfondita: ':'Ultima lettura: ')+pl(r.scritte,'voce aggiunta','voci aggiunte')+' · '+(r.per_codice||0)+' con il prezzo per codice · '+
+  pl(r.scelte_ia,'scelta da TIX','scelte da TIX')+' · '+(ap?pl(r.adeguati,'prezzo adeguato','prezzi adeguati')+' · '+pl(r.analisi,'analisi del prezzo','analisi del prezzo')+' · ':'')+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole'+
+  (ap?' · '+pl(r.segnalazioni,'segnalazione del controllo finale','segnalazioni del controllo finale'):'')+' · costo '+usd(l.costo_usd)+' $ + IVA</p>';
  if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
  h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
   (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file non restano in TIX: resta questo elenco, con le impronte.</small></details></div>';
@@ -798,6 +805,7 @@ function legaIa(l){
  var rc=$('pv-ia-ricontrolla');if(rc)rc.onclick=function(){azIa('controlla',{},rc);};
  var pa=$('pv-ia-parti');if(pa)pa.onclick=function(){parti(pa,false);};
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iamod]'),function(b){b.onclick=function(){azIa('lavoro',{modalita:b.getAttribute('data-iamod')},b);};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iaprof]'),function(b){b.onclick=function(){azIa('lavoro',{profondita:b.getAttribute('data-iaprof')},b);};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iatipo]'),function(s){s.onchange=function(){azIa('tipo_file',{file_id:s.getAttribute('data-iatipo'),tipo:s.value});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-ialeggi]'),function(c){c.onchange=function(){azIa('tipo_file',{file_id:c.getAttribute('data-ialeggi'),leggi:c.checked});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iax]'),function(b){b.onclick=function(){azIa('togli_file',{file_id:b.getAttribute('data-iax')},b);};});}
