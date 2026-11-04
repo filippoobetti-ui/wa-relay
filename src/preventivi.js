@@ -954,7 +954,7 @@ function foglio(base, h, tok, d) {
   const del = (s) => (/^(8|11?)(,|$)|^8/.test(s) ? "dell'" : "del ") + s;
   const fonti = [];
   if (voci.some((v) => v.fonte === "contratto")) fonti.push("dall'elenco prezzi del contratto" + (k && k.data_contratto ? " del " + dataIt(k.data_contratto) : ""));
-  if (voci.some((v) => v.fonte === "prezzario") && z) fonti.push("dal " + z.titolo + (z.delibera ? " (" + z.delibera + ")" : ""));
+  // 04/11/2026 (preventivi-stampa-2, Filippo): nel foglio per il cliente non si dice da quale prezzario vengono i prezzi
   const sigla = String(imp.nome || "").split(/[\s.,&'’-]+/).filter((x) => x && !/^(s\.?r\.?l|s\.?p\.?a|s\.?n\.?c|s\.?a\.?s|di|e|ed|la|il)$/i.test(x))
     .slice(0, 2).map((x, i, a) => a.length === 1 ? x.slice(0, 2) : x[0]).join("").toUpperCase();
   const logo = /^https:\/\/[^\s"'<>]+$/.test(String(imp.logo_url || "")) ? '<img class="logo-img" src="' + e(imp.logo_url) + '" alt="" onerror="this.remove()">'
@@ -967,12 +967,18 @@ function foglio(base, h, tok, d) {
   const n2 = (n) => (n === null || n === undefined || n === "" ? "" : String(n).padStart(2, "0"));
   const nomeCat = (v) => (v.cat_n != null || v.cat_nome ? "CATEGORIA " + n2(v.cat_n) + (v.cat_nome ? " — " + v.cat_nome : "") : "");
   const nomeSez = (v) => (v.sez_n != null || v.sez_nome ? (v.sez_nome || "") + (v.sez_n != null ? " (SpCat " + v.sez_n + ")" : "") : "");
-  const fuoriTxt = (v) => (v.stato === "da_quotare" ? "da quotare con l'offerta del fornitore" : v.stato === "esclusa" ? "esclusa" : "NP – nuovo prezzo da analizzare");
+  // preventivi-stampa-2: il motivo per il cliente, senza dire da dove vengono i prezzi
+  const fuoriTxt = (v) => (v.stato === "da_quotare" ? "da quotare con l'offerta del fornitore" : v.stato === "esclusa" ? "esclusa"
+    : !Number(v.quantita) ? "NP – prezzo da definire: mancano le quantità" : "NP – prezzo da definire per mancanza di dati tecnici");
+  // nella colonna «Tariffa» solo il codice del computo del cliente o dell'elenco prezzi del suo contratto, mai quello messo da TIX
+  const tariffa = (v) => v.codice_computo || (v.fonte === "contratto" ? v.codice : "") || "";
+  // sotto la descrizione solo il riferimento al contratto del cliente o agli elaborati di progetto
+  const fonteFoglio = (v) => (v.extra ? "Da: " + (v.riferimento || "elaborati di progetto") : v.fonte === "contratto" ? "Elenco prezzi del contratto" : "");
   const voce = (v, nr, testa) => {
     const mis = Array.isArray(v.misure) ? v.misure : [];
     const dentro = v.extra ? !!v.prezzo && ["ok", "da_verificare"].includes(v.stato) : nel(v);
-    return '<tbody class="vg">' + testa + '<tr class="v' + (dentro ? "" : " fuori") + '"><td class="c">' + e(nr) + '</td><td class="tar">' + e(v.codice || v.codice_computo || "") + '</td><td class="des">' + e(v.descrizione) +
-      '<span class="fonte">' + e(v.extra ? "Da: " + (v.riferimento || "elaborati di progetto") + (v.affidabilita ? " · " + String(v.affidabilita).replace("_", " ") : "") : nomeFonte(v)) +
+    return '<tbody class="vg">' + testa + '<tr class="v' + (dentro ? "" : " fuori") + '"><td class="c">' + e(nr) + '</td><td class="tar">' + e(tariffa(v)) + '</td><td class="des">' + e(v.descrizione) +
+      '<span class="fonte">' + e(fonteFoglio(v)) +
       (senzaRib(v) && dentro ? '<span class="sr">senza ribasso</span>' : "") + (dentro ? "" : '<span class="sr np">' + e(fuoriTxt(v)) + "</span>") + "</span></td>" + "<td></td>".repeat(7) + "</tr>" +
       mis.map((m) => '<tr class="m"><td></td><td></td><td class="des">' + e(m.dove || "") + "</td>" +
         ["parti", "lun", "lar", "alt"].map((x) => '<td class="r">' + (vuoto(m[x]) ? "" : cifra(m[x], x === "parti" && Number.isInteger(Number(m[x])) ? 0 : 2)) + "</td>").join("") +
@@ -1013,8 +1019,9 @@ function foglio(base, h, tok, d) {
   const piuSez = new Set(sub.map((s) => s.sez_n)).size > 1;
   const gruppi = sub.length ? sub.map((s) => ({ nome: (piuSez && s.sez_n != null ? "SpCat " + s.sez_n + " · " : "") + (s.cat_n != null ? n2(s.cat_n) + " — " : "") + (s.cat_nome || s.sez_nome || ""), n: s.voci, t: Number(s.importo) || 0,
       sez: s.sez_n, sezNome: s.sez_nome }))
-    : [["contratto", "Elenco prezzi del contratto"], ["prezzario", z ? z.titolo : "Prezzario regionale"], ["libera", "Voci dell'impresa"]].map(([fo, nome]) => {
-      const g = comp.filter((v) => nel(v) && (fo === "libera" ? v.fonte !== "contratto" && v.fonte !== "prezzario" : v.fonte === fo));
+    // preventivi-stampa-2: senza categorie, il contratto a parte e tutto il resto come «Lavorazioni» (non si dice da dove vengono i prezzi)
+    : [["contratto", "Elenco prezzi del contratto"], ["altre", "Lavorazioni"]].map(([fo, nome]) => {
+      const g = comp.filter((v) => nel(v) && (fo === "altre" ? v.fonte !== "contratto" : v.fonte === fo));
       return { nome, n: g.length, t: g.reduce((s, v) => s + (Number(v.importo) || 0), 0) };
     }).filter((g) => g.n);
   const lordo = gruppi.reduce((s, g) => s + g.t, 0);
