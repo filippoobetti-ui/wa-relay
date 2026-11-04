@@ -335,13 +335,16 @@ const STILE =
   ".pv-chip small{display:inline-flex;min-width:20px;height:20px;padding:0 6px;align-items:center;justify-content:center;border-radius:999px;background:var(--pv-f);font-size:.72rem;color:var(--pv-s)}.pv-chip.on small{background:rgba(255,255,255,.25);color:#fff}" +
   ".pv-chip.st{border-color:var(--gr-b);color:var(--t)}.pv-sep{width:1px;height:26px;background:var(--l);margin:0 4px}" +
   ".pv-elenco{display:flex;flex-direction:column;gap:10px;margin-top:10px}" +
-  ".pv-r{position:relative;display:grid;grid-template-columns:150px minmax(0,1fr) 180px 150px 150px;gap:14px;align-items:center;padding:14px 16px 14px 20px;border:1px solid var(--l);border-radius:14px;background:#fff;text-decoration:none;color:inherit}" +
+  ".pv-r{position:relative;display:grid;grid-template-columns:150px minmax(0,1fr) 180px 150px 190px;gap:14px;align-items:center;padding:14px 16px 14px 20px;border:1px solid var(--l);border-radius:14px;background:#fff;text-decoration:none;color:inherit}" +
   ".pv-r:hover{border-color:var(--pv-b);box-shadow:0 8px 18px -14px rgba(74,85,18,.6)}" +
   ".pv-r::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:4px;border-radius:0 4px 4px 0;background:var(--pv)}" +
   ".pv-num{font-weight:800;color:var(--pv-s);font-size:.95rem}.pv-num small{display:block;font-weight:600;color:var(--s);font-size:.78rem;margin-top:2px}" +
   ".pv-r h3{margin:0;font-size:1.02rem;color:var(--t)}.pv-dove{margin:3px 0 0;font-size:.84rem;color:var(--s)}" +
   ".pv-imp{text-align:right}.pv-imp b{display:block;font-size:1.15rem;color:var(--navy)}.pv-imp span{font-size:.78rem;color:var(--s)}" +
-  ".pv-r .pv-azr{display:flex;justify-content:flex-end}" +
+  ".pv-r .pv-azr{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}" +
+  // preventivi-elimina-1: «Elimina» con il cestino, rosso pieno al passaggio
+  ".pv-elim{display:inline-flex;align-items:center;gap:6px;font-weight:800;background:#FFF5F3}.pv-elim svg{flex:none}" +
+  ".pv-elim:hover,.pv-elim:focus-visible{background:var(--ko);color:#fff;border-color:var(--ko)}" +
   ".pv-stato{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:700;border:1px solid}" +
   ".pv-stato::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}" +
   ".pv-stato.bozza{border-color:var(--gr-b);background:var(--gr-f);color:var(--gr)}.pv-stato.mandato{border-color:var(--pv-b);background:var(--pv-f);color:var(--pv-s)}" +
@@ -410,11 +413,12 @@ const STILE =
   ".pv-mis-r input{min-height:36px;padding:0 8px;border:1px solid rgba(16,27,43,.2);border-radius:8px;font:inherit;font-size:.86rem;min-width:0}.pv-mis-r .q{text-align:right;font-weight:700;font-size:.86rem}" +
   ".pv-mis-r.h{font-size:.72rem;font-weight:700;color:var(--s);text-transform:uppercase;letter-spacing:.04em}.pv-mis-r button{border:0;background:none;color:var(--ko);font-size:1.1rem;cursor:pointer}" +
   ".pv-az{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.pv-az .pv-togli{margin-left:auto}" +
-  "@media (max-width:1100px){.pv-r{grid-template-columns:130px minmax(0,1fr) 150px}.pv-r .pv-imp{grid-column:3}.pv-r .pv-azr{display:none}}" +
+  "@media (max-width:1100px){.pv-r{grid-template-columns:130px minmax(0,1fr) 150px}.pv-r .pv-imp{grid-column:3}.pv-r .pv-azr{display:none}" +
+  ".pv-r .pv-azr.del{display:flex;grid-column:1/-1;justify-content:flex-end}.pv-r .pv-azr.del .apri{display:none}}" +
   "@media (max-width:900px){.pv-ri{grid-template-columns:minmax(0,1fr) 120px}.pv-ri .um{display:none}.pv-ri .pv-fonte{grid-column:1/-1;flex-direction:row;gap:6px}.pv-ri .pv-b{grid-column:2}.pv-campi{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
   "@media (max-width:640px){main{padding:12px 10px 40px}.pv-card{padding:14px}h1{font-size:1.3rem}.pv-sep{display:none}" +
   ".pv-r{grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;padding:12px 12px 12px 16px}.pv-r .pv-num{grid-column:1}.pv-r .pv-stc{grid-column:2;grid-row:1;justify-self:end;text-align:right}" +
-  ".pv-r .pv-tit{grid-column:1/-1}.pv-r .pv-imp{grid-column:1/-1;text-align:left}.pv-r .pv-imp b{display:inline;margin-right:6px}" +
+  ".pv-r .pv-tit{grid-column:1/-1}.pv-r .pv-imp{grid-column:1/-1;text-align:left}.pv-r .pv-imp b{display:inline;margin-right:6px}.pv-r .pv-azr.del{justify-content:flex-start}" +
   ".pv-campi,.pv-mod .pv-campi{grid-template-columns:minmax(0,1fr)}.pv-c.l2{grid-column:auto}" +
   ".pv-ri{grid-template-columns:minmax(0,1fr) auto}.pv-ri .pr{text-align:left}" +
   ".pv-vt.th{display:none}.pv-vt{grid-template-columns:28px auto auto auto minmax(0,1fr);grid-template-areas:'nr fo fo fo fo' '. ds ds ds ds' '. q um pu im' '. bt bt bt bt';gap:4px 6px}" +
@@ -450,6 +454,8 @@ document.addEventListener('click',function(e){var x=e.target.closest&&e.target.c
 document.addEventListener('keydown',function(e){if(e.key==='Escape')Array.prototype.forEach.call(document.querySelectorAll('.pv-velo'),function(v){v.hidden=true;});});
 var STATI={bozza:'Bozza',mandato:'Mandato',accettato:'Accettato',rifiutato:'Rifiutato'};
 var ICONA=${JSON.stringify(ICONA)};
+// 04/11/2026 (preventivi-elimina-1): cestino del pulsante «Elimina» (bozza e elenco), più visibile
+var CESTINO='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
 function statoHtml(s){return '<span class="pv-stato '+es(s)+'">'+es(STATI[s]||s)+'</span>';}
 function fonteHtml(f,cod,elem){var n=f==='contratto'?'Contratto':f==='prezzario'?(elem?'Prezzario · elementare':'Prezzario'):'Voce libera';
  return '<span class="pv-fonte '+(elem?'elem':es(f))+'">'+n+(cod?'<em>'+es(cod)+'</em>':'')+'</span>';}
@@ -478,9 +484,17 @@ function elenco(){
    '<div class="pv-tit"><h3>'+es(p.titolo)+'</h3><p class="pv-dove">'+(p.commessa_id?'<span class="pv-cant">'+es(p.cantiere||'Cantiere')+'</span>':'<span class="pv-cant no">Senza cantiere</span>')+
    (p.cliente?' · '+es(p.cliente):'')+(!p.commessa_id&&p.indirizzo_lavoro?' · '+es(p.indirizzo_lavoro):'')+'</p></div>'+
    '<div class="pv-stc">'+statoHtml(p.stato)+(info?'<span class="pv-st-info">'+es(info)+'</span>':'')+'</div>'+
-   '<div class="pv-imp"><b>'+(p.totale==null?'—':euro(p.totale))+'</b><span>+ IVA</span></div><div class="pv-azr"><span class="pv-b sm'+(p.stato==='bozza'?' pv-pr':'')+'">Apri</span></div></a>';});
+   '<div class="pv-imp"><b>'+(p.totale==null?'—':euro(p.totale))+'</b><span>+ IVA</span></div>'+
+   // la bozza mai mandata si elimina anche dall'elenco
+   (p.stato==='bozza'&&Number(p.revisione)===1?'<div class="pv-azr del"><span class="pv-b sm pv-togli pv-elim" role="button" tabindex="0" data-elimina="'+es(p.id)+'" data-cod="'+es(p.codice)+'">'+CESTINO+'Elimina</span><span class="pv-b sm pv-pr apri">Apri</span></div>'
+    :'<div class="pv-azr"><span class="pv-b sm'+(p.stato==='bozza'?' pv-pr':'')+'">Apri</span></div>')+'</a>';});
  h+='</div></section>';
  app.innerHTML=h;
+ Array.prototype.forEach.call(app.querySelectorAll('[data-elimina]'),function(b){
+  var via=function(e){e.preventDefault();e.stopPropagation();
+   if(!confirm('Eliminare la bozza '+b.getAttribute('data-cod')+'? Non è mai stata mandata: sparisce dall\'elenco.'))return;
+   b.style.opacity='.5';api('elimina',{id:b.getAttribute('data-elimina')}).then(function(r){b.style.opacity='';if(r&&r.esito==='ok')location.href=link('');else alert(msgErr(r));});};
+  b.onclick=via;b.onkeydown=function(e){if(e.key==='Enter'||e.key===' ')via(e);};});
  Array.prototype.forEach.call(app.querySelectorAll('[data-fil]'),function(b){b.onclick=function(){var k=b.getAttribute('data-fil'),v=b.getAttribute('data-v');FIL[k]=FIL[k]===v&&v?'':v;elenco();};});
  $('pv-nuovo').onclick=nuovo;
 }
@@ -604,7 +618,7 @@ function misureHtml(M){return '<div class="pv-misv"><div class="h"><span>Dove</s
  M.map(function(m){return '<div><span>'+es(m.dove||'')+'</span><span>'+nv(m.parti)+'</span><span>'+nv(m.lun)+'</span><span>'+nv(m.lar)+'</span><span>'+nv(m.alt)+'</span><span>'+qta(m.q)+'</span></div>';}).join('')+'</div>';}
 function nv(x){return x==null||x===''?'':String(x).replace('.',',');}
 function bottoniStato(){var s=D.stato,h='';
- if(s==='bozza'){if(F.revisione===1&&!(D.revisioni||[]).length)h+='<button type="button" class="pv-b sm pv-togli" data-az="elimina">Elimina la bozza</button>';}
+ if(s==='bozza'){if(F.revisione===1&&!(D.revisioni||[]).length)h+='<button type="button" class="pv-b pv-togli pv-elim" data-az="elimina">'+CESTINO+'Elimina la bozza</button>';}
  if(s==='mandato')h+='<button type="button" class="pv-b sm pv-ok" data-az="accettato">Segna accettato</button><button type="button" class="pv-b sm" data-az="rifiutato">Segna rifiutato</button><button type="button" class="pv-b sm" data-az="revisione">Cambialo (Rev. '+(F.revisione+1)+')</button>';
  if(s==='accettato'){h+=D.firmato?'<a class="pv-b sm pv-ok" href="'+es(CFG.firmato+'?t='+CFG.t+'&id='+F.id)+'">Scarica la copia firmata</a><button type="button" class="pv-b sm" data-az="firmato">Sostituisci la copia firmata</button>':'<button type="button" class="pv-b sm pv-pr" data-az="firmato">Carica la copia firmata</button><button type="button" class="pv-b sm" data-az="annulla_esito">Togli l\'accettazione</button>';}
  if(s==='rifiutato')h+='<button type="button" class="pv-b sm" data-az="revisione">Rifallo (Rev. '+(F.revisione+1)+')</button><button type="button" class="pv-b sm" data-az="annulla_esito">Togli il rifiuto</button>';
