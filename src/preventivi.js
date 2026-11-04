@@ -865,6 +865,9 @@ async function stampa(request, env, base, inUrl, h) {
   return h.risposta(foglio(base, h, tok, d));
 }
 
+// foglio da stampare (04/11/2026, preventivi-stampa-1): il modello 26 «Computo grafite e ottone» scelto da Filippo. Intestazione a
+// tabella, computo metrico estimativo con le righe di misura e «SOMMANO», riepilogo per provenienza dei prezzi, quadro economico,
+// condizioni e firme. Le categorie nei preventivi non ci sono: le voci restano nell'ordine dell'app, con lo stesso numero.
 function foglio(base, h, tok, d) {
   const e = h.esc;
   const f = d.preventivo || {};
@@ -876,20 +879,54 @@ function foglio(base, h, tok, d) {
   const z = f.prezzario && typeof f.prezzario === "object" ? f.prezzario : null;
   const foto = d.foto === true;
   const voci = Array.isArray(f.voci) ? f.voci : [];
-  const fonte = (v) => v.fonte === "contratto" ? "Elenco prezzi del contratto" + (v.codice ? ", " + v.codice : "")
-    : v.fonte === "prezzario" ? (z ? z.titolo : "Prezzario regionale") + (v.codice ? ", " + v.codice : "")
-    : "Voce dell'impresa" + (v.codice ? ", " + v.codice : "");
+  const rib = Number(T.ribasso_pct) || 0;
+  const nomeFonte = (v) => v.fonte === "contratto" ? "Elenco prezzi del contratto" : v.fonte === "prezzario" ? (z ? z.titolo : "Prezzario regionale") : "Voce dell'impresa";
+  // «senza ribasso» si scrive solo se nel preventivo il ribasso c'è e quella voce non lo ha
+  const senzaRib = (v) => rib > 0 && !((v.fonte === "contratto" || v.fonte === "prezzario") && v.ribassabile);
+  const vuoto = (x) => x === null || x === undefined || x === "";
+  const del = (s) => (/^(8|11?)(,|$)|^8/.test(s) ? "dell'" : "del ") + s;
   const fonti = [];
   if (voci.some((v) => v.fonte === "contratto")) fonti.push("dall'elenco prezzi del contratto" + (k && k.data_contratto ? " del " + dataIt(k.data_contratto) : ""));
   if (voci.some((v) => v.fonte === "prezzario") && z) fonti.push("dal " + z.titolo + (z.delibera ? " (" + z.delibera + ")" : ""));
-  const rib = Number(T.ribasso_pct) || 0;
-  const logo = /^https:\/\/[^\s"'<>]+$/.test(String(imp.logo_url || "")) ? '<img class="logo-img" src="' + e(imp.logo_url) + '" alt="" onerror="this.remove()">' : "";
-  const righe = voci.map((v, i) => "<tr><td>" + (i + 1) + "</td><td>" + e(v.descrizione) + '<span class="cod">' + e(fonte(v)) + "</span>" +
-    (Array.isArray(v.misure) && v.misure.length ? '<span class="mis">' + v.misure.map((m) => e((m.dove ? m.dove + ": " : "") +
-      ["parti", "lun", "lar", "alt"].map((x) => m[x]).filter((x) => x !== null && x !== undefined && x !== "").map((x) => cifra(x, 2)).join(" × ") +
-      " = " + cifra(m.q, 2))).join(" · ") + "</span>" : "") +
-    "</td><td>" + e(v.unita || "") + '</td><td class="n">' + cifra(v.quantita, 2) + '</td><td class="n">' + cifra(v.prezzo, 2) + '</td><td class="n">' + cifra(v.importo, 2) + "</td></tr>").join("");
+  const sigla = String(imp.nome || "").split(/[\s.,&'’-]+/).filter((x) => x && !/^(s\.?r\.?l|s\.?p\.?a|s\.?n\.?c|s\.?a\.?s|di|e|ed|la|il)$/i.test(x))
+    .slice(0, 2).map((x, i, a) => a.length === 1 ? x.slice(0, 2) : x[0]).join("").toUpperCase();
+  const logo = /^https:\/\/[^\s"'<>]+$/.test(String(imp.logo_url || "")) ? '<img class="logo-img" src="' + e(imp.logo_url) + '" alt="" onerror="this.remove()">'
+    : (sigla ? '<span class="sigla" aria-hidden="true">' + e(sigla) + "</span>" : "");
   const data = foto ? dataIt(f.data || d.mandato_il) : "";
+  const righe = voci.map((v, i) => {
+    const mis = Array.isArray(v.misure) ? v.misure : [];
+    return '<tbody class="vg"><tr class="v"><td class="c">' + (i + 1) + '</td><td class="tar">' + e(v.codice || "") + '</td><td class="des">' + e(v.descrizione) +
+      '<span class="fonte">' + e(nomeFonte(v)) + (senzaRib(v) ? '<span class="sr">senza ribasso</span>' : "") + "</span></td>" + "<td></td>".repeat(7) + "</tr>" +
+      mis.map((m) => '<tr class="m"><td></td><td></td><td class="des">' + e(m.dove || "") + "</td>" +
+        ["parti", "lun", "lar", "alt"].map((x) => '<td class="r">' + (vuoto(m[x]) ? "" : cifra(m[x], x === "parti" && Number.isInteger(Number(m[x])) ? 0 : 2)) + "</td>").join("") +
+        '<td class="r">' + cifra(m.q, 2) + "</td><td></td><td></td></tr>").join("") +
+      '<tr class="s"><td></td><td></td><td class="des">SOMMANO ' + e(v.unita || "") + '</td><td></td><td></td><td></td><td></td><td class="r q">' + cifra(v.quantita, 2) +
+      '</td><td class="r">' + cifra(v.prezzo, 2) + '</td><td class="r i">' + cifra(v.importo, 2) + "</td></tr></tbody>";
+  }).join("") || '<tbody><tr class="s"><td colspan="10" class="des vuote">Nessuna voce</td></tr></tbody>';
+  // riepilogo per provenienza dei prezzi (importi prima del ribasso)
+  const gruppi = [["contratto", "Elenco prezzi del contratto"], ["prezzario", z ? z.titolo : "Prezzario regionale"], ["libera", "Voci dell'impresa"]].map(([fo, nome]) => {
+    const g = voci.filter((v) => fo === "libera" ? v.fonte !== "contratto" && v.fonte !== "prezzario" : v.fonte === fo);
+    return { nome, n: g.length, t: g.reduce((s, v) => s + (Number(v.importo) || 0), 0) };
+  }).filter((g) => g.n);
+  const lordo = gruppi.reduce((s, g) => s + g.t, 0);
+  // con una sola provenienza basta la riga del totale, con il suo nome
+  const rc = gruppi.length === 1 ? '<tr class="f"><td>' + e(gruppi[0].nome) + '</td><td class="r">' + cifra(lordo, 2) + ' €</td><td class="r pc">100 %</td></tr>' : gruppi.map((g) => { const p = lordo > 0 ? g.t / lordo * 100 : 0;
+    return "<tr><td>" + e(g.nome) + '</td><td class="r">' + cifra(g.t, 2) + ' €</td><td class="r pc"><span class="b"><i style="width:' + p.toFixed(1) + '%"></i></span>' + cifra(p, 1) + " %</td></tr>"; }).join("") +
+    '<tr class="f"><td>' + (rib > 0 ? "Totale prima del ribasso" : "Totale delle voci") + '</td><td class="r">' + cifra(lordo, 2) + ' €</td><td class="r pc">' + (lordo > 0 ? "100 %" : "") + "</td></tr>";
+  const qe = (rib > 0 ? "<tr><td>Voci con il ribasso</td><td class=\"r\">" + cifra(T.soggetto, 2) + " €</td></tr>" +
+      "<tr><td>Ribasso del contratto " + cifra(rib, 2) + ' %</td><td class="r">− ' + cifra(T.ribasso, 2) + " €</td></tr>" +
+      (Number(T.non_soggetto) ? '<tr><td>Voci senza ribasso</td><td class="r">' + cifra(T.non_soggetto, 2) + " €</td></tr>" : "") : "") +
+    '<tr class="p"><td>Totale lavori</td><td class="r">' + cifra(T.lavori, 2) + " €</td></tr>" +
+    (Number(T.oneri) ? '<tr><td>Oneri della sicurezza (senza ribasso)</td><td class="r">' + cifra(T.oneri, 2) + " €</td></tr>" : "") +
+    (Number(T.sconto) ? '<tr><td>Sconto</td><td class="r">− ' + cifra(T.sconto, 2) + " €</td></tr>" : "") +
+    '<tr class="f"><td>TOTALE</td><td class="r">' + cifra(T.totale, 2) + " € + IVA</td></tr>";
+  const cond = [];
+  if (fonti.length) cond.push("Prezzi presi " + e(fonti.join(" e ")) + (rib > 0 ? ", con il ribasso del contratto " + del(cifra(rib, 2)) + " %" +
+    (voci.some(senzaRib) ? " (le voci segnate «senza ribasso» non lo hanno)" : "") : "") + ".");
+  cond.push("Le quantità si misurano a lavoro finito" + (c ? ", in contraddittorio con la Direzione Lavori" : "") + ".");
+  cond.push("Il preventivo vale " + e(f.validita_giorni) + " giorni dalla data. Importi in euro, IVA esclusa.");
+  if (f.note) cond.push(e(f.note).replace(/\r?\n/g, "<br>"));
+  const sha = String(d.sha256 || "");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>" + e(f.codice + " " + (f.titolo || "")) + "</title>" +
@@ -897,50 +934,95 @@ function foglio(base, h, tok, d) {
     '<div class="barra"><button type="button" onclick="window.print()">Stampa o salva in PDF</button><a href="' + e(base + "/preventivi?t=" + tok + "&id=" + f.id) + '">‹ Torna al preventivo</a>' +
     (foto ? "" : '<span>Bozza: non ancora mandato al cliente</span>') + "</div>" +
     '<div class="carta' + (foto ? "" : " bozza") + '">' +
-    '<div class="inte"><div class="logo">' + logo + "<div><b>" + e(imp.nome || "") + "</b><span>" + e([imp.indirizzo, imp.partita_iva ? "P. IVA " + imp.partita_iva : "",
-      imp.telefono ? "Tel. " + imp.telefono : "", imp.email].filter(Boolean).join(" · ")) + "</span></div></div>" +
-    '<div class="num"><b>Preventivo ' + e(f.codice) + "</b><span>Rev. " + e(f.revisione) + (data ? " · " + data : " · bozza") + " · valido " + e(f.validita_giorni) + " giorni</span></div></div>" +
-    '<div class="dest"><p><small>Spettabile</small>' + e(cl.nome || "") + (cl.indirizzo ? "<br>" + e(cl.indirizzo) : "") + (cl.piva ? "<br>P. IVA / C.F. " + e(cl.piva) : "") + "</p>" +
-    "<p><small>" + (c ? "Cantiere" : "Lavoro") + "</small>" + e(c ? c.nome : (f.indirizzo_lavoro || "")) + (c && c.ubicazione ? "<br>" + e(c.ubicazione) : "") +
-    (!c && f.indirizzo_lavoro ? "" : (f.indirizzo_lavoro && c && f.indirizzo_lavoro !== c.ubicazione ? "<br>" + e(f.indirizzo_lavoro) : "")) + "</p></div>" +
-    '<p class="ogg"><b>Oggetto:</b> ' + (c ? "lavori extracontrattuali — " : "") + e(f.titolo || "") + ".</p>" +
-    '<table><thead><tr><th>Nr</th><th>Descrizione</th><th>U.M.</th><th class="n">Q.tà</th><th class="n">Prezzo €</th><th class="n">Importo €</th></tr></thead><tbody>' + righe + "</tbody></table>" +
-    '<div class="tot">' +
-    '<div><span>Voci con il ribasso</span><span>' + cifra(T.soggetto, 2) + " €</span></div>" +
-    (rib > 0 ? '<div><span>Ribasso del contratto ' + cifra(rib, 2) + " %</span><span>− " + cifra(T.ribasso, 2) + " €</span></div>" : "") +
-    (Number(T.non_soggetto) ? '<div><span>Voci senza ribasso</span><span>' + cifra(T.non_soggetto, 2) + " €</span></div>" : "") +
-    '<div><span>Totale lavori</span><span>' + cifra(T.lavori, 2) + " €</span></div>" +
-    (Number(T.oneri) ? '<div><span>Oneri della sicurezza</span><span>' + cifra(T.oneri, 2) + " €</span></div>" : "") +
-    (Number(T.sconto) ? '<div><span>Sconto</span><span>− ' + cifra(T.sconto, 2) + " €</span></div>" : "") +
-    '<div class="fin"><span>Totale</span><span>' + cifra(T.totale, 2) + " € + IVA</span></div></div>" +
-    '<p class="cond">' + (fonti.length ? "Prezzi presi " + e(fonti.join(" e ")) + (rib > 0 ? ", con il ribasso del contratto del " + cifra(rib, 2) + " %" : "") + ". " : "") +
-    "Le quantità si misurano a lavoro finito. Il preventivo vale " + e(f.validita_giorni) + " giorni dalla data." + (f.note ? "<br>" + e(f.note) : "") + "</p>" +
-    '<div class="firme"><div>' + e(imp.nome || "") + "<br>" + (imp.referente ? e(imp.referente) : "Referente di cantiere") + '</div><div>Per accettazione · il committente<br>data e firma</div></div>' +
-    '<div class="piede"><span>Preparato con TIX™ · Diario di cantiere</span><span>' + (foto ? "Impronta SHA-256 della Rev. " + e(f.revisione) + ": " + e(String(d.sha256 || "").slice(0, 16)) + "…" : "Bozza") + "</span></div>" +
+    '<table class="int"><tr><td colspan="4" class="imp"><div>' + logo + "<span><b>" + e(imp.nome || "") + "</b><small>" +
+      e([imp.indirizzo, imp.partita_iva ? "P. IVA " + imp.partita_iva : "", imp.telefono ? "Tel. " + imp.telefono : "", imp.email].filter(Boolean).join(" · ")) + "</small></span></div></td></tr>" +
+    '<tr><td class="k">COMMITTENTE</td><td>' + e(cl.nome || "") + (cl.indirizzo ? " — " + e(cl.indirizzo) : "") + (cl.piva ? "<br>P. IVA / C.F. " + e(cl.piva) : "") +
+      '</td><td class="k">PREVENTIVO N.</td><td>' + e(f.codice) + " · Rev. " + e(f.revisione) + "</td></tr>" +
+    '<tr><td class="k">LAVORI</td><td>' + (c ? "Lavori extracontrattuali — " : "") + e(f.titolo || "") + '</td><td class="k">DATA</td><td>' + (data || "bozza") +
+      " · valido " + e(f.validita_giorni) + " giorni</td></tr>" +
+    '<tr><td class="k">' + (c ? "CANTIERE" : "LUOGO") + "</td><td>" + (c ? e(c.nome || "") + (c.ubicazione ? " — " + e(c.ubicazione) : "") +
+      (f.indirizzo_lavoro && f.indirizzo_lavoro !== c.ubicazione ? "<br>" + e(f.indirizzo_lavoro) : "") : e(f.indirizzo_lavoro || "—")) +
+      '</td><td class="k">REFERENTE</td><td>' + e(imp.referente || "—") + "</td></tr></table>" +
+    '<div class="titolo"><h1>PREVENTIVO</h1><span>COMPUTO METRICO ESTIMATIVO</span></div>' +
+    '<div class="scorri"><table class="cm"><colgroup><col style="width:7mm"><col style="width:25mm"><col><col style="width:9mm"><col style="width:10mm"><col style="width:10mm">' +
+      '<col style="width:10mm"><col style="width:14mm"><col style="width:15mm"><col style="width:17mm"></colgroup>' +
+      "<thead><tr><th>N.<br>ORD.</th><th>TARIFFA</th><th>DESIGNAZIONE DEI LAVORI</th><th>PAR.<br>UG.</th><th>LUNG.</th><th>LARG.</th><th>H/<br>PESO</th>" +
+      "<th>QUANTITÀ</th><th>PREZZO<br>UNIT. €</th><th>IMPORTO €</th></tr></thead>" + righe + "</table></div>" +
+    '<div class="due"><div><h2>RIEPILOGO PER PROVENIENZA</h2><table class="rc">' + rc + "</table></div>" +
+      '<div><h2>QUADRO ECONOMICO</h2><table class="qe">' + qe + "</table></div></div>" +
+    '<ul class="cond">' + cond.map((x) => "<li>" + x + "</li>").join("") + "</ul>" +
+    '<div class="firme"><div>L\'impresa<br><b>' + e(imp.nome || "") + "</b><small>timbro e firma</small></div>" +
+      (imp.referente ? "<div>Il referente di cantiere<br><b>" + e(imp.referente) + "</b><small>firma</small></div>" : "") +
+      "<div>Per accettazione<br><b>il committente</b><small>data, timbro e firma</small></div></div>" +
+    '<div class="piede"><span>' + e(imp.nome || "") + " · Preventivo " + e(f.codice) + " · Rev. " + e(f.revisione) + (data ? " del " + data : " · bozza") + "</span><span>" +
+      (foto && sha ? "Impronta SHA-256 " + e(sha.slice(0, 8)) + "…" + e(sha.slice(-4)) + " · " : "") + "Preparato con " + LOGO_TIX + "™ · www.tixcantiere.it</span></div>" +
     "</div></body></html>";
 }
 
+// logo di TIX (spunta e lettere) per il piede del foglio
+const LOGO_TIX = '<svg class="tixlogo" viewBox="120 262 1756 694" role="img" aria-label="TIX"><defs>' +
+  '<linearGradient id="ft-g1" gradientUnits="userSpaceOnUse" x1="130" y1="300" x2="700" y2="950"><stop offset="0" stop-color="#FF9A3D"/><stop offset=".55" stop-color="#F26A10"/><stop offset="1" stop-color="#D9480A"/></linearGradient>' +
+  '<linearGradient id="ft-g2" gradientUnits="userSpaceOnUse" x1="1352" y1="503" x2="1868" y2="925"><stop offset="0" stop-color="#FF9A3D"/><stop offset=".5" stop-color="#F26A10"/><stop offset="1" stop-color="#D9480A"/></linearGradient>' +
+  '<linearGradient id="ft-g3" gradientUnits="userSpaceOnUse" x1="0" y1="503" x2="0" y2="925"><stop offset="0" stop-color="#3A5577"/><stop offset=".45" stop-color="#1B2F4A"/><stop offset="1" stop-color="#1B2F4A"/></linearGradient></defs>' +
+  '<path fill="url(#ft-g1)" d="M130 682L178 636C208 608 248 612 268 640L343 746C515 500 700 328 962 270C760 365 598 560 434 878C404 936 334 948 296 902Z"/>' +
+  '<path fill="url(#ft-g3)" d="M838 503L1218 503L1200 605L1078 605L1018 925L890 925L950 605L752 605ZM1268 503L1392 503L1312 925L1188 925Z"/>' +
+  '<path fill="url(#ft-g2)" d="M1410 503L1550 503L1828 925L1688 925ZM1728 503L1868 503L1492 925L1352 925Z"/>' +
+  '<path fill="none" stroke="#1B2F4A" stroke-width="11" stroke-linecap="round" d="M1615 708L1516 558M1615 708L1749 558M1615 708L1471 870M1615 708L1722 870"/>' +
+  '<g fill="#1B2F4A"><circle cx="1516" cy="558" r="22"/><circle cx="1749" cy="558" r="22"/><circle cx="1471" cy="870" r="22"/><circle cx="1722" cy="870" r="22"/><circle cx="1615" cy="708" r="34"/></g></svg>';
+
+// colori: grafite (#24282C) e ottone (#A8843A), come il modello 26
 const STILE_FOGLIO =
-  "*{box-sizing:border-box}body{margin:0;background:#E9EDF2;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Arial,sans-serif}" +
-  ".barra{position:sticky;top:0;z-index:2;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#1B2F4A;color:#fff}" +
+  ":root{--p:#24282C;--a:#A8843A;--oro:#E2C989;--linea:#C8C0AE;--sub:#6B675E;--mis:#3F3D38;--chiaro:#F6F2E8;--cat:#F0EADB;--t:#EDE4CD;--col:#FBF9F4}" +
+  "*{box-sizing:border-box}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
+  "body{margin:0;background:#E3E1DA;color:#202326;font-family:Arial,'Segoe UI',Roboto,sans-serif}" +
+  ".barra{position:sticky;top:0;z-index:2;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#1B2F4A;color:#fff;font-size:15px}" +
   ".barra button{min-height:40px;padding:0 16px;border:0;border-radius:10px;background:#66741C;color:#fff;font:inherit;font-weight:700;cursor:pointer}.barra a{color:#fff;font-weight:600}.barra span{margin-left:auto;font-weight:700;color:#FFD9B8}" +
-  ".carta{position:relative;max-width:820px;margin:20px auto;background:#fff;border-radius:6px;box-shadow:0 2px 4px rgba(16,27,43,.08),0 24px 48px -24px rgba(16,27,43,.35);padding:40px 44px;font-size:.84rem}" +
-  ".carta.bozza::after{content:'BOZZA';position:absolute;top:38%;left:0;right:0;text-align:center;font-size:7rem;font-weight:900;color:rgba(242,106,16,.08);transform:rotate(-24deg);pointer-events:none}" +
-  ".inte{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;padding-bottom:14px;border-bottom:2px solid #1B2F4A}" +
-  ".logo{display:flex;align-items:center;gap:10px}.logo-img{max-width:90px;max-height:56px;object-fit:contain}.logo b{display:block;font-size:1.05rem;color:#1B2F4A}.logo span{font-size:.76rem;color:#555}" +
-  ".num{text-align:right}.num b{display:block;font-size:1.2rem;color:#1B2F4A;white-space:nowrap}.num span{font-size:.78rem;color:#444}" +
-  ".dest{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:16px 0}.dest p{margin:0;line-height:1.5}.dest small{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#666;font-weight:700}" +
-  ".ogg{margin:0 0 12px;padding:8px 10px;border-left:3px solid #F26A10;background:#FAFAFA}" +
-  "table{width:100%;border-collapse:collapse;font-size:.78rem}th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;border-bottom:1.5px solid #1B2F4A;color:#333;padding:6px}" +
-  "td{padding:6px;border-bottom:1px solid #E3E3E3;vertical-align:top}td.n,th.n{text-align:right;white-space:nowrap}tr{break-inside:avoid}" +
-  ".cod{display:block;font-size:.68rem;color:#666;margin-top:2px}.mis{display:block;font-size:.68rem;color:#666}" +
-  ".tot{width:340px;margin:12px 0 0 auto}.tot div{display:flex;justify-content:space-between;gap:10px;padding:4px 0}.tot div.fin{margin-top:4px;padding:8px 0;border-top:2px solid #1B2F4A;font-weight:800;font-size:1rem;color:#1B2F4A}" +
-  ".cond{margin:14px 0 0;font-size:.74rem;color:#333;line-height:1.5}" +
-  ".firme{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:26px;break-inside:avoid}.firme div{border-top:1px solid #999;padding-top:6px;font-size:.74rem;color:#444;min-height:46px}" +
-  ".piede{margin-top:20px;padding-top:8px;border-top:1px solid #E3E3E3;display:flex;justify-content:space-between;gap:10px;font-size:.68rem;color:#777}" +
-  "@media (max-width:640px){.carta{margin:10px;padding:18px 14px}.inte{flex-direction:column}.num{text-align:left}.dest,.firme{grid-template-columns:1fr}.tot{width:100%}}" +
-  "@media print{@page{size:A4;margin:14mm}body{background:#fff}.barra{display:none}.carta{margin:0;max-width:none;box-shadow:none;border-radius:0;padding:0}" +
-  "*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}";
+  ".carta{position:relative;width:210mm;margin:20px auto;background:#fff;box-shadow:0 2px 4px rgba(16,27,43,.08),0 24px 48px -24px rgba(16,27,43,.35);padding:15mm}" +
+  ".carta.bozza::after{content:'BOZZA';position:absolute;top:30%;left:0;right:0;text-align:center;font-size:7rem;font-weight:900;color:rgba(168,132,58,.10);transform:rotate(-24deg);pointer-events:none}" +
+  "table{width:100%;border-collapse:collapse}" +
+  ".int{border:1.2px solid var(--p);margin-bottom:5mm}.int td{border:1px solid var(--linea);padding:1.8mm 2.5mm;font-size:8.6pt;vertical-align:top}" +
+  ".int td.k{width:24mm;white-space:nowrap;font-size:6.8pt;font-weight:700;letter-spacing:.08em;color:var(--p);background:var(--chiaro)}.int td:last-child{width:44mm}" +
+  ".int td.imp{padding:3.5mm 4mm;color:var(--p);border-color:var(--p)}.int .imp div{display:flex;gap:4mm;align-items:center}" +
+  ".int .sigla{flex:none;display:flex;align-items:center;justify-content:center;width:13mm;height:13mm;border-radius:1.5mm;background:var(--p);color:var(--oro);font-weight:800;font-size:11.5pt;letter-spacing:-.02em}" +
+  ".int .logo-img{flex:none;max-width:32mm;max-height:15mm;object-fit:contain}" +
+  ".int .imp b{display:block;font-size:13pt;letter-spacing:.01em}.int .imp small{display:block;font-size:7.8pt;opacity:.85;margin-top:.6mm}" +
+  ".titolo{text-align:center;margin:1mm 0 4.5mm}.titolo h1{margin:0;font-size:15pt;letter-spacing:.22em;color:var(--p)}" +
+  ".titolo h1::before,.titolo h1::after{content:'';display:inline-block;width:14mm;height:.3mm;background:var(--a);vertical-align:middle;margin:0 5mm}" +
+  ".titolo span{display:block;font-size:8pt;letter-spacing:.26em;color:var(--sub);margin-top:.5mm}" +
+  ".titolo::after{content:'';display:block;width:22mm;height:.8mm;background:var(--a);margin:2.2mm auto 0;border-radius:1mm}" +
+  ".cm{font-size:7.8pt;border:1px solid var(--p)}" +
+  ".cm th{border:1px solid #3A3F44;background:var(--p);color:#F1E3BC;padding:1.7mm 1mm;font-size:6.6pt;letter-spacing:.04em;text-align:center;line-height:1.2;box-shadow:inset 0 -.6mm 0 var(--a)}" +
+  ".cm td{border-left:1px solid var(--linea);border-right:1px solid var(--linea);padding:.9mm 1.2mm;vertical-align:top}" +
+  ".cm td.c{text-align:center}.cm td.r{text-align:right;white-space:nowrap}" +
+  ".cm td.tar{font-size:6.8pt;font-weight:700;color:#8A6B2C;overflow-wrap:anywhere}" +
+  ".cm tr.v td{padding-top:1.7mm}.cm tr.v td.c{font-weight:700;color:var(--p)}.cm tr.v td.des{font-weight:700}" +
+  ".cm .fonte{display:block;font-weight:400;font-size:6.8pt;color:var(--sub);margin-top:.3mm}" +
+  ".cm .sr{display:inline-block;margin-left:1.2mm;padding:0 1.5mm;border-radius:99px;background:#F0E6CC;color:#6E5420;font-size:6.2pt;font-weight:700;letter-spacing:.02em}" +
+  ".cm tr.m td{color:var(--mis)}.cm tr.m td.des{font-style:italic;padding-left:4mm}" +
+  ".cm tr.s td{border-bottom:1px solid var(--linea);padding-bottom:1.7mm}" +
+  ".cm tr.s td.des{text-align:right;font-weight:700;letter-spacing:.04em;color:var(--p);font-size:7.4pt}.cm tr.s td.q,.cm tr.s td.i{font-weight:700}" +
+  ".cm td.vuote{text-align:center!important;color:var(--sub)}" +
+  ".cm tbody td:last-child{background:var(--col)}.cm thead{display:table-header-group}" +
+  ".due{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:6mm}" +
+  ".due h2{margin:0 0 2mm;font-size:8.5pt;letter-spacing:.14em;color:var(--p);display:flex;align-items:center;gap:2mm}" +
+  ".due h2::before{content:'';width:1.3mm;height:3.6mm;background:var(--a);border-radius:.4mm}" +
+  ".rc td,.qe td{border:1px solid var(--linea);padding:1.6mm 2.4mm;font-size:8.4pt}.rc td.r,.qe td.r{text-align:right;white-space:nowrap}" +
+  ".rc td.pc{width:23mm}.rc .b{display:inline-block;width:8mm;height:2mm;background:var(--t);border-radius:1mm;margin-right:2mm;vertical-align:.2mm;overflow:hidden}" +
+  ".rc .b i{display:block;height:100%;background:var(--a)}" +
+  ".rc tr.f td,.qe tr.p td{background:var(--t);font-weight:700}" +
+  ".qe tr.f td{background:var(--p);color:#fff;font-weight:700;font-size:10pt;border-color:var(--p);padding:2mm 2.4mm}.qe tr.f td.r{color:var(--oro)}" +
+  ".cond{margin:5mm 0 0;padding:2.5mm 4mm 2.5mm 8mm;font-size:8.2pt;line-height:1.5;color:#2B3038;background:#FAF8F2;border-left:1.2mm solid var(--a)}" +
+  ".firme{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8mm;margin-top:12mm}" +
+  ".firme div{border-top:1px solid var(--p);padding-top:1.5mm;font-size:7.8pt;text-align:center;color:#3A414B}.firme b{color:var(--p)}" +
+  ".firme small{display:block;font-size:6.6pt;color:var(--sub);margin-top:.6mm}" +
+  ".piede{margin-top:8mm;padding-top:6px;border-top:1px solid var(--linea);display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:8pt;color:#5B6672}" +
+  ".piede .tixlogo{height:9pt;width:auto;vertical-align:-1.5pt;margin:0 1px 0 2px}" +
+  "@media screen and (max-width:840px){.carta{width:auto;margin:10px;padding:16px 12px}" +
+  ".int,.int tbody,.int tr,.int td,.int td:last-child{display:block;width:auto}.int td{border-width:0 0 1px}.int td.k{border-bottom:0;padding-bottom:.4mm}.scorri{overflow-x:auto}.cm{min-width:660px}.due{grid-template-columns:1fr}" +
+  ".firme{grid-auto-flow:row;gap:28px}.piede{flex-direction:column;align-items:flex-start}.carta.bozza::after{font-size:4rem}}" +
+  "@page{size:A4;margin:12mm 0 14mm}@page:first{margin-top:0}" +
+  "@media print{body{background:#fff}.barra{display:none}.carta{width:auto;margin:0;box-shadow:none;padding:15mm 15mm 0}.scorri{overflow:visible}.cm{min-width:0}" +
+  "tr,.due,.firme,.cond,.cm tbody.vg{break-inside:avoid}.due h2{break-after:avoid}.firme{break-before:avoid}}";
 
 // ---------------------------------------------------------------------------- Excel
 async function excel(request, env, base, inUrl, h) {
