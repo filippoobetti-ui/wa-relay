@@ -61,7 +61,7 @@ function pulisci(d) {
   const testi = { id: 36, commessa_id: 36, voce_id: 20, titolo: 200, cliente_nome: 200, cliente_indirizzo: 300, cliente_piva: 40,
     cliente_email: 200, indirizzo_lavoro: 300, note: 2000, validita_giorni: 6, oneri_sicurezza: 20, sconto: 20, prezzario_id: 6,
     fonte: 12, rif: 60, codice: 60, descrizione: 6000, unita: 20, prezzo: 20, quantita: 20, verso: 4, data: 10, chi: 200, nota: 500,
-    lavoro: 1000, link: 600, tipo: 12, modalita: 8, profondita: 12, file_id: 20, alt: 3 };
+    lavoro: 1000, link: 600, tipo: 12, modalita: 8, profondita: 12, scrittura: 12, file_id: 20, alt: 3 };
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if ("ribasso_applicato" in x) o.ribasso_applicato = x.ribasso_applicato === true || x.ribasso_applicato === "true";
   if ("leggi" in x) o.leggi = x.leggi === true || x.leggi === "true";
