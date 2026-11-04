@@ -21,6 +21,9 @@
 //   POST /preventivi/api  azione ia_dati | ia_nuova | ia_lavoro | ia_link | ia_tipo_file | ia_togli_file | ia_controlla |
 //                         ia_parti | ia_annulla | ia_conferma | ia_scegli | ia_conferma_verdi | ia_togli_ia
 //   POST /preventivi/ia/file?t&id&nome              → un file per la lettura (corpo = il file, Excel o PDF, fino a 18 MB)
+// Dal 04/11/2026 (preventivi-computo-1, errori E1–E7 di Filippo sul computo di Studio 54): voci con super-categoria e categoria
+// del computo e i loro totali, stato (NP / da quotare / da verificare), capitolo «Extra computo» fuori dal totale, controlli
+// prima di mandare (preventivo_dati.controlli), scelta «Sostituisci / Integra» quando ci sono voci di una lettura di prima.
 // Interruttori: impostazioni.preventivi_attiva (no / prova = solo Filippo / si) e PREVENTIVI = "off" nel Worker;
 // per «Prepara con TIX» anche impostazioni.preventivi_ia_attiva (no / prova / si).
 // ============================================================================
@@ -373,6 +376,14 @@ const STILE =
   ".pv-altre{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}" +
   ".pv-voci{margin-top:18px}.pv-voci h3{margin:0 0 8px;font-size:1rem;color:var(--navy)}" +
   ".pv-vt{display:grid;grid-template-columns:30px 170px minmax(0,1fr) 60px 90px 96px 110px;gap:10px;align-items:start;padding:10px 6px;border-bottom:1px solid var(--l);font-size:.88rem}" +
+  // preventivi-computo-1: super-categoria, categoria e totale nell'elenco delle voci; stato della voce; controlli
+  ".pv-cap{margin:14px 0 0;padding:7px 10px;border-left:4px solid #A8843A;background:#F4F1E6;color:#3F4810;font-weight:800;font-size:.84rem;letter-spacing:.03em;text-transform:uppercase}" +
+  ".pv-cap.sez{margin-top:20px;border-left-color:#3F4810;background:#3F4810;color:#F1E3BC}.pv-cap.ex{margin-top:22px;border-left-color:#B5532C;background:#FBF0E6;color:#8E3F1F}.pv-cap small{font-weight:600;text-transform:none;letter-spacing:0;margin-left:6px}" +
+  ".pv-capt{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;background:#FAF8F0;border-bottom:1px solid var(--l);font-weight:700;font-size:.86rem;color:#3F4810}.pv-capt b{white-space:nowrap}.pv-capt.ex{color:#8E3F1F;background:#FDF6EF}.pv-capt.sez{background:#E9ECD3;color:#2C330A;border-bottom:2px solid #3F4810;text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}" +
+  ".pv-vt.fuori .im{color:#8a8a8a;text-decoration:line-through}.pv-sv{display:inline-block;margin:0 6px 4px 0;padding:2px 8px;border-radius:999px;font-size:.74rem;font-weight:800}" +
+  ".pv-sv.np{background:#FBE3DE;color:#8A2E1E}.pv-sv.da_quotare{background:#FBF0D9;color:#7A5410}.pv-sv.da_verificare{background:#FFF6CC;color:#6B5600}.pv-sv.esclusa{background:#EDEDED;color:#555}" +
+  ".pv-rr.fuori{font-size:.84rem;color:#6b6b6b}.pv-ctl{margin:12px 0 4px;padding:10px 12px;border-radius:10px;border:1px solid #E3DCC5;background:#FBFAF4;font-size:.84rem;line-height:1.45}" +
+  ".pv-ctl b{display:block;margin-bottom:4px}.pv-ctl p{margin:4px 0}.pv-ctl small{color:#6b6b6b}.pv-ctl.ok{border-color:#CFE3C3;background:#F5FBF1}.pv-ctl.ko{border-color:#E8B4A8;background:#FDF3F0}.pv-ctl .bl{color:#8A2E1E;font-weight:700}" +
   ".pv-vt.th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--s);font-weight:700;border-bottom:2px solid var(--navy);padding-top:4px}" +
   ".pv-vt .n{text-align:right;white-space:nowrap}.pv-vt .nr{font-weight:800;color:var(--s)}" +
   ".pv-ds{margin:0;line-height:1.4;overflow-wrap:anywhere}.pv-ds.corta{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}" +
@@ -536,8 +547,18 @@ function disegna(){
   '<button type="button" class="pv-b sm" data-iaaz="togli_ia">Togli le voci di TIX non controllate</button></div>';
  if(!V.length)h+='<p class="pv-vuoto">Nessuna voce ancora.'+(bozza?' Cercala qui sopra o aggiungi una voce libera.':'')+'</p>';
  else h+='<div class="pv-vt th"><span>Nr</span><span>Fonte</span><span>Descrizione</span><span>U.M.</span><span class="n">Quantità</span><span class="n">Prezzo</span><span class="n">Importo</span></div>';
- V.forEach(function(v,i){var x=VI[String(v.id)],daVedere=x&&!x.confermata;
-  h+='<div class="pv-vt'+(x?' ia-'+es(x.livello)+(x.confermata?' ia-ok':''):'')+'"><span class="nr">'+(i+1)+'</span><span class="fo">'+fonteHtml(v.fonte,v.codice)+'</span><div class="ds">'+(x?tagIa(x):'')+'<p class="pv-ds corta" title="Tocca per leggerla tutta">'+es(v.descrizione)+'</p>'+
+ // 04/11/2026 (preventivi-computo-1): super-categorie e categorie del computo con il totale, voci fuori dal totale, extra computo
+ var kS=null,kC=null,sc=0,cc='',ex=false,se=0,ss=0;
+ function capT(){if(cc)h+='<div class="pv-capt"><span>Totale '+es(cc)+'</span><b>'+euro(sc)+'</b></div>';sc=0;}
+ function sezT(){if(kS)h+='<div class="pv-capt sez"><span>Totale '+es(kS)+'</span><b>'+euro(ss)+'</b></div>';ss=0;}
+ V.forEach(function(v,i){var x=VI[String(v.id)],daVedere=x&&!x.confermata,st=v.stato||'ok',conta=st==='ok'||st==='da_verificare',dentro=v.extra?conta&&num(v.prezzo)>0:v.nel_totale!==false;
+  if(v.extra&&!ex){if(kC!==null){capT();sezT();}kC=null;ex=true;h+='<div class="pv-cap ex">Extra computo – lavorazioni rilevate dagli elaborati <small>non comprese nel totale del preventivo</small></div>';}
+  if(!v.extra){var ks=((v.sez_n!=null?'SpCat '+v.sez_n+' ':'')+(v.sez_nome||'')).trim(),kc=ks+'|'+(v.cat_n!=null?v.cat_n:'')+'|'+(v.cat_nome||'');
+   if(kc!==kC){if(kC!==null){capT();if(ks!==kS)sezT();}cc=(v.cat_n!=null||v.cat_nome)?('Cat '+(v.cat_n!=null?v.cat_n+' ':'')+(v.cat_nome||'')).trim():'';
+    if(ks!==kS&&ks)h+='<div class="pv-cap sez">'+es(ks)+'</div>';if(cc)h+='<div class="pv-cap">'+es(cc)+'</div>';kS=ks;kC=kc;}
+   if(dentro){sc+=num(v.importo);ss+=num(v.importo);}}
+  else if(conta)se+=num(v.importo);
+  h+='<div class="pv-vt'+(x?' ia-'+es(x.livello)+(x.confermata?' ia-ok':''):'')+(dentro?'':' fuori')+'"><span class="nr">'+(i+1)+'</span><span class="fo">'+fonteHtml(v.fonte,v.codice)+'</span><div class="ds">'+(x?tagIa(x):'')+statoV(v)+'<p class="pv-ds corta" title="Tocca per leggerla tutta">'+es(v.descrizione)+'</p>'+rifV(v)+
    (v.fonte!=='libera'&&!v.ribassabile?'<span class="pv-agg">senza ribasso</span>':'')+(v.fonte==='libera'?'<span class="pv-agg">voce dell\'impresa, senza ribasso</span>':'')+
    (v.prezzo_origine!=null&&num(v.prezzo_origine)!==num(v.prezzo)?'<span class="pv-agg">prezzo di partenza '+euro(v.prezzo_origine)+'</span>':'')+
    (daVedere&&x.fonte?'<span class="pv-agg">Da: '+es(x.fonte)+'</span>':'')+(daVedere&&x.nota?'<span class="pv-agg">'+es(x.nota)+'</span>':'')+'</div>'+
@@ -547,6 +568,8 @@ function disegna(){
     ((x.alternative||[]).length?'<button type="button" class="pv-b sm" data-iaalt="'+v.id+'">Scegli un\'altra ('+x.alternative.length+')</button>':''):'')+
     '<button type="button" class="pv-b sm" data-mod="'+v.id+'">Modifica</button><button type="button" class="pv-b sm pv-arg" data-su="'+v.id+'"'+(i?'':' disabled')+'>↑</button><button type="button" class="pv-b sm pv-arg" data-giu="'+v.id+'"'+(i<V.length-1?'':' disabled')+'>↓</button>'+
     (daVedere?'<button type="button" class="pv-b sm pv-togli" data-iatogli="'+v.id+'">Togli</button>':'')+'</div>':'')+'</div>';});
+ if(!ex&&kC!==null){capT();sezT();}
+ if(ex)h+='<div class="pv-capt ex"><span>Totale extra computo (non compreso nel totale)</span><b>'+euro(se)+'</b></div>';
  h+='</div>';
  // revisioni
  if((D.revisioni||[]).length){h+='<div class="pv-voci"><h3>Revisioni mandate</h3><ul class="pv-revs">'+D.revisioni.map(function(r){
@@ -562,6 +585,9 @@ function disegna(){
   '<div class="pv-rr"><span>Oneri della sicurezza (senza ribasso)</span><b>'+euro(T.oneri)+'</b></div>'+
   (num(T.sconto)?'<div class="pv-rr"><span>Sconto</span><b>− '+euro(T.sconto)+'</b></div>':'')+
   '<div class="pv-rr tot"><span>Totale del preventivo</span><b>'+euro(T.totale)+'<small>+ IVA</small></b></div>'+
+  (num(T.fuori_totale)?'<div class="pv-rr fuori"><span>Voci del computo fuori dal totale (NP o da quotare)</span><b>'+num(T.fuori_totale)+'</b></div>':'')+
+  (num(T.extra_voci)?'<div class="pv-rr fuori"><span>Extra computo, non compreso ('+pl(T.extra_voci,'voce','voci')+')</span><b>'+euro(T.extra)+'</b></div>':'')+
+  controlliHtml(D.controlli)+
   '<div class="pv-bott"><div class="riga"><a class="pv-b" href="'+es(CFG.stampa+'?t='+CFG.t+'&id='+F.id)+'" target="_blank" rel="noopener">'+(bozza?'Anteprima':'Stampa o PDF')+'</a><a class="pv-b pv-xl" href="'+es(CFG.excel+'?t='+CFG.t+'&id='+F.id)+'">Scarica Excel</a></div>'+
   (bozza?'<button type="button" class="pv-b pv-pr" data-az="manda">Segna come mandato</button>':'')+'</div>'+
   (bozza?'<p class="pv-avviso">Quando lo segni come mandato, questa revisione resta così, con la sua impronta. Se poi cambi qualcosa, nasce la <b>Rev. '+(F.revisione+1)+'</b>.</p>':'')+
@@ -722,6 +748,18 @@ function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB'
 function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
 // pagine dei PDF se si conoscono per tutti i file, altrimenti il numero dei file
 function docTxt(p,n){p=num(p);n=num(n);return p?p+' pag.':n?pl(n,'file','file'):'0';}
+// 04/11/2026 (preventivi-computo-1): stato della voce, da dove viene nel computo o negli elaborati, controlli del preventivo
+function statoV(v){var s=v.stato||'ok';if(s==='ok')return '';return '<span class="pv-sv '+es(s)+'">'+es(({np:'NP – nuovo prezzo da analizzare',da_quotare:'Da quotare con l\'offerta del fornitore',da_verificare:'Da verificare',esclusa:'Esclusa'})[s]||s)+'</span>';}
+function rifV(v){var a=[];if(v.nr_computo!=null)a.push('Computo n. '+v.nr_computo);if(v.codice_computo&&v.codice_computo!==v.codice)a.push('codice nel computo '+v.codice_computo);
+ if(v.extra){if(v.riferimento)a.push('Da: '+v.riferimento);if(v.affidabilita)a.push('affidabilità: '+String(v.affidabilita).replace('_',' '));if(v.metodo)a.push(v.metodo);}
+ return a.length?'<span class="pv-agg">'+es(a.join(' · '))+'</span>':'';}
+function controlliHtml(c){if(!c)return '';var b=c.blocchi||[],a=c.avvisi||[],r=c.riepilogo||{};
+ var h='<div class="pv-ctl'+(b.length?' ko':a.length?' at':' ok')+'"><b>Controlli</b>';
+ if(!b.length&&!a.length)h+='<p>Nessun problema trovato.</p>';
+ b.forEach(function(x){h+='<p class="bl">Da sistemare: '+es(x.testo)+'</p>';});
+ a.forEach(function(x){h+='<p>'+es(x.testo)+'</p>';});
+ if(r.voci_documento)h+='<small>Voci del computo lette: '+num(r.voci_computo_lette)+' su '+num(r.voci_documento)+'</small>';
+ return h+'</div>';}
 function tagIa(x){return '<span class="pv-ia-tag '+(x.confermata?'ok':es(x.livello))+'">'+(x.confermata?'TIX · controllata':({verde:'TIX · sicura',giallo:'TIX · da guardare',rosso:'TIX · da controllare'})[x.livello]||'TIX')+'</span>';}
 function caricaIa(){if(!CFG.id)return;api('ia_dati',{id:CFG.id}).then(function(r){var prima=IA;IA=r&&r.esito==='ok'&&r.attiva?r:null;
  if(IA&&IA.voci_ia&&Object.keys(IA.voci_ia).length||prima&&prima.voci_ia&&Object.keys(prima.voci_ia).length)disegna();else disegnaIa();pianificaIa();});}
@@ -772,7 +810,7 @@ function rigaFileIa(f,mod){var est=f.fonte==='link'?'LINK':(/\.(xlsx|xls|xlsm|od
    :'<span class="pv-ia-st">'+es(TIPI[f.tipo]||'')+(f.leggi?'':' · non letto')+'</span>')+'</div>';}
 function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',ap=l.profondita==='approfondita',manca=ap&&t.usd_appr_batch==null,
  costo=ap?(sub?t.usd_appr_subito:t.usd_appr_batch):(sub?t.usd_subito:t.usd_senza_fretta);
- var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.da_scegliere||0)+' da scegliere con TIX · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
+ var h='<div class="pv-ia-stima"><div><span>Voci del computo</span><b>'+(t.voci_computo||0)+'</b><small>'+(t.per_codice||0)+' con il prezzo per codice · '+(t.np?t.np+' NP (codice non nel prezzario) · ':'')+(t.da_scegliere||0)+' da scegliere con TIX · '+(t.senza_prezzo||0)+' senza voci simili</small></div>'+
   '<div><span>Relazioni</span><b>'+docTxt(t.pagine_relazioni,t.file_relazioni)+'</b><small>lette da TIX in PDF</small></div>'+
   '<div><span>Tavole</span><b>'+docTxt(t.pagine_tavole,t.file_tavole)+'</b><small>lette da TIX in PDF</small></div>'+
   '<div class="soldi"><span>Costo stimato</span><b>'+(manca?'—':usd(costo)+' $')+'</b><small>'+(manca?'premi «Controlla di nuovo»':'+ IVA · '+(ap?(sub?'circa 10 minuti':'di solito entro due ore'):(sub?'pochi minuti':'di solito entro un\'ora')))+'</small></div></div>';
@@ -782,12 +820,18 @@ function stimaIa(l){var t=l.stima||{},sub=l.modalita==='subito',ap=l.profondita=
   (ap?'<p class="pv-ia-nota pv-ia-appr">Più voci simili per ogni voce, con le varianti e i sovrapprezzi; il prezzo adeguato con il calcolo scritto; l\'analisi del prezzo per le voci che nel prezzario non ci sono; il confronto con i tuoi prezzi e un controllo finale di tutte le voci.</p>':'');
  h+='<div class="pv-ia-vel"><span class="et">Velocità</span><button type="button" class="pv-chip'+(sub?'':' on')+'" data-iamod="batch">Senza fretta <em>· metà prezzo</em></button>'+
   '<button type="button" class="pv-chip'+(sub?' on':'')+'" data-iamod="subito">Subito <em>· prezzo pieno</em></button></div>'+
+  // 04/11/2026 (preventivi-computo-1): con le voci di una lettura di prima si sceglie se sostituirle o integrarle
+  (num(IA.voci_precedenti)?'<div class="pv-ia-vel pv-ia-scr"><span class="et">Voci di prima</span><button type="button" class="pv-chip'+(l.scrittura==='sostituisci'?' on':'')+'" data-iascr="sostituisci">Sostituisci <em>· toglie le '+num(IA.voci_precedenti)+' voci delle letture di prima</em></button>'+
+   '<button type="button" class="pv-chip'+(l.scrittura==='integra'?' on':'')+'" data-iascr="integra">Integra <em>· aggiorna le voci uguali del computo e aggiunge solo le nuove</em></button></div>'+
+   (IA.gia_importato?'<p class="pv-avviso">Questo computo è già stato letto in una lettura di prima: di solito conviene «Sostituisci».</p>':''):'')+
   '<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-parti">Prepara il preventivo</button><button type="button" class="pv-b" id="pv-ia-ricontrolla">Controlla di nuovo</button>'+
-  '<span class="pv-ia-nota">Le voci che ci sono già restano. Quelle di TIX si aggiungono sotto, segnate, e le controlli una per una prima di mandare il preventivo.</span></div>';
+  '<span class="pv-ia-nota">Le voci scritte a mano restano. Quelle di TIX entrano segnate, con la super-categoria e la categoria del computo, e le controlli prima di mandare il preventivo. Le voci in più rilevate da tavole e relazioni vanno nel capitolo «Extra computo», fuori dal totale.</span></div>';
  return h;}
 function esitoIa(l){var r=l.riepilogo||{},ap=r.profondita==='approfondita',h='<div class="pv-ia-esito"><p class="pv-ia-rie">'+(ap?'Ultima lettura approfondita: ':'Ultima lettura: ')+pl(r.scritte,'voce aggiunta','voci aggiunte')+' · '+(r.per_codice||0)+' con il prezzo per codice · '+
   pl(r.scelte_ia,'scelta da TIX','scelte da TIX')+' · '+(ap?pl(r.adeguati,'prezzo adeguato','prezzi adeguati')+' · '+pl(r.analisi,'analisi del prezzo','analisi del prezzo')+' · ':'')+(r.senza_prezzo||0)+' senza prezzo · '+(r.in_piu||0)+' in più dalle relazioni e dalle tavole'+
-  (ap?' · '+pl(r.segnalazioni,'segnalazione del controllo finale','segnalazioni del controllo finale'):'')+' · costo '+usd(l.costo_usd)+' $ + IVA</p>';
+  (ap?' · '+pl(r.segnalazioni,'segnalazione del controllo finale','segnalazioni del controllo finale'):'')+
+  (r.tolte?' · '+pl(r.tolte,'voce tolta','voci tolte')+' delle letture di prima':'')+(r.aggiornate?' · '+pl(r.aggiornate,'voce aggiornata','voci aggiornate'):'')+
+  (r.extra_tolte?' · '+pl(r.extra_tolte,'voce in più non aggiunta perché già presente','voci in più non aggiunte perché già presenti'):'')+' · costo '+usd(l.costo_usd)+' $ + IVA</p>';
  if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
  h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
   (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file non restano in TIX: resta questo elenco, con le impronte.</small></details></div>';
@@ -806,6 +850,7 @@ function legaIa(l){
  var pa=$('pv-ia-parti');if(pa)pa.onclick=function(){parti(pa,false);};
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iamod]'),function(b){b.onclick=function(){azIa('lavoro',{modalita:b.getAttribute('data-iamod')},b);};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iaprof]'),function(b){b.onclick=function(){azIa('lavoro',{profondita:b.getAttribute('data-iaprof')},b);};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iascr]'),function(b){b.onclick=function(){azIa('lavoro',{scrittura:b.getAttribute('data-iascr')},b);};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iatipo]'),function(s){s.onchange=function(){azIa('tipo_file',{file_id:s.getAttribute('data-iatipo'),tipo:s.value});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-ialeggi]'),function(c){c.onchange=function(){azIa('tipo_file',{file_id:c.getAttribute('data-ialeggi'),leggi:c.checked});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iax]'),function(b){b.onclick=function(){azIa('togli_file',{file_id:b.getAttribute('data-iax')},b);};});}
@@ -874,8 +919,8 @@ async function stampa(request, env, base, inUrl, h) {
 }
 
 // foglio da stampare (04/11/2026, preventivi-stampa-1): il modello 26 «Computo grafite e ottone» scelto da Filippo. Intestazione a
-// tabella, computo metrico estimativo con le righe di misura e «SOMMANO», riepilogo per provenienza dei prezzi, quadro economico,
-// condizioni e firme. Le categorie nei preventivi non ci sono: le voci restano nell'ordine dell'app, con lo stesso numero.
+// tabella, computo metrico estimativo con le righe di misura e «SOMMANO», riepilogo (per categorie se il computo le ha, altrimenti
+// per provenienza dei prezzi), quadro economico, condizioni e firme. Le voci restano nell'ordine dell'app.
 function foglio(base, h, tok, d) {
   const e = h.esc;
   const f = d.preventivo || {};
@@ -901,26 +946,78 @@ function foglio(base, h, tok, d) {
   const logo = /^https:\/\/[^\s"'<>]+$/.test(String(imp.logo_url || "")) ? '<img class="logo-img" src="' + e(imp.logo_url) + '" alt="" onerror="this.remove()">'
     : (sigla ? '<span class="sigla" aria-hidden="true">' + e(sigla) + "</span>" : "");
   const data = foto ? dataIt(f.data || d.mandato_il) : "";
-  const righe = voci.map((v, i) => {
+  // 04/11/2026 (preventivi-computo-1): super-categorie e categorie del computo con il «Totale categoria», voci NP o da quotare
+  // fuori dal totale, voci extra computo in un capitolo a parte (non comprese). Le revisioni di prima non hanno questi campi.
+  const nel = (v) => v.nel_totale !== false && !v.extra;
+  const comp = voci.filter((v) => !v.extra), extra = voci.filter((v) => v.extra);
+  const n2 = (n) => (n === null || n === undefined || n === "" ? "" : String(n).padStart(2, "0"));
+  const nomeCat = (v) => (v.cat_n != null || v.cat_nome ? "CATEGORIA " + n2(v.cat_n) + (v.cat_nome ? " — " + v.cat_nome : "") : "");
+  const nomeSez = (v) => (v.sez_n != null || v.sez_nome ? (v.sez_nome || "") + (v.sez_n != null ? " (SpCat " + v.sez_n + ")" : "") : "");
+  const fuoriTxt = (v) => (v.stato === "da_quotare" ? "da quotare con l'offerta del fornitore" : v.stato === "esclusa" ? "esclusa" : "NP – nuovo prezzo da analizzare");
+  const voce = (v, nr, testa) => {
     const mis = Array.isArray(v.misure) ? v.misure : [];
-    return '<tbody class="vg"><tr class="v"><td class="c">' + (i + 1) + '</td><td class="tar">' + e(v.codice || "") + '</td><td class="des">' + e(v.descrizione) +
-      '<span class="fonte">' + e(nomeFonte(v)) + (senzaRib(v) ? '<span class="sr">senza ribasso</span>' : "") + "</span></td>" + "<td></td>".repeat(7) + "</tr>" +
+    const dentro = v.extra ? !!v.prezzo && ["ok", "da_verificare"].includes(v.stato) : nel(v);
+    return '<tbody class="vg">' + testa + '<tr class="v' + (dentro ? "" : " fuori") + '"><td class="c">' + e(nr) + '</td><td class="tar">' + e(v.codice || v.codice_computo || "") + '</td><td class="des">' + e(v.descrizione) +
+      '<span class="fonte">' + e(v.extra ? "Da: " + (v.riferimento || "elaborati di progetto") + (v.affidabilita ? " · " + String(v.affidabilita).replace("_", " ") : "") : nomeFonte(v)) +
+      (senzaRib(v) && dentro ? '<span class="sr">senza ribasso</span>' : "") + (dentro ? "" : '<span class="sr np">' + e(fuoriTxt(v)) + "</span>") + "</span></td>" + "<td></td>".repeat(7) + "</tr>" +
       mis.map((m) => '<tr class="m"><td></td><td></td><td class="des">' + e(m.dove || "") + "</td>" +
         ["parti", "lun", "lar", "alt"].map((x) => '<td class="r">' + (vuoto(m[x]) ? "" : cifra(m[x], x === "parti" && Number.isInteger(Number(m[x])) ? 0 : 2)) + "</td>").join("") +
         '<td class="r">' + cifra(m.q, 2) + "</td><td></td><td></td></tr>").join("") +
       '<tr class="s"><td></td><td></td><td class="des">SOMMANO ' + e(v.unita || "") + '</td><td></td><td></td><td></td><td></td><td class="r q">' + cifra(v.quantita, 2) +
-      '</td><td class="r">' + cifra(v.prezzo, 2) + '</td><td class="r i">' + cifra(v.importo, 2) + "</td></tr></tbody>";
-  }).join("") || '<tbody><tr class="s"><td colspan="10" class="des vuote">Nessuna voce</td></tr></tbody>';
-  // riepilogo per provenienza dei prezzi (importi prima del ribasso)
-  const gruppi = [["contratto", "Elenco prezzi del contratto"], ["prezzario", z ? z.titolo : "Prezzario regionale"], ["libera", "Voci dell'impresa"]].map(([fo, nome]) => {
-    const g = voci.filter((v) => fo === "libera" ? v.fonte !== "contratto" && v.fonte !== "prezzario" : v.fonte === fo);
-    return { nome, n: g.length, t: g.reduce((s, v) => s + (Number(v.importo) || 0), 0) };
-  }).filter((g) => g.n);
+      '</td><td class="r">' + (dentro || Number(v.prezzo) ? cifra(v.prezzo, 2) : v.stato === "da_quotare" ? "da quotare" : "NP") + '</td><td class="r i">' + (dentro ? cifra(v.importo, 2) : "—") + "</td></tr></tbody>";
+  };
+  const pezzi = [];
+  let kS = null, kC = null, sc = 0, ss = 0, cc = "", nPrima = 0;
+  const chiudiCat = () => { if (cc) pezzi.push('<tbody><tr class="tc"><td colspan="9" class="des">Totale ' + e(cc.toLowerCase().replace(/^categoria/, "categoria")) + '</td><td class="r">' + cifra(sc, 2) + "</td></tr></tbody>"); sc = 0; };
+  const chiudiSez = () => { if (kS) pezzi.push('<tbody><tr class="ts"><td colspan="9" class="des">Totale ' + e(kS.toUpperCase()) + '</td><td class="r">' + cifra(ss, 2) + "</td></tr></tbody>"); ss = 0; };
+  comp.forEach((v, i) => {
+    const ks = nomeSez(v), kc = ks + "|" + nomeCat(v);
+    let testa = "";
+    if (kc !== kC) {
+      if (kC !== null) { chiudiCat(); if (ks !== kS) chiudiSez(); }
+      if (ks !== kS && ks) testa += '<tr class="sez"><td colspan="10">' + e(ks.toUpperCase()) + "</td></tr>";
+      cc = nomeCat(v);
+      if (cc) testa += '<tr class="cat"><td colspan="10">' + e(cc.toUpperCase()) + "</td></tr>";
+      kS = ks; kC = kc;
+    }
+    if (nel(v)) { sc += Number(v.importo) || 0; ss += Number(v.importo) || 0; }
+    pezzi.push(voce(v, v.nr_computo != null ? v.nr_computo : i + 1, testa));
+    nPrima = i + 1;
+  });
+  if (kC !== null) { chiudiCat(); chiudiSez(); }
+  if (extra.length) {
+    let se = 0;
+    extra.forEach((v, i) => {
+      if (["ok", "da_verificare"].includes(v.stato)) se += Number(v.importo) || 0;
+      pezzi.push(voce(v, "E" + (i + 1), i ? "" : '<tr class="ex"><td colspan="10">EXTRA COMPUTO – LAVORAZIONI RILEVATE DAGLI ELABORATI · NON COMPRESE NEL TOTALE</td></tr>'));
+    });
+    pezzi.push('<tbody><tr class="tc ex"><td colspan="9" class="des">Totale extra computo (non compreso nel totale del preventivo)</td><td class="r">' + cifra(se, 2) + "</td></tr></tbody>");
+  }
+  const righe = pezzi.join("") || '<tbody><tr class="s"><td colspan="10" class="des vuote">Nessuna voce</td></tr></tbody>';
+  // riepilogo: per categorie se il computo le ha, altrimenti per provenienza dei prezzi (importi nel totale, prima del ribasso)
+  const sub = (Array.isArray(f.subtotali) ? f.subtotali : []).filter((s) => s.cat_n != null || s.cat_nome || s.sez_n != null || s.sez_nome);
+  const piuSez = new Set(sub.map((s) => s.sez_n)).size > 1;
+  const gruppi = sub.length ? sub.map((s) => ({ nome: (piuSez && s.sez_n != null ? "SpCat " + s.sez_n + " · " : "") + (s.cat_n != null ? n2(s.cat_n) + " — " : "") + (s.cat_nome || s.sez_nome || ""), n: s.voci, t: Number(s.importo) || 0,
+      sez: s.sez_n, sezNome: s.sez_nome }))
+    : [["contratto", "Elenco prezzi del contratto"], ["prezzario", z ? z.titolo : "Prezzario regionale"], ["libera", "Voci dell'impresa"]].map(([fo, nome]) => {
+      const g = comp.filter((v) => nel(v) && (fo === "libera" ? v.fonte !== "contratto" && v.fonte !== "prezzario" : v.fonte === fo));
+      return { nome, n: g.length, t: g.reduce((s, v) => s + (Number(v.importo) || 0), 0) };
+    }).filter((g) => g.n);
   const lordo = gruppi.reduce((s, g) => s + g.t, 0);
   // con una sola provenienza basta la riga del totale, con il suo nome
-  const rc = gruppi.length === 1 ? '<tr class="f"><td>' + e(gruppi[0].nome) + '</td><td class="r">' + cifra(lordo, 2) + ' €</td><td class="r pc">100 %</td></tr>' : gruppi.map((g) => { const p = lordo > 0 ? g.t / lordo * 100 : 0;
-    return "<tr><td>" + e(g.nome) + '</td><td class="r">' + cifra(g.t, 2) + ' €</td><td class="r pc"><span class="b"><i style="width:' + p.toFixed(1) + '%"></i></span>' + cifra(p, 1) + " %</td></tr>"; }).join("") +
+  // con più super-categorie, dopo le loro categorie la riga «Totale SpCat»
+  const lista = [];
+  gruppi.forEach((g, i) => {
+    lista.push(g);
+    const nx = gruppi[i + 1];
+    if (piuSez && g.sez != null && (!nx || nx.sez !== g.sez)) {
+      lista.push({ sz: true, nome: "Totale SpCat " + g.sez + (g.sezNome ? " — " + g.sezNome : ""), t: gruppi.filter((x) => x.sez === g.sez).reduce((s, x) => s + x.t, 0) });
+    }
+  });
+  const rc = gruppi.length === 1 ? '<tr class="f"><td>' + e(gruppi[0].nome) + '</td><td class="r">' + cifra(lordo, 2) + ' €</td><td class="r pc">100 %</td></tr>' : lista.map((g) => { const p = lordo > 0 ? g.t / lordo * 100 : 0;
+    return "<tr" + (g.sz ? ' class="sz"' : "") + "><td>" + e(g.nome) + '</td><td class="r">' + cifra(g.t, 2) + ' €</td><td class="r pc"><span class="b"><i style="width:' + p.toFixed(1) + '%"></i></span>' + cifra(p, 1) + " %</td></tr>"; }).join("") +
     '<tr class="f"><td>' + (rib > 0 ? "Totale prima del ribasso" : "Totale delle voci") + '</td><td class="r">' + cifra(lordo, 2) + ' €</td><td class="r pc">' + (lordo > 0 ? "100 %" : "") + "</td></tr>";
+  const fuori = comp.filter((v) => !nel(v)).length;
   const qe = (rib > 0 ? "<tr><td>Voci con il ribasso</td><td class=\"r\">" + cifra(T.soggetto, 2) + " €</td></tr>" +
       "<tr><td>Ribasso del contratto " + cifra(rib, 2) + ' %</td><td class="r">− ' + cifra(T.ribasso, 2) + " €</td></tr>" +
       (Number(T.non_soggetto) ? '<tr><td>Voci senza ribasso</td><td class="r">' + cifra(T.non_soggetto, 2) + " €</td></tr>" : "") : "") +
@@ -929,6 +1026,9 @@ function foglio(base, h, tok, d) {
     (Number(T.sconto) ? '<tr><td>Sconto</td><td class="r">− ' + cifra(T.sconto, 2) + " €</td></tr>" : "") +
     '<tr class="f"><td>TOTALE</td><td class="r">' + cifra(T.totale, 2) + " € + IVA</td></tr>";
   const cond = [];
+  if (fuori) cond.push(fuori === 1 ? "1 voce del computo (NP o da quotare) non ha ancora il prezzo e non è compresa nel totale."
+    : fuori + " voci del computo (NP o da quotare) non hanno ancora il prezzo e non sono comprese nel totale.");
+  if (extra.length) cond.push("Le lavorazioni del capitolo «Extra computo», rilevate dagli elaborati di progetto, non sono comprese nel totale.");
   if (fonti.length) cond.push("Prezzi presi " + e(fonti.join(" e ")) + (rib > 0 ? ", con il ribasso del contratto " + del(cifra(rib, 2)) + " %" +
     (voci.some(senzaRib) ? " (le voci segnate «senza ribasso» non lo hanno)" : "") : "") + ".");
   cond.push("Le quantità si misurano a lavoro finito" + (c ? ", in contraddittorio con la Direzione Lavori" : "") + ".");
@@ -956,7 +1056,7 @@ function foglio(base, h, tok, d) {
       '<col style="width:10mm"><col style="width:14mm"><col style="width:15mm"><col style="width:17mm"></colgroup>' +
       "<thead><tr><th>N.<br>ORD.</th><th>TARIFFA</th><th>DESIGNAZIONE DEI LAVORI</th><th>PAR.<br>UG.</th><th>LUNG.</th><th>LARG.</th><th>H/<br>PESO</th>" +
       "<th>QUANTITÀ</th><th>PREZZO<br>UNIT. €</th><th>IMPORTO €</th></tr></thead>" + righe + "</table></div>" +
-    '<div class="due"><div><h2>RIEPILOGO PER PROVENIENZA</h2><table class="rc">' + rc + "</table></div>" +
+    '<div class="due"><div><h2>' + (sub.length ? "RIEPILOGO PER CATEGORIE" : "RIEPILOGO PER PROVENIENZA") + '</h2><table class="rc">' + rc + "</table></div>" +
       '<div><h2>QUADRO ECONOMICO</h2><table class="qe">' + qe + "</table></div></div>" +
     '<ul class="cond">' + cond.map((x) => "<li>" + x + "</li>").join("") + "</ul>" +
     '<div class="firme"><div>L\'impresa<br><b>' + e(imp.nome || "") + "</b><small>timbro e firma</small></div>" +
@@ -1010,6 +1110,13 @@ const STILE_FOGLIO =
   ".cm tr.s td{border-bottom:1px solid var(--linea);padding-bottom:1.7mm}" +
   ".cm tr.s td.des{text-align:right;font-weight:700;letter-spacing:.04em;color:var(--p);font-size:7.4pt}.cm tr.s td.q,.cm tr.s td.i{font-weight:700}" +
   ".cm td.vuote{text-align:center!important;color:var(--sub)}" +
+  // preventivi-computo-1: super-categoria, categoria, totale di categoria, capitolo extra, voci fuori dal totale
+  ".cm tr.sez td{border:1px solid var(--p);background:var(--p)!important;color:var(--oro);font-weight:700;font-size:7.6pt;letter-spacing:.1em;padding:1.6mm 1.2mm 1.6mm 3.2mm}" +
+  ".cm tr.cat td{border:1px solid var(--linea);background:var(--cat)!important;color:var(--p);font-weight:700;font-size:7.6pt;letter-spacing:.07em;padding:1.5mm 1.2mm 1.5mm 3.2mm;box-shadow:inset 1.3mm 0 0 var(--a)}" +
+  ".cm tr.tc td{border:1px solid var(--linea);background:var(--chiaro)!important;color:var(--p);font-weight:700;padding:1.5mm 1.2mm}.cm tr.tc td.des{text-align:right}" +
+  ".cm tr.ts td{border:1px solid var(--p);background:var(--t)!important;color:var(--p);font-weight:700;letter-spacing:.05em;padding:1.7mm 1.2mm;border-bottom:.6mm solid var(--p)}.cm tr.ts td.des{text-align:right}" +
+  ".cm tr.ex td{border:1px solid var(--a);background:#FBF3E1!important;color:#6E5420;font-weight:700;font-size:7.4pt;letter-spacing:.06em;padding:1.6mm 1.2mm 1.6mm 3.2mm}" +
+  ".cm tr.fuori td.des{color:#5d5a52}.cm .sr.np{background:#F7E3DE;color:#8A2E1E}" +
   ".cm tbody td:last-child{background:var(--col)}.cm thead{display:table-header-group}" +
   ".due{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:6mm}" +
   ".due h2{margin:0 0 2mm;font-size:8.5pt;letter-spacing:.14em;color:var(--p);display:flex;align-items:center;gap:2mm}" +
@@ -1017,7 +1124,7 @@ const STILE_FOGLIO =
   ".rc td,.qe td{border:1px solid var(--linea);padding:1.6mm 2.4mm;font-size:8.4pt}.rc td.r,.qe td.r{text-align:right;white-space:nowrap}" +
   ".rc td.pc{width:23mm}.rc .b{display:inline-block;width:8mm;height:2mm;background:var(--t);border-radius:1mm;margin-right:2mm;vertical-align:.2mm;overflow:hidden}" +
   ".rc .b i{display:block;height:100%;background:var(--a)}" +
-  ".rc tr.f td,.qe tr.p td{background:var(--t);font-weight:700}" +
+  ".rc tr.f td,.qe tr.p td{background:var(--t);font-weight:700}.rc tr.sz td{background:var(--chiaro);font-weight:700;color:var(--p)}" +
   ".qe tr.f td{background:var(--p);color:#fff;font-weight:700;font-size:10pt;border-color:var(--p);padding:2mm 2.4mm}.qe tr.f td.r{color:var(--oro)}" +
   ".cond{margin:5mm 0 0;padding:2.5mm 4mm 2.5mm 8mm;font-size:8.2pt;line-height:1.5;color:#2B3038;background:#FAF8F2;border-left:1.2mm solid var(--a)}" +
   ".firme{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8mm;margin-top:12mm}" +
