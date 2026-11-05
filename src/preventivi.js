@@ -9,7 +9,7 @@
 //   POST /preventivi/api  {t, a, c, azione, dati}   → lista | dati | cerca | estesa | nuovo | intestazione | voce | togli_voce |
 //                                                      sposta_voce | manda | revisione | accettato | rifiutato | annulla_esito | elimina
 //   GET  /preventivi/stampa?t&id[&rev]              → foglio da stampare o salvare in PDF
-//   GET  /preventivi/excel?t&id[&rev]               → file per Excel (CSV)
+//   GET  /preventivi/excel?t&id[&rev][&formato=csv] → file Excel .xlsx con la grafica B (preventivi-excel-1); formato=csv → il CSV di prima
 //   POST /preventivi/firmato?t&id&nome              → copia firmata (corpo = il file, .pdf o .p7m)
 //   GET  /preventivi/firmato?t&id                   → scarica la copia firmata
 // «Prepara con TIX» (03/11/2026, preventivi-ia-1; nome e logo TIX da preventivi-tix-1): nella bozza si allegano file o link
@@ -1218,12 +1218,43 @@ const STILE_FOGLIO =
   "tr,.due,.firme,.cond,.cm tbody.vg{break-inside:avoid}.due h2{break-after:avoid}.firme{break-before:avoid}}";
 
 // ---------------------------------------------------------------------------- Excel
+// 05/11/2026 (preventivi-excel-1, chat 02B): «Scarica Excel» dà un vero file .xlsx con la grafica B «Blu e arancione TIX», scelta
+// da Filippo tra tre proposte (il foglio da stampare e il PDF non cambiano). Due fogli: «Riepilogo» (intestazione, totale in
+// evidenza, riepilogo per categorie con le barre, quadro economico, condizioni, firme: una pagina A4) e «Computo» (tutte le voci
+// con super-categorie, categorie, totali e il capitolo «Extra computo» a parte). Formule vere (importo = quantità × prezzo, totali,
+// percentuali, quadro economico), A4 pronto da stampare, stesse regole del foglio per il cliente: niente fonte dei prezzi.
+// Il file (zip di XML, senza compressione) lo scrive il Worker, senza librerie. «?formato=csv» dà ancora il CSV di prima (per
+// l'ufficio, con la fonte dei prezzi); PREVENTIVI_XLSX = "off" nel Worker torna al CSV per tutti.
 async function excel(request, env, base, inUrl, h) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const tok = gettone(inUrl.searchParams.get("t"));
   const id = uuid(inUrl.searchParams.get("id"));
   if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
   if (!id) return new Response("Not Found", { status: 404 });
+  if (String(env.PREVENTIVI_XLSX || "").toLowerCase() === "off" || inUrl.searchParams.get("formato") === "csv") return excelCsv(request, env, base, inUrl, h, tok, id);
+  const d = await datiPerStampa(env, h, tok, id, inUrl.searchParams.get("rev"));
+  if (!d) return h.risposta(h.foglio(base, "Preventivo", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", ""), 503);
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito !== "ok") return h.risposta(h.foglio(base, "Preventivo", "Preventivo non trovato.", ""), 404);
+  let file;
+  try {
+    file = xlsxPreventivo(d);
+  } catch (e) {
+    // se il file non riesce, si dà il CSV di prima: meglio un file semplice che nessun file
+    console.log(JSON.stringify({ evento: "preventivi_xlsx_errore", errore: String((e && e.message) || e).slice(0, 300) }));
+    return excelCsv(request, env, base, inUrl, h, tok, id);
+  }
+  const f = d.preventivo || {};
+  const nome = (String(f.codice || "Preventivo") + " Rev." + (Number(f.revisione) || 1) + (f.cliente && f.cliente.nome ? " - " + f.cliente.nome : ""))
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").trim().slice(0, 150) + ".xlsx";
+  return new Response(request.method === "HEAD" ? null : file, { status: 200, headers: {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": 'attachment; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// il CSV di prima (preventivo_csv): con la fonte dei prezzi, per l'ufficio
+async function excelCsv(request, env, base, inUrl, h, tok, id) {
   let rev = Math.max(0, Math.min(999, parseInt(inUrl.searchParams.get("rev") || "0", 10) || 0));
   if (!rev) {
     const d = await datiPerStampa(env, h, tok, id, "0");
@@ -1238,6 +1269,565 @@ async function excel(request, env, base, inUrl, h) {
     "Content-Type": "text/csv; charset=UTF-8",
     "Content-Disposition": 'attachment; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
     "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// colori della grafica B «Blu e arancione TIX»
+const XL = { scuro: "1B2F4A", acc: "F26A10", chiaro: "E9EFF7", zebra: "F3F6FA", bordo: "C8D3E1", grigio: "5C6B7E", barra: "F59A5B",
+  nota: "C2540B", bianco: "FFFFFF", extra: "EFEFEC", tenue: "C8D3E1" };
+const XL_EURO = "#,##0.00", XL_EURO0 = '#,##0.00;-#,##0.00;"—"', XL_TOT = '#,##0.00 "€ + IVA"';
+
+// il preventivo (risultato di preventivo_dati) come file .xlsx: Uint8Array
+export function xlsxPreventivo(d) {
+  const f = d.preventivo || {};
+  const T = f.totali || {};
+  const imp = f.impresa || {};
+  const cl = f.cliente || {};
+  const cant = f.cantiere && typeof f.cantiere === "object" ? f.cantiere : null;
+  const voci = Array.isArray(f.voci) ? f.voci : [];
+  const num = (x) => { const v = Number(x); return isFinite(v) ? v : 0; };
+  const rib = num(T.ribasso_pct);
+  const foto = d.foto === true;
+  const data = foto ? dataIt(f.data || d.mandato_il) : "";
+  const codice = String(f.codice || "");
+  const rev = Number(f.revisione) || 1;
+  const valido = f.validita_giorni || 30;
+  const nomeImp = String(imp.nome || "");
+
+  // ---- stili (fonti, riempimenti, bordi, formati dei numeri) registrati una volta sola
+  const fonts = ['<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>'];
+  const fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>'];
+  const borders = ["<border><left/><right/><top/><bottom/><diagonal/></border>"];
+  const numFmts = [];
+  const xfs = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];
+  const formati = {};
+  const posto = (arr, x) => { let i = arr.indexOf(x); if (i < 0) { arr.push(x); i = arr.length - 1; } return i; };
+  const idFormato = (code) => {
+    if (!code) return 0;
+    if (code === "0") return 1;
+    if (code === "0%") return 9;
+    if (!(code in formati)) { formati[code] = 164 + numFmts.length; numFmts.push('<numFmt numFmtId="' + formati[code] + '" formatCode="' + xe(code) + '"/>'); }
+    return formati[code];
+  };
+  const S = (o) => {
+    const font = "<font>" + (o.b ? "<b/>" : "") + (o.i ? "<i/>" : "") + '<sz val="' + (o.sz || 10) + '"/><color rgb="FF' + (o.c || XL.scuro) + '"/><name val="' +
+      (o.f || "Calibri") + '"/><family val="2"/></font>';
+    const fill = o.bg ? '<fill><patternFill patternType="solid"><fgColor rgb="FF' + o.bg + '"/><bgColor indexed="64"/></patternFill></fill>' : fills[0];
+    const lato = (n) => (o[n] ? "<" + n + ' style="' + o[n][0] + '"><color rgb="FF' + o[n][1] + '"/></' + n + ">" : "<" + n + "/>");
+    const border = "<border>" + lato("left") + lato("right") + lato("top") + lato("bottom") + "<diagonal/></border>";
+    const nf = idFormato(o.nf);
+    const al = "<alignment" + (o.h ? ' horizontal="' + o.h + '"' : "") + ' vertical="' + (o.v || "top") + '"' + (o.wrap ? ' wrapText="1"' : "") +
+      (o.ind ? ' indent="' + o.ind + '"' : "") + "/>";
+    return posto(xfs, '<xf numFmtId="' + nf + '" fontId="' + posto(fonts, font) + '" fillId="' + posto(fills, fill) + '" borderId="' + posto(borders, border) +
+      '" xfId="0"' + (nf ? ' applyNumberFormat="1"' : "") + ' applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + al + "</xf>");
+  };
+  const RPR_N = '<sz val="10"/><color rgb="FF' + XL.scuro + '"/><rFont val="Calibri"/><family val="2"/>';
+  const RPR_NOTA = '<i/><sz val="8"/><color rgb="FF' + XL.nota + '"/><rFont val="Calibri"/><family val="2"/>';
+
+  // ---- celle
+  const colonna = (c) => { let s = ""; c++; while (c) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26); } return s; };
+  const A1 = (r, c, abs) => (abs ? "$" : "") + colonna(c) + (abs ? "$" : "") + (r + 1);
+  const vn = (n) => String(Math.round(num(n) * 1e6) / 1e6);
+  const nuovoFoglio = () => ({ celle: new Map(), alte: new Map(), unite: [], max: 0 });
+  const metti = (F, r, c, x) => { let riga = F.celle.get(r); if (!riga) F.celle.set(r, (riga = new Map())); riga.set(c, x); if (r > F.max) F.max = r; };
+  const vuota = (F, r, c, s) => metti(F, r, c, '<c r="' + A1(r, c) + '" s="' + s + '"/>');
+  const scritta = (F, r, c, t, s) => (t === null || t === undefined || t === "" ? vuota(F, r, c, s)
+    : metti(F, r, c, '<c r="' + A1(r, c) + '" s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + xe(t) + "</t></is></c>"));
+  const numero = (F, r, c, n, s) => metti(F, r, c, '<c r="' + A1(r, c) + '" s="' + s + '"><v>' + vn(n) + "</v></c>");
+  const formula = (F, r, c, fx, v, s) => metti(F, r, c, '<c r="' + A1(r, c) + '" s="' + s + '"><f>' + xe(fx) + "</f><v>" + vn(v) + "</v></c>");
+  const ricca = (F, r, c, parti, s) => metti(F, r, c, '<c r="' + A1(r, c) + '" s="' + s + '" t="inlineStr"><is>' +
+    parti.map(([t, rp]) => "<r><rPr>" + rp + '</rPr><t xml:space="preserve">' + xe(t) + "</t></r>").join("") + "</is></c>");
+  const unisci = (F, r1, c1, r2, c2, t, s) => {
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) vuota(F, r, c, s);
+    if (t !== undefined) scritta(F, r1, c1, t, s);
+    F.unite.push(A1(r1, c1) + ":" + A1(r2, c2));
+  };
+  const alta = (F, r, x) => { F.alte.set(r, x); if (r > F.max) F.max = r; };
+  // righe stimate di un testo a capo automatico (le maiuscole occupano più spazio)
+  const righe = (s, larghezza, fattore) => String(s || "").split("\n").reduce((n, p) => {
+    let l = 0;
+    for (const ch of p) l += ch !== ch.toLowerCase() ? 1.3 : 1;
+    return n + Math.max(1, Math.ceil(l / (larghezza * (fattore || 1.3))));
+  }, 0);
+
+  // ---- regole del foglio per il cliente (come foglio(): preventivi-stampa-2)
+  const nel = (v) => v.nel_totale !== false && !v.extra;
+  const senzaRib = (v) => rib > 0 && !((v.fonte === "contratto" || v.fonte === "prezzario") && v.ribassabile);
+  const fuoriTxt = (v) => (v.stato === "da_quotare" ? "da quotare con l'offerta del fornitore" : v.stato === "esclusa" ? "esclusa"
+    : !num(v.quantita) ? "NP – prezzo da definire: mancano le quantità" : "NP – prezzo da definire per mancanza di dati tecnici");
+  const tariffa = (v) => v.codice_computo || (v.fonte === "contratto" ? v.codice : "") || "";
+  const n2 = (n) => (n === null || n === undefined || n === "" ? "" : String(n).padStart(2, "0"));
+  const nomeCat = (v) => (v.cat_n != null || v.cat_nome ? "CATEGORIA " + n2(v.cat_n) + (v.cat_nome ? " — " + v.cat_nome : "") : "");
+  const nomeSez = (v) => (v.sez_n != null || v.sez_nome ? String(v.sez_nome || "").toUpperCase() + (v.sez_n != null ? " (SpCat " + v.sez_n + ")" : "") : "");
+  const maiuscola = (s) => { s = String(s || "").toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+  // ==================================================================== foglio «Computo»
+  const C = nuovoFoglio();
+  const th = S({ b: 1, sz: 9, c: XL.bianco, bg: XL.scuro, h: "center", v: "center", wrap: 1, bottom: ["thick", XL.acc] });
+  const sSez = S({ b: 1, sz: 12, c: XL.bianco, bg: XL.scuro, v: "center", ind: 1 });
+  const sCat = S({ b: 1, sz: 10, c: XL.scuro, bg: XL.chiaro, v: "center", ind: 1, left: ["thick", XL.acc] });
+  const VF = [0, 1].map((z) => {
+    const g = (o) => S(Object.assign(z ? { bg: XL.zebra } : {}, o));
+    return { nr: g({ h: "center", c: XL.grigio }), tar: g({ sz: 8, c: XL.grigio, wrap: 1 }), des: g({ wrap: 1 }), um: g({ h: "center" }),
+      q: g({ nf: XL_EURO }), p: g({ nf: XL_EURO }), i: g({ nf: XL_EURO, b: 1 }), fP: g({ i: 1, h: "right", c: XL.nota }), fI: g({ h: "center", c: XL.grigio }),
+      nascosta: g({ c: XL.bianco, nf: "0" }), vuota: g({}), mis: g({ sz: 9, c: XL.grigio, wrap: 1, ind: 1 }), misQ: g({ i: 1, sz: 9, c: XL.grigio, nf: XL_EURO }) };
+  });
+  const totcL = S({ b: 1, h: "right", c: XL.acc, bg: XL.chiaro, v: "center" });
+  const totcV = S({ b: 1, nf: XL_EURO0, bg: XL.chiaro, v: "center" });
+  const totsL = S({ b: 1, sz: 11, h: "right", c: XL.bianco, bg: XL.acc, v: "center" });
+  const totsV = S({ b: 1, sz: 11, nf: XL_EURO0, c: XL.bianco, bg: XL.acc, v: "center" });
+  const totgL = S({ b: 1, sz: 12, h: "right", c: XL.bianco, bg: XL.scuro, v: "center" });
+  const totgV = S({ b: 1, sz: 12, nf: '#,##0.00 "€"', c: XL.bianco, bg: XL.scuro, v: "center", bottom: ["thick", XL.acc] });
+  const toteL = S({ i: 1, h: "right", c: XL.grigio, top: ["thin", XL.grigio], v: "center" });
+  const toteV = S({ i: 1, nf: XL_EURO0, c: XL.grigio, top: ["thin", XL.grigio], v: "center" });
+  const sExtra = S({ b: 1, i: 1, c: XL.grigio, bg: XL.extra, v: "center", ind: 1, wrap: 1, top: ["thin", XL.grigio] });
+
+  alta(C, 0, 24);
+  unisci(C, 0, 0, 0, 3, nomeImp, S({ f: "Calibri Light", sz: 13, v: "center" }));
+  unisci(C, 0, 4, 0, 6, codice + " · Rev. " + rev + " · " + (foto ? data : "bozza"), S({ b: 1, c: XL.acc, h: "right", v: "center" }));
+  const titolo = (cant ? "Lavori extracontrattuali — " : "") + String(f.titolo || "");
+  if (righe(titolo, 120) > 1) alta(C, 1, 12 * righe(titolo, 120));
+  unisci(C, 1, 0, 1, 6, "COMPUTO METRICO ESTIMATIVO · " + titolo, S({ sz: 9, c: XL.grigio, wrap: 1, v: "center" }));
+  alta(C, 2, 6);
+  const sRiga = S({ bottom: ["medium", XL.acc] });
+  for (let c = 0; c < 7; c++) vuota(C, 2, c, sRiga);
+  const R0 = 3;
+  alta(C, R0, 30);
+  ["N.", "TARIFFA", "DESIGNAZIONE DEI LAVORI", "U.M.", "QUANTITÀ", "PREZZO\nUNITARIO €", "IMPORTO €"].forEach((x, c) => scritta(C, R0, c, x, th));
+
+  let r = R0 + 1, zebra = 0;
+  const scriviVoce = (v, nr, dentro) => {
+    const z = VF[zebra];
+    const note = [];
+    if (v.extra) note.push("Da: " + (v.riferimento || "elaborati di progetto"));
+    else if (v.fonte === "contratto") note.push("Elenco prezzi del contratto");
+    if (senzaRib(v) && dentro) note.push("senza ribasso");
+    if (!dentro) note.push(fuoriTxt(v));
+    if (typeof nr === "number") numero(C, r, 0, nr, z.nr); else scritta(C, r, 0, String(nr), z.nr);
+    scritta(C, r, 1, tariffa(v), z.tar);
+    const des = String(v.descrizione || "");
+    if (note.length) ricca(C, r, 2, [[des, RPR_N], ["\n" + note.join(" · "), RPR_NOTA]], z.des); else scritta(C, r, 2, des, z.des);
+    scritta(C, r, 3, v.unita || "", z.um);
+    const q = num(v.quantita), p = num(v.prezzo);
+    numero(C, r, 4, q, z.q);
+    if (dentro || p) numero(C, r, 5, p, z.p); else scritta(C, r, 5, v.stato === "da_quotare" ? "da quotare" : "NP", z.fP);
+    let val = 0;
+    if (dentro) {
+      val = Math.round(q * p * 100) / 100;
+      formula(C, r, 6, "ROUND(" + A1(r, 4) + "*" + A1(r, 5) + ",2)", val, z.i);
+      // colonne nascoste per il quadro economico: H = 1 voce con il ribasso / 0 senza; I = 1 elenco prezzi del contratto / 0 altre
+      if (!v.extra) { numero(C, r, 7, rib > 0 && !senzaRib(v) ? 1 : 0, z.nascosta); numero(C, r, 8, v.fonte === "contratto" ? 1 : 0, z.nascosta); }
+    } else {
+      scritta(C, r, 6, "—", z.fI);
+    }
+    r++;
+    // righe di misura sotto la voce: dove, fattori e quantità parziale
+    (Array.isArray(v.misure) ? v.misure : []).forEach((m) => {
+      const fattori = ["parti", "lun", "lar", "alt"].filter((x) => m[x] !== null && m[x] !== undefined && m[x] !== "")
+        .map((x) => cifra(m[x], x === "parti" && Number.isInteger(Number(m[x])) ? 0 : 2));
+      for (let c = 0; c < 7; c++) vuota(C, r, c, z.vuota);
+      scritta(C, r, 2, (m.dove ? m.dove + (fattori.length ? ": " : "") : "") + fattori.join(" × "), z.mis);
+      numero(C, r, 4, num(m.q), z.misQ);
+      r++;
+    });
+    zebra = 1 - zebra;
+    return val;
+  };
+
+  const righeCat = [];   // { nome, n, rif, val, sez }
+  const righeSez = [];   // { nome, rif, val }
+  let kS = null, kC = null, cc = "", sc = 0, ss = 0, celleCat = [], prima = null, nVoci = 0;
+  const chiudiCat = () => {
+    if (prima === null) return;
+    alta(C, r, 18);
+    const m = /^CATEGORIA (\S*)(?: — (.*))?$/.exec(cc || "");
+    unisci(C, r, 0, r, 5, m ? "Totale categoria " + m[1] + (m[2] ? " — " + maiuscola(m[2]) : "") : "Totale lavori", totcL);
+    formula(C, r, 6, "SUM(" + A1(prima, 6) + ":" + A1(r - 1, 6) + ")", Math.round(sc * 100) / 100, totcV);
+    righeCat.push({ nome: cc, n: nVoci, rif: "Computo!" + A1(r, 6, true), val: Math.round(sc * 100) / 100, sez: kS });
+    celleCat.push(A1(r, 6));
+    r++;
+    sc = 0; prima = null; nVoci = 0;
+  };
+  const chiudiSez = () => {
+    if (!kS) { celleCat = []; return; }
+    alta(C, r, 21);
+    unisci(C, r, 0, r, 5, "Totale " + kS, totsL);
+    formula(C, r, 6, celleCat.join("+"), Math.round(ss * 100) / 100, totsV);
+    righeSez.push({ nome: kS, rif: "Computo!" + A1(r, 6, true), val: Math.round(ss * 100) / 100 });
+    r++;
+    alta(C, r, 8);
+    r++;
+    ss = 0; celleCat = [];
+  };
+  const comp = voci.filter((v) => !v.extra), extra = voci.filter((v) => v.extra);
+  comp.forEach((v, i) => {
+    const ks = nomeSez(v), kc = ks + "|" + nomeCat(v);
+    if (kc !== kC) {
+      if (kC !== null) { chiudiCat(); if (ks !== kS) chiudiSez(); }
+      if (ks !== kS && ks) { alta(C, r, 24); unisci(C, r, 0, r, 6, ks, sSez); r++; }
+      cc = nomeCat(v);
+      if (cc) { alta(C, r, 19); unisci(C, r, 0, r, 6, cc.toUpperCase(), sCat); r++; }
+      kS = ks; kC = kc; zebra = 0;
+    }
+    if (prima === null) prima = r;
+    const val = scriviVoce(v, v.nr_computo != null ? v.nr_computo : i + 1, nel(v));
+    sc += val; ss += val; nVoci++;
+  });
+  if (kC !== null) { chiudiCat(); chiudiSez(); }
+  const lordo = Math.round(righeCat.reduce((s, x) => s + x.val, 0) * 100) / 100;
+  r++;
+  alta(C, r, 26);
+  unisci(C, r, 0, r, 5, rib > 0 ? "TOTALE PRIMA DEL RIBASSO" : "TOTALE DELLE VOCI DEL COMPUTO", totgL);
+  const celleTot = (righeSez.length ? righeSez : righeCat).map((x) => x.rif.replace("Computo!", ""));
+  formula(C, r, 6, celleTot.length ? celleTot.join("+") : "0", lordo, totgV);
+  const cellaLordo = "Computo!" + A1(r, 6, true);
+  r += 2;
+  let totExtra = 0, cellaExtra = null;
+  if (extra.length) {
+    alta(C, r, 30);
+    unisci(C, r, 0, r, 6, "EXTRA COMPUTO – LAVORAZIONI RILEVATE DAGLI ELABORATI DI PROGETTO\nNon comprese nel totale del preventivo", sExtra);
+    r++;
+    const primaE = r;
+    zebra = 0;
+    extra.forEach((v, i) => { totExtra += scriviVoce(v, "E" + (i + 1), !!num(v.prezzo) && ["ok", "da_verificare"].includes(v.stato)); });
+    alta(C, r, 18);
+    unisci(C, r, 0, r, 5, "Totale extra computo (non compreso nel totale del preventivo)", toteL);
+    formula(C, r, 6, "SUM(" + A1(primaE, 6) + ":" + A1(r - 1, 6) + ")", Math.round(totExtra * 100) / 100, toteV);
+    cellaExtra = "Computo!" + A1(r, 6, true);
+    r++;
+  }
+  r++;
+  unisci(C, r, 0, r, 6, "Importi in euro, IVA esclusa. Il riepilogo e il quadro economico sono nel foglio «Riepilogo».", S({ i: 1, sz: 8, c: XL.grigio }));
+  const ultimaC = r;
+
+  // ==================================================================== foglio «Riepilogo»
+  const R = nuovoFoglio();
+  const sigla = nomeImp.split(/[\s.,&'’-]+/).filter((x) => x && !/^(s\.?r\.?l|s\.?p\.?a|s\.?n\.?c|s\.?a\.?s|di|e|ed|la|il)$/i.test(x))
+    .slice(0, 2).map((x, i, a) => (a.length === 1 ? x.slice(0, 2) : x[0])).join("").toUpperCase();
+  alta(R, 0, 8); alta(R, 1, 30); alta(R, 2, 16);
+  unisci(R, 1, 1, 2, 1, sigla, S({ b: 1, f: "Calibri Light", sz: 16, c: XL.bianco, bg: XL.scuro, h: "center", v: "center" }));
+  scritta(R, 1, 2, nomeImp, S({ f: "Calibri Light", sz: 16, v: "center", ind: 1 }));
+  scritta(R, 2, 2, [imp.indirizzo, imp.partita_iva ? "P. IVA " + imp.partita_iva : "", imp.telefono ? "Tel. " + imp.telefono : "", imp.email].filter(Boolean).join(" · "),
+    S({ sz: 9, c: XL.grigio, v: "center", ind: 1 }));
+  unisci(R, 1, 3, 1, 5, "PREVENTIVO N. " + codice, S({ b: 1, sz: 11, c: XL.acc, h: "right", v: "center" }));
+  unisci(R, 2, 3, 2, 5, "Rev. " + rev + " · " + (foto ? "del " + data : "Bozza") + " · valido " + valido + " giorni", S({ sz: 9, c: XL.grigio, h: "right", v: "center" }));
+  alta(R, 3, 8);
+  const sLinea = S({ bottom: ["thick", XL.acc] });
+  for (let c = 1; c <= 5; c++) vuota(R, 3, c, sLinea);
+  alta(R, 4, 10); alta(R, 5, 32);
+  unisci(R, 5, 1, 5, 5, "PREVENTIVO", S({ f: "Calibri Light", sz: 24, h: "center", v: "center" }));
+  alta(R, 6, 15);
+  unisci(R, 6, 1, 6, 5, "C O M P U T O   M E T R I C O   E S T I M A T I V O", S({ sz: 9, c: XL.acc, h: "center", v: "center" }));
+  alta(R, 7, 10);
+  const etich = S({ b: 1, sz: 8, c: XL.grigio, bg: XL.chiaro, v: "center", ind: 1, bottom: ["thin", XL.bianco] });
+  const valore = S({ wrap: 1, v: "center", ind: 1, bottom: ["thin", XL.bordo] });
+  const info = [
+    ["COMMITTENTE", String(cl.nome || "") + (cl.indirizzo ? " — " + cl.indirizzo : "") + (cl.piva ? "\nP. IVA / C.F. " + cl.piva : "")],
+    ["LAVORI", titolo],
+    [cant ? "CANTIERE" : "LUOGO", cant ? String(cant.nome || "") + (cant.ubicazione ? " — " + cant.ubicazione : "") +
+      (f.indirizzo_lavoro && f.indirizzo_lavoro !== cant.ubicazione ? "\n" + f.indirizzo_lavoro : "") : f.indirizzo_lavoro || "—"],
+    ["REFERENTE", imp.referente || "—"]];
+  let rr = 8;
+  info.forEach(([k, v]) => {
+    alta(R, rr, Math.max(18, 13 * righe(v, 78) + 5));
+    scritta(R, rr, 1, k, etich);
+    unisci(R, rr, 2, rr, 5, v, valore);
+    rr++;
+  });
+  rr++;
+  // il totale in evidenza, subito sotto l'intestazione
+  alta(R, rr, 16);
+  unisci(R, rr, 1, rr, 3, "TOTALE DEL PREVENTIVO", S({ b: 1, sz: 9, c: XL.bianco, bg: XL.scuro, v: "bottom", ind: 1 }));
+  unisci(R, rr, 4, rr, 5, comp.length + " voci" + (extra.length ? " · " + extra.length + " extra a parte" : ""), S({ sz: 8, c: XL.tenue, bg: XL.scuro, h: "right", v: "bottom" }));
+  rr++;
+  alta(R, rr, 34);
+  const rigaKpi = rr;
+  const sKpi = S({ b: 1, sz: 22, c: XL.bianco, bg: XL.scuro, nf: XL_TOT, h: "left", v: "center", ind: 1 });
+  unisci(R, rr, 1, rr, 5, undefined, sKpi);
+  rr++;
+  alta(R, rr, 5);
+  const sStriscia = S({ bg: XL.acc });
+  for (let c = 1; c <= 5; c++) vuota(R, rr, c, sStriscia);
+  rr += 2;
+  const h2 = S({ b: 1, sz: 12, v: "center", bottom: ["medium", XL.acc] });
+  const conCat = righeCat.some((x) => x.nome);
+  alta(R, rr, 22);
+  unisci(R, rr, 1, rr, 5, conCat ? "RIEPILOGO PER CATEGORIE" : "RIEPILOGO PER PROVENIENZA", h2);
+  rr++;
+  alta(R, rr, 16);
+  [["N.", "center"], ["CATEGORIA", "left"], ["VOCI", "center"], ["IMPORTO €", "right"], ["%", "right"]].forEach(([x, al], i) =>
+    scritta(R, rr, i + 1, conCat || i !== 1 ? x : "PROVENIENZA", S({ b: 1, sz: 8, c: XL.grigio, v: "center", h: al, bottom: ["thin", XL.bordo] })));
+  rr++;
+  const rz = [0, 1].map((z) => {
+    const g = (o) => S(Object.assign(z ? { bg: XL.zebra } : {}, o));
+    return { n: g({ h: "center", c: XL.grigio, v: "center" }), t: g({ v: "center" }), vo: g({ h: "center", c: XL.grigio, v: "center" }),
+      val: g({ nf: XL_EURO0, v: "center" }), pc: g({ nf: "0.0%", v: "center", h: "right", c: XL.grigio }) };
+  });
+  const szT = S({ b: 1, v: "center", bg: XL.chiaro, left: ["thick", XL.acc] });
+  const szT2 = S({ b: 1, v: "center", bg: XL.chiaro });
+  const szV = S({ b: 1, nf: XL_EURO0, v: "center", bg: XL.chiaro });
+  const szP = S({ b: 1, nf: "0.0%", v: "center", h: "right", bg: XL.chiaro });
+  const righeRie = [];   // { r, val, z }
+  // senza categorie: come nel foglio da stampare, l'elenco prezzi del contratto a parte e il resto come «Lavorazioni»
+  const gruppi = conCat ? righeCat : [
+    { nome: "Elenco prezzi del contratto", n: comp.filter((v) => nel(v) && v.fonte === "contratto").length, rif: "SUMIF(Computo!$I:$I,1,Computo!$G:$G)",
+      val: Math.round(comp.filter((v) => nel(v) && v.fonte === "contratto").reduce((s, v) => s + Math.round(num(v.quantita) * num(v.prezzo) * 100) / 100, 0) * 100) / 100, formula: true },
+    { nome: "Lavorazioni", n: comp.filter((v) => nel(v) && v.fonte !== "contratto").length, rif: "SUMIF(Computo!$I:$I,0,Computo!$G:$G)",
+      val: Math.round(comp.filter((v) => nel(v) && v.fonte !== "contratto").reduce((s, v) => s + Math.round(num(v.quantita) * num(v.prezzo) * 100) / 100, 0) * 100) / 100, formula: true }
+  ].filter((g) => g.n);
+  const piuSez = new Set(righeCat.map((x) => x.sez)).size > 1;
+  zebra = 0;
+  gruppi.forEach((g, i) => {
+    alta(R, rr, 16);
+    const z = rz[zebra];
+    const m = /^CATEGORIA (\d+)(?: — (.*))?/.exec(g.nome || "");
+    scritta(R, rr, 1, m ? m[1] : "", z.n);
+    scritta(R, rr, 2, m ? maiuscola(m[2] || "") : g.nome || "Lavorazioni", z.t);
+    numero(R, rr, 3, g.n, z.vo);
+    formula(R, rr, 4, g.formula ? g.rif : g.rif, g.val, z.val);
+    righeRie.push({ r: rr, val: g.val, z });
+    zebra = 1 - zebra;
+    rr++;
+    const nx = gruppi[i + 1];
+    if (conCat && piuSez && (!nx || nx.sez !== g.sez)) {
+      const sz = righeSez.find((x) => x.nome === g.sez);
+      if (sz) {
+        alta(R, rr, 18);
+        vuota(R, rr, 1, szT);
+        unisci(R, rr, 2, rr, 3, "Totale " + sz.nome, szT2);
+        formula(R, rr, 4, sz.rif, sz.val, szV);
+        righeRie.push({ r: rr, val: null });
+        rr++;
+        zebra = 0;
+      }
+    }
+  });
+  const totT = S({ b: 1, sz: 11, v: "center", top: ["medium", XL.scuro] });
+  alta(R, rr, 20);
+  vuota(R, rr, 1, totT);
+  unisci(R, rr, 2, rr, 3, rib > 0 ? "Totale prima del ribasso" : "Totale delle voci", totT);
+  formula(R, rr, 4, cellaLordo, lordo, S({ b: 1, sz: 11, nf: XL_EURO, v: "center", top: ["medium", XL.scuro] }));
+  formula(R, rr, 5, "IF(" + A1(rr, 4) + ">0,1,0)", lordo > 0 ? 1 : 0, S({ b: 1, sz: 11, nf: "0%", v: "center", h: "right", top: ["medium", XL.scuro] }));
+  const totRie = A1(rr, 4, true);
+  const barre = [];
+  righeRie.forEach((x) => {
+    formula(R, x.r, 5, "IF(" + totRie + ">0," + A1(x.r, 4) + "/" + totRie + ",0)", lordo > 0 && x.val !== null ? x.val / lordo : 0, x.val !== null ? x.z.pc : szP);
+    if (x.val !== null) barre.push(A1(x.r, 5));
+  });
+  rr++;
+  if (extra.length) {
+    alta(R, rr, 16);
+    unisci(R, rr, 2, rr, 3, "Extra computo: " + extra.length + (extra.length === 1 ? " lavorazione rilevata" : " lavorazioni rilevate") + " dagli elaborati, non comprese",
+      S({ i: 1, sz: 9, c: XL.grigio, v: "center" }));
+    formula(R, rr, 4, cellaExtra, Math.round(totExtra * 100) / 100, S({ i: 1, sz: 9, c: XL.grigio, nf: XL_EURO0, v: "center", h: "right" }));
+    rr++;
+  }
+  rr++;
+  // quadro economico
+  alta(R, rr, 22);
+  unisci(R, rr, 1, rr, 5, "QUADRO ECONOMICO", h2);
+  rr++;
+  const qb = { bottom: ["thin", XL.bordo] };
+  const sQ = S(qb);
+  const rigaQe = (testo, fx, v, grassetto) => {
+    alta(R, rr, 18);
+    vuota(R, rr, 1, sQ);
+    unisci(R, rr, 2, rr, 3, testo, S(Object.assign({ b: grassetto ? 1 : 0, v: "center" }, qb)));
+    formula(R, rr, 4, fx, v, S(Object.assign({ b: grassetto ? 1 : 0, nf: XL_EURO, v: "center" }, qb)));
+    vuota(R, rr, 5, sQ);
+    return A1(rr++, 4);
+  };
+  let lav;
+  if (rib > 0) {
+    const s1 = rigaQe("Voci con il ribasso", "SUMIF(Computo!$H:$H,1,Computo!$G:$G)", num(T.soggetto));
+    const s2 = rigaQe("Ribasso del contratto " + cifra(rib, 2) + " %", "-ROUND(" + s1 + "*" + vn(rib) + "/100,2)", -num(T.ribasso));
+    const s3 = rigaQe("Voci senza ribasso", "SUMIF(Computo!$H:$H,0,Computo!$G:$G)", num(T.non_soggetto));
+    lav = rigaQe("Totale lavori", s1 + "+" + s2 + "+" + s3, num(T.lavori), true);
+  } else {
+    lav = rigaQe("Totale lavori", totRie, lordo, true);
+  }
+  const parti = [lav];
+  if (num(T.oneri)) parti.push(rigaQe("Oneri della sicurezza (senza ribasso)", vn(T.oneri), num(T.oneri)));
+  if (num(T.sconto)) parti.push(rigaQe("Sconto", "-" + vn(T.sconto), -num(T.sconto)));
+  alta(R, rr, 30);
+  const bigL = S({ b: 1, sz: 13, c: XL.bianco, bg: XL.acc, v: "center", ind: 1 });
+  const bigV = S({ b: 1, sz: 14, c: XL.bianco, bg: XL.acc, nf: XL_TOT, h: "right", v: "center" });
+  vuota(R, rr, 1, bigL);
+  unisci(R, rr, 2, rr, 3, "TOTALE", bigL);
+  unisci(R, rr, 4, rr, 5, undefined, bigV);
+  formula(R, rr, 4, parti.join("+"), num(T.totale), bigV);
+  const cellaTot = A1(rr, 4, true);
+  formula(R, rigaKpi, 1, cellaTot, num(T.totale), sKpi);
+  rr += 2;
+  // condizioni (come nel foglio da stampare)
+  alta(R, rr, 22);
+  unisci(R, rr, 1, rr, 5, "CONDIZIONI", h2);
+  rr++;
+  const fuori = comp.filter((v) => !nel(v)).length;
+  const cond = [];
+  if (fuori) cond.push(fuori === 1 ? "1 voce del computo (NP o da quotare) non ha ancora il prezzo e non è compresa nel totale."
+    : fuori + " voci del computo (NP o da quotare) non hanno ancora il prezzo e non sono comprese nel totale.");
+  if (extra.length) cond.push("Le lavorazioni del capitolo «Extra computo», rilevate dagli elaborati di progetto, non sono comprese nel totale.");
+  const k = f.contratto && typeof f.contratto === "object" ? f.contratto : null;
+  if (voci.some((v) => v.fonte === "contratto")) cond.push("Prezzi presi dall'elenco prezzi del contratto" + (k && k.data_contratto ? " del " + dataIt(k.data_contratto) : "") +
+    (rib > 0 ? ", con il ribasso del contratto " + cifra(rib, 2) + " %" + (voci.some(senzaRib) ? " (le voci segnate «senza ribasso» non lo hanno)" : "") : "") + ".");
+  cond.push("Le quantità si misurano a lavoro finito" + (cant ? ", in contraddittorio con la Direzione Lavori" : "") + ".");
+  cond.push("Il preventivo vale " + valido + " giorni dalla data. Importi in euro, IVA esclusa.");
+  if (f.note) cond.push(String(f.note));
+  const sPunto = S({ b: 1, c: XL.acc, h: "right" });
+  const sCond = S({ wrap: 1 });
+  cond.forEach((x) => {
+    alta(R, rr, Math.max(16, 13 * righe(x, 80, 1.5) + 3));
+    scritta(R, rr, 1, "•", sPunto);
+    unisci(R, rr, 2, rr, 5, x, sCond);
+    rr++;
+  });
+  rr++;
+  // firme
+  const fl = S({ sz: 9, c: XL.grigio, h: "center" }), fn = S({ b: 1, h: "center" }), ff = S({ sz: 8, c: XL.grigio, h: "center", top: ["thin", XL.scuro] });
+  unisci(R, rr, 1, rr, 2, "L'impresa", fl); unisci(R, rr, 4, rr, 5, "Per accettazione", fl); rr++;
+  unisci(R, rr, 1, rr, 2, nomeImp, fn); unisci(R, rr, 4, rr, 5, "il committente", fn); rr++;
+  alta(R, rr, 34); rr++;
+  unisci(R, rr, 1, rr, 2, "timbro e firma", ff); unisci(R, rr, 4, rr, 5, "data, timbro e firma", ff);
+  rr += 2;
+  const sha = String(d.sha256 || "");
+  unisci(R, rr, 1, rr, 5, "Il dettaglio delle voci è nel foglio «Computo».   " + (foto && sha ? "Impronta SHA-256 " + sha.slice(0, 8) + "…" + sha.slice(-4) + " · " : "") +
+    "Preparato con TIX™ · www.tixcantiere.it", S({ i: 1, sz: 8, c: XL.grigio, h: "center" }));
+  const ultimaR = rr;
+
+  // ==================================================================== file
+  const piede = "&L&8" + nomeImp.replace(/&/g, "&&") + " · Preventivo " + codice + " · Rev. " + rev +
+    "&C&8Preparato con TIX™ · www.tixcantiere.it&R&8Pagina &P di &N";
+  const UID = "{DA7ABA51-AAAA-BBBB-0001-000000000001}";
+  const xmlFoglio = (F, o) => {
+    const nr = [...new Set([...F.celle.keys(), ...F.alte.keys()])].sort((a, b) => a - b);
+    const rows = nr.map((x) => {
+      const cs = F.celle.get(x), hh = F.alte.get(x);
+      const dentro = cs ? [...cs.keys()].sort((a, b) => a - b).map((c) => cs.get(c)).join("") : "";
+      return '<row r="' + (x + 1) + '"' + (hh ? ' ht="' + hh + '" customHeight="1"' : "") + (dentro ? ">" + dentro + "</row>" : "/>");
+    }).join("");
+    const sq = (o.barre || []).join(" ");
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheetPr><tabColor rgb="FF' + o.tab + '"/><pageSetUpPr fitToPage="1"/></sheetPr>' +
+      '<sheetViews><sheetView showGridLines="0"' + (o.attivo ? ' tabSelected="1"' : "") + ' workbookViewId="0">' +
+      (o.blocca ? '<pane ySplit="' + o.blocca + '" topLeftCell="A' + (o.blocca + 1) + '" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/>' : "") +
+      "</sheetView></sheetViews>" +
+      '<sheetFormatPr defaultRowHeight="15"/><cols>' +
+      o.colonne.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (w + 0.7109375) + '" customWidth="1"' + (i >= 7 ? ' hidden="1"' : "") + "/>").join("") +
+      "</cols><sheetData>" + rows + "</sheetData>" +
+      (F.unite.length ? '<mergeCells count="' + F.unite.length + '">' + F.unite.map((m) => '<mergeCell ref="' + m + '"/>').join("") + "</mergeCells>" : "") +
+      (sq ? '<conditionalFormatting sqref="' + sq + '"><cfRule type="dataBar" priority="1"><dataBar><cfvo type="num" val="0"/><cfvo type="num" val="1"/>' +
+        '<color rgb="FF' + XL.barra + '"/></dataBar><extLst><ext xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" ' +
+        'uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}"><x14:id>' + UID + "</x14:id></ext></extLst></cfRule></conditionalFormatting>" : "") +
+      '<printOptions horizontalCentered="1"/><pageMargins left="0.45" right="0.45" top="0.5" bottom="0.6" header="0.3" footer="0.25"/>' +
+      '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="' + o.pagine + '"/>' +
+      "<headerFooter><oddFooter>" + xe(piede) + "</oddFooter></headerFooter>" +
+      (sq ? '<extLst><ext xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}">' +
+        '<x14:conditionalFormattings><x14:conditionalFormatting xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">' +
+        '<x14:cfRule type="dataBar" id="' + UID + '"><x14:dataBar minLength="0" maxLength="100" gradient="0"><x14:cfvo type="num"><xm:f>0</xm:f></x14:cfvo>' +
+        '<x14:cfvo type="num"><xm:f>1</xm:f></x14:cfvo><x14:negativeFillColor rgb="FFFF0000"/><x14:axisColor rgb="FF000000"/></x14:dataBar></x14:cfRule>' +
+        "<xm:sqref>" + sq + "</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>" : "") +
+      "</worksheet>";
+  };
+  const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const NS_P = "http://schemas.openxmlformats.org/package/2006/relationships";
+  const CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.";
+  const ora = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const stili = XML + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    (numFmts.length ? '<numFmts count="' + numFmts.length + '">' + numFmts.join("") + "</numFmts>" : "") +
+    '<fonts count="' + fonts.length + '">' + fonts.join("") + '</fonts><fills count="' + fills.length + '">' + fills.join("") +
+    '</fills><borders count="' + borders.length + '">' + borders.join("") + '</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="' + xfs.length + '">' + xfs.join("") + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium9" defaultPivotStyle="PivotStyleLight16"/></styleSheet>';
+  const foglioR = xmlFoglio(R, { tab: XL.scuro, attivo: true, colonne: [2, 13, 39, 9, 18, 14, 2], pagine: 1, barre });
+  const foglioC = xmlFoglio(C, { tab: XL.acc, blocca: R0 + 1, colonne: [6, 17, 58, 7, 11, 12, 17, 4, 4], pagine: 0 });
+  const titoloDoc = "Preventivo " + codice + " · Rev. " + rev;
+  return zipSenzaCompressione([
+    ["[Content_Types].xml", XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="' + CT + 'sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="' + CT + 'worksheet+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="' + CT + 'worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="' + CT + 'styles+xml"/>' +
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
+      '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>'],
+    ["_rels/.rels", XML + '<Relationships xmlns="' + NS_P + '"><Relationship Id="rId1" Type="' + NS_R + '/officeDocument" Target="xl/workbook.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' +
+      '<Relationship Id="rId3" Type="' + NS_R + '/extended-properties" Target="docProps/app.xml"/></Relationships>'],
+    ["docProps/core.xml", XML + '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ' +
+      'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" ' +
+      'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + xe(titoloDoc) + "</dc:title><dc:subject>" + xe(f.titolo || "Preventivo") +
+      "</dc:subject><dc:creator>" + xe(nomeImp) + "</dc:creator><dc:description>Preparato con TIX™ · www.tixcantiere.it</dc:description>" +
+      '<dcterms:created xsi:type="dcterms:W3CDTF">' + ora + '</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">' + ora + "</dcterms:modified></cp:coreProperties>"],
+    ["docProps/app.xml", XML + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ' +
+      'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>TIX</Application><Company>' + xe(nomeImp) + "</Company></Properties>"],
+    ["xl/workbook.xml", XML + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + NS_R + '">' +
+      '<workbookPr/><bookViews><workbookView xWindow="240" yWindow="15" windowWidth="16095" windowHeight="9660" activeTab="0"/></bookViews>' +
+      '<sheets><sheet name="Riepilogo" sheetId="1" r:id="rId1"/><sheet name="Computo" sheetId="2" r:id="rId2"/></sheets><definedNames>' +
+      '<definedName name="_xlnm.Print_Area" localSheetId="0">Riepilogo!$A$1:$G$' + (ultimaR + 1) + "</definedName>" +
+      '<definedName name="_xlnm.Print_Area" localSheetId="1">Computo!$A$1:$G$' + (ultimaC + 1) + "</definedName>" +
+      '<definedName name="_xlnm.Print_Titles" localSheetId="1">Computo!$' + (R0 + 1) + ":$" + (R0 + 1) + "</definedName>" +
+      '</definedNames><calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>'],
+    ["xl/_rels/workbook.xml.rels", XML + '<Relationships xmlns="' + NS_P + '"><Relationship Id="rId1" Type="' + NS_R + '/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="' + NS_R + '/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="' + NS_R + '/styles" Target="styles.xml"/></Relationships>'],
+    ["xl/styles.xml", stili],
+    ["xl/worksheets/sheet1.xml", foglioR],
+    ["xl/worksheets/sheet2.xml", foglioC]
+  ]);
+}
+
+// testo sicuro dentro l'XML (via anche i caratteri che l'XML non ammette); senza caratteri speciali il testo resta com'\u00e8
+const XE_SPECIALI = /[&<>"\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/;
+const XE_SOST = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+function xe(s) {
+  s = String(s === null || s === undefined ? "" : s);
+  if (!XE_SPECIALI.test(s)) return s;
+  return s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "").replace(/[&<>"]/g, (c) => XE_SOST[c]);
+}
+
+// archivio zip senza compressione (metodo «stored»): file = [[nome, testo]] → Uint8Array
+let TAB_CRC = null;
+function crc32(b) {
+  if (!TAB_CRC) {
+    TAB_CRC = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; TAB_CRC[n] = c >>> 0; }
+  }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < b.length; i++) c = TAB_CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipSenzaCompressione(file) {
+  const enc = new TextEncoder();
+  const ora = new Date();
+  const tempo = (ora.getUTCHours() << 11) | (ora.getUTCMinutes() << 5) | Math.floor(ora.getUTCSeconds() / 2);
+  const giorno = ((ora.getUTCFullYear() - 1980) << 9) | ((ora.getUTCMonth() + 1) << 5) | ora.getUTCDate();
+  const locali = [], centrali = [];
+  let pos = 0;
+  for (const [nome, testo] of file) {
+    const n = enc.encode(nome), dati = enc.encode(testo), crc = crc32(dati);
+    const l = new DataView(new ArrayBuffer(30));
+    l.setUint32(0, 0x04034b50, true); l.setUint16(4, 20, true); l.setUint16(6, 0, true); l.setUint16(8, 0, true);
+    l.setUint16(10, tempo, true); l.setUint16(12, giorno, true); l.setUint32(14, crc, true);
+    l.setUint32(18, dati.length, true); l.setUint32(22, dati.length, true); l.setUint16(26, n.length, true); l.setUint16(28, 0, true);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0, true); c.setUint16(10, 0, true);
+    c.setUint16(12, tempo, true); c.setUint16(14, giorno, true); c.setUint32(16, crc, true);
+    c.setUint32(20, dati.length, true); c.setUint32(24, dati.length, true); c.setUint16(28, n.length, true);
+    c.setUint16(30, 0, true); c.setUint16(32, 0, true); c.setUint16(34, 0, true); c.setUint16(36, 0, true); c.setUint32(38, 0, true); c.setUint32(42, pos, true);
+    locali.push(new Uint8Array(l.buffer), n, dati);
+    centrali.push(new Uint8Array(c.buffer), n);
+    pos += 30 + n.length + dati.length;
+  }
+  const dimC = centrali.reduce((s, x) => s + x.length, 0);
+  const fine = new DataView(new ArrayBuffer(22));
+  fine.setUint32(0, 0x06054b50, true); fine.setUint16(4, 0, true); fine.setUint16(6, 0, true);
+  fine.setUint16(8, file.length, true); fine.setUint16(10, file.length, true); fine.setUint32(12, dimC, true); fine.setUint32(16, pos, true); fine.setUint16(20, 0, true);
+  const parti = [...locali, ...centrali, new Uint8Array(fine.buffer)];
+  const out = new Uint8Array(parti.reduce((s, x) => s + x.length, 0));
+  let o = 0;
+  for (const p of parti) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 // ---------------------------------------------------------------------------- copia firmata
