@@ -8,6 +8,12 @@
 //                                                     azione «modifica» (29/10/2026) → RPC agenda_modifica_tutto: tutti i dati del modulo
 //   POST /agenda/contatto {t, c, dati, aggiungi_email} → nuovo contatto nella Rubrica dell'impresa con rubrica_salva (02/11/2026)
 //   GET  /agenda?t=…&c=…&vista=mese                 → la pagina si apre con il mese intero a tutto schermo (02/11/2026)
+//   POST /agenda/fase {t, c, id, inizio, fine}       → RPC agenda_fase_sposta: sposta una fase del cronoprogramma dall'Agenda
+//                                                     (05/11/2026, agenda-crono-1 della chat 02A; il database decide se è acceso)
+// Agenda e Cronoprogramma sincronizzati (05/11/2026, agenda-crono-1, scelte di Filippo): le lavorazioni hanno «Quanti giorni»
+// (giorni lavorativi, festivi esclusi, casella «conta anche il sabato») e compaiono in tutti i loro giorni; le fasi del
+// cronoprogramma compaiono nel calendario con il loro colore e si spostano da qui. Tutto acceso solo se agenda_contesto
+// manda agenda_crono = true (interruttore agenda_crono_attivo nel database: no / prova / si); altrimenti la pagina è com'era.
 // Gli avvisi: il database decide chi riceve e il testo (agenda_avvisi_lista, nella lingua di ciascuno, una riga per
 // persona e versione, mai doppi); qui si spedisce con il token WhatsApp e si segna l'esito (agenda_avviso_segna).
 // La stessa funzione la chiama anche il database (trigger → pg_net → POST /admin {azione: agenda_avvisa}) per gli
@@ -193,7 +199,9 @@ function pulisciDati(d) {
   const s = (k, n) => { if (d[k] !== undefined && d[k] !== null) o[k] = String(d[k]).slice(0, n); };
   s("giorno", 10); s("ora", 5); s("ora_fine", 5); s("tipo", 20); s("titolo", 140); s("note", 600); s("motivo", 200);
   s("luogo", 120); s("chi", 200);
-  for (const k of ["avvisa", "visibile_cliente", "avviso_sera_prima", "valore"]) if (typeof d[k] === "boolean") o[k] = d[k];
+  // Lavorazioni di più giorni (05/11/2026, agenda-crono-1): quanti giorni lavorativi e se conta il sabato
+  if (d.giorni !== undefined && d.giorni !== null && /^[0-9]{1,3}$/.test(String(d.giorni))) o.giorni = String(d.giorni);
+  for (const k of ["avvisa", "visibile_cliente", "avviso_sera_prima", "valore", "sabato"]) if (typeof d[k] === "boolean") o[k] = d[k];
   if (Array.isArray(d.persone)) o.persone = d.persone.map((x) => String(x).toLowerCase()).filter((x) => UUID.test(x)).slice(0, 30);
   // Cronoprogramma (23/10/2026, pacchetto B): attività collegate e, dopo «Avvenuto», com'è andata
   if (Array.isArray(d.attivita)) o.attivita = d.attivita.map((x) => String(x).toLowerCase()).filter((x) => UUID.test(x)).slice(0, 10);
@@ -372,6 +380,20 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     if (az === "sposta" || az === "annulla") { try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {} }
     return json({ esito: "ok", id, inviati: avvisi ? avvisi.inviati : null });
   }
+  // Spostare una fase del cronoprogramma dall'Agenda (05/11/2026, agenda-crono-1, scelta A di Filippo): il cronoprogramma
+  // si aggiorna, le date del documento caricato restano conservate nel database. Se la novità è spenta risponde «spento».
+  if (sotto === "/agenda/fase") {
+    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    const b = await leggiCorpo(request);
+    if (b.errore) return json({ esito: "errore" }, b.errore);
+    const tok = String(b.t || "").toLowerCase();
+    if (!GETTONE.test(tok)) return json({ esito: "gettone" }, 403);
+    const c = String(b.c || "").toLowerCase(), id = String(b.id || "").toLowerCase();
+    const dt = /^\d{4}-\d{2}-\d{2}$/;
+    if (!UUID.test(c) || !UUID.test(id) || !dt.test(String(b.inizio || "")) || !dt.test(String(b.fine || ""))) return json({ esito: "errore" }, 400);
+    const r = await h.rpc(env, "agenda_fase_sposta", { p_token: tok, p_commessa: c, p_id: id, p_dati: { inizio: String(b.inizio), fine: String(b.fine) } }, 15000).catch(() => null);
+    return r ? json({ esito: String(r.esito || "errore"), messaggio: r.messaggio || "" }) : json({ esito: "incerto" });
+  }
   // Nuovo contatto dall'agenda (02/11/2026, agenda-contatti-1): vedi contattoNuovo qui sopra
   if (sotto === "/agenda/contatto") {
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
@@ -429,14 +451,30 @@ function giornoIt(iso) {
   return nomi[dt.getUTCDay()] + " " + p[2] + "/" + p[1] + "/" + p[0];
 }
 
+// Lavorazioni di più giorni (05/11/2026, agenda-crono-1): i giorni in cui compare (dal database, già senza festivi e weekend)
+function giorniDi(x) {
+  const gd = Array.isArray(x.giorni_date) ? x.giorni_date.map(String).filter((g) => /^\d{4}-\d{2}-\d{2}$/.test(g)) : [];
+  return gd.length ? gd : [String(x.giorno || "")];
+}
+function giornoBreve(iso) {
+  const p = String(iso || "").split("-");
+  if (p.length !== 3) return "";
+  return ["dom", "lun", "mar", "mer", "gio", "ven", "sab"][new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()] + " " + p[2] + "/" + p[1];
+}
+
 function rigaApp(x, e, oggi) {
   const st = String(x.stato || "");
-  const passato = String(x.giorno || "") < oggi;
+  const gd = giorniDi(x), multi = !!x.fine_giorno && gd.length > 1;
+  const passato = String(multi ? x.fine_giorno : x.giorno || "") < oggi;
   const pill = st === "spostato" ? '<span class="pl mov">spostato</span>' : st === "annullato" ? '<span class="pl ann">annullato</span>' :
     st === "avvenuto" ? '<span class="pl ok">avvenuto</span>' : "";
   const ora = x.tutto_il_giorno ? "giorno" : e(x.ora || "");
-  const fine = x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "";
-  const note = (x.note ? '<div class="n">' + e(x.note) + "</div>" : "") +
+  const kOggi = multi ? gd.indexOf(oggi) + 1 : 0;
+  const fine = (x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "") +
+    (multi ? '<small class="gk">' + (kOggi ? "giorno " + kOggi + " di " + gd.length : gd.length + " giorni") + "</small>" : "");
+  const durata = multi ? '<div class="n dur">⏱ dal <b>' + e(giornoBreve(x.giorno)) + "</b> al <b>" + e(giornoBreve(x.fine_giorno)) + "</b> &middot; " +
+    (Number(x.giorni) || gd.length) + " giorni lavorativi" + (x.sabato ? " (sabato compreso)" : "") + "</div>" : "";
+  const note = durata + (x.note ? '<div class="n">' + e(x.note) + "</div>" : "") +
     (x.luogo || x.chi ? '<div class="n">' + [x.luogo ? "📍 " + e(x.luogo) : "", x.chi ? "👷 " + e(x.chi) : ""].filter(Boolean).join(" &middot; ") + "</div>" : "") +
     (Array.isArray(x.attivita) && x.attivita.length ? '<div class="n">📊 ' + x.attivita.map((a) => e(a.nome)).join(", ") + "</div>" : "") +
     (Array.isArray(x.invitati) && x.invitati.length ? '<div class="n">✉️ Invitati: ' + x.invitati.map((i) => e(i.nome)).join(", ") + "</div>" : "");
@@ -454,6 +492,7 @@ function rigaApp(x, e, oggi) {
       tipo: TIPI[x.tipo] ? x.tipo : "altro", t: x.titolo, n: x.note, luogo: x.luogo, chi: x.chi_testo == null ? "" : x.chi_testo,
       pers: Array.isArray(x.persone) ? x.persone : [], att: Array.isArray(x.attivita) ? x.attivita.map((a) => a.id) : [],
       avv: x.avvisa !== false, cli: x.visibile_cliente === true, sera: x.avviso_sera_prima === true,
+      gg: Number(x.giorni) || 1, sab: x.sabato === true,
       inv: Array.isArray(x.invitati) ? x.invitati.map((i) => i.id).filter(Boolean) : [] })) + '">Modifica</button>' : "") +
     (st !== "annullato" ? '<button type="button" data-az="sposta" data-id="' + x.id + '" data-g="' + e(x.giorno) + '" data-o="' + e(x.ora) + '" data-f="' + e(x.ora_fine) + '">Sposta</button>' : "") +
     (attivo ? '<button type="button" data-az="avvenuto" data-id="' + x.id + '"' + att + '>Avvenuto</button>' : "") +
@@ -461,12 +500,40 @@ function rigaApp(x, e, oggi) {
     (!attivo ? '<button type="button" data-az="riapri" data-id="' + x.id + '">Riapri</button>' : "") +
     '<button type="button" data-az="cliente" data-id="' + x.id + '" data-v="' + (x.visibile_cliente ? "0" : "1") + '">' + (x.visibile_cliente ? "Nascondi al cliente" : "Mostra al cliente") + "</button>" +
     "</div>";
-  return '<div class="ag' + (st === "annullato" ? " ann" : "") + (passato ? " pass" : "") + '" data-id="' + x.id + '" data-giorno="' + e(x.giorno) + '" data-titolo="' + e(x.titolo) + '">' +
+  return '<div class="ag' + (st === "annullato" ? " ann" : "") + (passato ? " pass" : "") + '" data-id="' + x.id + '" data-giorno="' + e(x.giorno) + '" data-giorni="' + e(gd.join(" ")) + '" data-titolo="' + e(x.titolo) + '">' +
     '<div class="o">' + ora + fine + '</div><div class="corpo"><div class="t">' + e(x.titolo) + pill + "</div>" + note +
     '<div class="k">' + k + "</div>" + bott + "</div></div>";
 }
 
 function inUrlOrigin(h) { return h.origine || "https://app.tixcantiere.it"; }
+
+// Fasi del cronoprogramma nell'Agenda (05/11/2026, agenda-crono-1, Filippo: «le fasi con le icone colorate»): un colore per
+// gruppo del cronoprogramma (la riga di riepilogo sopra la fase), diverso dai colori dei tipi di appuntamento
+const FASI_COLORI = ["#2563EB", "#0D9488", "#9333EA", "#DB2777", "#CA8A04", "#16A34A", "#DC2626", "#0891B2"];
+function isoPiu(iso, n) {
+  const p = String(iso || "").split("-");
+  if (p.length !== 3) return "";
+  return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10);
+}
+function dataCorta(iso) { const p = String(iso || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : ""; }
+function faseRiga(f, chiuso, e, lontana) {
+  const car = f.tipo === "cardine";
+  const quando = car ? "il " + dataCorta(f.fp) : "dal " + dataCorta(f.ip) + " al " + dataCorta(f.fp);
+  return '<div class="fase-r' + (lontana ? " lon" : "") + '" style="--fc:' + e(f.col) + '"><i class="fase-c" aria-hidden="true"></i><div class="fase-t"><b>' + (car ? "🏁 " : "") + e(f.n) + "</b><small>" +
+    [f.fa, quando, f.pct != null && !car ? f.pct + "% fatto" : "", f.sp ? "date aggiornate dall’Agenda il " + f.sp : ""].filter(Boolean).map(e).join(" &middot; ") + "</small></div>" +
+    (chiuso ? "" : '<button type="button" class="fase-b" data-fase="' + e(f.id) + '">Sposta</button>') + "</div>";
+}
+// la sezione sotto il calendario: le fasi in corso e quelle dei prossimi 60 giorni; le altre con «Mostra tutte»
+function fasiSezione(fasi, oggi, chiuso, e) {
+  const da = isoPiu(oggi, -7), a = isoPiu(oggi, 60);
+  const vicina = (f) => !oggi || (f.fp >= da && f.ip <= a);
+  const nv = fasi.filter(vicina).length;
+  return '<details class="fasi-box' + (nv ? "" : " tutte") + '" id="fasi-box"' + (nv ? " open" : "") + "><summary>&#128202; Fasi del cronoprogramma <small>" +
+    (nv ? nv + " in corso o nei prossimi 60 giorni" : "nessuna nei prossimi 60 giorni") + " &middot; " + fasi.length + " in tutto</small></summary>" +
+    fasi.map((f) => faseRiga(f, chiuso, e, !vicina(f))).join("") +
+    (nv && nv < fasi.length ? '<button type="button" class="fasi-tutte" id="fasi-tutte">Mostra tutte le ' + fasi.length + " fasi</button>" : "") +
+    '<p class="piccolo">Le fasi compaiono anche nel calendario qui sopra, con lo stesso colore. «Sposta» aggiorna il cronoprogramma; le date del documento caricato restano conservate.</p></details>';
+}
 
 export function paginaAgenda(base, tok, c, d, h) {
   const e = h.esc;
@@ -479,8 +546,10 @@ export function paginaAgenda(base, tok, c, d, h) {
     : '<div class="dx"></div>';
   let futuri = "", passati = "", g = null, nf = 0, np = 0;
   for (const x of app) {
-    const giorno = String(x.giorno || "");
-    if (giorno < oggi) { np++; passati += rigaApp(x, e, oggi); continue; }
+    // lavorazioni di più giorni (05/11/2026, agenda-crono-1): passate solo dopo l'ultimo giorno; quelle in corso stanno sotto «Oggi»
+    const ultimo = String(x.fine_giorno || x.giorno || "");
+    if (ultimo < oggi) { np++; passati += rigaApp(x, e, oggi); continue; }
+    const giorno = String(x.giorno || "") < oggi ? oggi : String(x.giorno || "");
     nf++;
     if (giorno !== g) {
       g = giorno;
@@ -494,10 +563,29 @@ export function paginaAgenda(base, tok, c, d, h) {
   const avvisoChi = persone ? persone + (persone === 1 ? " persona registrata" : " persone registrate") : "nessuna persona registrata";
   const crono = Array.isArray(d.crono) ? d.crono : [];
   // Calendario del mese (28/10/2026, Filippo): gli appuntamenti che la pagina già riceve, ridotti a quello che serve alla griglia
-  const mese = app.map((x) => ({ id: Number(x.id) || 0, g: String(x.giorno || ""), o: x.tutto_il_giorno ? "" : String(x.ora || ""), f: String(x.ora_fine || ""),
-    tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.g));
+  // lavorazioni di più giorni (05/11/2026, agenda-crono-1): una voce per ognuno dei giorni in cui compaiono (k di n)
+  const mese = [];
+  for (const x of app) {
+    const v = { id: Number(x.id) || 0, g: String(x.giorno || ""), o: x.tutto_il_giorno ? "" : String(x.ora || ""), f: String(x.ora_fine || ""),
+      tipo: TIPI[x.tipo] ? x.tipo : (x.tipo === "lavorazioni" ? "lavorazione" : "altro"), t: String(x.titolo || ""), st: String(x.stato || "") };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v.g)) continue;
+    const gd = x.fine_giorno ? giorniDi(x) : [v.g];
+    gd.forEach((gg, i) => mese.push(gd.length > 1 ? Object.assign({}, v, { g: gg, o: i ? "" : v.o, f: i ? "" : v.f, k: i + 1, n: gd.length }) : v));
+  }
   const rubrica = (Array.isArray(d.rubrica) ? d.rubrica : []).map((k) => ({ id: Number(k.id) || 0, n: String(k.nome || ""), e: String(k.email || ""), i: String(k.impresa || "") })).filter((k) => k.id);
-  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI, rubrica: rubrica }).replace(/</g, "\\u003c");
+  // Agenda e Cronoprogramma (05/11/2026, agenda-crono-1): tutto solo se il database dice agenda_crono = true
+  const acr = d.agenda_crono === true;
+  const gruppi = {};
+  let ng = 0;
+  const fasi = (acr && Array.isArray(d.fasi) ? d.fasi : []).map((f) => {
+    const gk = String(f.gruppo || "");
+    if (!(gk in gruppi)) gruppi[gk] = ng++ % FASI_COLORI.length;
+    return { id: String(f.id || ""), n: String(f.nome || ""), fa: String(f.fase || ""), tipo: f.tipo === "cardine" ? "cardine" : "attivita",
+      ip: String(f.ip || ""), fp: String(f.fp || ""), pct: f.pct == null ? null : Math.round(Number(f.pct)) || 0, sp: f.spostata ? String(f.spostata) : "", col: FASI_COLORI[gruppi[gk]] };
+  }).filter((f) => UUID.test(f.id) && /^\d{4}-\d{2}-\d{2}$/.test(f.ip) && /^\d{4}-\d{2}-\d{2}$/.test(f.fp));
+  const dati = JSON.stringify({ base: base, t: tok, c: c, oggi: oggi, chiuso: d.chiuso === true, crono: crono, mese: mese, tipi: TIPI, rubrica: rubrica,
+    agenda_crono: acr, fasi: fasi }).replace(/</g, "\\u003c");
+  const fasiBox = acr && fasi.length ? fasiSezione(fasi, oggi, d.chiuso === true, e) : "";
   // Collega al calendario (30/10/2026, Filippo): pulsanti diretti per Google Calendar, iPhone/Mac e Outlook in cima all'agenda;
   // per gli altri calendari l'indirizzo resta da copiare. Il calendario va in una sola direzione: dall'agenda TIX al telefono.
   const icsUrl = d.ics_chiave && /^[0-9a-f]{32}$/.test(String(d.ics_chiave)) ? inUrlOrigin(h) + base + "/agenda/ics/" + d.ics_chiave + ".ics" : "";
@@ -536,13 +624,14 @@ export function paginaAgenda(base, tok, c, d, h) {
     // Calendario del mese: lo disegna lo script (CALENDARIO); senza JavaScript resta l'elenco qui sotto
     '<section class="cal" id="cal" aria-label="Calendario del mese" hidden></section>' +
     (d.chiuso ? "" : '<button type="button" class="ag-btn" id="ag-nuovo"><span class="ic">' + AGENDA_ICONA + "</span>Nuovo appuntamento</button>") +
-    collega +
+    collega + fasiBox +
     (d.avvisi_attivi === false ? '<p class="nota">Gli avvisi WhatsApp sono spenti in questo momento: gli appuntamenti restano in agenda.</p>' : "") +
     futuri +
     (np ? '<details class="pass-box"><summary>Appuntamenti passati (ultimi 30 giorni): ' + np + "</summary>" + passati + "</details>" : "") +
     '<p class="nota">Ogni appuntamento arriva su WhatsApp a chi lavora in questo cantiere (' + avvisoChi + '), nella sua lingua. ' +
     'Chi non ha scritto a TIX nelle ultime 24 ore lo riceve con il messaggio del mattino del giorno stesso. ' +
-    'Le «Lavorazioni» arrivano solo alle persone scelte in «Chi».</p>' +
+    'Le «Lavorazioni» arrivano solo alle persone scelte in «Chi».' +
+    (acr ? " Per le lavorazioni di più giorni il messaggio dice quanti giorni durano; il giorno della fine, nel messaggio del mattino, «deve finire oggi»." : "") + "</p>" +
     "<noscript><p class=\"nota\"><b>Per aggiungere o modificare gli appuntamenti serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main>" +
     // modulo nuovo / sposta
@@ -553,6 +642,9 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<label>Ora <small>(vuota = tutto il giorno)</small><input type="time" id="f-o" step="300"></label></div>' +
     '<div class="riga2"><label>Fine <small>(facoltativa)</small><input type="time" id="f-f" step="300"></label>' +
     '<label id="l-tipo">Tipo<select id="f-tipo">' + opzTipo + "</select></label></div>" +
+    // Lavorazioni di più giorni (05/11/2026, agenda-crono-1): TIX calcola l'ultimo giorno (giorni lavorativi, festivi esclusi)
+    (acr ? '<div id="l-gg" style="display:none"><div class="riga2"><label>Quanti giorni <small>(lavorativi)</small><input type="number" id="f-gg" min="1" max="120" step="1" value="1" inputmode="numeric"></label>' +
+      '<label class="ck ck-sab"><input type="checkbox" id="f-sab"> Conta anche il sabato</label></div><p class="cr-avv" id="f-gg-fine"></p></div>' : "") +
     '<label id="l-titolo"><span id="t-titolo">Cosa succede</span><input type="text" id="f-t" maxlength="140" placeholder="es. Consegna solaio – autotrasportatore" required></label>' +
     '<div id="l-lav" style="display:none">' +
     (crono.length ? '<div class="chi-t">Attività del cronoprogramma <small>(facoltativo)</small></div>' +
@@ -596,6 +688,14 @@ export function paginaAgenda(base, tok, c, d, h) {
     // «Mese intero» (02/11/2026, agenda-contatti-1): il calendario a tutto schermo, come la giornata; lo script ci sposta dentro
     // il calendario (#cal) finché la finestra è aperta
     '<dialog id="ag-mese" aria-label="' + e("Mese intero · " + (cant.nome || "")) + '"><div id="mese-c"></div></dialog>' +
+    // «Sposta la fase» (05/11/2026, agenda-crono-1): le date della fase nel cronoprogramma in uso
+    (fasiBox && !d.chiuso ? '<dialog id="ag-fase" aria-labelledby="fa-tit"><form method="dialog" id="fa-form">' +
+      '<div class="dl-t"><h2 id="fa-tit">Sposta la fase</h2><p id="fa-sub"></p></div>' +
+      '<div class="dl-c"><div class="riga2"><label id="fa-li">Inizio<input type="date" id="fa-i"></label><label><span id="fa-lf">Fine</span><input type="date" id="fa-f" required></label></div>' +
+      '<label class="ck" id="fa-lt"><input type="checkbox" id="fa-tieni" checked> Mantieni la durata (la fine si sposta insieme all’inizio)</label>' +
+      '<p class="piccolo" id="fa-doc"></p><p class="msg" id="fa-msg" aria-live="polite"></p></div>' +
+      '<div class="dl-b"><button type="button" class="no" id="fa-no">Annulla</button><button type="submit" class="si" id="fa-si">Sposta la fase</button></div>' +
+      "</form></dialog>" : "") +
     // «+ Nuovo contatto» (02/11/2026, agenda-contatti-1): piccolo modulo sopra quello dell'appuntamento
     (nuovoOk ? '<dialog id="ag-nc" aria-labelledby="nc-tit"><form method="dialog" id="nc-form" novalidate>' +
       '<div class="dl-t"><h2 id="nc-tit">Nuovo contatto</h2><p>Entra nella Rubrica dell’impresa e tra gli invitati di questo appuntamento.</p></div>' +
@@ -856,7 +956,29 @@ const STILE =
   ".cal-chiudi{min-height:40px;padding:0 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0F172A;font:inherit;font-weight:700;cursor:pointer}.cal-chiudi:hover{box-shadow:0 6px 16px -8px rgba(15,23,42,.4)}" +
   "@media (max-width:759px){#ag-mese .cal{padding:12px 10px}#ag-mese .cal-d{min-height:max(56px,calc((100dvh - 268px)/6))}.cal-chiudi{min-height:38px;padding:0 12px}}" +
   "header .centro h1{-webkit-user-select:none;user-select:none;touch-action:manipulation}" +
-  "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) #ag-mese{background:#0F141D}:root:not([data-theme=light]) .cal-chiudi{background:rgba(255,255,255,.06);color:#F1F5F9;border-color:rgba(255,255,255,.12)}}";
+  "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) #ag-mese{background:#0F141D}:root:not([data-theme=light]) .cal-chiudi{background:rgba(255,255,255,.06);color:#F1F5F9;border-color:rgba(255,255,255,.12)}}" +
+  // Agenda e Cronoprogramma (05/11/2026, agenda-crono-1): durata delle lavorazioni, fasi del cronoprogramma nel calendario e in elenco
+  ".ag .n.dur{color:#23302A}.ag .n.dur b{font-weight:700}" +
+  "#l-gg .riga2{align-items:end}#l-gg .ck-sab{margin:0 0 12px}#f-gg-fine{margin-top:4px}" +
+  ".fasi-box{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:10px 14px;margin:0 0 16px}" +
+  ".fasi-box summary{cursor:pointer;font-weight:800;color:#23302A}.fasi-box summary small{font-weight:500;color:#5b6560;margin-left:4px}" +
+  ".fasi-box[open] summary{margin-bottom:6px}.fasi-box:not(.tutte) .fase-r.lon{display:none}" +
+  ".fase-r{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #EEF0EF}" +
+  ".fase-c{flex:none;width:6px;align-self:stretch;min-height:30px;border-radius:4px;background:var(--fc)}" +
+  ".fase-t{flex:1;min-width:0}.fase-t b{display:block;font-size:.92rem;overflow-wrap:anywhere;color:#111}.fase-t small{display:block;font-size:.78rem;color:#5b6560}" +
+  ".fase-b{flex:none;min-height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--bordo);background:#fff;color:#23302A;font:inherit;font-size:.84rem;font-weight:600;cursor:pointer}" +
+  ".fase-b:hover,.fase-b:focus-visible{border-color:var(--ar);color:var(--ar-s)}" +
+  ".fasi-tutte{margin-top:8px;border:0;background:none;color:var(--accento);font:inherit;font-weight:700;cursor:pointer;padding:6px 0;min-height:36px}" +
+  ".fasi-box .piccolo{margin:8px 0 2px}" +
+  ".gio-fasi{margin-top:14px}.gio-fasi .fase-r{background:#fff;border:1px solid var(--bordo);border-radius:10px;padding:8px 10px;margin-top:6px}" +
+  ".cal-fz{display:flex;min-width:0;padding:2px 6px 2px 5px;border-radius:7px;font-size:.68rem;line-height:1.2;font-weight:600;color:#334155;border-left:3px solid var(--fc);" +
+  "background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--fc) 13%,#fff) 0 6px,#fff 6px 10px)}" +
+  ".cal-fz i{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}" +
+  ".cal-f{display:none;align-items:center;gap:2px;justify-content:center}.cal-f i{flex:none;display:inline-block;width:7px;height:4px;border-radius:3px;background:var(--fc)}" +
+  ".cal-leg .leg-f:before{background:linear-gradient(90deg,#2563EB,#0D9488,#9333EA,#DB2777)}" +
+  ".cal-gi .cal-fl{margin-top:6px}" +
+  "@media (max-width:759px){.cal-fz,.cal-fz-altre{display:none}.cal-f{display:flex}.fase-r{flex-wrap:wrap}.fase-b{margin-left:16px}}" +
+  "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .cal-fz{color:#E2E8F0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--fc) 26%,#141A24) 0 6px,#141A24 6px 10px)}}";
 
 // Calendario del mese (28/10/2026): richiesta di Filippo, «l'agenda si apre con tutto il mese; in ogni giorno un segno
 // se ci sono impegni; come Google Calendar ma più bello». Sul computer ogni giorno mostra fino a 3 impegni (ora e titolo,
@@ -875,9 +997,14 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 function iso(y,m,d){return y+'-'+(m<9?'0':'')+(m+1)+'-'+(d<10?'0':'')+d;}
 var o=String(D.oggi||'').split('-'),Y=+o[0]||new Date().getFullYear(),M=(+o[1]||1)-1,sel=D.oggi;
+/* fasi del cronoprogramma (05/11/2026, agenda-crono-1): ogni giorno mostra le fasi in corso, con il colore del loro gruppo */
+var FZ=D.fasi||[];
+function fasiDi(g){var r=[];for(var i=0;i<FZ.length;i++)if(FZ[i].ip<=g&&g<=FZ[i].fp)r.push(FZ[i]);return r;}
+function dI(s){var p=String(s||'').split('-');return p.length===3?p[2]+'/'+p[1]:'';}
 function disegna(){
- var primo=new Date(Date.UTC(Y,M,1)),off=(primo.getUTCDay()+6)%7,inizio=new Date(Date.UTC(Y,M,1-off)),h='',tot=0;
- for(var k in per)if(k.slice(0,7)===iso(Y,M,1).slice(0,7))tot+=per[k].length;
+ var primo=new Date(Date.UTC(Y,M,1)),off=(primo.getUTCDay()+6)%7,inizio=new Date(Date.UTC(Y,M,1-off)),h='',tot=0,vis={};
+ /* una lavorazione di più giorni conta una volta sola nel totale del mese */
+ for(var k in per)if(k.slice(0,7)===iso(Y,M,1).slice(0,7))per[k].forEach(function(x){vis[x.id]=1;});tot=Object.keys(vis).length;
  h+='<div class="cal-t"><h2 class="cal-m">'+cap(MESI[M])+' '+Y+(tot?'<small>'+tot+(tot===1?' impegno':' impegni')+'</small>':'')+
   (dmC&&box.parentNode===dmC&&CANT?'<span class="cal-cant">'+esc(CANT)+'</span>':'')+'</h2>'+
   '<button type="button" class="cal-oggi" data-v="oggi">Oggi</button><div class="cal-n"><button type="button" data-v="-1" aria-label="Mese precedente">‹</button>'+
@@ -886,26 +1013,37 @@ function disegna(){
  h+='<div class="cal-g" role="grid">';for(var w=0;w<7;w++)h+='<div class="cal-w" role="columnheader">'+GS[w]+'</div>';
  for(var i=0;i<42;i++){var dt=new Date(inizio.getTime()+i*864e5),g=iso(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()),l=per[g]||[];
   if(i===35&&dt.getUTCMonth()!==M)break;
-  var cl='cal-d'+(dt.getUTCMonth()!==M?' fuori':'')+(g===D.oggi?' oggi':'')+(g===sel?' sel':'')+(l.length?' pieno':'')+(dt.getUTCDay()===0||dt.getUTCDay()===6?' fest':'');
-  var lab=dt.getUTCDate()+' '+MESI[dt.getUTCMonth()]+(l.length?', '+l.length+(l.length===1?' impegno':' impegni'):', nessun impegno');
+  var fz=fasiDi(g),cl='cal-d'+(dt.getUTCMonth()!==M?' fuori':'')+(g===D.oggi?' oggi':'')+(g===sel?' sel':'')+(l.length?' pieno':'')+(dt.getUTCDay()===0||dt.getUTCDay()===6?' fest':'');
+  var lab=dt.getUTCDate()+' '+MESI[dt.getUTCMonth()]+(l.length?', '+l.length+(l.length===1?' impegno':' impegni'):', nessun impegno')+(fz.length?', '+fz.length+(fz.length===1?' fase':' fasi')+' del cronoprogramma':'');
   h+='<button type="button" class="'+cl+'" data-g="'+g+'" aria-label="'+esc(lab)+'"><span class="cal-num"><span>'+dt.getUTCDate()+'</span>'+(l.length?'<em class="cal-c">'+l.length+'</em>':'')+'</span>';
-  for(var j=0;j<l.length&&j<3;j++){var x=l[j];h+='<span class="cal-e t-'+esc(x.tipo)+(x.st==='annullato'?' ann':x.st==='avvenuto'?' ok':'')+'">'+(x.o?'<b>'+esc(x.o)+'</b>':'')+'<i>'+esc(x.t)+'</i></span>';}
+  for(var j=0;j<l.length&&j<3;j++){var x=l[j];h+='<span class="cal-e t-'+esc(x.tipo)+(x.st==='annullato'?' ann':x.st==='avvenuto'?' ok':'')+'">'+(x.o?'<b>'+esc(x.o)+'</b>':'')+(x.n>1?'<b>'+x.k+'/'+x.n+'</b>':'')+'<i>'+esc(x.t)+'</i></span>';}
   if(l.length>3)h+='<span class="cal-altri">+'+(l.length-3)+' altri</span>';
+  /* sul computer il nome delle fasi (a righe, per distinguerle dagli appuntamenti) negli spazi liberi; sul telefono le barrette colorate */
+  if(fz.length){var nfz=Math.min(fz.length,Math.max(1,4-Math.min(l.length,3)));if(nfz<fz.length&&nfz>1)nfz--;
+   for(var q=0;q<nfz;q++)h+='<span class="cal-fz" style="--fc:'+esc(fz[q].col)+'"><i>'+(fz[q].tipo==='cardine'?'🏁 ':'')+esc(fz[q].n)+'</i></span>';
+   if(fz.length>nfz)h+='<span class="cal-altri cal-fz-altre">+'+(fz.length-nfz)+(fz.length-nfz===1?' fase':' fasi')+'</span>';
+   h+='<span class="cal-f">';for(var q2=0;q2<fz.length&&q2<4;q2++)h+='<i style="--fc:'+esc(fz[q2].col)+'"></i>';h+='</span>';}
   if(l.length){h+='<span class="cal-pt">';for(var p=0;p<l.length&&p<4;p++)h+='<i class="t-'+esc(l[p].tipo)+'"></i>';h+='</span>';}
   h+='</button>';}
- h+='</div><div class="cal-leg">'+Object.keys(T).map(function(k){return '<span class="t-'+esc(k)+'">'+esc(T[k])+'</span>';}).join('')+'</div>'+giorno(sel);
+ h+='</div><div class="cal-leg">'+Object.keys(T).map(function(k){return '<span class="t-'+esc(k)+'">'+esc(T[k])+'</span>';}).join('')+
+  (FZ.length?'<span class="leg-f">Fasi del cronoprogramma</span>':'')+'</div>'+giorno(sel);
  box.innerHTML=h;}
 function giorno(g){var p=g.split('-'),dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])),l=per[g]||[],h='<div class="cal-gi" aria-live="polite"><h3>'+cap(GL[dt.getUTCDay()])+' '+(+p[2])+' '+MESI[+p[1]-1]+
  (!D.chiuso&&g>=D.oggi?'<button type="button" data-v="nuovo" data-g="'+g+'">+ Nuovo</button>':'')+'</h3>';
- if(!l.length)h+='<p class="vuoto-g">Nessun impegno in questo giorno.</p>';
- else{h+='<ul>';l.forEach(function(x){h+='<li class="t-'+esc(x.tipo)+'"><b>'+(x.o?esc(x.o)+(x.f?'<small> – '+esc(x.f)+'</small>':''):'<small>giornata</small>')+'</b><span>'+esc(x.t)+
+ var fz=fasiDi(g);
+ if(!l.length&&!fz.length)h+='<p class="vuoto-g">Nessun impegno in questo giorno.</p>';
+ else if(l.length){h+='<ul>';l.forEach(function(x){h+='<li class="t-'+esc(x.tipo)+'"><b>'+(x.o?esc(x.o)+(x.f?'<small> – '+esc(x.f)+'</small>':''):x.n>1?'<small>giorno '+x.k+' di '+x.n+'</small>':'<small>giornata</small>')+'</b><span>'+esc(x.t)+
   '<br><small>'+esc(T[x.tipo]||'Altro')+(x.st?' · '+esc(x.st):'')+'</small></span><a href="#ag-'+x.id+'" data-v="vai" data-id="'+x.id+'">Dettagli ›</a></li>';});h+='</ul>';}
+ if(fz.length){h+='<ul class="cal-fl">';fz.forEach(function(f){var car=f.tipo==='cardine';h+='<li style="--tc:'+esc(f.col)+'"><b><small>'+(car?'🏁 traguardo':'📊 fase')+'</small></b><span>'+esc(f.n)+
+  '<br><small>'+esc((f.fa?f.fa+' · ':'')+(car?'il '+dI(f.fp):'dal '+dI(f.ip)+' al '+dI(f.fp))+(f.pct!=null&&!car?' · '+f.pct+'%':''))+'</small></span>'+
+  (D.chiuso?'':'<a href="#" data-v="fase" data-id="'+esc(f.id)+'">Sposta ›</a>')+'</li>';});h+='</ul>';}
  return h+'</div>';}
 box.addEventListener('click',function(ev){var b=ev.target.closest('[data-v],[data-g]');if(!b||!box.contains(b))return;var v=b.getAttribute('data-v');
  if(v==='-1'||v==='1'){M+=+v;if(M<0){M=11;Y--;}if(M>11){M=0;Y++;}disegna();return;}
  if(v==='oggi'){Y=+o[0];M=+o[1]-1;sel=D.oggi;disegna();return;}
  if(v==='chiudi'){if(dm&&dm.open)dm.close();if(window.glAgMeseRimetti)window.glAgMeseRimetti();return;}
  if(v==='nuovo'){if(window.glAgNuovo)window.glAgNuovo(b.getAttribute('data-g')||sel);return;}
+ if(v==='fase'){ev.preventDefault();if(window.glAgFase)window.glAgFase(b.getAttribute('data-id'));return;}
  if(v==='vai'){ev.preventDefault();if(dm&&dm.open)dm.close();var r=document.querySelector('.ag[data-id="'+b.getAttribute('data-id')+'"]');if(r){var dt=r.closest('details');if(dt)dt.open=true;r.scrollIntoView({behavior:'smooth',block:'center'});r.classList.remove('lampo');void r.offsetWidth;r.classList.add('lampo');}return;}
  var g=b.getAttribute('data-g');if(g){sel=g;var p=g.split('-');if(+p[1]-1!==M||+p[0]!==Y){Y=+p[0];M=+p[1]-1;}disegna();if(window.glAgGiorno)window.glAgGiorno(g);}});
 box.hidden=false;disegna();
@@ -938,9 +1076,27 @@ var fg=document.getElementById('f-g'),fo=document.getElementById('f-o'),ff=docum
  favv=document.getElementById('f-avv'),fcli=document.getElementById('f-cli'),fsera=document.getElementById('f-sera');
 var fluogo=document.getElementById('f-luogo'),fchi=document.getElementById('f-chi'),ttit=document.getElementById('t-titolo'),tavv=document.getElementById('t-avv'),fpers=document.querySelectorAll('.f-pers');
 var modo='nuovo',cur=null,occupato=false,fatto=false;
+/* lavorazioni di più giorni (05/11/2026, agenda-crono-1): «Quanti giorni» e l'ultimo giorno calcolato come nel database
+   (lunedì–venerdì, più il sabato se spuntato, senza i festivi nazionali e Pasquetta; il primo giorno conta sempre) */
+var fgg=document.getElementById('f-gg'),fsab=document.getElementById('f-sab'),fggFine=document.getElementById('f-gg-fine');
+function gPiu(s,n){var p=String(s).split('-');return new Date(Date.UTC(+p[0],+p[1]-1,+p[2]+n)).toISOString().slice(0,10);}
+function gDiff(a,b){var x=String(a).split('-'),y=String(b).split('-');return Math.round((Date.UTC(+y[0],+y[1]-1,+y[2])-Date.UTC(+x[0],+x[1]-1,+x[2]))/864e5);}
+function festivo(s){if(['01-01','01-06','04-25','05-01','06-02','08-15','11-01','12-08','12-25','12-26'].indexOf(s.slice(5))!==-1)return true;
+ var y=+s.slice(0,4),a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,
+  i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mm=Math.floor((h+l-7*m+114)/31),dd=((h+l-7*m+114)%31)+1;
+ return s===gPiu(y+'-'+(mm<10?'0':'')+mm+'-'+(dd<10?'0':'')+dd,1);}
+function lavorativo(s,sab){var p=s.split('-'),w=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay();return ((w>=1&&w<=5)||(sab&&w===6))&&!festivo(s);}
+function lavFine(s,n,sab){var d=s,k=1,giri=0;n=Math.min(Math.max(n||1,1),120);while(k<n&&giri<400){d=gPiu(d,1);giri++;if(lavorativo(d,sab))k++;}return d;}
+function ggNum(){var v=fgg?String(fgg.value||'').trim():'1';return /^[0-9]{1,3}$/.test(v)?+v:NaN;}
+function ggFine(){if(!fggFine)return;var n=ggNum(),g=fg.value;
+ if(!g||!(n>1)||n>120){fggFine.textContent=n>120?'Al massimo 120 giorni.':'';return;}
+ var GB=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'],gb=function(s){var p=s.split('-');return GB[new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay()]+' '+p[2]+'/'+p[1];};
+ var fi=lavFine(g,n,fsab.checked);
+ fggFine.textContent='Dal '+gb(g)+' al '+gb(fi)+': '+n+' giorni lavorativi ('+(fsab.checked?'sabato compreso, ':'sabato e domenica esclusi, ')+'festivi esclusi). Compare in agenda in tutti questi giorni.';}
+if(fgg){fgg.addEventListener('input',ggFine);fsab.addEventListener('change',ggFine);fg.addEventListener('change',ggFine);}
 function lav(){return ftipo.value==='lavorazione';}
 function scelte(){var a=[];for(var i=0;i<fpers.length;i++)if(fpers[i].checked)a.push(fpers[i].value);return a;}
-function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo!=='sposta');
+function aggiornaTipo(){var l=lav();mostra('l-lav',l&&modo!=='sposta');mostra('l-gg',l&&modo!=='sposta');ggFine();
  ttit.textContent=l?'Quali lavorazioni':'Cosa succede';ft.placeholder=l?'es. Getto del solaio del piano 1':'es. Consegna solaio – autotrasportatore';
  tavv.textContent=l?'Avvisa su WhatsApp le persone scelte in «Chi»':tavv.getAttribute('data-tutti');
  if(l&&!fpers.length)favv.checked=false;}
@@ -1036,6 +1192,7 @@ if(nc&&ncB&&typeof nc.showModal==='function'&&window.GL_TEL){
 function apriNuovo(){modo='nuovo';cur=null;fatto=false;fg.min=D.oggi;invSel={};if(invQ)invQ.value='';invRender();invEsito('');mostra('l-inv',true);tit.textContent='Nuovo appuntamento';sub.textContent=document.querySelector('header .centro p').textContent;
  fg.value=D.oggi;fo.value='';ff.value='';ft.value='';fn.value='';ftipo.value='lavorazione';favv.checked=true;fcli.checked=false;fsera.checked=false;
  fluogo.value='';fchi.value='';for(var i=0;i<fpers.length;i++)fpers[i].checked=false;
+ if(fgg){fgg.value='1';fsab.checked=false;}
  crSel={};if(crQ)crQ.value='';crRender();
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Segna in agenda';si.disabled=false;no.disabled=false;m('','');dlg.showModal();setTimeout(function(){try{fg.focus();}catch(x){}},50);}
 function apriSposta(b){modo='sposta';cur=b.getAttribute('data-id');fatto=false;fg.min=D.oggi;mostra('l-inv',false);var r=b.closest('.ag');tit.textContent='Sposta l’appuntamento';sub.textContent=r?r.getAttribute('data-titolo'):'';
@@ -1047,6 +1204,7 @@ function apriModifica(b){var x={};try{x=JSON.parse(b.getAttribute('data-app'))||
  fg.min=x.g&&x.g<D.oggi?x.g:D.oggi;fg.value=x.g||D.oggi;fo.value=x.o||'';ff.value=x.f||'';ft.value=x.t||'';fn.value=x.n||'';ftipo.value=x.tipo||'altro';
  favv.checked=x.avv!==false;fcli.checked=!!x.cli;fsera.checked=!!x.sera;fluogo.value=x.luogo||'';fchi.value=x.chi||'';
  var ps=x.pers||[];for(var i=0;i<fpers.length;i++)fpers[i].checked=ps.indexOf(fpers[i].value)!==-1;
+ if(fgg){fgg.value=String(x.gg||1);fsab.checked=!!x.sab;}
  crSel={};(x.att||[]).forEach(function(id){crSel[id]=1;});if(crQ)crQ.value='';crRender();
  invSel={};(x.inv||[]).forEach(function(id){invSel[id]=1;});if(invQ)invQ.value='';invRender();invEsito('');mostra('l-inv',true);
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Salva le modifiche';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
@@ -1055,10 +1213,12 @@ form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)retu
  if(modo!=='sposta'&&!ft.value.trim()){m('ko','Scrivi cosa succede.');return;}
  if(fo.value&&ff.value&&ff.value<=fo.value){m('ko','L’ora di fine deve venire dopo l’inizio.');return;}
  if(modo!=='sposta'&&lav()&&favv.checked&&!scelte().length){m('ko','Scegli in «Chi» le persone da avvisare, oppure togli la spunta dell’avviso WhatsApp.');return;}
+ if(modo!=='sposta'&&lav()&&fgg&&!(ggNum()>=1&&ggNum()<=120)){m('ko','I giorni vanno da 1 a 120.');try{fgg.focus();}catch(x){}return;}
  occupato=true;si.disabled=true;no.disabled=true;m('','Un momento…');
  var pr;
  if(modo!=='sposta'){var dati={giorno:fg.value,ora:fo.value,ora_fine:ff.value,tipo:ftipo.value,titolo:ft.value.trim(),note:fn.value.trim(),avvisa:favv.checked,visibile_cliente:fcli.checked,avviso_sera_prima:fsera.checked};
-  if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();dati.attivita=Object.keys(crSel).slice(0,10);}
+  if(lav()){dati.luogo=fluogo.value.trim();dati.chi=fchi.value.trim();dati.persone=scelte();dati.attivita=Object.keys(crSel).slice(0,10);
+   if(fgg){dati.giorni=String(ggNum());dati.sabato=fsab.checked;}}
   pr=modo==='nuovo'?post('crea',{t:D.t,c:D.c,dati:dati,invitati:invitati()}):post('azione',{t:D.t,id:Number(cur),azione:'modifica',dati:dati,invitati:invitati()});}
  else{pr=post('azione',{t:D.t,id:Number(cur),azione:'sposta',dati:{giorno:fg.value,ora:fo.value,ora_fine:ff.value}});}
  pr.then(function(j){occupato=false;no.disabled=false;
@@ -1120,9 +1280,14 @@ var gio=document.getElementById('ag-gio'),gioL=document.getElementById('gio-l'),
 var GMESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'],GGIO=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
 window.glAgGiorno=function(g){if(!gio||!/^\d{4}-\d{2}-\d{2}$/.test(g))return;gioG=g;var p=g.split('-'),dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
  gioT.textContent=(g===D.oggi?'Oggi · ':'')+GGIO[dt.getUTCDay()]+' '+(+p[2])+' '+GMESI[+p[1]-1]+' '+p[0];
- gioL.innerHTML='';var rs=document.querySelectorAll('main .ag[data-giorno="'+g+'"]');
- for(var i=0;i<rs.length;i++)gioL.appendChild(rs[i].cloneNode(true));
+ /* le lavorazioni di più giorni (05/11/2026, agenda-crono-1) compaiono in ognuno dei loro giorni (data-giorni) */
+ gioL.innerHTML='';var rs=Array.prototype.filter.call(document.querySelectorAll('main .ag[data-giorno]'),function(r){return (' '+(r.getAttribute('data-giorni')||r.getAttribute('data-giorno'))+' ').indexOf(' '+g+' ')!==-1;});
+ for(var i=0;i<rs.length;i++){var cl=rs[i].cloneNode(true),gk=cl.querySelector('.gk'),gs=(rs[i].getAttribute('data-giorni')||'').split(' '),ix=gs.indexOf(g);
+  if(gk&&ix>=0&&gs.length>1)gk.textContent='giorno '+(ix+1)+' di '+gs.length;gioL.appendChild(cl);}
  if(!rs.length)gioL.innerHTML='<p class="gio-v">Nessun appuntamento in questo giorno'+(g<D.oggi?' (l’agenda mostra gli ultimi 30 giorni).':D.chiuso?'.':': tocca «+ Nuovo appuntamento» per fissarne uno.')+'</p>';
+ var gf=(D.fasi||[]).filter(function(f){return f.ip<=g&&g<=f.fp;});
+ if(gf.length){gioL.insertAdjacentHTML('beforeend','<div class="gio-fasi"><div class="chi-t">&#128202; Fasi del cronoprogramma in corso</div>'+gf.map(faseRigaJs).join('')+'</div>');
+  var bf=gioL.querySelectorAll('[data-fase]');for(var w=0;w<bf.length;w++)bf[w].addEventListener('click',function(){if(window.glAgFase)window.glAgFase(this.getAttribute('data-fase'));});}
  var bg=gioL.querySelectorAll('.az button[data-az]');for(var j=0;j<bg.length;j++){bg[j].disabled=false;bg[j].addEventListener('click',function(){azione(this);});}
  /* il cestino (cestino.js) lega ogni pulsante 🗑 a parte: nella giornata si chiude la finestra e si usa quello dell'elenco */
  var bc=gioL.querySelectorAll('.gl-ct-b');for(var q=0;q<bc.length;q++)bc[q].addEventListener('click',function(){var r=this.closest('.ag'),o=r&&document.querySelector('main .ag[data-id="'+r.getAttribute('data-id')+'"] > .gl-ct-b');if(o){gio.close();o.click();}});
@@ -1134,6 +1299,47 @@ if(gio){document.getElementById('gio-no').addEventListener('click',function(){gi
 /* (30/10 sera, Filippo) anche i titoli dei giorni dell'elenco aprono la giornata */
 Array.prototype.forEach.call(document.querySelectorAll('main .tit[data-g]'),function(t){function apri(){if(window.glAgGiorno)window.glAgGiorno(t.getAttribute('data-g'));}
  t.addEventListener('click',apri);t.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();apri();}});});
+/* Fasi del cronoprogramma (05/11/2026, agenda-crono-1, scelta A di Filippo): «Sposta» cambia le date nel cronoprogramma in uso
+   (POST /agenda/fase → agenda_fase_sposta); con «Mantieni la durata» la fine segue l'inizio. Il traguardo ha un giorno solo. */
+function faseRigaJs(f){var car=f.tipo==='cardine',q=car?'il '+dIt(f.fp):'dal '+dIt(f.ip)+' al '+dIt(f.fp);
+ return '<div class="fase-r" style="--fc:'+esc(f.col)+'"><i class="fase-c" aria-hidden="true"></i><div class="fase-t"><b>'+(car?'🏁 ':'')+esc(f.n)+'</b><small>'+
+  [f.fa,q,(f.pct!=null&&!car?f.pct+'% fatto':''),(f.sp?'date aggiornate dall’Agenda il '+f.sp:'')].filter(Boolean).map(esc).join(' · ')+'</small></div>'+
+  (D.chiuso?'':'<button type="button" class="fase-b" data-fase="'+esc(f.id)+'">Sposta</button>')+'</div>';}
+var FA=D.fasi||[],fa=document.getElementById('ag-fase');
+if(fa&&typeof fa.showModal==='function'){
+ var faI=document.getElementById('fa-i'),faF=document.getElementById('fa-f'),faT=document.getElementById('fa-tieni'),faM=document.getElementById('fa-msg'),
+  faSi=document.getElementById('fa-si'),faNo=document.getElementById('fa-no'),faCur=null,faOcc=false,faOk=false;
+ var faMsg=function(cl,t){faM.className='msg '+cl;faM.textContent=t;};
+ window.glAgFase=function(id){var f=null;for(var i=0;i<FA.length;i++)if(FA[i].id===id){f=FA[i];break;}if(!f||D.chiuso)return;
+  faCur=f;faOk=false;var car=f.tipo==='cardine';
+  document.getElementById('fa-sub').textContent=(car?'🏁 ':'')+f.n+(f.fa?' · '+f.fa:'');
+  document.getElementById('fa-tit').textContent=car?'Sposta il traguardo':'Sposta la fase';
+  mostra('fa-li',!car);mostra('fa-lt',!car);document.getElementById('fa-lf').textContent=car?'Giorno':'Fine';
+  faI.value=f.ip;faF.value=f.fp;faT.checked=true;
+  document.getElementById('fa-doc').textContent='Ora nel cronoprogramma: '+(car?'il '+dIt(f.fp):'dal '+dIt(f.ip)+' al '+dIt(f.fp))+'. Le date del documento caricato restano conservate'+
+   (f.sp?' (date già aggiornate dall’Agenda il '+f.sp+')':'')+'.';
+  faMsg('','');faSi.hidden=false;faSi.disabled=false;faNo.disabled=false;faNo.textContent='Annulla';fa.showModal();};
+ faI.addEventListener('change',function(){if(faT.checked&&faCur&&faI.value)faF.value=gPiu(faI.value,gDiff(faCur.ip,faCur.fp));});
+ document.getElementById('fa-form').addEventListener('submit',function(ev){ev.preventDefault();if(faOcc||!faCur)return;
+  var car=faCur.tipo==='cardine',i=car?faF.value:faI.value,f=faF.value;
+  if(!i||!f){faMsg('ko','Indica le date.');return;}
+  if(f<i){faMsg('ko','La fine deve venire dopo l’inizio.');return;}
+  faOcc=true;faSi.disabled=true;faNo.disabled=true;faMsg('','Un momento…');
+  post('fase',{t:D.t,c:D.c,id:faCur.id,inizio:i,fine:f}).then(function(j){faOcc=false;faNo.disabled=false;j=j||{};
+   if(j.esito==='ok'){faOk=true;faMsg('ok','Fase spostata: il cronoprogramma è aggiornato.');faSi.hidden=true;faNo.textContent='Chiudi';return;}
+   if(j.esito==='gia'){faMsg('ok','Era già così.');faSi.hidden=true;faNo.textContent='Chiudi';return;}
+   if(j.esito==='gettone'){location.href=D.base+'/';return;}
+   if(j.esito==='spento'){faMsg('ko','Lo spostamento delle fasi non è ancora attivo per questo cantiere.');return;}
+   if(j.esito==='chiuso'){faMsg('ko','Il cantiere è chiuso.');return;}
+   if(j.esito==='incerto'){faMsg('ko','Non ho avuto risposta: ricarica la pagina tra un minuto per vedere se è stata spostata.');faSi.disabled=false;return;}
+   faMsg('ko',j.messaggio||'Non sono riuscito a spostarla: riprova tra poco.');faSi.disabled=false;
+  }).catch(function(){faOcc=false;faNo.disabled=false;faSi.disabled=false;faMsg('ko','Il servizio non risponde: controlla la connessione e riprova.');});});
+ faNo.addEventListener('click',function(){if(!faOcc)fa.close();});
+ fa.addEventListener('cancel',function(ev){if(faOcc)ev.preventDefault();});
+ fa.addEventListener('close',function(){if(faOk)location.reload();});
+ Array.prototype.forEach.call(document.querySelectorAll('main [data-fase]'),function(b){b.addEventListener('click',function(){window.glAgFase(b.getAttribute('data-fase'));});});}
+var ftu=document.getElementById('fasi-tutte');if(ftu)ftu.addEventListener('click',function(){var bx=document.getElementById('fasi-box');if(!bx)return;
+ var t=bx.classList.toggle('tutte');ftu.textContent=t?'Mostra solo le fasi vicine':'Mostra tutte le '+FA.length+' fasi';});
 var ic=document.getElementById('ics-copia');if(ic)ic.addEventListener('click',function(){var u=document.getElementById('ics-url');try{u.select();}catch(x){}
  var fatto=function(){ic.textContent='Copiato';setTimeout(function(){ic.textContent='Copia';},1500);};
  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.value).then(fatto,function(){try{document.execCommand('copy');fatto();}catch(x){}});}else{try{document.execCommand('copy');fatto();}catch(x){}}});
