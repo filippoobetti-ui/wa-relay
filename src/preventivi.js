@@ -66,6 +66,8 @@ function pulisci(d) {
   if ("ribasso_applicato" in x) o.ribasso_applicato = x.ribasso_applicato === true || x.ribasso_applicato === "true";
   if ("leggi" in x) o.leggi = x.leggi === true || x.leggi === "true";
   if ("conferma_tetto" in x) o.conferma_tetto = x.conferma_tetto === true || x.conferma_tetto === "true";
+  // 05/11/2026 (preventivi-rilettura-1): «Rifai con gli stessi file»
+  if ("riprendi" in x) o.riprendi = x.riprendi === true || x.riprendi === "true";
   if (Array.isArray(x.misure)) {
     o.misure = x.misure.slice(0, 50).map((r) => ({ dove: testo(r && r.dove, 120), parti: testo(r && r.parti, 14), lun: testo(r && r.lun, 14),
       lar: testo(r && r.lar, 14), alt: testo(r && r.alt, 14) }));
@@ -274,6 +276,13 @@ const STILE_IA =
   ".pv-ia-lb{display:flex;gap:6px;min-width:0}.pv-ia-lb input{flex:1;min-width:0;min-height:40px;padding:0 10px;border:1.5px solid var(--pv);border-radius:10px;font:inherit}" +
   ".pv-ia-lb select{min-height:40px;border:1px solid rgba(16,27,43,.2);border-radius:10px;font:inherit;padding:0 6px;max-width:150px}" +
   ".pv-ia-file{display:flex;flex-direction:column;gap:8px;margin-top:12px}" +
+  // preventivi-rilettura-1: «Rifai con gli stessi file» e link salvati
+  ".pv-ia-rip{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px dashed var(--pv-b);border-radius:12px;background:#FBFCF4}.pv-ia-rip0{margin-top:10px}" +
+  ".pv-ia-links{margin-top:12px;border:1px solid var(--l);border-radius:12px;background:#fff;padding:8px 12px}.pv-ia-links summary{cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:700;color:var(--pv-s)}" +
+  ".pv-ia-links summary small{background:var(--pv-f);border:1px solid var(--pv-b);border-radius:999px;padding:0 8px;font-size:.78rem}" +
+  ".pv-ia-lic{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#1B2F4A}.pv-ia-lic svg{width:16px;height:16px}" +
+  ".pv-ia-lr{display:flex;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--l)}.pv-ia-lr>div{flex:1;min-width:0}.pv-ia-lr small{color:var(--s)}" +
+  ".pv-ia-lr code{display:block;font-size:.78rem;color:var(--s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
   ".pv-ia-f{display:grid;grid-template-columns:46px minmax(0,1fr) 190px 80px 34px;gap:10px;align-items:center;padding:9px 12px;border-radius:12px;background:#fff;border:1px solid var(--l)}" +
   ".pv-ia-f.no{border-color:var(--ko-b);background:var(--ko-f)}.pv-ia-f.pronto{border-color:var(--ok-b)}" +
   ".pv-ia-f p{margin:0;font-size:.88rem;font-weight:700;overflow-wrap:anywhere}.pv-ia-f small{display:block;font-weight:500;color:var(--s);font-size:.78rem;margin-top:2px;overflow-wrap:anywhere}" +
@@ -760,6 +769,28 @@ function usd(n){n=num(n);return n>0&&n<0.01?'meno di 0,01':n.toFixed(2).replace(
 function ora(x){var d=new Date(x);return isNaN(d)?'':String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1).replace('.',',')+' MB';}
 function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
+// 05/11/2026 (preventivi-rilettura-1): «Rifai la lettura con gli stessi file» e link salvati del preventivo
+var CATENA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+var TIPI_IA={relazione:'Relazione',tavole:'Tavole',computo:'Computo (Excel)'};
+function riprendiIa(){var r=IA&&IA.ripresa;if(!r)return '';var n=num(r.file)+num(r.link);
+ if(!n)return num(r.persi)?'<p class="pv-ia-nota pv-ia-rip0">I file della lettura del '+dt(r.finita_il)+' sono già stati cancellati (restano 3 giorni): riallegali, oppure usa i link salvati.</p>':'';
+ return '<div class="pv-ia-rip"><button type="button" class="pv-b pv-pr" id="pv-ia-riprendi">Rifai la lettura con gli stessi file</button><span class="pv-ia-nota">Riprende '+
+  (num(r.file)?pl(r.file,'file','file'):'')+(num(r.file)&&num(r.link)?' e ':'')+(num(r.link)?pl(r.link,'link','link'):'')+' della lettura del '+dt(r.finita_il)+
+  (num(r.file)?': i file restano fino al '+dt(r.scade_il)+' alle '+ora(r.scade_il)+'.':'.')+(num(r.persi)?' '+pl(r.persi,'file è già stato cancellato','file sono già stati cancellati')+': riallegalo.':'')+'</span></div>';}
+function linkSalvatiIa(mod){var L=(IA&&IA.link_salvati)||[];if(!L.length)return '';
+ return '<details class="pv-ia-links"><summary><span class="pv-arg pv-ia-lic">'+CATENA+'</span>Link salvati <small>'+L.length+'</small></summary>'+
+  '<p class="pv-ia-nota">I link usati nelle letture di questo preventivo: copiali'+(mod?', oppure usali di nuovo con un tocco':' e incollali quando apri «Prepara con TIX»')+'.</p>'+
+  L.map(function(x,i){return '<div class="pv-ia-lr"><div><b>'+es(x.nome||'Link')+'</b> <small>'+es(TIPI_IA[x.tipo]||x.tipo||'')+(x.il?' · '+dt(x.il):'')+'</small><code>'+es(x.link)+'</code></div>'+
+   '<button type="button" class="pv-b sm" data-iacopia="'+i+'">Copia</button>'+(mod?'<button type="button" class="pv-b sm pv-pr" data-iariusa="'+i+'">Usa di nuovo</button>':'')+'</div>';}).join('')+'</details>';}
+function legaRiprendiIa(){
+ var rp=$('pv-ia-riprendi');if(rp)rp.onclick=function(){rp.disabled=true;msgIa('Un momento…');
+  api('ia_nuova',{id:CFG.id,riprendi:true}).then(function(r){rp.disabled=false;if(r&&r.esito==='ok'){msgIa('');caricaIa();}else{msgIa(msgErr(r),'ko');if(!$('pv-ia-msg'))alert(msgErr(r));}});};
+ var L=(IA&&IA.link_salvati)||[];
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iacopia]'),function(b){b.onclick=function(){var x=L[Number(b.getAttribute('data-iacopia'))];if(!x)return;
+  var fatto=function(){b.textContent='Copiato';setTimeout(function(){b.textContent='Copia';},1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(x.link).then(fatto,function(){prompt('Copia il link:',x.link);});else prompt('Copia il link:',x.link);};});
+ Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iariusa]'),function(b){b.onclick=function(){var x=L[Number(b.getAttribute('data-iariusa'))];if(!x)return;
+  azIa('link',{link:x.link,tipo:x.tipo||'relazione'},b);};});}
 // pagine dei PDF se si conoscono per tutti i file, altrimenti il numero dei file
 function docTxt(p,n){p=num(p);n=num(n);return p?p+' pag.':n?pl(n,'file','file'):'0';}
 // 04/11/2026 (preventivi-computo-1): stato della voce, da dove viene nel computo o negli elaborati, controlli del preventivo
@@ -790,9 +821,11 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
   if(s==='pronta')h+=esitoIa(l);
   if(s==='errore')h+='<p class="pv-msg ko">'+es(l.errore||'La lettura non è riuscita.')+'</p>';
   if(s==='annullata')h+='<p class="pv-msg">L\'ultima lettura è stata annullata.</p>';
+  h+=riprendiIa()+linkSalvatiIa(false);
   box.innerHTML=h+'</div>';
   $('pv-ia-apri-ic').onclick=function(){$('pv-ia-apri').click();};
   $('pv-ia-apri').onclick=function(){var b=this;b.disabled=true;api('ia_nuova',{id:CFG.id}).then(function(r){b.disabled=false;if(r&&r.esito==='ok')caricaIa();else alert(msgErr(r));});};
+  legaRiprendiIa();
   return;}
  var mod=s==='preparazione'||s==='stima',F2=l.file||[];
  h=LOGO+'<div class="pv-ia"><div class="pv-ia-t"><span class="pv-ia-ic">'+SPUNTA+'</span><div><h3>Prepara con '+TIX+'</h3><p>'+
@@ -803,10 +836,11 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
    '<div class="pv-ia-cari"><label class="pv-ia-drop" id="pv-ia-drop"><input type="file" id="pv-ia-file" multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf" hidden>'+NUVOLA+'<b>Aggiungi file (anche più di uno)</b><small>Computo metrico <b>solo in Excel</b> · tavole e relazioni in PDF · fino a 18 MB per file</small></label>'+
    '<div class="pv-ia-link"><b>Oppure incolla un link</b><div class="pv-ia-lb"><input id="pv-ia-url" placeholder="https://drive.google.com/…" maxlength="600" autocomplete="off">'+
    '<select id="pv-ia-url-tipo"><option value="relazione">Relazione</option><option value="tavole">Tavole</option><option value="computo">Computo (Excel)</option></select><button type="button" class="pv-b sm pv-pr" id="pv-ia-url-ok">Aggiungi</button></div>'+
-   '<small>Google Drive (file o cartella), OneDrive, Dropbox, condivisi con «Chiunque abbia il link». TIX legge i file e non ne tiene la copia: dopo puoi togliere la condivisione.</small></div></div>';
+   '<small>Google Drive (file o cartella), OneDrive, Dropbox, condivisi con «Chiunque abbia il link». I link restano salvati nel preventivo; i file caricati restano 3 giorni dopo la lettura, poi si cancellano da soli.</small></div></div>'+
+   linkSalvatiIa(true);
  }
  h+='<div class="pv-ia-file">'+F2.map(function(f){return rigaFileIa(f,mod);}).join('')+'</div>';
- if(!F2.length)h+='<p class="pv-vuoto">Nessun file ancora.</p>';
+ if(!F2.length)h+='<p class="pv-vuoto">Nessun file ancora.</p>'+(s==='preparazione'?riprendiIa():'');
  if(l.errore&&mod)h+='<p class="pv-msg ko">'+es(l.errore)+'</p>';
  if(s==='preparazione')h+='<div class="pv-az"><button type="button" class="pv-b pv-pr" id="pv-ia-controlla"'+(F2.length?'':' disabled')+'>Controlla i file</button><span class="pv-ia-nota">Gratis: TIX legge i file, trova i prezzi per codice e ti dice quanto costa preparare le voci.</span></div>';
  if(s==='stima')h+=stimaIa(l);
@@ -848,12 +882,13 @@ function esitoIa(l){var r=l.riepilogo||{},ap=r.profondita==='approfondita',h='<d
   (r.extra_tolte?' · '+pl(r.extra_tolte,'voce in più non aggiunta perché già presente','voci in più non aggiunte perché già presenti'):'')+' · costo '+usd(l.costo_usd)+' $ + IVA</p>';
  if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
  h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
-  (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file non restano in TIX: resta questo elenco, con le impronte.</small></details></div>';
+  (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file caricati restano 3 giorni dopo la lettura, poi si cancellano da soli: resta questo elenco, con le impronte. I link restano salvati.</small></details></div>';
  return h;}
 function azIa(az,d,b){if(b)b.disabled=true;msgIa('Un momento…');d=d||{};d.id=CFG.id;
  return api('ia_'+az,d).then(function(r){if(b)b.disabled=false;if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');return r;});}
 function legaIa(l){
- var an=$('pv-ia-annulla');if(an)an.onclick=function(){if(confirm('Annullare «Prepara con TIX»? I file allegati si tolgono.'))azIa('annulla',{},an);};
+ var an=$('pv-ia-annulla');if(an)an.onclick=function(){if(confirm('Annullare «Prepara con TIX»? I file caricati restano 3 giorni, poi si cancellano da soli.'))azIa('annulla',{},an);};
+ legaRiprendiIa();
  var lv=$('pv-ia-lavoro');if(lv)lv.onchange=function(){azIa('lavoro',{lavoro:lv.value});};
  var fi=$('pv-ia-file');if(fi)fi.onchange=function(){caricaFileIa(fi.files);};
  var dr=$('pv-ia-drop');if(dr){dr.ondragover=function(e){e.preventDefault();dr.classList.add('su');};dr.ondragleave=function(){dr.classList.remove('su');};
