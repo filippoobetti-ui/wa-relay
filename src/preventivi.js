@@ -13,7 +13,7 @@
 //   POST /preventivi/firmato?t&id&nome              → copia firmata (corpo = il file, .pdf o .p7m)
 //   GET  /preventivi/firmato?t&id                   → scarica la copia firmata
 // «Prepara con TIX» (03/11/2026, preventivi-ia-1; nome e logo TIX da preventivi-tix-1): nella bozza si allegano file o link
-// (computo SOLO in Excel, tavole e relazioni in PDF); la funzione preventivo-ia li legge e TIX, con l'intelligenza artificiale,
+// (computo in Excel o, dal 06/11/2026, in PDF stampato da PriMus; tavole e relazioni in PDF); la funzione preventivo-ia li legge e TIX, con l'intelligenza artificiale,
 // compila le voci, segnate verde / giallo / rosso, da controllare. Dal 03/11 sera (preventivi-pdf-1) relazioni e tavole le legge
 // Claude in PDF: la funzione non li apre più (ogni sua chiamata ha ~2 secondi di calcolo). Dal 04/11 (preventivi-appr-1) si
 // sceglie anche la lettura «Normale» o «Approfondita» (voce per voce: prezzo adeguato con il calcolo, analisi del prezzo,
@@ -70,9 +70,11 @@ function pulisci(d) {
   if ("riprendi" in x) o.riprendi = x.riprendi === true || x.riprendi === "true";
   // 05/11/2026 (preventivi-ricontrollo-1): «Ricontrolla le voci» parte solo con conferma = true (prima la stima del costo)
   if ("conferma" in x) o.conferma = x.conferma === true || x.conferma === "true";
+  // 06/11/2026 (preventivi-computo-2): fino a 200 righe, «dove» fino a 300 caratteri e la quantità scritta (q) delle righe senza
+  // parti e dimensioni, come «Vedi voce n. …» nei computi di PriMus
   if (Array.isArray(x.misure)) {
-    o.misure = x.misure.slice(0, 50).map((r) => ({ dove: testo(r && r.dove, 120), parti: testo(r && r.parti, 14), lun: testo(r && r.lun, 14),
-      lar: testo(r && r.lar, 14), alt: testo(r && r.alt, 14) }));
+    o.misure = x.misure.slice(0, 200).map((r) => ({ dove: testo(r && r.dove, 300), parti: testo(r && r.parti, 14), lun: testo(r && r.lun, 14),
+      lar: testo(r && r.lar, 14), alt: testo(r && r.alt, 14), q: testo(r && r.q, 20) }));
   }
   return o;
 }
@@ -426,6 +428,7 @@ const STILE =
   ".pv-mis{margin-top:12px;padding:10px 12px;border-radius:12px;border:1px dashed var(--gr-b);background:#FBFCFD}.pv-mis-t{font-size:.86rem;margin-bottom:8px}.pv-mis-t small{color:var(--s)}" +
   ".pv-mis-r{display:grid;grid-template-columns:minmax(0,1fr) 70px 80px 80px 80px 84px 34px;gap:6px;margin-bottom:6px;align-items:center}" +
   ".pv-mis-r input{min-height:36px;padding:0 8px;border:1px solid rgba(16,27,43,.2);border-radius:8px;font:inherit;font-size:.86rem;min-width:0}.pv-mis-r .q{text-align:right;font-weight:700;font-size:.86rem}" +
+  ".pv-mis-r input.q:disabled{background:transparent;border-color:transparent;color:inherit;opacity:1;-webkit-text-fill-color:currentColor}" +
   ".pv-mis-r.h{font-size:.72rem;font-weight:700;color:var(--s);text-transform:uppercase;letter-spacing:.04em}.pv-mis-r button{border:0;background:none;color:var(--ko);font-size:1.1rem;cursor:pointer}" +
   ".pv-az{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.pv-az .pv-togli{margin-left:auto}" +
   "@media (max-width:1100px){.pv-r{grid-template-columns:130px minmax(0,1fr) 150px}.pv-r .pv-imp{grid-column:3}.pv-r .pv-azr{display:none}" +
@@ -702,21 +705,26 @@ function modulo(v){VOCE=v;var nuova=!v.id,lib=v.fonte==='libera';
  $('pv-vo-togli').hidden=nuova;msg($('pv-vo-msg'),'');ricalcola();velo('pv-v-voce',true);
 }
 function riga(m){m=m||{};var r=document.createElement('div');r.className='pv-mis-r';
- r.innerHTML='<input data-m="dove" maxlength="120" placeholder="es. Ingresso" value="'+es(m.dove||'')+'"><input class="parti" data-m="parti" inputmode="decimal" value="'+es(nv(m.parti))+'"><input data-m="lun" inputmode="decimal" value="'+es(nv(m.lun))+'">'+
-  '<input data-m="lar" inputmode="decimal" value="'+es(nv(m.lar))+'"><input class="alt" data-m="alt" inputmode="decimal" value="'+es(nv(m.alt))+'"><span class="q"></span><button type="button" title="Togli la riga">×</button>';
+ var fat=['parti','lun','lar','alt'].some(function(k){return m[k]!=null&&m[k]!=='';});
+ r.innerHTML='<input data-m="dove" maxlength="300" placeholder="es. Ingresso" value="'+es(m.dove||'')+'"><input class="parti" data-m="parti" inputmode="decimal" value="'+es(nv(m.parti))+'"><input data-m="lun" inputmode="decimal" value="'+es(nv(m.lun))+'">'+
+  '<input data-m="lar" inputmode="decimal" value="'+es(nv(m.lar))+'"><input class="alt" data-m="alt" inputmode="decimal" value="'+es(nv(m.alt))+'"><input class="q" data-m="q" inputmode="decimal" title="Senza parti e dimensioni: scrivi la quantità della riga" value="'+es(fat||m.q==null?'':nv(m.q))+'"><button type="button" title="Togli la riga">×</button>';
  r.querySelector('button').onclick=function(){r.parentNode.removeChild(r);ricalcola();};
  Array.prototype.forEach.call(r.querySelectorAll('input'),function(i){i.oninput=ricalcola;});
  $('pv-vo-mis').appendChild(r);}
 $('pv-vo-riga').onclick=function(){riga({});ricalcola();var r=$('pv-vo-mis').lastChild;if(r)r.querySelector('input').focus();};
 function misure(){return Array.prototype.map.call($('pv-vo-mis').querySelectorAll('.pv-mis-r:not(.h)'),function(r){var o={};Array.prototype.forEach.call(r.querySelectorAll('input'),function(i){o[i.getAttribute('data-m')]=i.value;});return o;});}
+// 06/11/2026 (preventivi-computo-2): con parti o dimensioni la quantità della riga è il loro prodotto (casella bloccata); senza,
+// si scrive la quantità della riga, come le righe «Vedi voce n. …» dei computi
 function ricalcola(){var M=misure(),tot=0,usa=false,err=false;
- Array.prototype.forEach.call($('pv-vo-mis').querySelectorAll('.pv-mis-r:not(.h)'),function(r,i){var m=M[i],q=null;['parti','lun','lar','alt'].forEach(function(k){var n=inNum(m[k]);if(n===null)return;if(isNaN(n)){err=true;return;}q=(q===null?1:q)*n;});
-  if(q!==null||String(m.dove||'').trim())usa=true;r.querySelector('.q').textContent=q===null?'':qta(q);tot+=q||0;});
+ Array.prototype.forEach.call($('pv-vo-mis').querySelectorAll('.pv-mis-r:not(.h)'),function(r,i){var m=M[i],q=null,cq=r.querySelector('input.q');['parti','lun','lar','alt'].forEach(function(k){var n=inNum(m[k]);if(n===null)return;if(isNaN(n)){err=true;return;}q=(q===null?1:q)*n;});
+  if(q!==null){cq.disabled=true;cq.value=qta(q);}
+  else{if(cq.disabled){cq.disabled=false;cq.value='';}var nq=inNum(cq.value);if(nq!==null){if(isNaN(nq))err=true;else q=nq;}}
+  if(q!==null||String(m.dove||'').trim())usa=true;tot+=q||0;});
  $('pv-vo-q').disabled=usa;if(usa)$('pv-vo-q').value=txt2(tot);
  var p=inNum($('pv-vo-prezzo').value),q=inNum($('pv-vo-q').value);
  $('pv-vo-imp').textContent=err?'Nelle righe di misura scrivi solo numeri.':(p!==null&&!isNaN(p)&&q!==null&&!isNaN(q)?'Importo: '+euro(Math.round(p*q*100)/100):'');}
 $('pv-vo-prezzo').oninput=ricalcola;$('pv-vo-q').oninput=ricalcola;
-$('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=misure().filter(function(m){return String(m.dove||'').trim()||m.parti||m.lun||m.lar||m.alt;});
+$('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=misure().filter(function(m){return String(m.dove||'').trim()||m.parti||m.lun||m.lar||m.alt||m.q;}).map(function(m){if(m.parti||m.lun||m.lar||m.alt)m.q='';return m;});
  var d={id:F.id,descrizione:$('pv-vo-descr').value,prezzo:$('pv-vo-prezzo').value,quantita:M.length?'':$('pv-vo-q').value,misure:M};
  if(v.id)d.voce_id=String(v.id);else{d.fonte=v.fonte;if(v.rif)d.rif=v.rif;}
  if(lib){d.codice=$('pv-vo-cod').value;d.unita=$('pv-vo-um').value;}
@@ -769,7 +777,7 @@ var SPUNTA='<svg aria-hidden="true" focusable="false"><use href="#pvt-spunta"/><
 var TIX='<svg class="pv-tix" role="img" aria-label="TIX"><use href="#pvt-scritta"/></svg>';
 var TIXET='<span class="pv-tix-et">'+TIX+'</span>';
 var NUVOLA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>';
-var TIPI={computo:'Computo (Excel)',relazione:'Relazione (PDF)',tavole:'Tavole (PDF)'};
+var TIPI={computo:'Computo (Excel o PDF)',relazione:'Relazione (PDF)',tavole:'Tavole (PDF)'};
 var PASSI={controllo:'Controllo dei file',stima:'Pronto da leggere',attesa:'In coda',lettura:'TIX sta leggendo'};
 function usd(n){n=num(n);return n>0&&n<0.01?'meno di 0,01':n.toFixed(2).replace('.',',');}
 function ora(x){var d=new Date(x);return isNaN(d)?'':String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
@@ -777,7 +785,7 @@ function mbTxt(n){n=num(n);return n<1048576?Math.max(1,Math.round(n/1024))+' KB'
 function pl(n,uno,tanti){n=num(n);return n+' '+(n===1?uno:tanti);}
 // 05/11/2026 (preventivi-rilettura-1): «Rifai la lettura con gli stessi file» e link salvati del preventivo
 var CATENA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
-var TIPI_IA={relazione:'Relazione',tavole:'Tavole',computo:'Computo (Excel)'};
+var TIPI_IA={relazione:'Relazione',tavole:'Tavole',computo:'Computo (Excel o PDF)'};
 function riprendiIa(){var r=IA&&IA.ripresa;if(!r)return '';var n=num(r.file)+num(r.link);
  if(!n)return num(r.persi)?'<p class="pv-ia-nota pv-ia-rip0">I file della lettura del '+dt(r.finita_il)+' sono già stati cancellati (restano 3 giorni): riallegali, oppure usa i link salvati.</p>':'';
  return '<div class="pv-ia-rip"><button type="button" class="pv-b pv-pr" id="pv-ia-riprendi">Rifai la lettura con gli stessi file</button><span class="pv-ia-nota">Riprende '+
@@ -822,7 +830,7 @@ function msgIa(t,cl){IA_MSG=t?{t:t,cl:cl||''}:null;var m=$('pv-ia-msg');if(m)msg
 function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';return;}
  var l=IA.lettura,s=l?l.stato:'',h;
  if(!l||['preparazione','controllo','stima','attesa','lettura'].indexOf(s)<0){
-  h=LOGO+'<div class="pv-ia chiuso"><div class="pv-ia-t"><button type="button" class="pv-ia-ic" id="pv-ia-apri-ic" aria-label="Prepara con TIX">'+SPUNTA+'</button><div><h3>Prepara con '+TIX+'</h3><p>Allega quello che hai ricevuto: computo metrico <b>in Excel</b>, tavole e relazioni in PDF, oppure i loro link. TIX li legge con l\'intelligenza artificiale e compila le voci con i prezzi del contratto e del prezzario; tu controlli e decidi: niente parte da solo.</p></div>'+
+  h=LOGO+'<div class="pv-ia chiuso"><div class="pv-ia-t"><button type="button" class="pv-ia-ic" id="pv-ia-apri-ic" aria-label="Prepara con TIX">'+SPUNTA+'</button><div><h3>Prepara con '+TIX+'</h3><p>Allega quello che hai ricevuto: computo metrico <b>in Excel o in PDF stampato da PriMus</b>, tavole e relazioni in PDF, oppure i loro link. TIX li legge con l\'intelligenza artificiale e compila le voci con i prezzi del contratto e del prezzario; tu controlli e decidi: niente parte da solo.</p></div>'+
    '<button type="button" class="pv-b pv-pr" id="pv-ia-apri">'+'Prepara con '+TIXET+'</button></div>';
   if(s==='pronta')h+=esitoIa(l);
   if(s==='errore')h+='<p class="pv-msg ko">'+es(l.errore||'La lettura non è riuscita.')+'</p>';
@@ -835,13 +843,13 @@ function disegnaIa(){var box=$('pv-ia');if(!box)return;if(!IA){box.innerHTML='';
   return;}
  var mod=s==='preparazione'||s==='stima',F2=l.file||[];
  h=LOGO+'<div class="pv-ia"><div class="pv-ia-t"><span class="pv-ia-ic">'+SPUNTA+'</span><div><h3>Prepara con '+TIX+'</h3><p>'+
-  (mod?'Il computo metrico <b>solo in Excel</b>; tavole e relazioni in PDF. Prima TIX controlla i file e ti dice quanto costa; poi decidi tu se partire.':'Puoi chiudere la pagina: il lavoro continua e le voci compaiono qui sotto.')+'</p></div>'+
+  (mod?'Il computo metrico in Excel o in PDF stampato da PriMus (non una scansione): TIX lo prende <b>tale quale</b>, con le descrizioni intere e le righe di misura. Tavole e relazioni in PDF. Prima TIX controlla i file e ti dice quanto costa; poi decidi tu se partire.':'Puoi chiudere la pagina: il lavoro continua e le voci compaiono qui sotto.')+'</p></div>'+
   '<button type="button" class="pv-b sm" id="pv-ia-annulla">Annulla</button></div>';
  if(mod){
   h+='<label class="pv-c tutta"><span class="pv-et">Cosa c\'è da fare <small>due righe con le tue parole: aiuta TIX a non sbagliare</small></span><textarea id="pv-ia-lavoro" rows="2" maxlength="1000" placeholder="es. Rifacimento dei due bagni al piano primo, sanitari forniti dal cliente">'+es(l.lavoro||'')+'</textarea></label>'+
-   '<div class="pv-ia-cari"><label class="pv-ia-drop" id="pv-ia-drop"><input type="file" id="pv-ia-file" multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf" hidden>'+NUVOLA+'<b>Aggiungi file (anche più di uno)</b><small>Computo metrico <b>solo in Excel</b> · tavole e relazioni in PDF · fino a 18 MB per file</small></label>'+
+   '<div class="pv-ia-cari"><label class="pv-ia-drop" id="pv-ia-drop"><input type="file" id="pv-ia-file" multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf" hidden>'+NUVOLA+'<b>Aggiungi file (anche più di uno)</b><small>Computo metrico <b>in Excel o in PDF</b> · tavole e relazioni in PDF · fino a 18 MB per file</small></label>'+
    '<div class="pv-ia-link"><b>Oppure incolla un link</b><div class="pv-ia-lb"><input id="pv-ia-url" placeholder="https://drive.google.com/…" maxlength="600" autocomplete="off">'+
-   '<select id="pv-ia-url-tipo"><option value="relazione">Relazione</option><option value="tavole">Tavole</option><option value="computo">Computo (Excel)</option></select><button type="button" class="pv-b sm pv-pr" id="pv-ia-url-ok">Aggiungi</button></div>'+
+   '<select id="pv-ia-url-tipo"><option value="relazione">Relazione</option><option value="tavole">Tavole</option><option value="computo">Computo (Excel o PDF)</option></select><button type="button" class="pv-b sm pv-pr" id="pv-ia-url-ok">Aggiungi</button></div>'+
    '<small>Google Drive (file o cartella), OneDrive, Dropbox, condivisi con «Chiunque abbia il link». I link restano salvati nel preventivo; i file caricati restano 3 giorni dopo la lettura, poi si cancellano da soli.</small></div></div>'+
    linkSalvatiIa(true);
  }
@@ -932,7 +940,7 @@ function parti(b,conferma){b.disabled=true;msgIa('Un momento…');
 function caricaFileIa(files){var L=Array.prototype.slice.call(files||[]);
  var no=L.filter(function(f){return !/\.(xlsx|xls|xlsm|ods|csv|pdf)$/i.test(f.name)||f.size>18*1024*1024;});
  L=L.filter(function(f){return no.indexOf(f)<0;});
- var errori=no.length?['Non caricati: '+no.map(function(f){return f.name;}).join(', ')+' (computo in Excel, tavole e relazioni in PDF, fino a 18 MB).']:[];
+ var errori=no.length?['Non caricati: '+no.map(function(f){return f.name;}).join(', ')+' (computo in Excel o in PDF, tavole e relazioni in PDF, fino a 18 MB).']:[];
  if(!L.length){msgIa(errori.join(' '),'ko');return;}
  var i=0;
  // uno alla volta; se un file non va, si passa al successivo e alla fine si dice quali non sono entrati
@@ -1404,8 +1412,12 @@ export function xlsxPreventivo(d) {
     if (!dentro) note.push(fuoriTxt(v));
     if (typeof nr === "number") numero(C, r, 0, nr, z.nr); else scritta(C, r, 0, String(nr), z.nr);
     scritta(C, r, 1, tariffa(v), z.tar);
-    const des = String(v.descrizione || "");
-    if (note.length) ricca(C, r, 2, [[des, RPR_N], ["\n" + note.join(" · "), RPR_NOTA]], z.des); else scritta(C, r, 2, des, z.des);
+    // 06/11/2026 (preventivi-computo-2): la descrizione intera del computo; oltre ~1400 caratteri continua nelle righe sotto
+    // (una riga di Excel non supera 409 punti di altezza, circa 30 righe di testo)
+    const pezzi = spezzaTesto(String(v.descrizione || ""), 1400);
+    const ultimo = pezzi.length - 1;
+    const desc = (rr, t, conNote) => (conNote && note.length ? ricca(C, rr, 2, [[t, RPR_N], ["\n" + note.join(" · "), RPR_NOTA]], z.des) : scritta(C, rr, 2, t, z.des));
+    desc(r, pezzi[0], ultimo === 0);
     scritta(C, r, 3, v.unita || "", z.um);
     const q = num(v.quantita), p = num(v.prezzo);
     numero(C, r, 4, q, z.q);
@@ -1420,6 +1432,11 @@ export function xlsxPreventivo(d) {
       scritta(C, r, 6, "—", z.fI);
     }
     r++;
+    for (let k = 1; k <= ultimo; k++) {
+      for (let c = 0; c < 7; c++) vuota(C, r, c, z.vuota);
+      desc(r, pezzi[k], k === ultimo);
+      r++;
+    }
     // righe di misura sotto la voce: dove, fattori e quantità parziale
     (Array.isArray(v.misure) ? v.misure : []).forEach((m) => {
       const fattori = ["parti", "lun", "lar", "alt"].filter((x) => m[x] !== null && m[x] !== undefined && m[x] !== "")
@@ -1762,8 +1779,10 @@ export function xlsxPreventivo(d) {
       '<dcterms:created xsi:type="dcterms:W3CDTF">' + ora + '</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">' + ora + "</dcterms:modified></cp:coreProperties>"],
     ["docProps/app.xml", XML + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ' +
       'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>TIX</Application><Company>' + xe(nomeImp) + "</Company></Properties>"],
+    // 06/11/2026 (preventivi-excel-2, Filippo: «la pagina è chiusa»): la finestra si apre a tutto schermo, con i valori che Excel
+    // stesso scrive per una finestra ingrandita (prima era 16095×9660 twip, circa 1073×644 pixel)
     ["xl/workbook.xml", XML + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + NS_R + '">' +
-      '<workbookPr/><bookViews><workbookView xWindow="240" yWindow="15" windowWidth="16095" windowHeight="9660" activeTab="0"/></bookViews>' +
+      '<workbookPr/><bookViews><workbookView xWindow="-120" yWindow="-120" windowWidth="29040" windowHeight="15720" activeTab="0"/></bookViews>' +
       '<sheets><sheet name="Riepilogo" sheetId="1" r:id="rId1"/><sheet name="Computo" sheetId="2" r:id="rId2"/></sheets><definedNames>' +
       '<definedName name="_xlnm.Print_Area" localSheetId="0">Riepilogo!$A$1:$G$' + (ultimaR + 1) + "</definedName>" +
       '<definedName name="_xlnm.Print_Area" localSheetId="1">Computo!$A$1:$G$' + (ultimaC + 1) + "</definedName>" +
@@ -1775,6 +1794,21 @@ export function xlsxPreventivo(d) {
     ["xl/worksheets/sheet1.xml", foglioR],
     ["xl/worksheets/sheet2.xml", foglioC]
   ]);
+}
+
+// un testo lungo in pezzi di al massimo n caratteri, tagliati dopo un punto o, se non c'\u00e8, a uno spazio
+function spezzaTesto(s, n) {
+  const out = [];
+  s = String(s || "");
+  while (s.length > n) {
+    let k = s.lastIndexOf(". ", n);
+    if (k < n * 0.6) k = s.lastIndexOf(" ", n); else k += 1;
+    if (k < n * 0.5) k = n;
+    out.push(s.slice(0, k).trim());
+    s = s.slice(k).trim();
+  }
+  out.push(s);
+  return out;
 }
 
 // testo sicuro dentro l'XML (via anche i caratteri che l'XML non ammette); senza caratteri speciali il testo resta com'\u00e8
@@ -1884,7 +1918,7 @@ async function caricaFirmato(request, env, inUrl, h) {
 }
 
 // ---------------------------------------------------------------------------- «Prepara con TIX»: un file per la lettura
-// Il computo in Excel, tavole e relazioni in PDF (il resto lo controlla la funzione preventivo-ia). Il file va in
+// Il computo in Excel o in PDF, tavole e relazioni in PDF (il resto lo controlla la funzione preventivo-ia). Il file va in
 // «preventivi/<impresa>/ia/<lettura>/…» solo finché serve: la funzione lo toglie quando la lettura finisce, e con l'impresa
 // si cancella comunque tutta la cartella «preventivi/<impresa>/».
 async function caricaFileIa(request, env, inUrl, h) {
@@ -1895,7 +1929,7 @@ async function caricaFileIa(request, env, inUrl, h) {
   if (!tok) return json({ esito: "gettone" }, 403);
   if (!id) return json({ esito: "errore" }, 400);
   const est = ((/\.(pdf|xlsx|xlsm|xls|ods|csv)$/i.exec(nome) || [])[1] || "").toLowerCase();
-  if (!est) return json({ esito: "formato", messaggio: "Il computo metrico in Excel; tavole e relazioni in PDF." }, 400);
+  if (!est) return json({ esito: "formato", messaggio: "Il computo metrico in Excel o in PDF; tavole e relazioni in PDF." }, 400);
   if (Number(request.headers.get("Content-Length") || 0) > MAX_FILE) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 18 MB)." }, 413);
   // prima il controllo dell'accesso e della lettura, poi il file
   const info = await h.rpc(env, "preventivo_ia_azione", { p_token: tok, p_id: id, p_azione: "file_info", p_dati: {} }, 10000).catch(() => null);
