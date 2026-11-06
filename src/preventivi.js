@@ -1283,6 +1283,8 @@ async function excelCsv(request, env, base, inUrl, h, tok, id) {
 const XL = { scuro: "1B2F4A", acc: "F26A10", chiaro: "E9EFF7", zebra: "F3F6FA", bordo: "C8D3E1", grigio: "5C6B7E", barra: "F59A5B",
   nota: "C2540B", bianco: "FFFFFF", extra: "EFEFEC", tenue: "C8D3E1" };
 const XL_EURO = "#,##0.00", XL_EURO0 = '#,##0.00;-#,##0.00;"—"', XL_TOT = '#,##0.00 "€ + IVA"';
+// zoom dei due fogli all'apertura (preventivi-excel-3): a 150% sul portatile di Filippo (1536 px) il foglio riempie quasi tutta la larghezza
+const XL_ZOOM = 150;
 
 // il preventivo (risultato di preventivo_dati) come file .xlsx: Uint8Array
 export function xlsxPreventivo(d) {
@@ -1545,7 +1547,7 @@ export function xlsxPreventivo(d) {
     ["REFERENTE", imp.referente || "—"]];
   let rr = 8;
   info.forEach(([k, v]) => {
-    alta(R, rr, Math.max(18, 13 * righe(v, 78) + 5));
+    alta(R, rr, Math.max(18, 13 * righe(v, 105) + 5));
     scritta(R, rr, 1, k, etich);
     unisci(R, rr, 2, rr, 5, v, valore);
     rr++;
@@ -1693,7 +1695,7 @@ export function xlsxPreventivo(d) {
   const sPunto = S({ b: 1, c: XL.acc, h: "right" });
   const sCond = S({ wrap: 1 });
   cond.forEach((x) => {
-    alta(R, rr, Math.max(16, 13 * righe(x, 80, 1.5) + 3));
+    alta(R, rr, Math.max(16, 13 * righe(x, 108, 1.5) + 3));
     scritta(R, rr, 1, "•", sPunto);
     unisci(R, rr, 2, rr, 5, x, sCond);
     rr++;
@@ -1726,7 +1728,7 @@ export function xlsxPreventivo(d) {
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
       '<sheetPr><tabColor rgb="FF' + o.tab + '"/><pageSetUpPr fitToPage="1"/></sheetPr>' +
-      '<sheetViews><sheetView showGridLines="0"' + (o.attivo ? ' tabSelected="1"' : "") + ' workbookViewId="0">' +
+      '<sheetViews><sheetView showGridLines="0"' + (o.attivo ? ' tabSelected="1"' : "") + ' zoomScale="' + XL_ZOOM + '" zoomScaleNormal="' + XL_ZOOM + '" workbookViewId="0">' +
       (o.blocca ? '<pane ySplit="' + o.blocca + '" topLeftCell="A' + (o.blocca + 1) + '" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/>' : "") +
       "</sheetView></sheetViews>" +
       '<sheetFormatPr defaultRowHeight="15"/><cols>' +
@@ -1757,7 +1759,9 @@ export function xlsxPreventivo(d) {
     '</fills><borders count="' + borders.length + '">' + borders.join("") + '</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
     '<cellXfs count="' + xfs.length + '">' + xfs.join("") + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium9" defaultPivotStyle="PivotStyleLight16"/></styleSheet>';
-  const foglioR = xmlFoglio(R, { tab: XL.scuro, attivo: true, colonne: [2, 13, 39, 9, 18, 14, 2], pagine: 1, barre });
+  // 06/11/2026 (preventivi-excel-3, Filippo: «vorrei vedere tutto quanto nello stesso modo»): il Riepilogo largo quanto il Computo
+  // (128 caratteri in tutti e due) e tutti e due i fogli con lo stesso zoom all'apertura (XL_ZOOM)
+  const foglioR = xmlFoglio(R, { tab: XL.scuro, attivo: true, colonne: [2, 15, 54, 10, 24, 20, 3], pagine: 1, barre });
   const foglioC = xmlFoglio(C, { tab: XL.acc, blocca: R0 + 1, colonne: [6, 17, 58, 7, 11, 12, 17, 4, 4], pagine: 0 });
   const titoloDoc = "Preventivo " + codice + " · Rev. " + rev;
   return zipSenzaCompressione([
