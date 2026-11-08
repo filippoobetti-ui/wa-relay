@@ -722,10 +722,37 @@ function pgScelta(msg) {
   return id && /^PRG_[0-9a-f-]{36}$/i.test(id) ? id.slice(4).toLowerCase() : "";
 }
 
+// Vocale breve (fase 3): fino a 40 KB, circa 20 secondi, già salvato dal relay (msg._media). Si trascrive solo se il database
+// dice che per quel numero ci sono tavole (progetti_wa_vocale_ammesso); se non è una richiesta chiara prosegue verso Make.
+const PG_VOCALE_MAX = 40 * 1024;
+function pgVocale(msg) {
+  const m = msg && msg.type === "audio" && msg._media;
+  return m && m.signed_url && Number(m.bytes) > 0 && Number(m.bytes) <= PG_VOCALE_MAX ? String(m.signed_url) : "";
+}
+
 export function progettiWaComando(msg) {
   if (pgScelta(msg)) return true;
+  if (pgVocale(msg)) return true;
   const t = pgTesto(msg);
   return !!t && t.length <= 200 && (PG_FORTE.test(t) || PG_DEBOLE.test(t));
+}
+
+// Fase 3: la richiesta chiara non ha trovato niente → Claude sceglie dall'elenco delle tavole in vigore (Edge Function progetti-cerca).
+async function pgCercaIa(env, tel, testo, nomeWa) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(supabaseUrl(env) + "/functions/v1/progetti-cerca", {
+      method: "POST", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ telefono: tel, testo, nome_wa: nomeWa }), signal: ctrl.signal });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    return j && ["manda", "elenco", "non_trovata", "archivio", "limite"].indexOf(j.esito) !== -1 ? j : null;
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function progettiWaGestisci(msg, value, env, h) {
@@ -733,12 +760,27 @@ export async function progettiWaGestisci(msg, value, env, h) {
   const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
   if (!progettiWaComando(msg) || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.PROGETTI === "off") return false;
   const scelta = pgScelta(msg);
-  const testoMsg = pgTesto(msg);
+  let testoMsg = pgTesto(msg);
+  const vocale = pgVocale(msg);
+  if (vocale) {
+    // vocale: si trascrive solo se ha senso, e si prende solo se è una richiesta chiara di tavola
+    if (typeof h.trascrivi !== "function") return false;
+    const am = await h.rpc(env, "progetti_wa_vocale_ammesso", { p_telefono: tel }, 6000).catch(() => null);
+    if (!am || am.ok !== true) return false;
+    const tr = await h.trascrivi(vocale).catch(() => null);
+    testoMsg = String((tr && tr.testo) || "").replace(/[.!?…]+$/g, "").trim().slice(0, 200);
+    if (!testoMsg || !PG_FORTE.test(testoMsg)) return false;   // un vocale del diario: prosegue come sempre
+  }
   const forte = !!scelta || PG_FORTE.test(testoMsg);
   const nomeWa = (value.contacts && value.contacts[0] && value.contacts[0].profile && value.contacts[0].profile.name) || "";
-  const r = await h.rpc(env, "progetti_wa_richiesta", { p_telefono: tel, p_testo: testoMsg, p_scelta: scelta || null, p_nome_wa: String(nomeWa).slice(0, 80) }, 8000);
+  let r = await h.rpc(env, "progetti_wa_richiesta", { p_telefono: tel, p_testo: testoMsg, p_scelta: scelta || null, p_nome_wa: String(nomeWa).slice(0, 80) }, 8000);
   if (!r || !r.esito || r.esito === "spento" || r.esito === "errore") return false;
   if (!forte && (r.esito === "non_trovata" || r.esito === "non_registrato")) return false;   // forse era una voce del diario
+  // fase 3: richiesta chiara senza risultati con codice e parole → intelligenza artificiale (tetto mensile nel database)
+  if (forte && !scelta && r.esito === "non_trovata" && env.PROGETTI_IA !== "off") {
+    const ia = await pgCercaIa(env, tel, testoMsg, String(nomeWa).slice(0, 80));
+    if (ia) r = ia;
+  }
   const testoBase = { messaging_product: "whatsapp", recipient_type: "individual", to: tel, context: { message_id: msg.id } };
   const scrivi = (t) => h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "text", text: { body: t.slice(0, 1500), preview_url: false } }));
   try {
