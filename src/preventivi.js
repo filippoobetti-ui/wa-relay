@@ -2172,7 +2172,8 @@ function disegnaCh(){
 }
 // 08/11/2026 (preventivi-risposta-1): le proposte lette dalla risposta del DL, da accettare una per una o tutte insieme
 var CAMBIATO=false;
-var TIPI={quantita:'Quantità',escludi:'Escludi',includi:'Includi',aggiungi:'Voce nuova',nota:'Nota'};
+var TIPI={quantita:'Quantità',verifica:'Da verificare',escludi:'Escludi',includi:'Includi',aggiungi:'Voce nuova',oneri:'Oneri della sicurezza',nota:'Nota'};
+function eur2(v){var n=Number(v)||0,s=n.toFixed(2).split('.');return s[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+s[1]+' €';}
 var STATI_P={da_vedere:'Da decidere',accettata:'Accettata',scartata:'Scartata',non_applicata:'Non applicata'};
 function q2(v){return v==null?'':String(v).replace('.',',');}
 function caricaProp(id,giro){var el=document.querySelector('[data-prop="'+id+'"]');if(!el)return;
@@ -2190,7 +2191,9 @@ function caricaProp(id,giro){var el=document.querySelector('[data-prop="'+id+'"]
     p.tipo==='escludi'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': <b>esclusa</b> dal preventivo':
     p.tipo==='includi'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': <b>compresa</b> nel preventivo':
     p.tipo==='aggiungi'?'<b>'+es(p.descrizione||'')+'</b>'+(p.quantita?' · '+q2(p.quantita)+' '+es(p.unita||''):'')+' <small>(da quotare)</small>':
-    'Nelle note: '+es(p.testo||'');
+    p.tipo==='verifica'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': <b>da ricalcolare</b> (la quantità '+q2(p.quantita_prima)+' '+es(p.unita_voce||'')+' non cambia)':
+    p.tipo==='oneri'?'Oneri della sicurezza: da '+eur2(p.oneri_prima)+' a <b>'+eur2(p.importo)+'</b> + IVA':
+    (p.k?'Voce '+es(p.k)+' · '+es(p.voce||'')+' — ':'')+'Nelle note: '+es(p.testo||'');
    return '<tr><td>'+p.n+'</td><td><span class="pv-ofs">'+es(TIPI[p.tipo]||p.tipo)+'</span> '+cosa+(p.motivo?'<br><small>'+es(p.motivo)+'</small>':'')+'</td>'+
     '<td><small><i>«'+es(p.citazione||'')+'»</i></small></td><td>'+(p.stato==='da_vedere'&&r.bozza?
      '<button type="button" class="pv-b sm pv-pr" data-cpx="accetta" data-n="'+p.n+'">Accetta</button> <button type="button" class="pv-b sm" data-cpx="scarta" data-n="'+p.n+'">Scarta</button>':
