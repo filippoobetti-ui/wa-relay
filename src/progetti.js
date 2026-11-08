@@ -396,6 +396,9 @@ function pagina(base, h, p, d, torna) {
     '<p class="pg-sotto">Puoi scegliere più file insieme. TIX prova a leggere codice, titolo e revisione dal nome del file: controlla e correggi prima di salvare.</p>' +
     '<label class="pg-drop" id="pg-drop"><span class="pg-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli i file</span><input type="file" id="pg-file" accept="application/pdf,.pdf,.p7m" multiple hidden></label>' +
+    '<div class="pg-tutte" id="pg-tutte" hidden><label for="pg-rev-tutte">Stessa revisione per tutte</label><input id="pg-rev-tutte" maxlength="30" placeholder="es. A">' +
+    '<button type="button" class="btn sm sec" id="pg-rev-applica">Applica a tutte</button></div>' +
+    '<p class="pg-mancano" id="pg-mancano" role="status" hidden></p>' +
     '<div class="pg-fl" id="pg-fl" hidden><div class="pg-fr pg-th"><span>File</span><span>Tipo</span><span>Codice</span><span>Titolo</span><span>Rev.</span><span>Variante</span></div><div id="pg-righe"></div></div>' +
     '<div class="pg-chi" id="pg-chi-box" hidden><label for="pg-chi">Il tuo nome</label><input id="pg-chi" maxlength="120" autocomplete="name" placeholder="Resta scritto chi ha caricato le tavole"></div>' +
     '<div class="pg-arch">' + SVG.archivio + '<span>La revisione nuova di un codice diventa «In vigore». Quella di prima diventa «Superata»: resta nell\'archivio di TIX, ma non si vede più qui e non si potrà mandare su WhatsApp.</span></div>' +
@@ -548,7 +551,7 @@ const STILE =
   ".pg-scegli{display:flex;align-items:center;gap:10px;font-size:.92rem;color:var(--pr-s);font-weight:600;flex:1 1 300px}.pg-scegli svg{flex:none;width:26px;height:26px}" +
   ".pg-scegli small{display:block;margin-top:2px;font-size:.8rem;font-weight:500;color:var(--s)}" +
   ".pg-fl{margin-top:12px;border:1px solid var(--l);border-radius:14px;background:var(--c);overflow:hidden}" +
-  ".pg-fr{display:grid;grid-template-columns:minmax(0,1.4fr) 150px 110px minmax(0,1.5fr) 64px 84px;gap:8px 12px;align-items:center;padding:10px 12px}" +
+  ".pg-fr{display:grid;grid-template-columns:minmax(0,1.3fr) 140px 170px minmax(0,1.4fr) 64px 84px;gap:8px 12px;align-items:center;padding:10px 12px}" +
   ".pg-fr+.pg-fr,#pg-righe .pg-fr{border-top:1px solid var(--l)}" +
   ".pg-th{padding:8px 12px;background:var(--z);font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s)}" +
   ".pg-fn{display:flex;align-items:center;gap:10px;min-width:0}" +
@@ -556,6 +559,10 @@ const STILE =
   ".pg-nm{min-width:0;font-size:.84rem;font-weight:600;overflow-wrap:anywhere}.pg-nm span{display:block;font-size:.76rem;font-weight:500;color:var(--s)}" +
   ".pg-fr input[type=text],.pg-fr select,.pg-chi input,.pg-dlg input{width:100%;min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:var(--c);font:inherit;font-size:.88rem;color:var(--t)}" +
   ".pg-fr input.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}" +
+  ".pg-fr input.manca{border:2px solid var(--ro);background:var(--ro-f)}.pg-fr input.manca::placeholder{color:var(--ro);opacity:.8}" +
+  ".pg-mancano{margin:12px 0 0;padding:10px 12px;border:1px solid var(--ro-b);border-radius:12px;background:var(--ro-f);font-size:.88rem;line-height:1.5;color:#7a1c16}.pg-mancano b{color:var(--ro)}" +
+  ".pg-tutte{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:12px 0 0;padding:10px 12px;border:1px solid var(--pr-b);border-radius:12px;background:#fff}" +
+  ".pg-tutte label{font-size:.88rem;font-weight:700;color:var(--navy)}.pg-tutte input{width:110px;min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:.88rem}" +
   ".pg-fr .pg-ck{display:flex;align-items:center;gap:6px;font-size:.84rem}.pg-fr .pg-ck input{width:18px;height:18px;accent-color:#7A4E2D}" +
   ".pg-fr .et{display:none}" +
   ".pg-fr.no{background:var(--ro-f)}.pg-fr .pg-esito{grid-column:1/-1;font-size:.86rem;line-height:1.45}" +
@@ -601,14 +608,21 @@ function mb(n){n=Number(n)||0;if(n>=1048576)return (Math.round(n/104857.6)/10).t
 function b64url(s){var u=unescape(encodeURIComponent(s));return btoa(u).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function esa(buf){return Array.prototype.map.call(new Uint8Array(buf),function(x){return ('0'+x.toString(16)).slice(-2);}).join('');}
 // ---- dal nome del file: codice, revisione, titolo, tipo
-function leggiNome(n){var base=String(n||'').replace(/\.(pdf|p7m)$/i,'').replace(/\.(pdf)$/i,'');var rev='',cod='',tit=base;
+function leggiNome(n){var base=String(n||'').replace(/\.(pdf|p7m)$/i,'').replace(/\.(pdf)$/i,'');var rev='',cod='',tit=base,nuovo=false;
+// schema «PREFISSO_NNx_titolo» (es. 21EI055DEF_01a_ortofoto attuale): prefisso di lettere e numeri (almeno 4, con un numero),
+// NN = numero della tavola, x = lettera della revisione. Codice = PREFISSO_NN, così le tavole di commesse o discipline diverse non si confondono.
+var ms=base.match(/^([A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*)[\s_\-.]+(\d{1,3})([A-Za-z])?(?=$|[\s_\-.])[\s_\-.]*(.*)$/);
+if(ms&&ms[1].length>=4&&/\d/.test(ms[1])&&!/(?:^|[\s_.\-(])rev(?:isione)?[\s_.\-]*[A-Za-z0-9]/i.test(base)){cod=ms[1].toUpperCase()+'_'+ms[2];rev=(ms[3]||'').toUpperCase();tit=ms[4]||'';nuovo=true;}
+if(!nuovo){
 var mr=base.match(/(?:^|[\s_.\-(])rev(?:isione)?[\s_.\-]*([A-Za-z0-9]{1,3})(?=$|[\s_.\-)])/i);if(mr){rev=mr[1].toUpperCase();tit=tit.replace(mr[0],' ');}
-var mc=tit.match(/^\s*([A-Za-z]{1,5}[\s_\-.]?\d{1,4}[A-Za-z]?)(?=$|[\s_\-.])/);if(mc){cod=mc[1].toUpperCase().replace(/[\s_.]/,'-');tit=tit.slice(mc[0].length);}
+var mc=tit.match(/^\s*([A-Za-z]{1,5}[\s_\-.]?\d{1,4}[A-Za-z]?)(?=$|[\s_\-.])/);if(mc){cod=mc[1].toUpperCase().replace(/[\s_.]/,'-');tit=tit.slice(mc[0].length);}}
 tit=tit.replace(/[_]+/g,' ').replace(/\s*[-–]\s*$/,'').replace(/^\s*[-–.]\s*/,'').replace(/\s{2,}/g,' ').trim();
-var p=cod.replace(/[^A-Z]/g,''),tipo='altro';
+var p=nuovo?'':cod.replace(/[^A-Z]/g,''),tipo='altro';
 if(/^(STR|S|ST|CA|CLS|FOND|CARP)$/.test(p))tipo='strutturale';else if(/^(ARC|AR|A|ARCH|PA|PR)$/.test(p))tipo='architettonico';
 else if(/^(IE|IM|IMP|IT|IID|IDR|IMC|MEC|EL|ELE|IS|TE|IA|IF|IG)$/.test(p))tipo='impianti';
-if(tipo==='altro'){var l=base.toLowerCase();if(/struttur|fondazion|carpenteri|armatur|solai/.test(l))tipo='strutturale';else if(/impiant|elettric|idraulic|termic|meccanic|scaric/.test(l))tipo='impianti';else if(/piant|prospett|sezion|architett/.test(l))tipo='architettonico';}
+if(tipo==='altro'){var l=(nuovo?tit:base).toLowerCase();if(/struttur|fondazion|carpenteri|armatur|solai|travi|pilastr|platea|plinti/.test(l))tipo='strutturale';
+else if(/impiant|elettric|idraulic|termic|meccanic|scaric|meteoric|fognat|acque|antincend|gas\b|climatizz|ventilaz|illuminaz|fotovolt|riscaldam|sanitar|adduzion/.test(l))tipo='impianti';
+else if(/piant|prospett|sezion|architett|planimetr|layout|copertur/.test(l))tipo='architettonico';}
 return {codice:cod,revisione:rev,titolo:tit,tipo:tipo};}
 window.__pgLeggiNome=leggiNome;
 // ---- filtri e ricerca
@@ -623,18 +637,21 @@ if(q)q.addEventListener('input',applica);
 var inp=$('pg-file'),drop=$('pg-drop'),righe=$('pg-righe'),FILE=[];
 var TIPI=[['architettonico','Architettonico'],['strutturale','Strutturale'],['impianti','Impianti'],['altro','Altro']];
 function opz(v){return TIPI.map(function(t){return '<option value="'+t[0]+'"'+(t[0]===v?' selected':'')+'>'+t[1]+'</option>';}).join('');}
-function disegna(){if(!righe)return;$('pg-fl').hidden=!FILE.length;$('pg-az').hidden=!FILE.length;$('pg-chi-box').hidden=!FILE.length;
+function vuoto(v){return !String(v||'').trim();}
+function mancano(){var n=FILE.filter(function(f){return !f.no&&!f.ok&&(vuoto(f.codice)||vuoto(f.revisione));}).length;var a=$('pg-mancano');
+if(a){a.hidden=!n;a.innerHTML=n?'<b>'+(n===1?'In 1 tavola manca':'In '+n+' tavole mancano')+' il codice o la revisione</b> (i campi in rosso). Codice = il numero della tavola scritto nel cartiglio, per esempio <b>STR-03</b> o <b>01</b>; revisione = la lettera o il numero della revisione, per esempio <b>A</b>. Se la revisione è la stessa per tutte, usa «Stessa revisione per tutte».':'';}return n;}
+function disegna(){if(!righe)return;$('pg-fl').hidden=!FILE.length;$('pg-az').hidden=!FILE.length;$('pg-chi-box').hidden=!FILE.length;if($('pg-tutte'))$('pg-tutte').hidden=FILE.filter(function(f){return !f.no&&!f.ok;}).length<2;
 var buoni=FILE.filter(function(f){return !f.no&&!f.ok;}).length;$('pg-salva').textContent=buoni===1?'Salva 1 tavola':'Salva '+buoni+' tavole';$('pg-salva').disabled=!buoni;
 righe.innerHTML=FILE.map(function(f,i){var ext=(String(f.file.name).match(/\.([A-Za-z0-9]{1,4})$/)||['',''])[1].toUpperCase()||'FILE';var testa='<div class="pg-fn"><span class="pg-pdf">'+esc(ext)+'</span><span class="pg-nm">'+esc(f.file.name)+'<span>'+mb(f.file.size)+'</span></span></div>';
 if(f.no)return '<div class="pg-fr no">'+testa+'<div class="pg-esito">'+esc(f.no)+'</div></div>';
 if(f.ok)return '<div class="pg-fr ok">'+testa+'<div class="pg-esito">'+esc(f.ok)+'</div></div>';
 return '<div class="pg-fr" data-i="'+i+'">'+testa+
 '<div><span class="et">Tipo</span><select data-k="tipo" aria-label="Tipo">'+opz(f.tipo)+'</select></div>'+
-'<div><span class="et">Codice</span><input type="text" class="mono" data-k="codice" maxlength="60" value="'+esc(f.codice)+'" placeholder="STR-03" aria-label="Codice"></div>'+
-'<div class="c-tit"><span class="et">Titolo</span><input type="text" data-k="titolo" maxlength="200" value="'+esc(f.titolo)+'" placeholder="Pianta delle fondazioni" aria-label="Titolo"></div>'+
-'<div><span class="et">Revisione</span><input type="text" class="mono" data-k="revisione" maxlength="30" value="'+esc(f.revisione)+'" placeholder="A" aria-label="Revisione"></div>'+
+'<div><span class="et">Codice</span><input type="text" class="mono'+(vuoto(f.codice)?' manca':'')+'" data-k="codice" maxlength="60" value="'+esc(f.codice)+'" placeholder="es. STR-03" aria-label="Codice"></div>'+
+'<div class="c-tit"><span class="et">Titolo</span><input type="text" data-k="titolo" maxlength="200" value="'+esc(f.titolo)+'" placeholder="es. Pianta delle fondazioni" aria-label="Titolo"></div>'+
+'<div><span class="et">Revisione</span><input type="text" class="mono'+(vuoto(f.revisione)?' manca':'')+'" data-k="revisione" maxlength="30" value="'+esc(f.revisione)+'" placeholder="es. A" aria-label="Revisione"></div>'+
 '<div><span class="et">Variante</span><label class="pg-ck"><input type="checkbox" data-k="variante"'+(f.variante?' checked':'')+'> Sì</label></div>'+
-(f.err?'<div class="pg-esito" style="color:#B3261E;font-weight:600">'+esc(f.err)+'</div>':'')+'</div>';}).join('');}
+(f.err?'<div class="pg-esito" style="color:#B3261E;font-weight:600">'+esc(f.err)+'</div>':'')+'</div>';}).join('');mancano();}
 function aggiungi(lista){Array.prototype.forEach.call(lista||[],function(file){var f={file:file,variante:false};
 if(!/\.(pdf|p7m)$/i.test(file.name))f.no='Questo file non è un PDF: carica la tavola in PDF, anche firmata digitalmente (.p7m). I file DWG per ora TIX non li legge.';
 else if(file.size>CFG.max)f.no='Questo file pesa '+mb(file.size)+': il massimo è '+CFG.maxMb+' MB. Salvalo in PDF dal programma di disegno, dividilo in più tavole, oppure riscansionalo in bianco e nero o in grigio a 200 dpi.';
@@ -645,7 +662,10 @@ if(inp)inp.addEventListener('change',function(){aggiungi(inp.files);inp.value=''
 if(drop){['dragenter','dragover'].forEach(function(t){drop.addEventListener(t,function(ev){ev.preventDefault();drop.classList.add('sopra');});});
 ['dragleave','drop'].forEach(function(t){drop.addEventListener(t,function(ev){ev.preventDefault();drop.classList.remove('sopra');});});
 drop.addEventListener('drop',function(ev){if(ev.dataTransfer)aggiungi(ev.dataTransfer.files);});}
-if(righe){righe.addEventListener('input',function(ev){var el=ev.target,r=el.closest('[data-i]');if(!r)return;var f=FILE[+r.getAttribute('data-i')];var k=el.getAttribute('data-k');if(!f||!k)return;f[k]=el.type==='checkbox'?el.checked:el.value;});
+if(righe){righe.addEventListener('input',function(ev){var el=ev.target,r=el.closest('[data-i]');if(!r)return;var f=FILE[+r.getAttribute('data-i')];var k=el.getAttribute('data-k');if(!f||!k)return;f[k]=el.type==='checkbox'?el.checked:el.value;
+if(k==='codice'||k==='revisione'){el.classList.toggle('manca',vuoto(el.value));mancano();}});
+if($('pg-rev-applica'))$('pg-rev-applica').addEventListener('click',function(){var v=$('pg-rev-tutte').value.trim();if(!v){$('pg-rev-tutte').focus();return;}
+FILE.forEach(function(f){if(!f.no&&!f.ok)f.revisione=v;});disegna();});
 righe.addEventListener('change',function(ev){var el=ev.target,r=el.closest('[data-i]');if(!r)return;var f=FILE[+r.getAttribute('data-i')];var k=el.getAttribute('data-k');if(!f||!k)return;f[k]=el.type==='checkbox'?el.checked:el.value;});}
 if($('pg-annulla'))$('pg-annulla').addEventListener('click',function(){FILE=[];disegna();$('pg-msg').textContent='';});
 function manda(f,chi){return f.file.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){
@@ -655,7 +675,7 @@ var salvati=0;
 if($('pg-salva'))$('pg-salva').addEventListener('click',function(){var b=$('pg-salva'),m=$('pg-msg'),chi=$('pg-chi').value.trim();
 if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha caricato le tavole.';$('pg-chi').focus();return;}
 var da=FILE.filter(function(f){return !f.no&&!f.ok;});
-for(var i=0;i<da.length;i++){if(!String(da[i].codice||'').trim()||!String(da[i].revisione||'').trim()){m.textContent='Scrivi codice e revisione di ogni tavola.';return;}}
+if(mancano()){m.textContent='Prima di salvare scrivi codice e revisione nei campi in rosso (vedi il riquadro sopra l\'elenco).';var pr=righe.querySelector('input.manca');if(pr)pr.focus();return;}
 scriviChi(chi);b.disabled=true;m.textContent='';var i=0;
 (function prossimo(){if(i>=da.length){b.disabled=false;disegna();if(salvati&&!FILE.some(function(f){return !f.no&&!f.ok;})){m.style.color='#146C43';m.textContent='Fatto. Aggiorno la pagina…';setTimeout(function(){location.reload();},900);}return;}
 var f=da[i++];b.textContent='Salvo '+i+' di '+da.length+'…';f.err='';
