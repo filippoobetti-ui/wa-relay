@@ -9,6 +9,8 @@
 //   GET      /studio/cantiere?c=…[&s=…]            → il cantiere, una sezione per volta (sicurezza / ddt / crono), in sola lettura
 //   GET      /studio/file?c=…&d=…[&scarica=1]      → il file di un documento della Sicurezza (registrato in prof_registro)
 //   GET      /studio/ddt?c=…&d=…[&scarica=1]       → la foto di un DDT (registrata in prof_registro)
+//   GET      /studio/tavola?c=…&d=…[&scarica=1]    → il file di una tavola IN VIGORE dei Progetti (09/11/2026, registrato in
+//                                                    prof_registro; se è solo su Drive la si riprende come per la Sicurezza)
 //   GET/POST /studio/password?c=…                  → scelta della password (invito o «Password dimenticata?»)
 //   GET      /studio/esci                          → esce
 // L'accesso con email e password passa da /accedi (index.js): prima portale_login, poi prof_login (studioAccedi).
@@ -62,6 +64,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (sotto === "/studio/cantiere") return cantiere(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/file") return file(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/ddt") return fileDdt(request, env, base, inUrl, h, tok);
+  if (sotto === "/studio/tavola") return fileTavola(request, env, base, inUrl, h, tok);
   return new Response("Not Found", { status: 404 });
 }
 
@@ -119,6 +122,9 @@ async function cantiere(request, env, base, inUrl, h, tok) {
   } else if (s === "crono") {
     const d = await h.rpc(env, "prof_crono", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     corpo += crono(base, d);
+  } else if (s === "progetti") {
+    const d = await h.rpc(env, "prof_progetti", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+    corpo += progetti(base, c, d, e);
   } else {
     corpo += '<p class="nota">L\'impresa non ti ha ancora aperto nessuna sezione di questo cantiere.</p>';
   }
@@ -127,7 +133,7 @@ async function cantiere(request, env, base, inUrl, h, tok) {
 }
 
 // le sezioni che le pagine conoscono: nome della scheda e classe del bollino nell'elenco dei cantieri
-const SEZIONI = { sicurezza: ["Sicurezza", "sic"], ddt: ["DDT e documenti", "ddt"], crono: ["Cronoprogramma", "cro"] };
+const SEZIONI = { sicurezza: ["Sicurezza", "sic"], ddt: ["DDT e documenti", "ddt"], crono: ["Cronoprogramma", "cro"], progetti: ["Progetti", "pro"] };
 
 const STATI = { da_verificare: ["Da verificare", "st-am"], visto_cse: ["Visto dal CSE", "st-ok"], superato: ["Superato", "st-gr"] };
 function giorno(s) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : ""; }
@@ -225,6 +231,101 @@ function crono(base, d) {
   const doc = String(d.html || "").replace(/url\(caratteri\//g, "url(" + base + "/caratteri/");
   return h + '<div class="azioni"><button class="btn" type="button" id="stampa">Stampa</button></div><div class="cro">' + doc + "</div>" +
     '<p class="nota">È lo stesso cronoprogramma che vede l\'impresa, aggiornato con quello che arriva dal cantiere. I lavori fuori programma non compaiono qui.</p></section>';
+}
+
+// ---------------------------------------------------------------------------- Progetti (09/11/2026, chat 02A)
+// prof_progetti: le tavole IN VIGORE del cantiere (funzione interna _progetti_dati_prof della sessione Progetti), divise per tipo.
+// Le revisioni superate non si vedono: il professionista lavora sempre sull'ultima.
+const TIPI_TAVOLA = [["architettonico", "Architettonico"], ["strutturale", "Strutturale"], ["impianti", "Impianti"], ["altro", "Altro"]];
+function progetti(base, c, d, e) {
+  let h = '<section class="scheda"><div class="riga"><h2 class="sz"><span class="ic-pro" aria-hidden="true">&#128208;</span>Progetti</h2><span class="chip">Sola lettura</span></div>';
+  if (!d) return h + '<p class="nota">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p></section>';
+  if (d.esito !== "ok") return h + '<p class="nota">I Progetti di questo cantiere non sono disponibili in questo momento.</p></section>';
+  const tav = d.tavole || [];
+  if (!tav.length) return h + '<p class="nota">L\'impresa non ha ancora caricato tavole per questo cantiere.</p></section>';
+  h += '<p class="sub">' + tav.length + (tav.length === 1 ? " tavola in vigore" : " tavole in vigore") + ": solo l'ultima revisione di ognuna.</p>";
+  const noti = TIPI_TAVOLA.map((t) => t[0]);
+  for (const [k, nome] of TIPI_TAVOLA) {
+    const qui = tav.filter((x) => (k === "altro" ? noti.indexOf(x.tipo) === -1 || x.tipo === "altro" : x.tipo === k));
+    if (!qui.length) continue;
+    h += '<div class="gruppo"><h3>' + nome + " (" + qui.length + ")</h3>" + qui.map((x) => rigaTavola(base, c, x, e)).join("") + "</div>";
+  }
+  h += '<p class="nota">Sono le tavole caricate dall\'impresa, con la loro impronta. Quando arriva una revisione nuova, qui trovi solo quella. ' +
+    'TIX non controlla il contenuto dei disegni: in caso di dubbio fa fede la tavola firmata.</p>';
+  return h + "</section>";
+}
+
+function rigaTavola(base, c, x, e) {
+  const titolo = [x.codice, x.titolo].filter(Boolean).map(e).join(" · ") || e(x.nome || "Tavola");
+  const chips = (x.revisione ? '<span class="chip pro">Rev. ' + e(x.revisione) + "</span>" : "") +
+    (x.variante ? '<span class="chip st-am">Variante</span>' : "") +
+    (x.sostituisce ? '<span class="chip">sostituisce la rev. ' + e(x.sostituisce) + "</span>" : "") +
+    (x.verificata ? '<span class="chip st-ok" title="La copia nell\'archivio ha la stessa impronta del file caricato">Copia d\'archivio verificata</span>' : "");
+  const meta = ["caricata il " + quando(x.caricato_il), x.byte ? mb(x.byte) : "", x.nome ? e(x.nome) : ""].filter(Boolean).join(" · ");
+  const url = base + "/studio/tavola?c=" + c + "&d=" + x.id;
+  const p7m = /\.p7m$/i.test(String(x.nome || ""));
+  const apri = '<div class="azioni">' + (p7m ? "" : '<a class="btn pr" href="' + e(url) + '" target="_blank" rel="noopener">Apri</a>') +
+    '<a class="btn' + (p7m ? " pr" : "") + '" href="' + e(url + "&scarica=1") + '">Scarica</a>' + (p7m ? '<span class="sub">firmata digitalmente (.p7m): si apre con il programma di firma</span>' : "") + "</div>";
+  return '<article class="doc"><div class="nome">' + titolo + "</div>" + (chips ? '<div class="chips">' + chips + "</div>" : "") +
+    '<div class="sub">' + meta + "</div>" +
+    (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
+}
+function mb(n) { const v = Number(n) || 0; return v >= 1048576 ? (v / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(v / 1024)) + " kB"; }
+
+// prof_progetti_file controlla gettone, cantiere, sezione e che la tavola sia in vigore, scrive nel registro e dà i percorsi
+// nell'archivio privato wa-media (transito o cache). Se c'è solo su Drive, prof_progetti_recupero chiede di riprenderla.
+async function fileTavola(request, env, base, inUrl, h, tok) {
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("d") || "").toLowerCase();
+  const scarica = inUrl.searchParams.get("scarica") === "1";
+  const riprova = inUrl.searchParams.get("riprova") === "1";
+  const giro = Math.max(0, Math.min(99, parseInt(inUrl.searchParams.get("n") || "0", 10) || 0));
+  const e = h.esc;
+  const torna = base + "/studio/cantiere?c=" + c + "&s=progetti";
+  const indietro = '<a class="btn" href="' + e(torna) + '">Torna ai Progetti</a>';
+  if (!UUID.test(c) || !UUID.test(id)) return h.risposta(h.foglio(base, "Tavola non trovata", "", indietro), 404);
+  const info = await h.rpc(env, "prof_progetti_file", { p_token: tok, p_commessa: c, p_id: id }, 10000).catch(() => null);
+  if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Tavola", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (info.esito === "gettone" || info.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (info.esito === "superata") {
+    return h.risposta(h.foglio(base, "Questa revisione non è più in vigore", "È arrivata una revisione nuova di questa tavola: apri quella dai Progetti del cantiere.", indietro), 410);
+  }
+  if (info.esito !== "ok" || String(info.commessa_id || "") !== c) return h.risposta(h.foglio(base, "Tavola non disponibile", "", indietro), 404);
+  const radice = "documenti/" + c + "/progetti/";
+  let cacheMancante = false, guasto = false;
+  for (const [percorso, copia] of [[info.transito, "transito"], [info.cache, "cache"]]) {
+    const ps = String(percorso || "");
+    if (!ps || ps.indexOf(radice) !== 0 || ps.indexOf("..") !== -1) continue;
+    const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+    if (f && f.ok) return servi(f, info, scarica, request.method);
+    if (f && (f.status === 400 || f.status === 404)) { if (copia === "cache") cacheMancante = true; }
+    else guasto = true;
+  }
+  if (guasto) return h.risposta(h.foglio(base, "Tavola", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
+  if (!info.drive) return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento. Riprova tra qualche minuto.", indietro), 404);
+  // c'è solo nell'archivio Drive: si chiede di riprenderla (come nella pagina Progetti dell'impresa) e la pagina aspetta
+  const qui = base + "/studio/tavola?c=" + c + "&d=" + id + (scarica ? "&scarica=1" : "");
+  const rec = await h.rpc(env, "prof_progetti_recupero", { p_token: tok, p_commessa: c, p_id: id,
+    p_dati: Object.assign({}, cacheMancante ? { cache_mancante: true } : {}, riprova ? { riprova: true } : {}) }, 10000).catch(() => null);
+  if (!rec || typeof rec !== "object") return h.risposta(h.foglio(base, "Tavola", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (rec.esito === "superata") {
+    return h.risposta(h.foglio(base, "Questa revisione non è più in vigore", "È arrivata una revisione nuova di questa tavola: apri quella dai Progetti del cantiere.", indietro), 410);
+  }
+  if (rec.esito === "fallito" || rec.esito === "in_arrivo") {
+    return h.risposta(h.foglio(base, "Non riesco a riprenderla dall'archivio", "Riprova tra qualche minuto; se non va, avvisa l'impresa.",
+      '<a class="btn" href="' + e(qui + "&riprova=1") + '">Riprova</a><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti</a></p>'), 200);
+  }
+  if (rec.esito === "pronto" || rec.esito === "chiesto" || rec.esito === "in_corso") {
+    if (giro >= ATTESA_GIRI) {
+      return h.risposta(h.foglio(base, "Ci vuole più del solito", "L'archivio sta rispondendo piano. Riprova tra qualche minuto.",
+        '<a class="btn" href="' + e(qui) + '">Riprova</a><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti</a></p>'), 200);
+    }
+    const pag = h.foglio(base, "Sto riprendendo la tavola dall'archivio", "Ci vogliono 10–20 secondi: la pagina si aggiorna da sola e poi apre la tavola.",
+      '<p style="text-align:center;font-size:1.6rem;margin:0 0 6px" aria-hidden="true">&#8987;</p><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti</a></p>');
+    return h.risposta(pag.replace("</head>", '<meta http-equiv="refresh" content="' + (rec.esito === "pronto" ? 0 : 4) + ";url=" + e(qui + "&n=" + (giro + 1)) + '"></head>'), 200);
+  }
+  return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento.", indietro), 404);
 }
 
 // ---------------------------------------------------------------------------- file
@@ -443,4 +544,8 @@ const STILE = "[hidden]{display:none!important}" +
   "@media print{.sezioni,#stampa,.cro~.nota{display:none}}" +
   // lo stile premium dà alle schede un riflesso bianco: con il tema scuro schiarisce il fondo e il titolo non si legge
   "@media (prefers-color-scheme:dark){.corpo .scheda{background-image:none}.sezioni a.on{background:var(--t);border-color:var(--t);color:var(--bg)}}" +
+  // Progetti (09/11/2026): lo stesso rame della scheda Progetti dell'impresa
+  ".chip.pro{background:#F7EEE6;color:#6E4526}.ic-pro{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;" +
+  "background:linear-gradient(135deg,#D19A6A,#A86F44 45%,#6E4526)}" +
+  "@media (prefers-color-scheme:dark){.chip.pro{background:#3A2A1E;color:#E8C3A0}}" +
   "@media (prefers-reduced-motion:reduce){*{transition:none!important}}";
