@@ -59,7 +59,7 @@ function pulisciOf(d) {
   const x = d && typeof d === "object" ? d : {};
   const o = {};
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
-    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10 };
+    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6 };
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 20));
   if (Array.isArray(x.prezzi)) o.prezzi = x.prezzi.slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo: testo(p && p.prezzo, 20), note: testo(p && p.note, 500) }));
@@ -181,10 +181,11 @@ async function api(request, env, h) {
     r = await h.rpc(env, "preventivo_cerca", { p_token: tok, p_id: dati.id, p_testo: testo(b.dati && b.dati.testo, 120), p_fonte: fonte }, 15000).catch(() => null);
   } else if (az === "estesa" && UUID.test(dati.id || "")) {
     r = await h.rpc(env, "preventivo_estesa", { p_token: tok, p_id: dati.id, p_rif: dati.rif || "" }, 10000).catch(() => null);
-  } else if ((az.startsWith("of_") || az.startsWith("ch_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+  } else if ((az.startsWith("of_") || az.startsWith("ch_") || az.startsWith("cp_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al Direttore dei Lavori
     const dof = pulisciOf(b.dati);
-    r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : "preventivo_chiarimenti",
+    // 08/11/2026 (preventivi-risposta-1): cp_* = proposte lette dalla risposta del DL
+    r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : az.startsWith("cp_") ? "preventivo_risposta" : "preventivo_chiarimenti",
       { p_token: tok, p_id: dof.id, p_azione: az.slice(3), p_dati: dof }, 15000).catch(() => null);
   } else if (AZIONI.has(az)) {
     r = await h.rpc(env, "preventivo_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 15000).catch(() => null);
@@ -2160,12 +2161,51 @@ function disegnaCh(){
   } else {
    h+='<details><summary>Vedi il testo mandato</summary><div style="white-space:pre-wrap;font-size:.88rem;margin-top:8px">'+es(q.testo)+'</div></details>'+
     '<label><span>Risposta del Direttore dei Lavori: incollala qui</span><textarea data-k="risposta">'+es(q.risposta||'')+'</textarea></label>'+
-    '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-chx="risposta">Salva la risposta</button></div>'+
-    (q.risposta_il?'<p class="pv-ofnota">Risposta salvata il '+dt(q.risposta_il)+'. Nel prossimo passo TIX la leggerà e ti proporrà le modifiche al preventivo, da confermare una per una.</p>':'');
+    '<div class="pv-ofbt"><button type="button" class="pv-b" data-chx="risposta">Salva la risposta</button>'+
+    (q.risposta_il?'<button type="button" class="pv-b pv-pr" data-cpx="leggi">Leggi la risposta con TIX</button>':'')+'</div>'+
+    (q.risposta_il?'<p class="pv-ofnota">Risposta salvata il '+dt(q.risposta_il)+'. «Leggi la risposta con TIX» ti propone le modifiche al preventivo (circa 3–5 centesimi + IVA): '+
+     'il preventivo cambia solo con le proposte che accetti tu.</p><div class="pv-ofprop" data-prop="'+q.id+'"></div>':'');
   }
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
  finestra(h);
+ (r.email||[]).forEach(function(q){if(q.risposta_il)caricaProp(q.id,0);});
 }
+// 08/11/2026 (preventivi-risposta-1): le proposte lette dalla risposta del DL, da accettare una per una o tutte insieme
+var CAMBIATO=false;
+var TIPI={quantita:'Quantità',escludi:'Escludi',includi:'Includi',aggiungi:'Voce nuova',nota:'Nota'};
+var STATI_P={da_vedere:'Da decidere',accettata:'Accettata',scartata:'Scartata',non_applicata:'Non applicata'};
+function q2(v){return v==null?'':String(v).replace('.',',');}
+function caricaProp(id,giro){var el=document.querySelector('[data-prop="'+id+'"]');if(!el)return;
+ api('cp_stato',{ch_id:id}).then(function(r){el=document.querySelector('[data-prop="'+id+'"]');if(!el)return;
+  if(r.esito!=='ok'){el.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}
+  if(r.lettura_stato==='in_corso'){el.innerHTML='<p class="pv-ofnota">TIX sta leggendo la risposta… di solito meno di un minuto.</p>';
+   if(giro<45)setTimeout(function(){caricaProp(id,giro+1);},4000);return;}
+  if(r.lettura_stato==='errore'){el.innerHTML='<p class="pv-msg err">La lettura non è riuscita: '+es(r.lettura_errore||'')+'. Puoi riprovare.</p>';return;}
+  if(r.lettura_stato!=='fatta'){el.innerHTML='';return;}
+  var P=r.proposte||[],aperte=P.filter(function(p){return p.stato==='da_vedere';}).length;
+  var h='<h3>Proposte di TIX dalla risposta</h3>'+(r.riassunto?'<p class="pv-ofnota">'+es(r.riassunto)+'</p>':'');
+  if(!P.length)h+='<p class="sotto">Dalla risposta non nasce nessuna modifica al preventivo.</p>';
+  h+='<table class="pv-ofg"><tr><th>#</th><th>Cosa cambia</th><th>Dalla risposta</th><th></th></tr>'+P.map(function(p){
+   var cosa=p.tipo==='quantita'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': da '+q2(p.quantita_prima)+' a <b>'+q2(p.quantita_nuova)+'</b> '+es(p.unita_voce||''):
+    p.tipo==='escludi'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': <b>esclusa</b> dal preventivo':
+    p.tipo==='includi'?'Voce '+es(p.k)+' · '+es(p.voce||'')+': <b>compresa</b> nel preventivo':
+    p.tipo==='aggiungi'?'<b>'+es(p.descrizione||'')+'</b>'+(p.quantita?' · '+q2(p.quantita)+' '+es(p.unita||''):'')+' <small>(da quotare)</small>':
+    'Nelle note: '+es(p.testo||'');
+   return '<tr><td>'+p.n+'</td><td><span class="pv-ofs">'+es(TIPI[p.tipo]||p.tipo)+'</span> '+cosa+(p.motivo?'<br><small>'+es(p.motivo)+'</small>':'')+'</td>'+
+    '<td><small><i>«'+es(p.citazione||'')+'»</i></small></td><td>'+(p.stato==='da_vedere'&&r.bozza?
+     '<button type="button" class="pv-b sm pv-pr" data-cpx="accetta" data-n="'+p.n+'">Accetta</button> <button type="button" class="pv-b sm" data-cpx="scarta" data-n="'+p.n+'">Scarta</button>':
+     '<span class="pv-ofs'+(p.stato==='accettata'?'':' bozza')+'">'+es(STATI_P[p.stato]||p.stato)+(p.errore?': '+es(p.errore):'')+'</span>')+'</td></tr>';}).join('')+'</table>';
+  if(aperte>1&&r.bozza)h+='<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-cpx="tutte">Accetta tutte ('+aperte+')</button></div>';
+  if(!r.bozza)h+='<p class="pv-ofnota">Il preventivo è già stato mandato: per cambiarlo fai una revisione nuova.</p>';
+  if(r.costo_usd)h+='<p class="sotto">Costo della lettura: '+Number(r.costo_usd).toFixed(3).replace('.',',')+' $ (circa '+Math.max(1,Math.round(Number(r.costo_usd)*100))+' centesimi).</p>';
+  el.innerHTML=h;});}
+function azioneCp(az,el){var box=el.closest('[data-ch]'),cid=box?box.dataset.ch:null;if(!cid)return;
+ if(az==='tutte'&&!confirm('Applicare al preventivo tutte le proposte ancora da decidere?'))return;
+ el.disabled=true;
+ api('cp_'+(az==='tutte'?'accetta_tutte':az),{ch_id:cid,n:el.dataset.n||''}).then(function(r){el.disabled=false;
+  if(r.esito!=='ok'){mOf(box,errore(r),'err');return;}
+  if(az==='leggi'){mOf(box,r.gia?'TIX sta già leggendo la risposta.':'TIX legge la risposta…','ok');caricaProp(cid,0);return;}
+  if(az!=='scarta')CAMBIATO=true;caricaProp(cid,0);});}
 function campiCh(box){var d={};box.querySelectorAll('[data-k]').forEach(function(x){d[x.dataset.k]=x.value;});
  var cc=Array.prototype.slice.call(box.querySelectorAll('[data-cc]:checked')).map(function(x){return x.dataset.cc;}).concat(lista(d.cc_altre));delete d.cc_altre;d.email_cc=cc.join(', ');return d;}
 function azioneCh(az,el){
@@ -2185,11 +2225,12 @@ function azioneCh(az,el){
 }
 
 document.addEventListener('click',function(e){
- var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx]');if(!b)return;
+ var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx],[data-cpx]');if(!b)return;
+ if(b.hasAttribute('data-cpx')){azioneCp(b.getAttribute('data-cpx'),b);return;}
  if(b.hasAttribute('data-ofapri')){finestra('<p>Un momento…</p>');caricaOf();return;}
  if(b.hasAttribute('data-chapri')){finestra('<p>Un momento…</p>');caricaCh();return;}
  var az=b.getAttribute('data-ofx')||b.getAttribute('data-chx');
- if(az==='chiudi'){var ric=OF&&OF.cambiato;chiudi();if(ric)location.reload();return;}
+ if(az==='chiudi'){var ric=(OF&&OF.cambiato)||CAMBIATO;chiudi();if(ric)location.reload();return;}
  if(b.hasAttribute('data-ofx'))azioneOf(az,b);else azioneCh(az,b);
 });
 })();
