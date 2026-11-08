@@ -248,10 +248,22 @@ async function azione(request, env, h) {
   if (!d || typeof d !== "object") return json({ esito: "richiesta_non_valida" }, 400);
   const tok = /^[0-9a-fA-F]{64}$/.test(String(d.t || "")) ? String(d.t).toLowerCase() : "";
   const id = String(d.id || "").toLowerCase();
+  const c = String(d.c || "").toLowerCase();
+  const a = String(d.azione || "");
   const dati = d.dati && typeof d.dati === "object" && !Array.isArray(d.dati) ? d.dati : {};
   if (!tok) return json({ esito: "gettone" }, 403);
-  if (String(d.azione || "") !== "annulla" || !UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
-  const r = await h.rpc(env, "progetti_tavola_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  let r = null;
+  if (a === "annulla") {
+    if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "progetti_tavola_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "destinatari" || a === "destinatario_aggiungi" || a === "destinatario_togli") {
+    if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
+    const az = a === "destinatario_aggiungi" ? "aggiungi" : a === "destinatario_togli" ? "togli" : "elenco";
+    r = await h.rpc(env, "progetti_destinatari_azione", { p_token: tok, p_commessa: c, p_azione: az,
+      p_dati: { email: testo(dati.email, 200), nome: testo(dati.nome, 120), ruolo: testo(dati.ruolo, 60), chi: testo(dati.chi, 120), id: testo(dati.id, 40) } }, 15000).catch(() => null);
+  } else {
+    return json({ esito: "richiesta_non_valida" }, 400);
+  }
   if (!r || typeof r !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 503);
   return json(r, r.esito === "gettone" ? 403 : 200);
 }
@@ -275,16 +287,43 @@ async function apriFile(request, env, base, inUrl, h) {
     return h.risposta(h.foglio(base, "Questa revisione non è più in vigore", "È arrivata una revisione nuova di questa tavola: apri quella dai Progetti del cantiere.", indietro), 410);
   }
   if (info.esito !== "ok" || String(info.commessa_id || "") !== p.c) return h.risposta(h.foglio(base, "Tavola non trovata", "", indietro), 404);
-  const ps = String(info.transito || "");
-  if (ps && ps.indexOf("documenti/" + p.c + "/progetti/") === 0 && ps.indexOf("..") === -1) {
+  const radice = "documenti/" + p.c + "/progetti/";
+  let cacheMancante = false, guasto = false;
+  for (const [percorso, copia] of [[info.transito, "transito"], [info.cache, "cache"]]) {
+    const ps = String(percorso || "");
+    if (!ps || ps.indexOf(radice) !== 0 || ps.indexOf("..") !== -1) continue;
     const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
       headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
     if (f && f.ok) return servi(f, info, scarica, metodo);
-    if (!f || (f.status !== 400 && f.status !== 404)) {
-      return h.risposta(h.foglio(base, "Tavola", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
-    }
+    if (f && (f.status === 400 || f.status === 404)) { if (copia === "cache") cacheMancante = true; }
+    else guasto = true;
   }
-  return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento. Scrivici e lo recuperiamo noi.", indietro), 404);
+  if (guasto) return h.risposta(h.foglio(base, "Tavola", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
+  if (!info.drive) return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento. Riprova tra qualche minuto.", indietro), 404);
+  // c'è solo su Drive: si chiede a Make di riprenderla (la sveglia la manda il database) e la pagina aspetta
+  const riprova = inUrl.searchParams.get("riprova") === "1";
+  const giro = Math.max(0, Math.min(99, parseInt(inUrl.searchParams.get("n") || "0", 10) || 0));
+  const qui = base + "/progetti/file?t=" + p.tok + "&c=" + p.c + "&id=" + id + (scarica ? "&scarica=1" : "");
+  const rec = await h.rpc(env, "progetti_recupero_chiedi", { p_token: p.tok, p_id: id,
+    p_dati: Object.assign({}, cacheMancante ? { cache_mancante: true } : {}, riprova ? { riprova: true } : {}) }, 10000).catch(() => null);
+  if (!rec || typeof rec !== "object") return h.risposta(h.foglio(base, "Tavola", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (rec.esito === "fallito") {
+    return h.risposta(h.foglio(base, "Non riesco a riprenderla dall'archivio", "La tavola è nell'archivio Drive di TIX, ma adesso non riesco a riprenderla. Riprova tra qualche minuto; se non va, scrivici e la recuperiamo noi.",
+      '<a class="btn" href="' + e(qui + "&riprova=1") + '">Riprova</a><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti del cantiere</a></p>'), 200);
+  }
+  if (rec.esito === "pronto" || rec.esito === "chiesto" || rec.esito === "in_corso") {
+    if (giro >= 24) {
+      return h.risposta(h.foglio(base, "Ci vuole più del solito", "L'archivio Drive sta rispondendo piano. Riprova tra qualche minuto.",
+        '<a class="btn" href="' + e(qui) + '">Riprova</a><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti del cantiere</a></p>'), 200);
+    }
+    const pag = h.foglio(base, "Sto riprendendo la tavola dall'archivio", "Ci vogliono 10–20 secondi: la pagina si aggiorna da sola e poi apre la tavola.",
+      '<p aria-hidden="true" style="text-align:center;font-size:1.6rem;margin:0 0 6px">&#8987;</p><p class="piede"><a href="' + e(torna) + '">Torna ai Progetti del cantiere</a></p>');
+    return h.risposta(pag.replace("</head>", '<meta http-equiv="refresh" content="' + (rec.esito === "pronto" ? 0 : 4) + ";url=" + e(qui + "&n=" + (giro + 1)) + '"></head>'), 200);
+  }
+  if (rec.esito === "superata") {
+    return h.risposta(h.foglio(base, "Questa revisione non è più in vigore", "È arrivata una revisione nuova di questa tavola: apri quella dai Progetti del cantiere.", indietro), 410);
+  }
+  return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento.", indietro), 404);
 }
 
 // Il tipo del file lo decide la riga del database, mai quello salvato nell'archivio.
@@ -310,7 +349,8 @@ const SVG = {
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14l3-3 3 3"/></svg>',
   cerca: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>',
   archivio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M2 3h20v4H2zM10 12h4"/></svg>',
-  wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg>'
+  wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>'
 };
 
 function pagina(base, h, p, d, torna) {
@@ -362,8 +402,33 @@ function pagina(base, h, p, d, torna) {
     '<p class="pg-msg" id="pg-msg" role="status"></p>' +
     '<div class="pg-form-az" id="pg-az" hidden><button type="button" class="btn tenue" id="pg-annulla">Annulla</button><button type="button" class="btn pr" id="pg-salva">Salva</button></div></section>';
 
-  const wa = '<section class="pg-wa"><h3><span class="pg-mini wa">' + SVG.wa + '</span>Le tavole su WhatsApp <span class="pg-presto">in preparazione</span></h3>' +
-    '<p class="pg-sotto">Prossimo passo: chi è registrato in «Persone del cantiere», anche dei subappaltatori, potrà chiedere la tavola in chat con il codice o con le parole, e TIX gli manderà solo il PDF della revisione in vigore.</p></section>';
+  const ESITI = { mandata: ["ok", "Mandata"], elenco: ["sc", "Elenco"], non_trovata: ["no", "Non trovata"], archivio: ["sc", "Ripresa dall'archivio"],
+    limite: ["no", "Oltre il limite"], numero_non_registrato: ["no", "Numero non del cantiere"], errore_invio: ["no", "Non partita"] };
+  const invii = lista(d.invii);
+  const waModo = String(d.wa_modo || "no");
+  const wa = '<section class="pg-wa" id="wa"><h3><span class="pg-mini wa">' + SVG.wa + '</span>Le tavole su WhatsApp ' +
+    (waModo === "si" ? '<span class="pg-st">Accesa</span>' : waModo === "prova" ? '<span class="pg-presto">in prova: risponde solo al numero di Filippo</span>' : '<span class="pg-presto">spenta</span>') + '</h3>' +
+    '<p class="pg-sotto">Chi lavora nel cantiere scrive a TIX, per esempio «mandami la tavola delle fondazioni» o «tavola STR-03», e riceve il PDF della revisione in vigore. Solo al numero che l\'ha chiesta.</p>' +
+    (invii.length ? '<div class="pg-reg"><div class="pg-rr pg-th"><span>Quando</span><span>Chi</span><span>Cosa ha chiesto</span><span>Esito</span></div>' +
+      invii.map((i) => { const es = ESITI[i.esito] || ["sc", i.esito]; return '<div class="pg-rr"><span>' + e(quando(i.quando)) + '</span><span>' + e(i.chi) + '</span><span class="pg-q">' +
+        e(i.tavola || ("«" + String(i.richiesta || "").slice(0, 60) + "»")) + '</span><span class="pg-es ' + es[0] + '">' + e(es[1]) + '</span></div>'; }).join("") + '</div>'
+      : '<p class="pg-sotto">Nessuna richiesta ancora.</p>') +
+    '<ul class="pg-regole"><li><b>Chi può chiedere:</b> le persone della tua impresa e quelle di «Persone del cantiere», anche dei subappaltatori.</li>' +
+    '<li><b>Cosa parte:</b> solo la revisione «In vigore». Le revisioni superate non partono mai.</li>' +
+    '<li><b>Costo:</b> zero. TIX risponde a chi ha appena scritto.</li><li>Massimo 20 richieste al giorno a persona.</li></ul></section>';
+  const vecchie = lista(d.superate_mandate);
+  const avvVecchie = vecchie.length ? '<div class="pg-avv"><div class="pg-tx">' + SVG.wa + '<span><b>Qualcuno ha sul telefono una revisione superata.</b> ' +
+    vecchie.slice(0, 6).map((v) => e(v.chi) + " ha " + e(v.codice) + " rev. " + e(v.revisione)).join("; ") + (vecchie.length > 6 ? "…" : "") +
+    '. Avvisalo: se scrive a TIX, gli arriva subito la revisione in vigore.</span></div></div>' : "";
+  const emModo = String(d.email_modo || "no");
+  const email = chiuso ? "" : '<section class="pg-wa" id="email"><h3><span class="pg-mini">' + SVG.mail + '</span>Avvisi email ' +
+    (emModo === "si" ? '<span class="pg-st">Accesi</span>' : emModo === "prova" ? '<span class="pg-presto">in prova: solo all\'indirizzo amministratore</span>' : '<span class="pg-presto">spenti per ora</span>') + '</h3>' +
+    '<p class="pg-sotto">Quando carichi tavole nuove, revisioni o varianti, TIX manda un\'email sola, circa 10 minuti dopo l\'ultimo file, a chi scegli qui. Il file non è mai allegato.' +
+    (emModo === "no" ? ' <b>Per ora gli avvisi sono spenti: puoi già scegliere chi li riceverà.</b>' : "") + '</p>' +
+    '<div id="pg-dest" class="pg-dest"><p class="pg-sotto">Carico i destinatari…</p></div>' +
+    '<div class="pg-dest-agg"><select id="pg-dest-sug" aria-label="Dalla Rubrica"><option value="">Scegli dalla Rubrica…</option></select>' +
+    '<input id="pg-dest-email" type="email" maxlength="200" placeholder="oppure scrivi un\'email" aria-label="Email"><input id="pg-dest-nome" maxlength="120" placeholder="Nome (facoltativo)" aria-label="Nome">' +
+    '<button type="button" class="btn sm sec" id="pg-dest-si">Aggiungi</button></div><p class="pg-msg" id="pg-dest-msg" role="status"></p></section>';
 
   const cfg = JSON.stringify({ u: qui, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb }).replace(/</g, "\\u003c");
 
@@ -377,8 +442,8 @@ function pagina(base, h, p, d, torna) {
     '<h1><span class="pg-ic" aria-hidden="true">' + SVG.compasso + '</span>Progetti del cantiere</h1>' +
     (d.modo === "prova" ? '<p class="pg-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
     (chiuso ? "" : '<div class="pg-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica tavole</a></div>') + '</div>' +
-    cifre + (tavole.length ? filtri : "") + sezioni + '<p class="pg-nessuno" id="pg-nessuno" hidden>Nessuna tavola con questa ricerca.</p>' +
-    form + wa +
+    cifre + avvVecchie + (tavole.length ? filtri : "") + sezioni + '<p class="pg-nessuno" id="pg-nessuno" hidden>Nessuna tavola con questa ricerca.</p>' +
+    form + wa + email +
     '<p class="pg-fonti">TIX™ conserva le tavole, le tiene in ordine e mostra solo la revisione in vigore. Non controlla i disegni: la responsabilità del progetto resta dei progettisti e della Direzione Lavori.</p>' +
     '</div></main>' +
     '<dialog class="pg-dlg" id="pg-dlg"><form method="dialog"><h3>Togli la tavola <span id="pg-dlg-cod"></span></h3>' +
@@ -396,7 +461,11 @@ function riga(e, qui, p, x, chiuso) {
   meta.push("<b>rev. " + e(x.revisione) + "</b>" + (x.sostituisce ? ", sostituisce la rev. " + e(x.sostituisce) : ""));
   meta.push("caricata da <b>" + e(x.caricato_da || "") + "</b> il " + e(quando(x.caricato_il)));
   meta.push(e(mb(x.byte)));
-  const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
+  const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
+    (x.drive && x.impronta_drive === "uguale" ? ' <span class="pg-ok">verificata sull\'archivio Drive</span>'
+      : x.archivio === "errore" ? ' <span class="pg-ko">archivio da controllare</span>'
+      : x.drive ? ' <span class="pg-ok">archiviata su Drive</span>' : ' · in archiviazione su Drive') +
+    (Number(x.invii) > 0 ? ' · <span class="pg-wa-n">mandata su WhatsApp ' + e(x.invii) + (Number(x.invii) === 1 ? " volta" : " volte") + '</span>' : "");
   const az = '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">Apri</a>' +
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
     (chiuso ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
@@ -498,6 +567,20 @@ const STILE =
   ".pg-wa{margin-top:22px;padding:16px;border:1px solid var(--l);border-radius:16px;background:var(--c)}.pg-wa .pg-sotto{margin:6px 0 0}" +
   ".pg-presto{padding:1px 10px;border-radius:999px;border:1px solid var(--l);background:var(--z);color:var(--s);font-size:.76rem;font-weight:700}" +
   ".pg-fonti{margin:20px 0 0;font-size:.82rem;line-height:1.5;color:var(--s)}" +
+  ".pg-ok{color:var(--ok);font-weight:600}.pg-ko{color:var(--ro);font-weight:600}.pg-wa-n{color:#1F7A45;font-weight:600}" +
+  ".pg-avv{display:flex;gap:10px;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--pr-b);background:var(--pr-f)}" +
+  ".pg-avv .pg-tx{display:flex;gap:10px;align-items:flex-start;font-size:.92rem;line-height:1.45}.pg-avv svg{flex:none;width:20px;height:20px;color:#1F8F4E;margin-top:1px}.pg-avv b{color:var(--pr-s)}" +
+  ".pg-reg{margin:12px 0 0;border:1px solid var(--l);border-radius:14px;overflow:hidden}" +
+  ".pg-rr{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,1.3fr) 150px;gap:8px 12px;align-items:center;padding:9px 12px;font-size:.84rem}" +
+  ".pg-rr+.pg-rr{border-top:1px solid var(--l)}.pg-rr.pg-th{background:var(--z);font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s)}" +
+  ".pg-q{overflow-wrap:anywhere}.pg-es{justify-self:start;padding:1px 8px;border-radius:999px;font-size:.74rem;font-weight:700;white-space:nowrap}" +
+  ".pg-es.ok{background:var(--ok-f);color:var(--ok);border:1px solid var(--ok-b)}.pg-es.sc{background:var(--z);color:var(--navy);border:1px solid var(--l)}.pg-es.no{background:var(--ro-f);color:var(--ro);border:1px solid var(--ro-b)}" +
+  ".pg-regole{margin:10px 0 0;padding:0 0 0 18px;font-size:.84rem;line-height:1.55;color:var(--s)}.pg-regole b{color:var(--t)}" +
+  ".pg-dest{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.pg-dest .pg-sotto{margin:0}" +
+  ".pg-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;border:1px solid var(--pr-b);border-radius:999px;background:var(--pr-f);font-size:.86rem}" +
+  ".pg-chip em{font-style:normal;color:var(--s);font-size:.78rem}.pg-chip button{border:0;background:#fff;border-radius:999px;width:24px;height:24px;cursor:pointer;color:var(--ro);font-weight:800}" +
+  ".pg-dest-agg{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.pg-dest-agg select,.pg-dest-agg input{min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:#fff;font:inherit;font-size:.88rem;flex:1 1 200px;min-width:0}" +
+  "@media (max-width:680px){.pg-rr.pg-th{display:none}.pg-rr{grid-template-columns:minmax(0,1fr) auto}.pg-rr .pg-q{grid-column:1/-1}}" +
   ".pg-dlg{max-width:460px;width:calc(100vw - 32px);border:0;border-radius:16px;padding:18px;box-shadow:0 24px 60px -20px rgba(16,27,43,.45)}" +
   ".pg-dlg::backdrop{background:rgba(16,27,43,.45)}.pg-dlg h3{margin:0 0 8px;color:var(--navy)}.pg-dlg p{margin:0 0 12px;font-size:.9rem;line-height:1.45;color:var(--s)}" +
   ".pg-dlg form{display:flex;flex-direction:column;gap:6px}" +
@@ -578,6 +661,19 @@ scriviChi(chi);b.disabled=true;m.textContent='';var i=0;
 var f=da[i++];b.textContent='Salvo '+i+' di '+da.length+'…';f.err='';
 manda(f,chi).then(function(r){if(r&&r.esito==='ok'){salvati++;f.ok='Salvata: '+f.codice+' rev. '+f.revisione+' in vigore'+(r.superate?' · la revisione di prima ora è «Superata»':'');}
 else f.err=(r&&r.messaggio)||'Non si è salvata: riprova.';}).catch(function(){f.err='Non si è salvata: controlla la connessione e riprova.';}).then(prossimo);})();});
+// ---- destinatari degli avvisi email
+var dBox=$('pg-dest');
+function chiamaD(az,dati){return fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:az,dati:dati||{}})}).then(function(r){return r.json();});}
+function disegnaD(r){if(!dBox)return;var ds=(r&&r.destinatari)||[];
+dBox.innerHTML=ds.length?ds.map(function(x){return '<span class="pg-chip">'+esc(x.nome||x.email)+(x.nome?' <em>'+esc(x.email)+'</em>':'')+(x.ruolo?' <em>'+esc(x.ruolo)+'</em>':'')+'<button type="button" data-dt="'+esc(x.id)+'" aria-label="Togli">×</button></span>';}).join(''):'<p class="pg-sotto">Nessun destinatario scelto.</p>';
+var s=$('pg-dest-sug');if(s){s.innerHTML='<option value="">Scegli dalla Rubrica…</option>'+((r&&r.suggeriti)||[]).map(function(k,i){return '<option value="'+i+'">'+esc((k.nome||k.email)+(k.ruolo?' · '+k.ruolo:'')+(k.impresa?' · '+k.impresa:'')+' — '+k.email)+'</option>';}).join('');s._sug=(r&&r.suggeriti)||[];}}
+function caricaD(){if(!dBox)return;chiamaD('destinatari').then(disegnaD).catch(function(){dBox.innerHTML='<p class="pg-sotto">Non riesco a leggere i destinatari: ricarica la pagina.</p>';});}
+caricaD();
+if(dBox)dBox.addEventListener('click',function(ev){var b=ev.target.closest('[data-dt]');if(!b)return;b.disabled=true;chiamaD('destinatario_togli',{id:b.getAttribute('data-dt')}).then(caricaD).catch(caricaD);});
+if($('pg-dest-sug'))$('pg-dest-sug').addEventListener('change',function(){var s=this,k=(s._sug||[])[+s.value];if(!k)return;$('pg-dest-email').value=k.email||'';$('pg-dest-nome').value=k.nome||'';$('pg-dest-nome')._ruolo=k.ruolo||'';});
+if($('pg-dest-si'))$('pg-dest-si').addEventListener('click',function(){var m=$('pg-dest-msg'),em=$('pg-dest-email').value.trim();m.textContent='';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){m.textContent='Scrivi un\'email valida.';return;}
+var b=this;b.disabled=true;chiamaD('destinatario_aggiungi',{email:em,nome:$('pg-dest-nome').value.trim(),ruolo:$('pg-dest-nome')._ruolo||'',chi:leggiChi()}).then(function(r){b.disabled=false;
+if(r&&r.esito==='ok'){$('pg-dest-email').value='';$('pg-dest-nome').value='';$('pg-dest-nome')._ruolo='';$('pg-dest-sug').value='';caricaD();}else m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){b.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- togli
 var dlg=$('pg-dlg'),corr=null;
 D.querySelectorAll('[data-togli]').forEach(function(b){b.addEventListener('click',function(){corr=b.getAttribute('data-togli');$('pg-dlg-cod').textContent=b.getAttribute('data-cod')||'';$('pg-dlg-chi').value=leggiChi();$('pg-dlg-mot').value='';$('pg-dlg-msg').textContent='';
@@ -586,6 +682,80 @@ if($('pg-dlg-si'))$('pg-dlg-si').addEventListener('click',function(){var chi=$('
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('pg-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;
+
+// ---------------------------------------------------------------------------- P2: la tavola su WhatsApp (08/11/2026, progetti-2)
+// Riconosce solo richieste chiare, senza intelligenza artificiale:
+//   «forte»  = «mandami/manda/inviami (la) tavola …», «mi serve la tavola …», «tavola STR-03»: se non trova niente risponde lui;
+//   «debole» = messaggio che è solo un codice («STR-03») o che inizia con «tavola …»: se non trova niente il messaggio prosegue
+//              verso Make come sempre (può essere una voce del diario);
+//   scelta dall'elenco (id «PRG_<id della tavola>»).
+// Decide il database (progetti_wa_richiesta): interruttore progetti_wa_attiva (no / prova / si), numeri del cantiere, limite al giorno,
+// solo la revisione in vigore, registro in progetti_invii. FAIL-SAFE: interruttore spento, numero non ammesso, database o Meta che non
+// rispondono → il messaggio prosegue verso Make come prima.
+const PG_FORTE = /^\s*(?:(?:mandami|manda|mandatemi|inviami|invia|mi\s+serve|serve|mi\s+servono|vorrei)\s+(?:la\s+|le\s+|una\s+)?tavol[ae]\b|tavol[ae]\s*[:\-]?\s*[A-Za-z]{1,5}[ _.-]?[0-9]{1,4}[A-Za-z]?\s*$)/i;
+const PG_DEBOLE = /^\s*(?:tavol[ae]\b.*|[A-Za-z]{1,5}[ _.-]?[0-9]{1,4}[A-Za-z]?)\s*[.!?]?\s*$/i;
+
+function pgTesto(msg) { return msg && msg.type === "text" && msg.text ? String(msg.text.body || "").slice(0, 300) : ""; }
+function pgScelta(msg) {
+  const lr = msg && msg.type === "interactive" && msg.interactive && msg.interactive.list_reply;
+  const id = lr && String(lr.id || "");
+  return id && /^PRG_[0-9a-f-]{36}$/i.test(id) ? id.slice(4).toLowerCase() : "";
+}
+
+export function progettiWaComando(msg) {
+  if (pgScelta(msg)) return true;
+  const t = pgTesto(msg);
+  return !!t && t.length <= 200 && (PG_FORTE.test(t) || PG_DEBOLE.test(t));
+}
+
+export async function progettiWaGestisci(msg, value, env, h) {
+  const tel = String(msg.from || "");
+  const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
+  if (!progettiWaComando(msg) || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.PROGETTI === "off") return false;
+  const scelta = pgScelta(msg);
+  const testoMsg = pgTesto(msg);
+  const forte = !!scelta || PG_FORTE.test(testoMsg);
+  const nomeWa = (value.contacts && value.contacts[0] && value.contacts[0].profile && value.contacts[0].profile.name) || "";
+  const r = await h.rpc(env, "progetti_wa_richiesta", { p_telefono: tel, p_testo: testoMsg, p_scelta: scelta || null, p_nome_wa: String(nomeWa).slice(0, 80) }, 8000);
+  if (!r || !r.esito || r.esito === "spento" || r.esito === "errore") return false;
+  if (!forte && (r.esito === "non_trovata" || r.esito === "non_registrato")) return false;   // forse era una voce del diario
+  const testoBase = { messaging_product: "whatsapp", recipient_type: "individual", to: tel, context: { message_id: msg.id } };
+  const scrivi = (t) => h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "text", text: { body: t.slice(0, 1500), preview_url: false } }));
+  try {
+    if (r.esito === "manda") {
+      const ps = String(r.percorso || "");
+      if (!/^documenti\/[0-9a-f-]{36}\/progetti\/(cache\/)?[A-Za-z0-9_-]+\.(pdf|p7m)$/.test(ps)) { await scrivi("Non riesco a prendere la tavola adesso: riprova tra qualche minuto."); return true; }
+      const svc = env.SUPABASE_SERVICE_KEY;
+      const sg = await fetch(supabaseUrl(env) + "/storage/v1/object/sign/wa-media/" + percorsoStorage(ps), {
+        method: "POST", headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 900 }) });
+      const sj = sg.ok ? await sg.json().catch(() => null) : null;
+      if (!sj || typeof sj.signedURL !== "string") { await scrivi("Non riesco a prendere la tavola adesso: riprova tra qualche minuto."); return true; }
+      const didascalia = "📐 *" + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + "\nRev. " + r.revisione + (r.data ? " del " + r.data : "") + " · *in vigore*" +
+        (r.variante ? " · variante" : "") + (r.cantiere ? "\n" + r.cantiere : "") + "\nRiservata al cantiere. Prima di stampare controlla sempre la revisione.";
+      const inv = await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "document",
+        document: { link: supabaseUrl(env) + "/storage/v1" + sj.signedURL, filename: String(r.nome_file || (r.codice + ".pdf")).slice(0, 200), caption: didascalia.slice(0, 1000) } }));
+      // chatUnicaInvia risponde { ok, status, testo }: l'id del messaggio di Meta è nel testo (primi 300 caratteri)
+      const wid = (String((inv && inv.testo) || "").match(/"id"\s*:\s*"(wamid\.[^"]+)"/) || [])[1] || "";
+      try { await h.rpc(env, "progetti_wa_esito", { p_invio: r.invio_id, p_wa_message_id: wid, p_ok: !!(inv && inv.ok) }, 6000); } catch (e) {}
+    } else if (r.esito === "elenco" && Array.isArray(r.righe) && r.righe.length) {
+      const righe = r.righe.slice(0, 10).map((x) => ({ id: "PRG_" + x.id, title: String(x.codice + " rev. " + x.revisione).slice(0, 24),
+        description: String((x.titolo || "") + (x.cantiere ? " · " + x.cantiere : "")).slice(0, 72) }));
+      await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "interactive", interactive: { type: "list",
+        body: { text: "Ho trovato " + r.quante + " tavole in vigore" + (r.quante > 10 ? " (ti mostro le prime 10)" : "") + ". Quale ti serve?" },
+        action: { button: "Scegli la tavola", sections: [{ title: "Tavole in vigore", rows: righe }] } } }));
+    } else if (r.esito === "archivio") {
+      await scrivi("La tavola " + (r.codice || "") + " è nell'archivio: la sto riprendendo. Riscrivimi la richiesta tra un minuto e te la mando.");
+    } else if (r.esito === "limite") {
+      await scrivi("Oggi hai già chiesto " + (r.limite || 20) + " tavole: per oggi basta così. Riprova domani oppure chiedi all'ufficio.");
+    } else if (r.esito === "non_registrato") {
+      await scrivi("Le tavole le mando solo a chi è registrato nel cantiere. Chiedi all'ufficio della tua impresa di aggiungerti in «Persone del cantiere».");
+    } else {
+      await scrivi("Non trovo una tavola in vigore con queste parole. Scrivi il codice della tavola (per esempio «tavola STR-03») oppure chiedila all'ufficio.");
+    }
+  } catch (e) {}
+  try { await h.log(env, tel, msg.id, "progetti_tavola", String(r.esito)); } catch (e) {}
+  return true;
+}
 
 // Solo per il banco di prova locale (pagina con dati inventati, senza database): stessa pagina della rotta vera.
 export function progettiPaginaProva(base, h, p, d) {
