@@ -59,7 +59,7 @@ function pulisciOf(d) {
   const x = d && typeof d === "object" ? d : {};
   const o = {};
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
-    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6 };
+    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36 };
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 20));
   if (Array.isArray(x.prezzi)) o.prezzi = x.prezzi.slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo: testo(p && p.prezzo, 20), note: testo(p && p.note, 500) }));
@@ -142,6 +142,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/excel") return excel(request, env, base, inUrl, h);
   if (sotto === "/preventivi/firmato") return request.method === "POST" ? caricaFirmato(request, env, inUrl, h) : scaricaFirmato(request, env, base, inUrl, h);
   if (sotto === "/preventivi/ia/file") return caricaFileIa(request, env, inUrl, h);
+  if (sotto === "/preventivi/posta/file") return scaricaPosta(request, env, base, inUrl, h); // 08/11/2026 (preventivi-posta-1)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -181,11 +182,12 @@ async function api(request, env, h) {
     r = await h.rpc(env, "preventivo_cerca", { p_token: tok, p_id: dati.id, p_testo: testo(b.dati && b.dati.testo, 120), p_fonte: fonte }, 15000).catch(() => null);
   } else if (az === "estesa" && UUID.test(dati.id || "")) {
     r = await h.rpc(env, "preventivo_estesa", { p_token: tok, p_id: dati.id, p_rif: dati.rif || "" }, 10000).catch(() => null);
-  } else if ((az.startsWith("of_") || az.startsWith("ch_") || az.startsWith("cp_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+  } else if ((az.startsWith("of_") || az.startsWith("ch_") || az.startsWith("cp_") || az.startsWith("po_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al Direttore dei Lavori
     const dof = pulisciOf(b.dati);
     // 08/11/2026 (preventivi-risposta-1): cp_* = proposte lette dalla risposta del DL
-    r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : az.startsWith("cp_") ? "preventivo_risposta" : "preventivo_chiarimenti",
+    // 08/11/2026 (preventivi-posta-1): po_* = email ricevute su posta.tixcantiere.it
+    r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : az.startsWith("cp_") ? "preventivo_risposta" : az.startsWith("po_") ? "preventivo_posta" : "preventivo_chiarimenti",
       { p_token: tok, p_id: dof.id, p_azione: az.slice(3), p_dati: dof }, 15000).catch(() => null);
   } else if (AZIONI.has(az)) {
     r = await h.rpc(env, "preventivo_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 15000).catch(() => null);
@@ -218,7 +220,7 @@ function pagina(base, h, tok, a, c, id, d, torna) {
     '<div id="pv-app"><p class="pv-carica">Un momento…</p></div>' +
     "</main>" + MODALI +
     "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
-    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) + "</script></body></html>";
+    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) + "</script></body></html>";
 }
 
 const ICONA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -2059,7 +2061,32 @@ var STATI={bozza:'Da mandare',copiata:'Mandata dalla tua posta',inviata:'Mandata
 
 // ------------------------------------------------ richieste di offerta
 var OF=null;
-function caricaOf(){return api('of_elenco').then(function(r){if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;disegnaOf();});}
+// 08/11/2026 (preventivi-posta-1): le email ricevute su posta.tixcantiere.it, insieme alle richieste
+var PO={posta:[],indirizzi:{rdo:{},ch:{}}};
+function caricaPosta(){return api('po_elenco').then(function(r){PO=r&&r.esito==='ok'?r:{posta:[],indirizzi:{rdo:{},ch:{}}};});}
+function pesoKb(b){var n=Number(b)||0;return n>1048576?(n/1048576).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round(n/1024))+' KB';}
+function postaDi(tipo,id){var ind=(PO.indirizzi&&PO.indirizzi[tipo]||{})[id],L=(PO.posta||[]).filter(function(x){return x[tipo+'_id']===id;}),h='';
+ if(PO.attiva&&ind)h+='<p class="sotto">Indirizzo di TIX per le risposte: <code>'+es(ind)+'</code></p>';
+ if(!L.length)return h;
+ h+='<h3>Email ricevute ('+L.length+')</h3>'+L.map(function(x){return '<div class="pv-ofr"><div class="tt"><b>'+es(x.mittente||'')+'</b><span class="sotto">'+dt(x.ricevuta_il)+(x.inoltrata?' · inoltrata all\'impresa':'')+'</span></div>'+
+  '<p style="margin:4px 0"><b>'+es(x.oggetto||'(senza oggetto)')+'</b></p><details><summary>Testo</summary><div style="white-space:pre-wrap;font-size:.86rem;margin-top:6px">'+es(x.testo||'')+'</div></details>'+
+  ((x.allegati||[]).length?'<p class="sotto">Allegati: '+x.allegati.map(function(a){return '<a href="'+es(CFG.pf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+x.id+'&n='+a.n)+'">'+es(a.nome)+'</a> ('+pesoKb(a.byte)+')';}).join(' · ')+'</p>':'')+
+  (tipo==='ch'?'<div class="pv-ofbt"><button type="button" class="pv-b sm pv-pr" data-pox="usa" data-p="'+x.id+'">Usa come risposta del DL</button></div>':'')+'</div>';}).join('');
+ return h;}
+function smistareHtml(){var L=(PO.posta||[]).filter(function(x){return x.stato==='da_smistare'||x.stato==='errore';});if(!L.length)return '';
+ var dest='<option value="">— sposta in… —</option>'+((OF&&OF.richieste)||[]).map(function(q){return '<option value="rdo:'+q.id+'">Richiesta n. '+q.numero+' · '+es(q.destinatario)+'</option>';}).join('')+
+  ((CH&&CH.email)||[]).map(function(q){return '<option value="ch:'+q.id+'">Email al DL del '+dt(q.creato_il)+'</option>';}).join('');
+ return '<h3>Da smistare ('+L.length+')</h3><p class="sotto">Email arrivate all\'indirizzo generale del preventivo'+(PO.generale?' (<code>'+es(PO.generale)+'</code>)':'')+' o non riconosciute.</p>'+L.map(function(x){
+  return '<div class="pv-ofr"><div class="tt"><b>'+es(x.mittente||'')+'</b><span class="sotto">'+dt(x.ricevuta_il)+'</span></div><p style="margin:4px 0">'+es(x.oggetto||'')+'</p>'+
+   '<details><summary>Testo</summary><div style="white-space:pre-wrap;font-size:.86rem">'+es(x.testo||x.stato)+'</div></details>'+
+   '<div class="pv-ofbt"><select data-dest="'+x.id+'" style="max-width:340px">'+dest+'</select><button type="button" class="pv-b sm" data-pox="sposta" data-p="'+x.id+'">Sposta</button></div></div>';}).join('');}
+function azionePo(az,el){var pid=el.dataset.p;
+ if(az==='sposta'){var s=document.querySelector('[data-dest="'+pid+'"]'),v=s?s.value:'';if(!v){alert('Scegli dove spostarla.');return;}
+  var d={posta_id:pid};d[v.split(':')[0]+'_id']=v.split(':')[1];el.disabled=true;
+  api('po_sposta',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}(CH?caricaCh():caricaOf());});return;}
+ if(az==='usa'){if(!confirm('Mettere il testo di questa email come risposta del DL?'))return;el.disabled=true;
+  api('po_usa_risposta',{posta_id:pid}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaCh();});}}
+function caricaOf(){CH=null;return Promise.all([api('of_elenco'),caricaPosta()]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;disegnaOf();});}
 function disegnaOf(){
  var r=OF,bozza=r.stato==='bozza';
  var aperte={np:1,da_quotare:1,da_verificare:1};
@@ -2098,7 +2125,9 @@ function disegnaOf(){
     '<label><span>Data dell\'offerta</span><input type="date" data-k="data" value="'+es(q.offerta_data||'')+'" style="max-width:200px"></label>'+
     '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button><button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button></div>';
   }
+  h+=postaDi('rdo',q.id);
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
+ h+=smistareHtml();
  finestra(h);
  var sel=document.getElementById('of-rub');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;};
@@ -2135,7 +2164,7 @@ function azioneOf(az,el){
 
 // ------------------------------------------------ email al Direttore dei Lavori
 var CH=null;
-function caricaCh(){return api('ch_elenco').then(function(r){if(r.esito!=='ok'){finestra(testa('Email al Direttore dei Lavori','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}CH=r;disegnaCh();});}
+function caricaCh(){return Promise.all([api('ch_elenco'),caricaPosta()]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Email al Direttore dei Lavori','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}CH=r;disegnaCh();});}
 function ccBox(q){var c=CH.contatti||{},h='',viste={};(q.email_cc||[]).forEach(function(e){viste[e]=1;});
  [['progettista','Progettista'],['committente','Committente']].forEach(function(p){(c[p[0]]||[]).forEach(function(k){if(!k.email)return;
   h+='<label><input type="checkbox" data-cc="'+es(k.email)+'"'+(viste[k.email]?' checked':'')+'> '+p[1]+': '+es(k.nome||'')+' <small>'+es(k.email)+'</small></label>';delete viste[k.email];});});
@@ -2166,7 +2195,9 @@ function disegnaCh(){
     (q.risposta_il?'<p class="pv-ofnota">Risposta salvata il '+dt(q.risposta_il)+'. «Leggi la risposta con TIX» ti propone le modifiche al preventivo (circa 3–5 centesimi + IVA): '+
      'il preventivo cambia solo con le proposte che accetti tu.</p><div class="pv-ofprop" data-prop="'+q.id+'"></div>':'');
   }
+  h+=postaDi('ch',q.id);
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
+ h+=smistareHtml();
  finestra(h);
  (r.email||[]).forEach(function(q){if(q.risposta_il)caricaProp(q.id,0);});
 }
@@ -2228,7 +2259,8 @@ function azioneCh(az,el){
 }
 
 document.addEventListener('click',function(e){
- var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx],[data-cpx]');if(!b)return;
+ var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx],[data-cpx],[data-pox]');if(!b)return;
+ if(b.hasAttribute('data-pox')){azionePo(b.getAttribute('data-pox'),b);return;}
  if(b.hasAttribute('data-cpx')){azioneCp(b.getAttribute('data-cpx'),b);return;}
  if(b.hasAttribute('data-ofapri')){finestra('<p>Un momento…</p>');caricaOf();return;}
  if(b.hasAttribute('data-chapri')){finestra('<p>Un momento…</p>');caricaCh();return;}
@@ -2238,3 +2270,56 @@ document.addEventListener('click',function(e){
 });
 })();
 `;
+
+// ---------------------------------------------------------------------------- posta dei Preventivi (ricezione)
+// 08/11/2026 (preventivi-posta-1, chat 02B): Cloudflare Email Routing su posta.tixcantiere.it → email() del Worker → qui.
+// Si controlla la forma dell'indirizzo, il database dice se esiste (chiave casuale della richiesta); se no l'email è rifiutata.
+// Il messaggio grezzo si salva in wa-media/posta/<id>.eml senza leggerlo (pochi millisecondi di calcolo); lo legge la funzione
+// preventivo-posta, chiamata dal database. POSTA_PREVENTIVI=off rifiuta tutto.
+const POSTA_RE = /^(offerta|dl|prev)-\d{4}-\d{3}(-n\d{1,3})?\.[a-z0-9]{6,16}@[a-z0-9.-]+$/;
+async function rpcServizio(env, nome, corpo) {
+  const r = await fetch(supabaseUrl(env) + "/rest/v1/rpc/" + nome, { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY }, body: JSON.stringify(corpo) });
+  if (!r.ok) throw new Error(nome + " HTTP " + r.status);
+  return r.json();
+}
+export async function postaPreventivi(message, env, ctx) {
+  const a = String(message.to || "").toLowerCase().trim();
+  if (env.POSTA_PREVENTIVI === "off" || !env.SUPABASE_SERVICE_KEY) { message.setReject("Indirizzo non attivo"); return; }
+  if (!POSTA_RE.test(a)) { message.setReject("Indirizzo sconosciuto"); return; }
+  if (Number(message.rawSize || 0) > 25 * 1024 * 1024) { message.setReject("Messaggio troppo grande (massimo 25 MB)"); return; }
+  let arrivo = null;
+  try { arrivo = await rpcServizio(env, "preventivi_posta_arrivo", { p_indirizzo: a, p_da: String(message.from || "").slice(0, 300), p_byte: Number(message.rawSize || 0) }); }
+  catch (e) { console.log(JSON.stringify({ posta_errore: "arrivo", dettaglio: String(e && e.message || e).slice(0, 200) })); message.setReject("Servizio non disponibile, riprova più tardi"); return; }
+  if (!arrivo || arrivo.esito !== "ok") {
+    message.setReject(arrivo && arrivo.esito === "grande" ? "Messaggio troppo grande" : arrivo && arrivo.esito === "troppe" ? "Troppe email per questo indirizzo" : "Indirizzo sconosciuto");
+    return;
+  }
+  const percorso = "posta/" + arrivo.id + ".eml";
+  const grezzo = await new Response(message.raw).arrayBuffer();
+  const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": "message/rfc822", "x-upsert": "true" }, body: grezzo }).catch(() => null);
+  if (!up || !up.ok) { console.log(JSON.stringify({ posta_errore: "salvataggio", id: arrivo.id })); message.setReject("Servizio non disponibile, riprova più tardi"); return; }
+  await rpcServizio(env, "preventivi_posta_caricata", { p_id: arrivo.id, p_percorso: percorso }).catch((e) => console.log(JSON.stringify({ posta_errore: "caricata", id: arrivo.id, dettaglio: String(e && e.message || e).slice(0, 200) })));
+  console.log(JSON.stringify({ posta: arrivo.id, byte: grezzo.byteLength }));
+}
+
+// allegato di un'email ricevuta: GET /preventivi/posta/file?t=…&id=<preventivo>&p=<email>&n=<numero>
+async function scaricaPosta(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  const id = uuid(inUrl.searchParams.get("id")), p = uuid(inUrl.searchParams.get("p"));
+  const n = Math.max(0, Math.min(99, parseInt(inUrl.searchParams.get("n") || "0", 10) || 0));
+  if (!id || !p) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "preventivo_posta", { p_token: tok, p_id: id, p_azione: "file", p_dati: { posta_id: p, n } }, 10000).catch(() => null);
+  if (!info || info.esito !== "ok" || !info.percorso) return h.risposta(h.foglio(base, "Preventivo", "", '<p class="err">Allegato non trovato.</p>'), 404);
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.percorso).split("/").map(encodeURIComponent).join("/"), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Preventivo", "", '<p class="err">Il file non si legge dall’archivio: riprova tra un minuto.</p>'), 502);
+  const nome = String(info.nome || "allegato");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": "application/octet-stream",
+    "Content-Disposition": 'attachment; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
