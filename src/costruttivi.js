@@ -413,7 +413,10 @@ function pagina(base, h, p, d, torna) {
     'Per i costruttivi che riguardano le strutture, la firma richiede il visto dello strutturista e della Direzione Lavori' +
     (vistoAttivo ? ': chiedilo con «Chiedi il visto». Lo vedono nella loro Area professionisti e rispondono «Visto» oppure «Osservazioni».' : ".") +
     (firmaAttiva ? ' Poi lo firmi con «Firma per approvazione»: TIX mette firma e timbro dell\'impresa nel punto che tocchi e conserva l\'originale e la copia firmata, ' +
-      'ognuno con la sua impronta. Chi può firmare lo indichi in <a href="' + e(impostazioniFirma) + '">«Firme e timbro»</a>.' : "") + '</div></div>';
+      'ognuno con la sua impronta; dopo la firma li copia anche su Drive, nella cartella «Costruttivi dei fornitori» del cantiere. ' +
+      'Chi può firmare lo indichi in <a href="' + e(impostazioniFirma) + '">«Firme e timbro»</a>. ' +
+      'Dopo «Approvato» o «Approvato con osservazioni» chi lavora nel cantiere può chiederlo a TIX su WhatsApp, per esempio «costruttivo COP-01», ' +
+      'e riceve la copia firmata. Le richieste restano nel registro «Le tavole su WhatsApp» della pagina Progetti.' : "") + '</div></div>';
   // chi manca nel cantiere per il visto (solo se c'è almeno un costruttivo delle strutture da approvare)
   const RUOLI = { strutt: "lo strutturista", dl: "il Direttore dei Lavori" };
   const serve = vistoAttivo && !chiuso && voci.some((x) => x.strutture && x.approvazione === "da_approvare");
@@ -527,6 +530,16 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo)
       : '<button type="button" class="btn sm pr" data-firma="' + e(x.id) + '">Firma per approvazione</button>') : "";
   if (fm) meta.push('copia firmata: <span class="cs-imp" title="Impronta SHA-256 della copia firmata: ' + e(fm.sha256 || "") + '">impronta ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
     (fm.qualificata ? " · firma digitale qualificata" : ""));
+  // costruttivi-5: copia su Drive di originale e copia firmata (cartella «Costruttivi dei fornitori» del cantiere)
+  const dv = x.drive && typeof x.drive === "object" ? x.drive : null;
+  if (dv) {
+    const pz = [["originale", "originale"], ["firmata", "copia firmata"]].filter((k) => dv[k[0]] && typeof dv[k[0]] === "object").map((k) => {
+      const o = dv[k[0]];
+      if (o.stato === "archiviato" && /^https:\/\/(drive|docs)\.google\.com\//.test(String(o.link || ""))) return '<a href="' + e(o.link) + '" target="_blank" rel="noopener">' + k[1] + '</a>';
+      return k[1] + (o.stato === "errore" ? " (non ancora: lo stiamo controllando)" : " (in arrivo)");
+    });
+    if (pz.length) meta.push("su Drive: " + pz.join(", "));
+  }
   // C3b: invii al fornitore
   const inv = x.invii && typeof x.invii === "object" ? x.invii : null;
   if (inv && Number(inv.n) > 0) meta.push((Number(inv.n) === 1 ? "mandato a " : "mandato " + e(inv.n) + " volte, l'ultima a ") + "<b>" + e(inv.ultimo_a || "") + "</b> il " + e(quando(inv.ultimo_il)));

@@ -855,12 +855,25 @@ m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Il fabbricato / lotto no
 // rispondono → il messaggio prosegue verso Make come prima.
 const PG_FORTE = /^\s*(?:(?:mandami|manda|mandatemi|inviami|invia|mi\s+serve|serve|mi\s+servono|vorrei)\s+(?:la\s+|le\s+|una\s+)?tavol[ae]\b|tavol[ae]\s*[:\-]?\s*[A-Za-z]{1,5}[ _.-]?[0-9]{1,4}[A-Za-z]?\s*$)/i;
 const PG_DEBOLE = /^\s*(?:tavol[ae]\b.*|[A-Za-z]{1,5}[ _.-]?[0-9]{1,4}[A-Za-z]?)\s*[.!?]?\s*$/i;
+// Costruttivi dei fornitori (09/11/2026, costruttivi-5): solo quelli firmati per approvazione («Approvato» o «Approvato con
+// osservazioni»), si manda la copia firmata. Decide il database (costruttivi_wa_richiesta, interruttori progetti_wa_attiva e
+// costruttivi_attiva). «forte» = «mandami il costruttivo …», «costruttivo COP-01»; «debole» = messaggio che inizia con «costruttivo …».
+// Un codice da solo («COP-01») o una richiesta di tavola che tra le tavole non trova niente si cerca anche tra i costruttivi approvati.
+// Scelta dall'elenco: id «CST_<id del costruttivo>».
+const CS_FORTE = /^\s*(?:(?:mandami|manda|mandatemi|inviami|invia|mi\s+serve|serve|mi\s+servono|vorrei)\s+(?:il\s+|i\s+|un\s+)?costruttiv[oi]\b|costruttiv[oi]\s*[:\-]?\s*[A-Za-z]{1,5}[ _.-]?[0-9]{1,4}[A-Za-z]?\s*$)/i;
+const CS_DEBOLE = /^\s*costruttiv[oi]\b.*$/i;
+const CS_PERCORSO = /^firme\/[0-9a-f-]{36}\/documenti\/[0-9]{8}-[0-9a-f]{12}\.(pdf|p7m)$/;
 
 function pgTesto(msg) { return msg && msg.type === "text" && msg.text ? String(msg.text.body || "").slice(0, 300) : ""; }
 function pgScelta(msg) {
   const lr = msg && msg.type === "interactive" && msg.interactive && msg.interactive.list_reply;
   const id = lr && String(lr.id || "");
   return id && /^PRG_[0-9a-f-]{36}$/i.test(id) ? id.slice(4).toLowerCase() : "";
+}
+function csScelta(msg) {
+  const lr = msg && msg.type === "interactive" && msg.interactive && msg.interactive.list_reply;
+  const id = lr && String(lr.id || "");
+  return id && /^CST_[0-9a-f-]{36}$/i.test(id) ? id.slice(4).toLowerCase() : "";
 }
 
 // Vocale breve (fase 3): fino a 40 KB, circa 20 secondi, già salvato dal relay (msg._media). Si trascrive solo se il database
@@ -872,10 +885,10 @@ function pgVocale(msg) {
 }
 
 export function progettiWaComando(msg) {
-  if (pgScelta(msg)) return true;
+  if (pgScelta(msg) || csScelta(msg)) return true;
   if (pgVocale(msg)) return true;
   const t = pgTesto(msg);
-  return !!t && t.length <= 200 && (PG_FORTE.test(t) || PG_DEBOLE.test(t));
+  return !!t && t.length <= 200 && (PG_FORTE.test(t) || PG_DEBOLE.test(t) || CS_FORTE.test(t) || CS_DEBOLE.test(t));
 }
 
 // Fase 3: la richiesta chiara non ha trovato niente → Claude sceglie dall'elenco delle tavole in vigore (Edge Function progetti-cerca).
@@ -901,24 +914,45 @@ export async function progettiWaGestisci(msg, value, env, h) {
   const phoneId = (value.metadata && value.metadata.phone_number_id) || "";
   if (!progettiWaComando(msg) || !tel || !phoneId || !env.SUPABASE_SERVICE_KEY || !env.WHATSAPP_TOKEN || env.PROGETTI === "off") return false;
   const scelta = pgScelta(msg);
+  const sceltaC = csScelta(msg);
   let testoMsg = pgTesto(msg);
   const vocale = pgVocale(msg);
   if (vocale) {
-    // vocale: si trascrive solo se ha senso, e si prende solo se è una richiesta chiara di tavola
+    // vocale: si trascrive solo se ha senso, e si prende solo se è una richiesta chiara di tavola o di costruttivo
     if (typeof h.trascrivi !== "function") return false;
     const am = await h.rpc(env, "progetti_wa_vocale_ammesso", { p_telefono: tel }, 6000).catch(() => null);
     if (!am || am.ok !== true) return false;
     const tr = await h.trascrivi(vocale).catch(() => null);
     testoMsg = String((tr && tr.testo) || "").replace(/[.!?…]+$/g, "").trim().slice(0, 200);
-    if (!testoMsg || !PG_FORTE.test(testoMsg)) return false;   // un vocale del diario: prosegue come sempre
+    if (!testoMsg || !(PG_FORTE.test(testoMsg) || CS_FORTE.test(testoMsg))) return false;   // un vocale del diario: prosegue come sempre
   }
-  const forte = !!scelta || PG_FORTE.test(testoMsg);
+  // costruttivi-5: se la richiesta nomina il costruttivo (o è una scelta «CST_») si cerca prima tra i costruttivi approvati
+  const chiedeC = !!sceltaC || (!scelta && (CS_FORTE.test(testoMsg) || CS_DEBOLE.test(testoMsg)));
+  const forte = !!scelta || !!sceltaC || PG_FORTE.test(testoMsg) || CS_FORTE.test(testoMsg);
   const nomeWa = (value.contacts && value.contacts[0] && value.contacts[0].profile && value.contacts[0].profile.name) || "";
-  let r = await h.rpc(env, "progetti_wa_richiesta", { p_telefono: tel, p_testo: testoMsg, p_scelta: scelta || null, p_nome_wa: String(nomeWa).slice(0, 80) }, 8000);
+  const arg = (sc) => ({ p_telefono: tel, p_testo: testoMsg, p_scelta: sc || null, p_nome_wa: String(nomeWa).slice(0, 80) });
+  const trovato = (x) => !!x && (x.esito === "manda" || x.esito === "elenco" || x.esito === "archivio");
+  let r;
+  if (chiedeC) {
+    r = await h.rpc(env, "costruttivi_wa_richiesta", arg(sceltaC), 8000);
+    // «costruttivo STR-03» ma STR-03 è una tavola: si manda la tavola
+    if (r && r.esito === "non_trovata" && !sceltaC) {
+      const rt = await h.rpc(env, "progetti_wa_richiesta", arg(""), 8000).catch(() => null);
+      if (trovato(rt)) r = rt;
+    }
+  } else {
+    r = await h.rpc(env, "progetti_wa_richiesta", arg(scelta), 8000);
+    // tavola non trovata: si guarda tra i costruttivi approvati (il registro si scrive solo se lì c'è qualcosa da mandare)
+    if (r && r.esito === "non_trovata" && !scelta) {
+      const rc = await h.rpc(env, "costruttivi_wa_richiesta", arg(""), 8000).catch(() => null);
+      if (rc && (rc.esito === "manda" || rc.esito === "elenco")) r = rc;
+    }
+  }
   if (!r || !r.esito || r.esito === "spento" || r.esito === "errore") return false;
   if (!forte && (r.esito === "non_trovata" || r.esito === "non_registrato")) return false;   // forse era una voce del diario
-  // fase 3: richiesta chiara senza risultati con codice e parole → intelligenza artificiale (tetto mensile nel database)
-  if (forte && !scelta && r.esito === "non_trovata" && env.PROGETTI_IA !== "off") {
+  const cst = r.tipo === "costruttivo";
+  // fase 3: richiesta chiara di tavola senza risultati con codice e parole → intelligenza artificiale (tetto mensile nel database)
+  if (forte && !scelta && !cst && r.esito === "non_trovata" && env.PROGETTI_IA !== "off") {
     const ia = await pgCercaIa(env, tel, testoMsg, String(nomeWa).slice(0, 80));
     if (ia) r = ia;
   }
@@ -927,36 +961,50 @@ export async function progettiWaGestisci(msg, value, env, h) {
   try {
     if (r.esito === "manda") {
       const ps = String(r.percorso || "");
-      if (!/^documenti\/[0-9a-f-]{36}\/progetti\/(cache\/)?[A-Za-z0-9_-]+\.(pdf|p7m)$/.test(ps)) { await scrivi("Non riesco a prendere la tavola adesso: riprova tra qualche minuto."); return true; }
+      const nonVa = cst ? "Non riesco a prendere il costruttivo adesso: riprova tra qualche minuto." : "Non riesco a prendere la tavola adesso: riprova tra qualche minuto.";
+      const percorsoOk = cst ? CS_PERCORSO.test(ps) : /^documenti\/[0-9a-f-]{36}\/progetti\/(cache\/)?[A-Za-z0-9_-]+\.(pdf|p7m)$/.test(ps);
+      if (!percorsoOk) { await scrivi(nonVa); return true; }
       const svc = env.SUPABASE_SERVICE_KEY;
       const sg = await fetch(supabaseUrl(env) + "/storage/v1/object/sign/wa-media/" + percorsoStorage(ps), {
         method: "POST", headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 900 }) });
       const sj = sg.ok ? await sg.json().catch(() => null) : null;
-      if (!sj || typeof sj.signedURL !== "string") { await scrivi("Non riesco a prendere la tavola adesso: riprova tra qualche minuto."); return true; }
-      const didascalia = "📐 *" + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + (r.lotto ? "\n" + r.lotto : "") + "\nRev. " + r.revisione + (r.data ? " del " + r.data : "") + " · *in vigore*" +
-        (r.variante ? " · variante" : "") + (r.cantiere ? "\n" + r.cantiere : "") + "\nRiservata al cantiere. Prima di stampare controlla sempre la revisione.";
+      if (!sj || typeof sj.signedURL !== "string") { await scrivi(nonVa); return true; }
+      const didascalia = cst
+        ? "📐 *Costruttivo " + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + "\nRev. " + r.revisione + " · *copia firmata*" +
+          (r.fornitore ? "\nFornitore: " + r.fornitore : "") +
+          (r.esito_firma ? "\n" + r.esito_firma + (r.firmatario ? " da " + r.firmatario : "") + (r.data_firma ? " il " + r.data_firma : "") : "") +
+          (r.cantiere ? "\n" + r.cantiere : "") + "\nRiservato al cantiere. Prima di stampare controlla sempre la revisione."
+        : "📐 *" + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + (r.lotto ? "\n" + r.lotto : "") + "\nRev. " + r.revisione + (r.data ? " del " + r.data : "") + " · *in vigore*" +
+          (r.variante ? " · variante" : "") + (r.cantiere ? "\n" + r.cantiere : "") + "\nRiservata al cantiere. Prima di stampare controlla sempre la revisione.";
       const inv = await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "document",
         document: { link: supabaseUrl(env) + "/storage/v1" + sj.signedURL, filename: String(r.nome_file || (r.codice + ".pdf")).slice(0, 200), caption: didascalia.slice(0, 1000) } }));
       // chatUnicaInvia risponde { ok, status, testo }: l'id del messaggio di Meta è nel testo (primi 300 caratteri)
       const wid = (String((inv && inv.testo) || "").match(/"id"\s*:\s*"(wamid\.[^"]+)"/) || [])[1] || "";
       try { await h.rpc(env, "progetti_wa_esito", { p_invio: r.invio_id, p_wa_message_id: wid, p_ok: !!(inv && inv.ok) }, 6000); } catch (e) {}
     } else if (r.esito === "elenco" && Array.isArray(r.righe) && r.righe.length) {
-      const righe = r.righe.slice(0, 10).map((x) => ({ id: "PRG_" + x.id, title: String(x.codice + " rev. " + x.revisione).slice(0, 24),
-        description: String((x.lotto ? x.lotto + " · " : "") + (x.titolo || "") + (x.cantiere ? " · " + x.cantiere : "")).slice(0, 72) }));
+      const righe = r.righe.slice(0, 10).map((x) => ({ id: (cst ? "CST_" : "PRG_") + x.id, title: String(x.codice + " rev. " + x.revisione).slice(0, 24),
+        description: String(cst ? [x.fornitore, x.titolo, x.cantiere].filter(Boolean).join(" · ")
+          : (x.lotto ? x.lotto + " · " : "") + (x.titolo || "") + (x.cantiere ? " · " + x.cantiere : "")).slice(0, 72) }));
       await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "interactive", interactive: { type: "list",
-        body: { text: "Ho trovato " + r.quante + " tavole in vigore" + (r.quante > 10 ? " (ti mostro le prime 10)" : "") + ". Quale ti serve?" },
-        action: { button: "Scegli la tavola", sections: [{ title: "Tavole in vigore", rows: righe }] } } }));
+        body: { text: cst
+          ? "Ho trovato " + r.quante + " costruttivi approvati" + (r.quante > 10 ? " (ti mostro i primi 10)" : "") + ". Quale ti serve?"
+          : "Ho trovato " + r.quante + " tavole in vigore" + (r.quante > 10 ? " (ti mostro le prime 10)" : "") + ". Quale ti serve?" },
+        action: { button: cst ? "Scegli costruttivo" : "Scegli la tavola", sections: [{ title: cst ? "Costruttivi approvati" : "Tavole in vigore", rows: righe }] } } }));
     } else if (r.esito === "archivio") {
       await scrivi("La tavola " + (r.codice || "") + " è nell'archivio: la sto riprendendo. Riscrivimi la richiesta tra un minuto e te la mando.");
     } else if (r.esito === "limite") {
-      await scrivi("Oggi hai già chiesto " + (r.limite || 20) + " tavole: per oggi basta così. Riprova domani oppure chiedi all'ufficio.");
+      await scrivi(cst ? "Oggi hai già chiesto " + (r.limite || 20) + " disegni tra tavole e costruttivi: per oggi basta così. Riprova domani oppure chiedi all'ufficio."
+        : "Oggi hai già chiesto " + (r.limite || 20) + " tavole: per oggi basta così. Riprova domani oppure chiedi all'ufficio.");
     } else if (r.esito === "non_registrato") {
-      await scrivi("Le tavole le mando solo a chi è registrato nel cantiere. Chiedi all'ufficio della tua impresa di aggiungerti in «Persone del cantiere».");
+      await scrivi(cst ? "I costruttivi li mando solo a chi è registrato nel cantiere. Chiedi all'ufficio della tua impresa di aggiungerti in «Persone del cantiere»."
+        : "Le tavole le mando solo a chi è registrato nel cantiere. Chiedi all'ufficio della tua impresa di aggiungerti in «Persone del cantiere».");
+    } else if (cst) {
+      await scrivi("Non trovo un costruttivo approvato con queste parole. Ti mando solo i costruttivi già firmati per approvazione: scrivi il codice (per esempio «costruttivo COP-01») oppure chiedilo all'ufficio.");
     } else {
       await scrivi("Non trovo una tavola in vigore con queste parole. Scrivi il codice della tavola (per esempio «tavola STR-03») oppure chiedila all'ufficio.");
     }
   } catch (e) {}
-  try { await h.log(env, tel, msg.id, "progetti_tavola", String(r.esito)); } catch (e) {}
+  try { await h.log(env, tel, msg.id, cst ? "progetti_costruttivo" : "progetti_tavola", String(r.esito)); } catch (e) {}
   return true;
 }
 
