@@ -7,7 +7,8 @@
 // codice e dello stesso fornitore rende «Superata» quella di prima (resta nel database e nell'archivio, non si vede più qui).
 // Tabelle PROPRIE (costruttivi), non dentro progetti_tavole: i Progetti non si toccano. Dal 09/11/2026 (costruttivi-2, C2) qui c'è
 // anche «Chiedi il visto» per i costruttivi delle strutture (tabella costruttivi_visti); strutturista e DL rispondono dalle pagine
-// /studio della chat 02A. La firma (C3) non è in questo file.
+// /studio della chat 02A. Dal 09/11/2026 (costruttivi-3, C3a) «Firma per approvazione» con il firmatore comune (src/firma.js,
+// /firma/firma-tix.js), «Firme e timbro» e la copia firmata; si firma solo «Da approvare» e, per le strutture, con il visto completo.
 //   GET  /costruttivi?t=<gettone>&c=<cantiere>             → pagina (database: costruttivi_contesto)
 //   POST /costruttivi/carica  intestazione X-Costruttivi-Dati = JSON in base64url {t, c, fornitore, codice, titolo, revisione,
 //                          strutture, autore, nome, byte, sha256}; corpo = il file (PDF o .p7m, fino a progetti_max_mb)
@@ -343,6 +344,9 @@ function pagina(base, h, p, d, torna) {
   const vistoAttivo = d.visto_attivo === true;
   const pro = d.professionisti && typeof d.professionisti === "object" ? d.professionisti : {};
   const inAttesa = vistoAttivo ? voci.filter((x) => attesaVisto(x)).length : 0;
+  // costruttivi-3 (fase C3a): firma per approvazione
+  const firmaAttiva = d.firma_attiva === true;
+  const impostazioniFirma = base + "/firma/impostazioni?t=" + p.tok + "&c=" + p.c + "&da=costruttivi";
   const fornitori = Array.from(new Set(voci.map((x) => String(x.fornitore || "").trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }));
 
@@ -369,7 +373,7 @@ function pagina(base, h, p, d, torna) {
     if (!t.length) return;
     num++;
     sezioni += '<section class="cs-sez"><h2><span class="n">' + num + '</span>' + e(f) + ' <small>' + t.length + (t.length === 1 ? " costruttivo" : " costruttivi") + '</small></h2>' +
-      t.map((x) => riga(e, qui, p, x, chiuso, vistoAttivo)).join("") + '</section>';
+      t.map((x) => riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base)).join("") + '</section>';
   });
   if (!voci.length) {
     sezioni = '<div class="cs-vuoto">' + SVG.casa + '<p><b>Nessun costruttivo ancora.</b> ' +
@@ -379,7 +383,9 @@ function pagina(base, h, p, d, torna) {
   const regole = '<div class="cs-regole">' + SVG.penna + '<div><b>Come funziona.</b> Ogni costruttivo nasce «Da approvare» e resta in questa pagina. ' +
     'Prima della firma non va su WhatsApp e non è tra le tavole del cantiere. ' +
     'Per i costruttivi che riguardano le strutture, la firma richiede il visto dello strutturista e della Direzione Lavori' +
-    (vistoAttivo ? ': chiedilo con «Chiedi il visto». Lo vedono nella loro Area professionisti e rispondono «Visto» oppure «Osservazioni».' : ".") + '</div></div>';
+    (vistoAttivo ? ': chiedilo con «Chiedi il visto». Lo vedono nella loro Area professionisti e rispondono «Visto» oppure «Osservazioni».' : ".") +
+    (firmaAttiva ? ' Poi lo firmi con «Firma per approvazione»: TIX mette firma e timbro dell\'impresa nel punto che tocchi e conserva l\'originale e la copia firmata, ' +
+      'ognuno con la sua impronta. Chi può firmare lo indichi in <a href="' + e(impostazioniFirma) + '">«Firme e timbro»</a>.' : "") + '</div></div>';
   // chi manca nel cantiere per il visto (solo se c'è almeno un costruttivo delle strutture da approvare)
   const RUOLI = { strutt: "lo strutturista", dl: "il Direttore dei Lavori" };
   const serve = vistoAttivo && !chiuso && voci.some((x) => x.strutture && x.approvazione === "da_approvare");
@@ -410,7 +416,7 @@ function pagina(base, h, p, d, torna) {
     '<p class="cs-msg" id="cs-msg" role="status"></p>' +
     '<div class="cs-form-az" id="cs-az" hidden><button type="button" class="btn tenue" id="cs-annulla">Annulla</button><button type="button" class="btn pr" id="cs-salva">Salva</button></div></section>';
 
-  const cfg = JSON.stringify({ u: qui, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ u: qui, b: base, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb }).replace(/</g, "\\u003c");
 
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
@@ -421,7 +427,8 @@ function pagina(base, h, p, d, torna) {
     '<div class="cs-testa"><div>' + (d.cantiere ? '<p class="cs-cant">' + e(d.cantiere) + '</p>' : "") +
     '<h1><span class="cs-ic" aria-hidden="true">' + SVG.casa + '</span>Costruttivi dei fornitori</h1>' +
     (d.modo === "prova" ? '<p class="cs-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
-    (chiuso ? "" : '<div class="cs-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica costruttivi</a></div>') + '</div>' +
+    (chiuso && !firmaAttiva ? "" : '<div class="cs-az-testa">' + (firmaAttiva ? '<a class="btn sec" href="' + e(impostazioniFirma) + '">' + SVG.penna + 'Firme e timbro</a>' : "") +
+      (chiuso ? "" : '<a class="btn pr" href="#carica">' + SVG.piu + 'Carica costruttivi</a>') + '</div>') + '</div>' +
     cifre + regole + avvisoPro + (voci.length ? filtri : "") + sezioni + '<p class="cs-nessuno" id="cs-nessuno" hidden>Nessun costruttivo con questa ricerca.</p>' +
     elenco + form +
     '<p class="cs-fonti">TIX™ conserva i costruttivi dei fornitori, li tiene in ordine e mostra solo la revisione in vigore. Non controlla i disegni: la responsabilità resta dei fornitori, dei progettisti e della Direzione Lavori.</p>' +
@@ -464,7 +471,7 @@ function bloccoVisto(e, x, chiuso) {
     }).join("") + '</div>';
 }
 
-function riga(e, qui, p, x, chiuso, vistoAttivo) {
+function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base) {
   const apri = qui + "/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(x.id);
   const st = STATI[x.approvazione] || STATI.da_approvare;
   const meta = [];
@@ -474,15 +481,26 @@ function riga(e, qui, p, x, chiuso, vistoAttivo) {
   meta.push(e(mb(x.byte)));
   const imp = '<span class="cs-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
   const nota = x.nota ? '<p class="cs-nota"><b>' + (x.approvazione === "da_rivedere" ? "Da rivedere:" : "Osservazioni:") + '</b> ' + e(x.nota) + '</p>' : "";
-  const az = '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">Apri</a>' +
+  // C3a: firma per approvazione (spenta finché manca il visto delle strutture) e copia firmata
+  const fm = x.firma && typeof x.firma === "object" ? x.firma : null;
+  const copia = fm ? base + "/firma/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(fm.id) : "";
+  const senzaVisto = !!(x.strutture && !x.visti_completi);
+  const bFirma = firmaAttiva && !chiuso && x.approvazione === "da_approvare"
+    ? (senzaVisto ? '<button type="button" class="btn sm pr" disabled title="Si firma dopo il visto di strutturista e DL">Firma per approvazione</button>'
+      : '<button type="button" class="btn sm pr" data-firma="' + e(x.id) + '">Firma per approvazione</button>') : "";
+  if (fm) meta.push('copia firmata: <span class="cs-imp" title="Impronta SHA-256 della copia firmata: ' + e(fm.sha256 || "") + '">impronta ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
+    (fm.qualificata ? " · firma digitale qualificata" : ""));
+  const az = bFirma + (fm ? '<a class="btn sm sec" href="' + e(copia) + '" target="_blank" rel="noopener">Copia firmata</a>' : "") +
+    '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">' + (fm ? "Originale" : "Apri") + '</a>' +
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
     (chiuso || x.approvazione !== "da_approvare" ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
+  const notaFirma = bFirma && senzaVisto ? '<p class="cs-attesa-firma">La firma si accende quando strutturista e DL hanno risposto.</p>' : "";
   const gruppo = x.approvazione === "approvato" || x.approvazione === "osservazioni" ? "approvati" : String(x.approvazione || "da_approvare");
   const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "") + " " + String(x.fornitore || "")).toLowerCase();
   return '<div class="cs-tv" data-stato="' + e(gruppo) + '" data-str="' + (x.strutture ? "1" : "") + '" data-vis="' + (vistoAttivo && attesaVisto(x) ? "1" : "") + '" data-q="' + e(q) + '">' +
     '<div class="cs-cod"><b>' + e(x.codice) + '</b><span class="cs-rev">rev. ' + e(x.revisione) + '</span></div>' +
     '<div class="cs-corpo"><p class="cs-tit">' + e(x.titolo || x.nome || x.codice) + (x.strutture ? ' <span class="cs-str">Riguarda le strutture</span>' : "") + '</p>' +
-    '<p class="cs-meta">' + meta.join(" · ") + " · " + imp + '</p>' + nota + (vistoAttivo ? bloccoVisto(e, x, chiuso) : "") + '</div>' +
+    '<p class="cs-meta">' + meta.join(" · ") + " · " + imp + '</p>' + nota + (vistoAttivo ? bloccoVisto(e, x, chiuso) : "") + notaFirma + '</div>' +
     '<div class="cs-lato"><span class="cs-st ' + st[0] + '">' + e(st[1]) + '</span><div class="cs-az">' + az + '</div></div></div>';
 }
 
@@ -603,6 +621,8 @@ const STILE =
   ".cs-vs-q{color:var(--s);font-size:.82rem}.cs-vs-nota{flex-basis:100%;margin:2px 0 0;padding:6px 10px;border-radius:10px;background:#FFF8E8;white-space:pre-wrap;font-size:.86rem;line-height:1.45}" +
   ".cs-manca{display:flex;gap:10px;align-items:flex-start;margin:6px 0 0;padding:12px 14px;border-radius:14px;border:1px solid var(--da-b);background:var(--da-f);font-size:.9rem;line-height:1.5;color:var(--t)}" +
   ".cs-manca svg{flex:none;width:22px;height:22px;color:var(--da);margin-top:1px}.cs-manca b{color:var(--da)}.cs-manca-az{margin:8px 0 0}" +
+  // costruttivi-3 (C3a): firma
+  ".btn.pr:disabled{opacity:.45;cursor:not-allowed}.cs-attesa-firma{margin:8px 0 0;font-size:.82rem;color:var(--s)}.cs-regole a{color:var(--pr-s);font-weight:700}" +
   "@media (max-width:1100px){.cs-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cs-th{display:none}.cs-fr .cs-fn{grid-column:1/-1}.cs-fr .c-tit{grid-column:1/-1}" +
   ".cs-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
   "@media (max-width:680px){main{padding:14px 16px 40px}.cs-card{padding:16px 14px 14px}h1{font-size:1.35rem}" +
@@ -693,6 +713,12 @@ if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else if(dlg)dlg.setAtt
 if($('cs-dlg-si'))$('cs-dlg-si').addEventListener('click',function(){var chi=$('cs-dlg-chi').value.trim(),m=$('cs-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('cs-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- firma per approvazione (costruttivi-3, fase C3a): il firmatore comune si carica solo quando serve
+function firmatore(){return window.TIXFirma?Promise.resolve(window.TIXFirma):new Promise(function(ok,ko){var s=D.createElement('script');s.src=CFG.b+'/firma/firma-tix.js';s.onload=function(){window.TIXFirma?ok(window.TIXFirma):ko(new Error('firma'));};s.onerror=function(){ko(new Error('firma'));};D.head.appendChild(s);});}
+D.querySelectorAll('[data-firma]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-firma');b.disabled=true;
+firmatore().then(function(F){b.disabled=false;F.apri({base:CFG.b,t:CFG.t,c:CFG.c,tipo:'progetto_costruttivo',rif_id:id,pdf:CFG.u+'/file?t='+CFG.t+'&c='+CFG.c+'&id='+id,
+impostazioni:CFG.b+'/firma/impostazioni?t='+CFG.t+'&c='+CFG.c+'&da=costruttivi',onFatto:function(){location.reload();}});})
+.catch(function(){b.disabled=false;alert('Il firmatore non si carica: controlla la connessione e riprova.');});});});
 // ---- chiedi il visto di strutturista e DL (costruttivi-2, fase C2)
 var vdlg=$('cs-vs-dlg'),vId='';
 D.querySelectorAll('[data-visto]').forEach(function(b){b.addEventListener('click',function(){if(!vdlg)return;vId=b.getAttribute('data-visto');$('cs-vs-cod').textContent=b.getAttribute('data-cod')||'';$('cs-vs-chi').value=leggiChi();$('cs-vs-msg').textContent='';$('cs-vs-si').disabled=false;
