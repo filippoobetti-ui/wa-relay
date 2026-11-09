@@ -11,6 +11,10 @@
 //   GET      /studio/ddt?c=…&d=…[&scarica=1]       → la foto di un DDT (registrata in prof_registro)
 //   GET      /studio/tavola?c=…&d=…[&scarica=1]    → il file di una tavola IN VIGORE dei Progetti (09/11/2026, registrato in
 //                                                    prof_registro; se è solo su Drive la si riprende come per la Sicurezza)
+//   GET      /studio/costruttivo?c=…&d=…[&scarica=1] → il PDF di un costruttivo di cui è chiesto il visto (09/11/2026, fase C2
+//                                                    dei costruttivi dei fornitori, registrato in prof_registro)
+//   POST     /studio/visto                         → la risposta di strutturista o DL: «Visto» oppure «Osservazioni» (09/11/2026:
+//                                                    l'unica cosa che un professionista scrive; tutto in prof_registro e nello storico)
 //   GET/POST /studio/password?c=…                  → scelta della password (invito o «Password dimenticata?»)
 //   GET      /studio/esci                          → esce
 // L'accesso con email e password passa da /accedi (index.js): prima portale_login, poi prof_login (studioAccedi).
@@ -51,6 +55,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (!env.SUPABASE_SERVICE_KEY) return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   const sotto = inUrl.pathname.slice(base.length);
   if (sotto === "/studio/password") return password(request, env, base, inUrl, h);
+  if (sotto === "/studio/visto") return visto(request, env, base, h, studioGettone(request));
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const tok = studioGettone(request);
   if (sotto === "/studio/esci") {
@@ -65,6 +70,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (sotto === "/studio/file") return file(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/ddt") return fileDdt(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/tavola") return fileTavola(request, env, base, inUrl, h, tok);
+  if (sotto === "/studio/costruttivo") return fileCostruttivo(request, env, base, inUrl, h, tok);
   return new Response("Not Found", { status: 404 });
 }
 
@@ -82,11 +88,13 @@ async function elenco(request, env, base, h, tok) {
     const sez = (c.sezioni || []).map((s) => SEZIONI[s] ? '<span class="chip ' + SEZIONI[s][1] + '">' + SEZIONI[s][0] + "</span>" : "").join("");
     corpo += '<a class="scheda" href="' + e(base + "/studio/cantiere?c=" + c.id) + '">' +
       '<div class="riga"><div class="nome">' + e(c.nome) + '</div>' +
-      (c.documenti_nuovi > 0 ? '<span class="nuovi">' + c.documenti_nuovi + (c.documenti_nuovi === 1 ? " documento nuovo" : " documenti nuovi") + '</span>' : "") + '</div>' +
+      '<span class="avv">' + (c.da_vistare > 0 ? '<span class="nuovi vis">' + c.da_vistare + (c.da_vistare === 1 ? " costruttivo da vistare" : " costruttivi da vistare") + '</span>' : "") +
+      (c.documenti_nuovi > 0 ? '<span class="nuovi">' + c.documenti_nuovi + (c.documenti_nuovi === 1 ? " documento nuovo" : " documenti nuovi") + '</span>' : "") + '</span></div>' +
       '<div class="sub">' + e(c.impresa || "") + (c.ubicazione ? " · " + e(c.ubicazione) : "") + '</div>' +
       '<div class="chips"><span class="chip">' + e(c.ruolo || "") + '</span>' + sez + (c.chiuso ? '<span class="chip">Cantiere chiuso</span>' : "") + '</div></a>';
   }
-  corpo += '<p class="nota">Sola lettura: vedi e scarichi i documenti che l\'impresa ti ha aperto, ma non puoi cambiare niente. TIX annota quando apri e scarichi un documento.</p>';
+  corpo += '<p class="nota">Vedi e scarichi i documenti che l\'impresa ti ha aperto, ma non puoi cambiarli. L\'unica cosa che scrivi è il visto sui costruttivi, ' +
+    'quando l\'impresa te lo chiede. TIX annota quando apri e scarichi un documento e quando rispondi.</p>';
   return pagina(request, base, h, "I tuoi cantieri", d.utente, "", corpo);
 }
 
@@ -105,6 +113,10 @@ async function cantiere(request, env, base, inUrl, h, tok) {
       torna + '<p class="nota">Questo cantiere non è più tra quelli che puoi vedere: l\'impresa può aver tolto l\'accesso, oppure il cantiere è chiuso da più di 90 giorni.</p>', 404);
   }
   let corpo = torna;
+  // 09/11/2026: costruttivi da vistare (solo strutturista e DL con una richiesta dell'impresa), sopra le sezioni
+  const cv = await h.rpc(env, "prof_costruttivi", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+  const conVisto = !!(cv && cv.esito === "ok" && (cv.costruttivi || []).length);
+  if (conVisto) corpo += vistiRiquadro(base, c, cv, e, inUrl);
   // una sezione per volta: quella chiesta con ?s=, altrimenti la prima aperta (nell'ordine di _prof_sezioni)
   const sez = (ca.sezioni || []).filter((s) => SEZIONI[s]);
   const chiesta = String(inUrl.searchParams.get("s") || "");
@@ -125,7 +137,7 @@ async function cantiere(request, env, base, inUrl, h, tok) {
   } else if (s === "progetti") {
     const d = await h.rpc(env, "prof_progetti", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     corpo += progetti(base, c, d, e);
-  } else {
+  } else if (!conVisto) {
     corpo += '<p class="nota">L\'impresa non ti ha ancora aperto nessuna sezione di questo cantiere.</p>';
   }
   const sotto = e(ca.impresa || "") + (ca.ubicazione ? " · " + e(ca.ubicazione) : "") + " · " + e(ca.ruolo || "");
@@ -337,6 +349,121 @@ async function fileTavola(request, env, base, inUrl, h, tok) {
     return h.risposta(pag.replace("</head>", '<meta http-equiv="refresh" content="' + (rec.esito === "pronto" ? 0 : 4) + ";url=" + e(qui + "&n=" + (giro + 1)) + '"></head>'), 200);
   }
   return h.risposta(h.foglio(base, "Tavola", "Il file di questa tavola non è disponibile in questo momento.", indietro), 404);
+}
+
+// ---------------------------------------------------------------------------- visto sui costruttivi (09/11/2026, fase C2)
+// prof_costruttivi dà i costruttivi «Riguarda le strutture» di cui l'impresa ha chiesto il visto al suo ruolo (strutturista o
+// DL), anche quelli a cui ha già risposto finché l'impresa non firma. Le funzioni interne sono della chat Progetti.
+const ESITI_VISTO = { visto: ["Visto", "st-ok"], osservazioni: ["Osservazioni", "st-am"] };
+const MSG_VISTO = {
+  ok: ["ok", "Risposta registrata. L'impresa la vede subito."],
+  cambiata: ["ok", "Risposta cambiata. Quella di prima resta nello storico."],
+  nota: ["err", "Per le osservazioni scrivi il testo: l'impresa lo legge prima di firmare."],
+  firmato: ["err", "L'impresa ha già firmato questo costruttivo: la risposta non si cambia più."],
+  tolto: ["err", "Questo costruttivo non è più in vigore: l'impresa l'ha tolto o ne ha caricato una revisione nuova."],
+  errore: ["err", "La risposta non è stata registrata: riprova tra qualche minuto."]
+};
+function vistiRiquadro(base, c, d, e, inUrl) {
+  const lista = d.costruttivi || [];
+  const attesa = lista.filter((x) => !x.esito).length;
+  const altro = d.ruolo === "dl" ? "Lo strutturista" : "Il Direttore dei Lavori";
+  const msg = MSG_VISTO[String(inUrl.searchParams.get("v") || "")];
+  let h = '<section class="scheda visti" id="visti"><div class="riga"><h2 class="sz"><span class="ic-vis" aria-hidden="true">&#9998;</span>Costruttivi da vistare</h2>' +
+    '<span class="chip">' + e(d.ruolo_etichetta || "") + "</span></div>" +
+    '<p class="sub">' + (attesa ? attesa + (attesa === 1 ? " costruttivo aspetta" : " costruttivi aspettano") + " la tua risposta." : "Hai risposto a tutti.") +
+    " L'impresa può firmare un costruttivo solo dopo la risposta dello strutturista e del Direttore dei Lavori.</p>" +
+    (msg ? '<p class="msg ' + msg[0] + '" role="status">' + e(msg[1]) + "</p>" : "");
+  for (const x of lista) {
+    const titolo = [x.fornitore, x.codice, x.titolo].filter(Boolean).map(e).join(" · ") || e(x.nome || "Costruttivo");
+    const es = ESITI_VISTO[x.esito];
+    const al = ESITI_VISTO[x.altro_esito];
+    const chips = (x.revisione ? '<span class="chip pro">Rev. ' + e(x.revisione) + "</span>" : "") +
+      (es ? '<span class="chip ' + es[1] + '">' + es[0] + "</span>" : '<span class="chip st-ro">Da vistare</span>') +
+      '<span class="chip">' + altro + ": " + (al ? al[0].toLowerCase() : "in attesa") + "</span>";
+    const meta = ["visto chiesto il " + quando(x.chiesto_il) + (x.chiesto_da ? " da " + e(x.chiesto_da) : ""), x.byte ? mb(x.byte) : "", x.nome ? e(x.nome) : ""].filter(Boolean).join(" · ");
+    const url = base + "/studio/costruttivo?c=" + c + "&d=" + x.id;
+    const p7m = /\.p7m$/i.test(String(x.nome || ""));
+    const apri = '<div class="azioni">' + (p7m ? "" : '<a class="btn pr" href="' + e(url) + '" target="_blank" rel="noopener">Apri</a>') +
+      '<a class="btn' + (p7m ? " pr" : "") + '" href="' + e(url + "&scarica=1") + '">Scarica</a>' + (p7m ? '<span class="sub">firmato digitalmente (.p7m): si apre con il programma di firma</span>' : "") + "</div>";
+    const risposta = x.esito ? '<div class="risposta"><strong>La tua risposta</strong> del ' + quando(x.risposto_il) + ": " + es[0] +
+      (x.nota ? '<div class="testo-oss">' + e(x.nota) + "</div>" : "") + "</div>" : "";
+    const modulo = '<form class="vmod" method="post" action="' + e(base + "/studio/visto") + '">' +
+      '<input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="d" value="' + e(x.id) + '">' +
+      '<label for="n-' + e(x.id) + '">Osservazioni <span class="sub">(obbligatorie solo se scegli «Osservazioni»)</span></label>' +
+      '<textarea id="n-' + e(x.id) + '" name="nota" rows="3" maxlength="2000">' + e(x.esito === "osservazioni" ? x.nota || "" : "") + "</textarea>" +
+      '<p class="err-oss" role="alert" hidden>Scrivi le osservazioni: l\'impresa le legge prima di firmare.</p>' +
+      '<div class="azioni"><button class="btn ok" type="submit" name="esito" value="visto">Visto</button>' +
+      '<button class="btn" type="submit" name="esito" value="osservazioni">Invia osservazioni</button></div></form>';
+    h += '<article class="doc" id="v-' + e(x.id) + '"><div class="nome">' + titolo + "</div>" + '<div class="chips">' + chips + "</div>" +
+      '<div class="sub">' + meta + "</div>" +
+      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
+      (x.modificabile === false ? "" : x.esito ? '<details class="cambia"><summary>Cambia la risposta</summary>' + modulo + "</details>" : modulo) + "</article>";
+  }
+  h += '<p class="nota">La risposta resta registrata con il tuo nome, la data e l\'ora, e l\'impresa la vede prima di firmare. ' +
+    'Puoi cambiarla finché l\'impresa non firma; quella di prima resta nello storico. TIX non controlla il contenuto dei disegni.</p>' +
+    // «Invia osservazioni» con il testo vuoto: si ferma qui, senza perdere niente
+    // (un messaggio sotto il testo, non setCustomValidity: quello bloccherebbe anche il «Visto» dopo)
+    "<script>document.querySelectorAll('form.vmod').forEach(function(f){var t=f.querySelector('textarea'),m=f.querySelector('.err-oss');" +
+    "f.addEventListener('submit',function(ev){var b=ev.submitter;" +
+    "if(b&&b.value==='osservazioni'&&t&&!t.value.trim()){ev.preventDefault();if(m)m.hidden=false;t.focus();}});" +
+    "if(t)t.addEventListener('input',function(){if(m)m.hidden=true;});});</script>";
+  return h + "</section>";
+}
+
+// POST /studio/visto: c, d, esito (visto | osservazioni), nota. Il cookie è SameSite=Lax (niente invii da altri siti) e in più
+// si controlla Origin quando il browser lo manda. Dopo, si torna al cantiere con il messaggio.
+async function visto(request, env, base, h, tok) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  if (!tok) return vai(base + "/");
+  const origine = request.headers.get("Origin");
+  if (origine && origine !== "null") {
+    let ok = false;
+    try { ok = new URL(origine).host === new URL(request.url).host; } catch (x) { ok = false; }
+    if (!ok) return new Response("Forbidden", { status: 403 });
+  }
+  const testo = await request.text();
+  if (testo.length > 16000) return new Response("Modulo troppo grande.", { status: 413 });
+  const f = new URLSearchParams(testo);
+  const c = String(f.get("c") || "").toLowerCase();
+  const id = String(f.get("d") || "").toLowerCase();
+  const esito = String(f.get("esito") || "");
+  if (!UUID.test(c)) return vai(base + "/studio");
+  const torna = (v) => vai(base + "/studio/cantiere?c=" + c + "&v=" + v + (UUID.test(id) ? "#v-" + id : "#visti"));
+  if (!UUID.test(id) || (esito !== "visto" && esito !== "osservazioni")) return torna("errore");
+  const nota = String(f.get("nota") || "").slice(0, 2000);
+  if (esito === "osservazioni" && !nota.trim()) return torna("nota");
+  const r = await h.rpc(env, "prof_costruttivo_visto", { p_token: tok, p_commessa: c, p_id: id, p_dati: { esito, nota } }, 15000).catch(() => null);
+  if (!r || typeof r !== "object") return torna("errore");
+  if (r.esito === "gettone" || r.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (r.esito === "ok") return torna(r.cambiato ? "cambiata" : "ok");
+  if (r.esito === "non_trovato" || r.esito === "cantiere") return torna("tolto");
+  const m = String(r.messaggio || "");
+  return torna(/firmato/i.test(m) ? "firmato" : /osservazioni/i.test(m) ? "nota" : "errore");
+}
+
+// GET /studio/costruttivo: il PDF (o .p7m) del costruttivo, dall'archivio privato wa-media (documenti/<cantiere>/costruttivi/…)
+async function fileCostruttivo(request, env, base, inUrl, h, tok) {
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("d") || "").toLowerCase();
+  const scarica = inUrl.searchParams.get("scarica") === "1";
+  const e = h.esc;
+  const indietro = '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "#visti") + '">Torna al cantiere</a>';
+  if (!UUID.test(c) || !UUID.test(id)) return h.risposta(h.foglio(base, "Costruttivo non trovato", "", indietro), 404);
+  const info = await h.rpc(env, "prof_costruttivo_file", { p_token: tok, p_commessa: c, p_id: id }, 10000).catch(() => null);
+  if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Costruttivo", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (info.esito === "gettone" || info.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (info.esito !== "ok" || String(info.commessa_id || "") !== c) {
+    return h.risposta(h.foglio(base, "Costruttivo non disponibile", "L'impresa può averlo tolto o averne caricato una revisione nuova.", indietro), 404);
+  }
+  const ps = String(info.transito || "");
+  if (!ps || ps.indexOf("documenti/" + c + "/costruttivi/") !== 0 || ps.indexOf("..") !== -1) {
+    return h.risposta(h.foglio(base, "Costruttivo", "Il file di questo costruttivo non è disponibile in questo momento.", indietro), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (f && f.ok) return servi(f, info, scarica, request.method);
+  if (f && (f.status === 400 || f.status === 404)) return h.risposta(h.foglio(base, "Costruttivo", "Il file di questo costruttivo non è più nell'archivio: avvisa l'impresa.", indietro), 404);
+  return h.risposta(h.foglio(base, "Costruttivo", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
 }
 
 // ---------------------------------------------------------------------------- file
@@ -558,6 +685,18 @@ const STILE = "[hidden]{display:none!important}" +
   // Progetti (09/11/2026): lo stesso rame della scheda Progetti dell'impresa
   ".chip.pro{background:#F7EEE6;color:#6E4526}.ic-pro{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;" +
   "background:linear-gradient(135deg,#D19A6A,#A86F44 45%,#6E4526)}" +
+  // visto sui costruttivi (09/11/2026): riquadro sopra le sezioni, bollino viola nell'elenco dei cantieri, modulo della risposta
+  ".avv{display:inline-flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.nuovi.vis{background:#6D3FC0}" +
+  ".ic-vis{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;color:#fff;background:linear-gradient(135deg,#B79CF0,#6D3FC0 45%,#3E1F7A)}" +
+  ".visti .msg{border-radius:10px;padding:8px 12px;margin:10px 0 0;font-weight:600}.visti .msg.ok{background:var(--sic-f);color:var(--sic-s)}.visti .msg.err{background:var(--ro-f);color:var(--ro)}" +
+  ".risposta{margin-top:10px;border-left:3px solid #6D3FC0;padding:4px 0 4px 10px;font-size:.92rem}.testo-oss{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}" +
+  ".vmod{margin-top:10px}.vmod label{display:block;font-weight:600;font-size:.9rem;margin:0 0 4px}" +
+  ".vmod textarea{width:100%;font:inherit;border:1px solid var(--l);border-radius:10px;padding:8px 10px;background:var(--carta);color:var(--t);resize:vertical;min-height:72px}" +
+  // lo stile premium dà a tutti i .btn lo sfondo chiaro sfumato: qui il verde del «Visto» deve vincere
+  ".btn.ok{background:linear-gradient(135deg,#12B886,#0CA678)!important;border-color:#0CA678!important;color:#fff!important}button.btn{cursor:pointer}" +
+  ".err-oss{color:var(--ro);font-weight:600;font-size:.9rem;margin:6px 0 0}" +
+  ".cambia{margin-top:8px}.cambia summary{cursor:pointer;color:var(--s);font-size:.9rem;padding:4px 0}" +
+  "@media print{.vmod,.cambia{display:none}}" +
   // fabbricato / lotto accanto al titolo della tavola (09/11/2026)
   ".lotto{display:inline-block;vertical-align:middle;margin-left:6px;padding:1px 9px;border-radius:6px;border:1px solid var(--navy);color:var(--navy);font-size:.78rem;font-weight:700;max-width:100%;overflow-wrap:anywhere}" +
   "@media (prefers-color-scheme:dark){.lotto{border-color:#C9D6E5;color:#C9D6E5}}" +
