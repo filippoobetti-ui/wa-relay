@@ -10,6 +10,8 @@
 //   POST /progetti/azione  {t, c, azione: "annulla", id, dati: {chi, motivo}}
 //                          {t, c, azione: "sposta", dati: {ids: [...], tipo, chi}}  (09/11/2026, sposta-1: categoria nuova con
 //                          storico, anche le revisioni superate dello stesso codice; interruttore impostazioni.progetti_sposta_attiva)
+//                          {t, c, azione: "lotto", dati: {ids: [...], lotto, chi}}  (09/11/2026, lotto-1: «Fabbricato / lotto»
+//                          facoltativo; nel caricamento X-Progetti-Dati ha anche «lotto»; interruttore impostazioni.progetti_lotto_attiva)
 //   GET  /progetti/file?t=…&c=…&id=…[&scarica=1]          → il file della revisione in vigore
 // Caricamento come la Sicurezza: prima il controllo nel database (progetti_carica_controlla), poi il corpo; tipo letto dai
 // primi byte; impronta ricalcolata qui solo fino a 5 MB (CPU del piano gratuito), altrimenti vale quella del browser.
@@ -161,7 +163,7 @@ async function carica(request, env, h) {
   const sha = String(d.sha256 || "").toLowerCase();
   const dati = {
     tipo: testo(d.tipo, 40), codice: testo(d.codice, 60), titolo: testo(d.titolo, 200), revisione: testo(d.revisione, 30),
-    variante: d.variante === true, autore: testo(d.autore, 120), nome, byte, sha256: sha
+    variante: d.variante === true, autore: testo(d.autore, 120), nome, byte, sha256: sha, lotto: testo(d.lotto, 60)
   };
   const dichiarati = Number(request.headers.get("Content-Length") || 0);
   if (!Number.isFinite(byte) || byte <= 0) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
@@ -262,6 +264,10 @@ async function azione(request, env, h) {
     const ids = Array.from(new Set(lista(dati.ids).map((x) => String(x || "").toLowerCase()).filter((x) => UUID.test(x))));
     if (!UUID.test(c) || !ids.length || ids.length > 400) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "progetti_tavole_sposta", { p_token: tok, p_commessa: c, p_ids: ids, p_tipo: testo(dati.tipo, 40), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "lotto") {
+    const ids = Array.from(new Set(lista(dati.ids).map((x) => String(x || "").toLowerCase()).filter((x) => UUID.test(x))));
+    if (!UUID.test(c) || !ids.length || ids.length > 400) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "progetti_tavole_lotto", { p_token: tok, p_commessa: c, p_ids: ids, p_lotto: testo(dati.lotto, 60), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
   } else if (a === "destinatari" || a === "destinatario_aggiungi" || a === "destinatario_togli") {
     if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
     const az = a === "destinatario_aggiungi" ? "aggiungi" : a === "destinatario_togli" ? "togli" : "elenco";
@@ -364,6 +370,11 @@ function pagina(base, h, p, d, torna) {
   const tavole = lista(d.tavole);
   const chiuso = !!d.chiuso;
   const sposta = !chiuso && d.sposta === true;
+  const lottoModo = !chiuso && d.lotto_modo === true;
+  const scegli = sposta || lottoModo;   // caselle «Seleziona» e barra in basso
+  const lotti = Array.from(new Set(tavole.map((x) => String(x.lotto || "").trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "it", { numeric: true }));
+  const senzaLotto = tavole.some((x) => !String(x.lotto || "").trim());
   const maxMb = Math.max(1, Math.min(50, Number(d.max_mb) || 25));
   const sup = Math.max(0, Number(d.superate) || 0);
   const spazio = tavole.reduce((s, x) => s + (Number(x.byte) || 0), 0);
@@ -383,16 +394,23 @@ function pagina(base, h, p, d, torna) {
     TIPI.map(([k, n]) => '<button type="button" data-f="' + k + '"' + (conta[k] ? "" : " hidden") + '>' + e(n) + ' <i>' + conta[k] + '</i></button>').join("") +
     (varianti ? '<button type="button" data-f="variante">Varianti <i>' + varianti + '</i></button>' : "") + '</div>' +
     '<label class="pg-campo">' + SVG.cerca + '<input type="search" id="pg-q" placeholder="Cerca: fondazioni, STR-03…" aria-label="Cerca una tavola"></label></div>';
+  // lotto-1: secondo filtro, solo se almeno una tavola ha il fabbricato / lotto
+  const filtriLotto = lotti.length ? '<div class="pg-filtri pg-lotti" role="group" aria-label="Fabbricato / lotto"><span class="pg-lotti-et">Fabbricato / lotto</span>' +
+    '<button type="button" class="on" data-l="">Tutti</button>' +
+    lotti.map((l) => '<button type="button" data-l="' + e(l) + '">' + e(l) + ' <i>' + tavole.filter((x) => String(x.lotto || "").trim() === l).length + '</i></button>').join("") +
+    (senzaLotto ? '<button type="button" data-l="__senza">Senza <i>' + tavole.filter((x) => !String(x.lotto || "").trim()).length + '</i></button>' : "") + '</div>' : "";
+  const elencoLotti = lotti.length ? '<datalist id="pg-lotti-elenco">' + lotti.map((l) => '<option value="' + e(l) + '">').join("") + '</datalist>' : "";
 
   let sezioni = "";
   let num = 0;
   TIPI.forEach(([k, n]) => {
-    const t = tavole.filter((x) => x.tipo === k).sort((a, b) => String(a.codice).localeCompare(String(b.codice), "it", { numeric: true }));
+    const t = tavole.filter((x) => x.tipo === k).sort((a, b) => String(a.lotto || "").localeCompare(String(b.lotto || ""), "it", { numeric: true }) ||
+      String(a.codice).localeCompare(String(b.codice), "it", { numeric: true }));
     if (!t.length) return;
     num++;
     sezioni += '<section class="pg-sez" data-sez="' + k + '"><h2><span class="n">' + num + '</span>' + e(n) + ' <small>' + t.length + (t.length === 1 ? " tavola" : " tavole") + '</small>' +
-      (sposta ? '<button type="button" class="pg-sel-tutte" data-sel-sez="' + k + '">Seleziona tutte</button>' : "") + '</h2>' +
-      t.map((x) => riga(e, qui, p, x, chiuso, sposta)).join("") + '</section>';
+      (scegli ? '<button type="button" class="pg-sel-tutte" data-sel-sez="' + k + '">Seleziona tutte</button>' : "") + '</h2>' +
+      t.map((x) => riga(e, qui, p, x, chiuso, sposta, scegli)).join("") + '</section>';
   });
   if (!tavole.length) {
     sezioni = '<div class="pg-vuoto">' + SVG.compasso + '<p><b>Nessuna tavola ancora.</b> ' +
@@ -404,6 +422,8 @@ function pagina(base, h, p, d, torna) {
     '<p class="pg-sotto">Puoi scegliere più file insieme. TIX prova a leggere codice, titolo e revisione dal nome del file: controlla e correggi prima di salvare.</p>' +
     '<label class="pg-drop" id="pg-drop"><span class="pg-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli i file</span><input type="file" id="pg-file" accept="application/pdf,.pdf,.p7m" multiple hidden></label>' +
+    (lottoModo ? '<div class="pg-chi pg-lotto-box" id="pg-lotto-box" hidden><label for="pg-lotto">Fabbricato / lotto <small>facoltativo, vale per tutti i file di questo caricamento</small></label>' +
+      '<input id="pg-lotto" maxlength="60" list="pg-lotti-elenco" placeholder="es. Palazzina B, Lotto 2 — lascia vuoto se il cantiere è uno solo"></div>' : "") +
     '<div class="pg-tutte" id="pg-tutte" hidden><label for="pg-rev-tutte">Stessa revisione per tutte</label><input id="pg-rev-tutte" maxlength="30" placeholder="es. A">' +
     '<button type="button" class="btn sm sec" id="pg-rev-applica">Applica a tutte</button></div>' +
     '<p class="pg-mancano" id="pg-mancano" role="status" hidden></p>' +
@@ -453,9 +473,11 @@ function pagina(base, h, p, d, torna) {
     '<h1><span class="pg-ic" aria-hidden="true">' + SVG.compasso + '</span>Progetti del cantiere</h1>' +
     (d.modo === "prova" ? '<p class="pg-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
     (chiuso ? "" : '<div class="pg-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica tavole</a></div>') + '</div>' +
-    cifre + avvVecchie + (tavole.length ? filtri : "") + sezioni + '<p class="pg-nessuno" id="pg-nessuno" hidden>Nessuna tavola con questa ricerca.</p>' +
-    (sposta && tavole.length ? '<div class="pg-selbar" id="pg-selbar" hidden><span id="pg-sel-n"></span><button type="button" class="btn sm pr" id="pg-sel-sposta">Sposta le selezionate in…</button>' +
-      '<button type="button" class="btn sm tenue" id="pg-sel-via">Annulla la selezione</button></div>' : "") +
+    cifre + avvVecchie + (tavole.length ? filtri + filtriLotto : "") + sezioni + '<p class="pg-nessuno" id="pg-nessuno" hidden>Nessuna tavola con questa ricerca.</p>' +
+    (scegli && tavole.length ? '<div class="pg-selbar" id="pg-selbar" hidden><span id="pg-sel-n"></span>' +
+      (sposta ? '<button type="button" class="btn sm pr" id="pg-sel-sposta">Sposta le selezionate in…</button>' : "") +
+      (lottoModo ? '<button type="button" class="btn sm sec" id="pg-sel-lotto">Fabbricato / lotto…</button>' : "") +
+      '<button type="button" class="btn sm tenue" id="pg-sel-via">Annulla la selezione</button></div>' : "") + elencoLotti +
     form + wa + email +
     '<p class="pg-fonti">TIX™ conserva le tavole, le tiene in ordine e mostra solo la revisione in vigore. Non controlla i disegni: la responsabilità del progetto resta dei progettisti e della Direzione Lavori.</p>' +
     '</div></main>' +
@@ -472,18 +494,27 @@ function pagina(base, h, p, d, torna) {
       '<label for="pg-sp-chi">Il tuo nome</label><input id="pg-sp-chi" maxlength="120" autocomplete="name">' +
       '<p class="pg-msg" id="pg-sp-msg" role="status"></p>' +
       '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-sp-si">Sposta</button></div></form></dialog>' : "") +
+    (lottoModo ? '<dialog class="pg-dlg" id="pg-lt-dlg"><form method="dialog"><h3 id="pg-lt-tit">Fabbricato / lotto</h3>' +
+      '<p>Scrivi a quale fabbricato o lotto appartengono, per esempio «Palazzina B» o «Lotto 2». Lascia vuoto per togliere il fabbricato / lotto. ' +
+      'Cambiano anche le revisioni superate delle stesse tavole; codice, revisione e file restano uguali.</p>' +
+      '<label for="pg-lt-val">Fabbricato / lotto</label><input id="pg-lt-val" maxlength="60" list="pg-lotti-elenco" placeholder="es. Palazzina B">' +
+      '<label for="pg-lt-chi">Il tuo nome</label><input id="pg-lt-chi" maxlength="120" autocomplete="name">' +
+      '<p class="pg-msg" id="pg-lt-msg" role="status"></p>' +
+      '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-lt-si">Salva</button></div></form></dialog>' : "") +
     "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 
 const NOME_TIPO = Object.fromEntries(TIPI);
 
-function riga(e, qui, p, x, chiuso, sposta) {
+function riga(e, qui, p, x, chiuso, sposta, scegli) {
   const apri = qui + "/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(x.id);
   const meta = [];
   meta.push("<b>rev. " + e(x.revisione) + "</b>" + (x.sostituisce ? ", sostituisce la rev. " + e(x.sostituisce) : ""));
   meta.push("caricata da <b>" + e(x.caricato_da || "") + "</b> il " + e(quando(x.caricato_il)));
   const sp = x.spostata && typeof x.spostata === "object" ? x.spostata : null;
   if (sp) meta.push("spostata da <b>" + e(NOME_TIPO[sp.da] || sp.da || "") + "</b> a <b>" + e(NOME_TIPO[sp.a] || sp.a || "") + "</b> da <b>" + e(sp.chi || "") + "</b> il " + e(quando(sp.il)));
+  const lc = x.lotto_cambiato && typeof x.lotto_cambiato === "object" ? x.lotto_cambiato : null;
+  if (lc) meta.push("fabbricato / lotto " + (lc.a ? "«" + e(lc.a) + "»" : "tolto") + (lc.da ? " (prima «" + e(lc.da) + "»)" : "") + " da <b>" + e(lc.chi || "") + "</b> il " + e(quando(lc.il)));
   meta.push(e(mb(x.byte)));
   const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
     (x.drive && x.impronta_drive === "uguale" ? ' <span class="pg-ok">verificata sull\'archivio Drive</span>'
@@ -494,11 +525,13 @@ function riga(e, qui, p, x, chiuso, sposta) {
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
     (sposta ? '<button type="button" class="btn sm tenue" data-sposta="' + e(x.id) + '" data-tipo="' + e(x.tipo) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Sposta</button>' : "") +
     (chiuso ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
-  const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "")).toLowerCase();
-  return '<div class="pg-tv" data-tipo="' + e(x.tipo) + '" data-var="' + (x.variante ? "1" : "") + '" data-q="' + e(q) + '">' +
+  const lotto = String(x.lotto || "").trim();
+  const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "") + " " + lotto).toLowerCase();
+  return '<div class="pg-tv" data-tipo="' + e(x.tipo) + '" data-var="' + (x.variante ? "1" : "") + '" data-lotto="' + e(lotto) + '" data-q="' + e(q) + '">' +
     '<div class="pg-cod"><b>' + e(x.codice) + '</b><span class="pg-rev">rev. ' + e(x.revisione) + '</span>' +
-    (sposta ? '<label class="pg-sel"><input type="checkbox" data-sel="' + e(x.id) + '" aria-label="Seleziona ' + e(x.codice) + '"> Seleziona</label>' : "") + '</div>' +
-    '<div class="pg-corpo"><p class="pg-tit">' + e(x.titolo || x.nome || x.codice) + (x.variante ? ' <span class="pg-var">Variante</span>' : "") + '</p>' +
+    (scegli ? '<label class="pg-sel"><input type="checkbox" data-sel="' + e(x.id) + '" aria-label="Seleziona ' + e(x.codice) + '"> Seleziona</label>' : "") + '</div>' +
+    '<div class="pg-corpo"><p class="pg-tit">' + e(x.titolo || x.nome || x.codice) + (lotto ? ' <span class="pg-lotto">' + e(lotto) + '</span>' : "") +
+    (x.variante ? ' <span class="pg-var">Variante</span>' : "") + '</p>' +
     '<p class="pg-meta">' + meta.join(" · ") + " · " + imp + '</p></div>' +
     '<div class="pg-lato"><span class="pg-st">In vigore</span><div class="pg-az">' + az + '</div></div></div>';
 }
@@ -619,6 +652,10 @@ const STILE =
   ".pg-sel-tutte{padding:3px 10px;border:1px solid var(--pr-b);border-radius:999px;background:var(--pr-f);color:var(--pr-s);font:inherit;font-size:.74rem;font-weight:700;letter-spacing:0;text-transform:none;cursor:pointer}" +
   ".pg-selbar{position:sticky;bottom:12px;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:14px 0 0;padding:10px 12px;border:1.5px solid var(--pr);border-radius:14px;background:#fff;box-shadow:0 12px 28px -14px rgba(16,27,43,.45)}" +
   ".pg-selbar span{flex:1 1 160px;font-weight:700;color:var(--pr-s);font-size:.92rem}" +
+  // lotto-1: etichetta del fabbricato / lotto, secondo filtro, campo del caricamento
+  ".pg-lotto{padding:1px 9px;border-radius:999px;border:1px solid #9FB3C8;background:#EEF3F8;color:var(--navy);font-size:.74rem;font-weight:700}" +
+  ".pg-lotti{margin:10px 0 2px;align-items:center}.pg-lotti-et{font-size:.78rem;font-weight:700;color:var(--s);margin-right:2px}" +
+  ".pg-lotti button.on{background:#3E5A7A;border-color:#3E5A7A}.pg-lotto-box{max-width:520px}.pg-lotto-box small{font-weight:500;color:var(--s)}" +
   ".pg-dlg select{width:100%;min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:var(--c);font:inherit;font-size:.88rem;color:var(--t)}" +
   "@media (max-width:1100px){.pg-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pg-th{display:none}.pg-fr .pg-fn{grid-column:1/-1}.pg-fr .c-tit{grid-column:1/-1}" +
   ".pg-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
@@ -655,12 +692,13 @@ else if(/piant|prospett|sezion|architett|planimetr|layout|copertur/.test(l))tipo
 return {codice:cod,revisione:rev,titolo:tit,tipo:tipo};}
 window.__pgLeggiNome=leggiNome;
 // ---- filtri e ricerca
-var filtro='';var q=$('pg-q');
+var filtro='',filtroL='';var q=$('pg-q');
 function applica(){var t=(q&&q.value||'').toLowerCase().trim();var vis=0;
-D.querySelectorAll('.pg-tv').forEach(function(el){var ok=(!filtro||(filtro==='variante'?el.getAttribute('data-var')==='1':el.getAttribute('data-tipo')===filtro))&&(!t||el.getAttribute('data-q').indexOf(t)!==-1);el.classList.toggle('pg-via',!ok);if(ok)vis++;});
+D.querySelectorAll('.pg-tv').forEach(function(el){var l=el.getAttribute('data-lotto')||'';var ok=(!filtro||(filtro==='variante'?el.getAttribute('data-var')==='1':el.getAttribute('data-tipo')===filtro))&&(!filtroL||(filtroL==='__senza'?!l:l===filtroL))&&(!t||el.getAttribute('data-q').indexOf(t)!==-1);el.classList.toggle('pg-via',!ok);if(ok)vis++;});
 D.querySelectorAll('.pg-sez').forEach(function(s){s.classList.toggle('pg-via',!s.querySelector('.pg-tv:not(.pg-via)'));});
 var n=$('pg-nessuno');if(n)n.hidden=vis>0||!D.querySelector('.pg-tv');}
-D.querySelectorAll('.pg-filtri button').forEach(function(b){b.addEventListener('click',function(){filtro=b.getAttribute('data-f')||'';D.querySelectorAll('.pg-filtri button').forEach(function(x){x.classList.toggle('on',x===b);});applica();});});
+D.querySelectorAll('.pg-filtri button[data-f]').forEach(function(b){b.addEventListener('click',function(){filtro=b.getAttribute('data-f')||'';D.querySelectorAll('.pg-filtri button[data-f]').forEach(function(x){x.classList.toggle('on',x===b);});applica();});});
+D.querySelectorAll('.pg-filtri button[data-l]').forEach(function(b){b.addEventListener('click',function(){filtroL=b.getAttribute('data-l')||'';D.querySelectorAll('.pg-filtri button[data-l]').forEach(function(x){x.classList.toggle('on',x===b);});applica();});});
 if(q)q.addEventListener('input',applica);
 // ---- caricamento
 var inp=$('pg-file'),drop=$('pg-drop'),righe=$('pg-righe'),FILE=[];
@@ -669,7 +707,7 @@ function opz(v){return TIPI.map(function(t){return '<option value="'+t[0]+'"'+(t
 function vuoto(v){return !String(v||'').trim();}
 function mancano(){var n=FILE.filter(function(f){return !f.no&&!f.ok&&(vuoto(f.codice)||vuoto(f.revisione));}).length;var a=$('pg-mancano');
 if(a){a.hidden=!n;a.innerHTML=n?'<b>'+(n===1?'In 1 tavola manca':'In '+n+' tavole mancano')+' il codice o la revisione</b> (i campi in rosso). Codice = il numero della tavola scritto nel cartiglio, per esempio <b>STR-03</b> o <b>01</b>; revisione = la lettera o il numero della revisione, per esempio <b>A</b>. Se la revisione è la stessa per tutte, usa «Stessa revisione per tutte».':'';}return n;}
-function disegna(){if(!righe)return;$('pg-fl').hidden=!FILE.length;$('pg-az').hidden=!FILE.length;$('pg-chi-box').hidden=!FILE.length;if($('pg-tutte'))$('pg-tutte').hidden=FILE.filter(function(f){return !f.no&&!f.ok;}).length<2;
+function disegna(){if(!righe)return;$('pg-fl').hidden=!FILE.length;$('pg-az').hidden=!FILE.length;$('pg-chi-box').hidden=!FILE.length;if($('pg-lotto-box'))$('pg-lotto-box').hidden=!FILE.length;if($('pg-tutte'))$('pg-tutte').hidden=FILE.filter(function(f){return !f.no&&!f.ok;}).length<2;
 var buoni=FILE.filter(function(f){return !f.no&&!f.ok;}).length;$('pg-salva').textContent=buoni===1?'Salva 1 tavola':'Salva '+buoni+' tavole';$('pg-salva').disabled=!buoni;
 righe.innerHTML=FILE.map(function(f,i){var ext=(String(f.file.name).match(/\.([A-Za-z0-9]{1,4})$/)||['',''])[1].toUpperCase()||'FILE';var testa='<div class="pg-fn"><span class="pg-pdf">'+esc(ext)+'</span><span class="pg-nm">'+esc(f.file.name)+'<span>'+mb(f.file.size)+'</span></span></div>';
 if(f.no)return '<div class="pg-fr no">'+testa+'<div class="pg-esito">'+esc(f.no)+'</div></div>';
@@ -698,7 +736,7 @@ FILE.forEach(function(f){if(!f.no&&!f.ok)f.revisione=v;});disegna();});
 righe.addEventListener('change',function(ev){var el=ev.target,r=el.closest('[data-i]');if(!r)return;var f=FILE[+r.getAttribute('data-i')];var k=el.getAttribute('data-k');if(!f||!k)return;f[k]=el.type==='checkbox'?el.checked:el.value;});}
 if($('pg-annulla'))$('pg-annulla').addEventListener('click',function(){FILE=[];disegna();$('pg-msg').textContent='';});
 function manda(f,chi){return f.file.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){
-var dati={t:CFG.t,c:CFG.c,tipo:f.tipo,codice:String(f.codice||'').trim(),titolo:String(f.titolo||'').trim(),revisione:String(f.revisione||'').trim(),variante:!!f.variante,autore:chi,nome:f.file.name,byte:buf.byteLength,sha256:esa(h)};
+var dati={t:CFG.t,c:CFG.c,tipo:f.tipo,codice:String(f.codice||'').trim(),titolo:String(f.titolo||'').trim(),revisione:String(f.revisione||'').trim(),variante:!!f.variante,autore:chi,nome:f.file.name,byte:buf.byteLength,sha256:esa(h),lotto:($('pg-lotto')?$('pg-lotto').value.trim():'')};
 return fetch(CFG.u+'/carica',{method:'POST',headers:{'X-Progetti-Dati':b64url(JSON.stringify(dati)),'Content-Type':'application/octet-stream'},body:buf}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});});});});}
 var salvati=0;
 if($('pg-salva'))$('pg-salva').addEventListener('click',function(){var b=$('pg-salva'),m=$('pg-msg'),chi=$('pg-chi').value.trim();
@@ -749,6 +787,18 @@ if(!tipo){m.textContent='Scegli la categoria.';$('pg-sp-tipo').focus();return;}i
 fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'sposta',dati:{ids:sIds,tipo:tipo,chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
 m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Lo spostamento delle tavole non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- fabbricato / lotto (09/11/2026, lotto-1): alle tavole selezionate; vuoto = toglie il fabbricato / lotto
+var ldlg=$('pg-lt-dlg'),lIds=[];
+if($('pg-sel-lotto'))$('pg-sel-lotto').addEventListener('click',function(){var ids=selezionate();if(!ids||!ids.length||!ldlg)return;lIds=ids;
+$('pg-lt-tit').textContent=ids.length===1?'Fabbricato / lotto di 1 tavola':'Fabbricato / lotto di '+ids.length+' tavole';
+var vals=ids.map(function(id){var c=D.querySelector('[data-sel="'+id+'"]');var tv=c&&c.closest('.pg-tv');return tv?tv.getAttribute('data-lotto')||'':'';});
+$('pg-lt-val').value=vals.every(function(v){return v===vals[0];})?vals[0]:'';$('pg-lt-chi').value=leggiChi();$('pg-lt-msg').textContent='';$('pg-lt-si').disabled=false;
+if(typeof ldlg.showModal==='function')ldlg.showModal();else ldlg.setAttribute('open','');});
+if($('pg-lt-si'))$('pg-lt-si').addEventListener('click',function(){var m=$('pg-lt-msg'),val=$('pg-lt-val').value.trim(),chi=$('pg-lt-chi').value.trim();m.textContent='';
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha cambiato le tavole.';$('pg-lt-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'lotto',dati:{ids:lIds,lotto:val,chi:chi}})})
+.then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
+m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Il fabbricato / lotto non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;
 
 // ---------------------------------------------------------------------------- P2: la tavola su WhatsApp (08/11/2026, progetti-2)
@@ -840,7 +890,7 @@ export async function progettiWaGestisci(msg, value, env, h) {
         method: "POST", headers: { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 900 }) });
       const sj = sg.ok ? await sg.json().catch(() => null) : null;
       if (!sj || typeof sj.signedURL !== "string") { await scrivi("Non riesco a prendere la tavola adesso: riprova tra qualche minuto."); return true; }
-      const didascalia = "📐 *" + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + "\nRev. " + r.revisione + (r.data ? " del " + r.data : "") + " · *in vigore*" +
+      const didascalia = "📐 *" + r.codice + "*" + (r.titolo ? " " + r.titolo : "") + (r.lotto ? "\n" + r.lotto : "") + "\nRev. " + r.revisione + (r.data ? " del " + r.data : "") + " · *in vigore*" +
         (r.variante ? " · variante" : "") + (r.cantiere ? "\n" + r.cantiere : "") + "\nRiservata al cantiere. Prima di stampare controlla sempre la revisione.";
       const inv = await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "document",
         document: { link: supabaseUrl(env) + "/storage/v1" + sj.signedURL, filename: String(r.nome_file || (r.codice + ".pdf")).slice(0, 200), caption: didascalia.slice(0, 1000) } }));
@@ -849,7 +899,7 @@ export async function progettiWaGestisci(msg, value, env, h) {
       try { await h.rpc(env, "progetti_wa_esito", { p_invio: r.invio_id, p_wa_message_id: wid, p_ok: !!(inv && inv.ok) }, 6000); } catch (e) {}
     } else if (r.esito === "elenco" && Array.isArray(r.righe) && r.righe.length) {
       const righe = r.righe.slice(0, 10).map((x) => ({ id: "PRG_" + x.id, title: String(x.codice + " rev. " + x.revisione).slice(0, 24),
-        description: String((x.titolo || "") + (x.cantiere ? " · " + x.cantiere : "")).slice(0, 72) }));
+        description: String((x.lotto ? x.lotto + " · " : "") + (x.titolo || "") + (x.cantiere ? " · " + x.cantiere : "")).slice(0, 72) }));
       await h.invia(phoneId, env.WHATSAPP_TOKEN, Object.assign({}, testoBase, { type: "interactive", interactive: { type: "list",
         body: { text: "Ho trovato " + r.quante + " tavole in vigore" + (r.quante > 10 ? " (ti mostro le prime 10)" : "") + ". Quale ti serve?" },
         action: { button: "Scegli la tavola", sections: [{ title: "Tavole in vigore", rows: righe }] } } }));
