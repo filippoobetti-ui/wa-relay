@@ -5,11 +5,15 @@
 // «Riguarda le strutture», chi l'ha caricato e quando, impronta SHA-256, stato di approvazione. Ogni costruttivo nasce
 // «Da approvare»; prima della firma non va su WhatsApp e non è tra le tavole del cantiere. La revisione nuova dello stesso
 // codice e dello stesso fornitore rende «Superata» quella di prima (resta nel database e nell'archivio, non si vede più qui).
-// Tabelle PROPRIE (costruttivi), non dentro progetti_tavole: i Progetti non si toccano. Firma (C3) e visto (C2) non in questo file.
+// Tabelle PROPRIE (costruttivi), non dentro progetti_tavole: i Progetti non si toccano. Dal 09/11/2026 (costruttivi-2, C2) qui c'è
+// anche «Chiedi il visto» per i costruttivi delle strutture (tabella costruttivi_visti); strutturista e DL rispondono dalle pagine
+// /studio della chat 02A. La firma (C3) non è in questo file.
 //   GET  /costruttivi?t=<gettone>&c=<cantiere>             → pagina (database: costruttivi_contesto)
 //   POST /costruttivi/carica  intestazione X-Costruttivi-Dati = JSON in base64url {t, c, fornitore, codice, titolo, revisione,
 //                          strutture, autore, nome, byte, sha256}; corpo = il file (PDF o .p7m, fino a progetti_max_mb)
 //   POST /costruttivi/azione  {t, c, azione: "annulla", id, dati: {chi, motivo}}  (solo se ancora «Da approvare»)
+//                             {t, c, azione: "visto_chiedi", id, dati: {chi}}  (09/11/2026, costruttivi-2, fase C2: visto di
+//                             strutturista e DL sui costruttivi «Riguarda le strutture»; rispondono dalle pagine /studio della 02A)
 //   GET  /costruttivi/file?t=…&c=…&id=…[&scarica=1]       → il file della revisione in vigore
 // Caricamento come i Progetti: prima il controllo nel database (costruttivi_carica_controlla), poi il corpo; tipo letto dai
 // primi byte; impronta ricalcolata qui fino a 5 MB, altrimenti vale quella del browser. Il file va in wa-media
@@ -246,6 +250,9 @@ async function azione(request, env, h) {
   if (a === "annulla") {
     if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "costruttivi_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "visto_chiedi") {
+    if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "costruttivi_visto_chiedi", { p_token: tok, p_id: id, p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
   } else {
     return json({ esito: "richiesta_non_valida" }, 400);
   }
@@ -306,8 +313,12 @@ const SVG = {
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14l3-3 3 3"/></svg>',
   cerca: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>',
   archivio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M2 3h20v4H2zM10 12h4"/></svg>',
-  penna: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>'
+  penna: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+  persone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3 3 0 0 1 0 6M18 14.6c1.8.7 3 2.4 3 5.4"/></svg>',
+  occhio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
 };
+// C2: il costruttivo delle strutture «Da approvare» aspetta ancora il visto (non chiesto, oppure manca una risposta)
+function attesaVisto(x) { return !!(x && x.strutture && x.approvazione === "da_approvare" && !x.visti_completi); }
 const STATI = {
   da_approvare: ["da", "Da approvare"],
   approvato: ["ok", "Approvato"],
@@ -328,6 +339,10 @@ function pagina(base, h, p, d, torna) {
   const approvati = conta("approvato") + conta("osservazioni");
   const rivedere = conta("da_rivedere");
   const strutture = voci.filter((x) => x.strutture).length;
+  // costruttivi-2 (fase C2): visto di strutturista e DL
+  const vistoAttivo = d.visto_attivo === true;
+  const pro = d.professionisti && typeof d.professionisti === "object" ? d.professionisti : {};
+  const inAttesa = vistoAttivo ? voci.filter((x) => attesaVisto(x)).length : 0;
   const fornitori = Array.from(new Set(voci.map((x) => String(x.fornitore || "").trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }));
 
@@ -342,7 +357,8 @@ function pagina(base, h, p, d, torna) {
     '<button type="button" data-f="da_approvare"' + (daApprovare ? "" : " hidden") + '>Da approvare <i>' + daApprovare + '</i></button>' +
     '<button type="button" data-f="approvati"' + (approvati ? "" : " hidden") + '>Approvati <i>' + approvati + '</i></button>' +
     '<button type="button" data-f="da_rivedere"' + (rivedere ? "" : " hidden") + '>Da rivedere <i>' + rivedere + '</i></button>' +
-    '<button type="button" data-f="strutture"' + (strutture ? "" : " hidden") + '>Strutture <i>' + strutture + '</i></button></div>' +
+    '<button type="button" data-f="strutture"' + (strutture ? "" : " hidden") + '>Strutture <i>' + strutture + '</i></button>' +
+    (vistoAttivo ? '<button type="button" data-f="visto"' + (inAttesa ? "" : " hidden") + '>Senza visto completo <i>' + inAttesa + '</i></button>' : "") + '</div>' +
     '<label class="cs-campo">' + SVG.cerca + '<input type="search" id="cs-q" placeholder="Cerca: copertura, COP-01, fornitore…" aria-label="Cerca un costruttivo"></label></div>';
 
   let sezioni = "";
@@ -353,7 +369,7 @@ function pagina(base, h, p, d, torna) {
     if (!t.length) return;
     num++;
     sezioni += '<section class="cs-sez"><h2><span class="n">' + num + '</span>' + e(f) + ' <small>' + t.length + (t.length === 1 ? " costruttivo" : " costruttivi") + '</small></h2>' +
-      t.map((x) => riga(e, qui, p, x, chiuso)).join("") + '</section>';
+      t.map((x) => riga(e, qui, p, x, chiuso, vistoAttivo)).join("") + '</section>';
   });
   if (!voci.length) {
     sezioni = '<div class="cs-vuoto">' + SVG.casa + '<p><b>Nessun costruttivo ancora.</b> ' +
@@ -362,7 +378,21 @@ function pagina(base, h, p, d, torna) {
 
   const regole = '<div class="cs-regole">' + SVG.penna + '<div><b>Come funziona.</b> Ogni costruttivo nasce «Da approvare» e resta in questa pagina. ' +
     'Prima della firma non va su WhatsApp e non è tra le tavole del cantiere. ' +
-    'Per i costruttivi che riguardano le strutture, la firma richiede il visto dello strutturista e della Direzione Lavori.</div></div>';
+    'Per i costruttivi che riguardano le strutture, la firma richiede il visto dello strutturista e della Direzione Lavori' +
+    (vistoAttivo ? ': chiedilo con «Chiedi il visto». Lo vedono nella loro Area professionisti e rispondono «Visto» oppure «Osservazioni».' : ".") + '</div></div>';
+  // chi manca nel cantiere per il visto (solo se c'è almeno un costruttivo delle strutture da approvare)
+  const RUOLI = { strutt: "lo strutturista", dl: "il Direttore dei Lavori" };
+  const serve = vistoAttivo && !chiuso && voci.some((x) => x.strutture && x.approvazione === "da_approvare");
+  const mancano = serve ? ["strutt", "dl"].filter((k) => pro[k] !== "attivo") : [];
+  const persone = base + "/persone?t=" + p.tok + "&c=" + p.c;
+  const MAIUSC = { strutt: "Lo strutturista", dl: "Il Direttore dei Lavori" };
+  const avvisoPro = mancano.length ? '<div class="cs-manca">' + SVG.persone + '<div><b>Per il visto ' + (mancano.length > 1 ? "mancano " : "manca ") +
+    mancano.map((k) => RUOLI[k]).join(" e ") + '.</b> ' +
+    mancano.map((k) => MAIUSC[k] + (pro[k] === "invitato"
+      ? " è invitato ma non è ancora entrato in TIX: ricordagli di scegliere la password dall'email dell'invito."
+      : " non è tra le Persone del cantiere con l'accesso all'Area professionisti: aggiungilo con il suo ruolo.")).join(" ") +
+    (mancano.length > 1 ? ' Le richieste di visto restano aperte e le vedono appena entrano.' : ' La richiesta di visto resta aperta e la vede appena entra.') +
+    '<p class="cs-manca-az"><a class="btn sm sec" href="' + e(persone) + '">Apri Persone del cantiere</a></p></div></div>' : "";
 
   const elenco = fornitoriRubrica.length ? '<datalist id="cs-fornitori">' + fornitoriRubrica.map((x) => '<option value="' + e(x) + '">').join("") + '</datalist>' : "";
   const form = chiuso ? "" :
@@ -392,7 +422,7 @@ function pagina(base, h, p, d, torna) {
     '<h1><span class="cs-ic" aria-hidden="true">' + SVG.casa + '</span>Costruttivi dei fornitori</h1>' +
     (d.modo === "prova" ? '<p class="cs-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
     (chiuso ? "" : '<div class="cs-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica costruttivi</a></div>') + '</div>' +
-    cifre + regole + (voci.length ? filtri : "") + sezioni + '<p class="cs-nessuno" id="cs-nessuno" hidden>Nessun costruttivo con questa ricerca.</p>' +
+    cifre + regole + avvisoPro + (voci.length ? filtri : "") + sezioni + '<p class="cs-nessuno" id="cs-nessuno" hidden>Nessun costruttivo con questa ricerca.</p>' +
     elenco + form +
     '<p class="cs-fonti">TIX™ conserva i costruttivi dei fornitori, li tiene in ordine e mostra solo la revisione in vigore. Non controlla i disegni: la responsabilità resta dei fornitori, dei progettisti e della Direzione Lavori.</p>' +
     '</div></main>' +
@@ -402,10 +432,39 @@ function pagina(base, h, p, d, torna) {
     '<label for="cs-dlg-mot">Perché (facoltativo)</label><input id="cs-dlg-mot" maxlength="300" placeholder="Per esempio: file sbagliato">' +
     '<p class="cs-msg" id="cs-dlg-msg" role="status"></p>' +
     '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="cs-dlg-si">Togli</button></div></form></dialog>' +
+    (vistoAttivo ? '<dialog class="cs-dlg" id="cs-vs-dlg"><form method="dialog"><h3>Chiedi il visto di <span id="cs-vs-cod"></span></h3>' +
+      '<p>Lo strutturista e il Direttore dei Lavori del cantiere vedono il costruttivo nella loro Area professionisti, ricevono un\'email ' +
+      'e rispondono «Visto» oppure «Osservazioni». La firma si accende quando hanno risposto tutti e due.</p>' +
+      '<label for="cs-vs-chi">Il tuo nome</label><input id="cs-vs-chi" maxlength="120" autocomplete="name">' +
+      '<p class="cs-msg" id="cs-vs-msg" role="status"></p>' +
+      '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cs-vs-si">Chiedi il visto</button></div></form></dialog>' : "") +
     "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 
-function riga(e, qui, p, x, chiuso) {
+// C2: riquadro del visto di strutturista e DL sul costruttivo delle strutture
+const VISTO_RUOLI = [["strutt", "Strutturista"], ["dl", "Direzione Lavori"]];
+function bloccoVisto(e, x, chiuso) {
+  if (!x.strutture) return "";
+  const vs = x.visti && typeof x.visti === "object" ? x.visti : null;
+  if (!vs) {
+    if (x.approvazione !== "da_approvare") return "";
+    return '<div class="cs-visti"><span class="cs-vs-tit">' + SVG.occhio + 'Visto di strutturista e DL: non ancora chiesto</span>' +
+      (chiuso ? "" : '<button type="button" class="btn sm sec" data-visto="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Chiedi il visto</button>') + '</div>';
+  }
+  return '<div class="cs-visti"><span class="cs-vs-tit">' + SVG.occhio + 'Visto di strutturista e DL' +
+    (x.visti_completi ? ' <em class="cs-vs-ok">completo</em>' : "") + '</span>' +
+    VISTO_RUOLI.map(([k, n]) => {
+      const v = vs[k] && typeof vs[k] === "object" ? vs[k] : null;
+      if (!v) return '<div class="cs-vs-r"><b>' + e(n) + '</b><span class="cs-vs-st at">non chiesto</span></div>';
+      if (!v.esito) return '<div class="cs-vs-r"><b>' + e(n) + '</b><span class="cs-vs-st at">In attesa</span><span class="cs-vs-q">chiesto da ' + e(v.chiesto_da || "") + ' il ' + e(quando(v.chiesto_il)) + '</span></div>';
+      const oss = v.esito === "osservazioni";
+      return '<div class="cs-vs-r"><b>' + e(n) + '</b><span class="cs-vs-st ' + (oss ? "os" : "ok") + '">' + (oss ? "Osservazioni" : "Visto") + '</span>' +
+        '<span class="cs-vs-q">' + e(v.chi || "") + ' il ' + e(quando(v.il)) + (v.cambiato ? " (risposta cambiata)" : "") + '</span>' +
+        (oss && v.nota ? '<p class="cs-vs-nota">' + e(v.nota) + '</p>' : "") + '</div>';
+    }).join("") + '</div>';
+}
+
+function riga(e, qui, p, x, chiuso, vistoAttivo) {
   const apri = qui + "/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(x.id);
   const st = STATI[x.approvazione] || STATI.da_approvare;
   const meta = [];
@@ -420,10 +479,10 @@ function riga(e, qui, p, x, chiuso) {
     (chiuso || x.approvazione !== "da_approvare" ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
   const gruppo = x.approvazione === "approvato" || x.approvazione === "osservazioni" ? "approvati" : String(x.approvazione || "da_approvare");
   const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "") + " " + String(x.fornitore || "")).toLowerCase();
-  return '<div class="cs-tv" data-stato="' + e(gruppo) + '" data-str="' + (x.strutture ? "1" : "") + '" data-q="' + e(q) + '">' +
+  return '<div class="cs-tv" data-stato="' + e(gruppo) + '" data-str="' + (x.strutture ? "1" : "") + '" data-vis="' + (vistoAttivo && attesaVisto(x) ? "1" : "") + '" data-q="' + e(q) + '">' +
     '<div class="cs-cod"><b>' + e(x.codice) + '</b><span class="cs-rev">rev. ' + e(x.revisione) + '</span></div>' +
     '<div class="cs-corpo"><p class="cs-tit">' + e(x.titolo || x.nome || x.codice) + (x.strutture ? ' <span class="cs-str">Riguarda le strutture</span>' : "") + '</p>' +
-    '<p class="cs-meta">' + meta.join(" · ") + " · " + imp + '</p>' + nota + '</div>' +
+    '<p class="cs-meta">' + meta.join(" · ") + " · " + imp + '</p>' + nota + (vistoAttivo ? bloccoVisto(e, x, chiuso) : "") + '</div>' +
     '<div class="cs-lato"><span class="cs-st ' + st[0] + '">' + e(st[1]) + '</span><div class="cs-az">' + az + '</div></div></div>';
 }
 
@@ -532,6 +591,18 @@ const STILE =
   ".cs-dlg{max-width:460px;width:calc(100vw - 32px);border:0;border-radius:16px;padding:18px;box-shadow:0 24px 60px -20px rgba(16,27,43,.45)}" +
   ".cs-dlg::backdrop{background:rgba(16,27,43,.45)}.cs-dlg h3{margin:0 0 8px;color:var(--navy)}.cs-dlg p{margin:0 0 12px;font-size:.9rem;line-height:1.45;color:var(--s)}" +
   ".cs-dlg form{display:flex;flex-direction:column;gap:6px}" +
+  // costruttivi-2 (C2): visto di strutturista e DL, avviso di chi manca nel cantiere
+  ".cs-visti{display:flex;flex-direction:column;gap:6px;margin:10px 0 0;padding:10px 12px;border:1px solid var(--pr-b);border-radius:12px;background:#FAFBFE}" +
+  ".cs-vs-tit{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:.84rem;font-weight:700;color:var(--pr-s)}.cs-vs-tit svg{flex:none;width:17px;height:17px}" +
+  ".cs-vs-tit em{font-style:normal}.cs-vs-ok{padding:0 8px;border-radius:999px;background:var(--ok-f);border:1px solid var(--ok-b);color:var(--ok);font-size:.74rem}" +
+  ".cs-visti .btn{align-self:flex-start}" +
+  ".cs-vs-r{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:.86rem}.cs-vs-r b{min-width:128px;color:var(--t);font-weight:600}" +
+  ".cs-vs-st{padding:1px 9px;border-radius:999px;font-size:.76rem;font-weight:700;white-space:nowrap}" +
+  ".cs-vs-st.at{border:1px solid var(--da-b);background:var(--da-f);color:var(--da)}.cs-vs-st.ok{border:1px solid var(--ok-b);background:var(--ok-f);color:var(--ok)}" +
+  ".cs-vs-st.os{border:1px solid #F0CF8A;background:#FFF8E8;color:#7A4A00}" +
+  ".cs-vs-q{color:var(--s);font-size:.82rem}.cs-vs-nota{flex-basis:100%;margin:2px 0 0;padding:6px 10px;border-radius:10px;background:#FFF8E8;white-space:pre-wrap;font-size:.86rem;line-height:1.45}" +
+  ".cs-manca{display:flex;gap:10px;align-items:flex-start;margin:6px 0 0;padding:12px 14px;border-radius:14px;border:1px solid var(--da-b);background:var(--da-f);font-size:.9rem;line-height:1.5;color:var(--t)}" +
+  ".cs-manca svg{flex:none;width:22px;height:22px;color:var(--da);margin-top:1px}.cs-manca b{color:var(--da)}.cs-manca-az{margin:8px 0 0}" +
   "@media (max-width:1100px){.cs-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cs-th{display:none}.cs-fr .cs-fn{grid-column:1/-1}.cs-fr .c-tit{grid-column:1/-1}" +
   ".cs-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
   "@media (max-width:680px){main{padding:14px 16px 40px}.cs-card{padding:16px 14px 14px}h1{font-size:1.35rem}" +
@@ -563,7 +634,7 @@ window.__csLeggiNome=leggiNome;
 // ---- filtri e ricerca
 var filtro='';var q=$('cs-q');
 function applica(){var t=(q&&q.value||'').toLowerCase().trim();var vis=0;
-D.querySelectorAll('.cs-tv').forEach(function(el){var ok=(!filtro||(filtro==='strutture'?el.getAttribute('data-str')==='1':el.getAttribute('data-stato')===filtro))&&(!t||el.getAttribute('data-q').indexOf(t)!==-1);el.classList.toggle('cs-via',!ok);if(ok)vis++;});
+D.querySelectorAll('.cs-tv').forEach(function(el){var ok=(!filtro||(filtro==='strutture'?el.getAttribute('data-str')==='1':filtro==='visto'?el.getAttribute('data-vis')==='1':el.getAttribute('data-stato')===filtro))&&(!t||el.getAttribute('data-q').indexOf(t)!==-1);el.classList.toggle('cs-via',!ok);if(ok)vis++;});
 D.querySelectorAll('.cs-sez').forEach(function(s){s.classList.toggle('cs-via',!s.querySelector('.cs-tv:not(.cs-via)'));});
 var n=$('cs-nessuno');if(n)n.hidden=vis>0||!D.querySelector('.cs-tv');}
 D.querySelectorAll('.cs-filtri button[data-f]').forEach(function(b){b.addEventListener('click',function(){filtro=b.getAttribute('data-f')||'';D.querySelectorAll('.cs-filtri button[data-f]').forEach(function(x){x.classList.toggle('on',x===b);});applica();});});
@@ -622,6 +693,13 @@ if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else if(dlg)dlg.setAtt
 if($('cs-dlg-si'))$('cs-dlg-si').addEventListener('click',function(){var chi=$('cs-dlg-chi').value.trim(),m=$('cs-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('cs-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- chiedi il visto di strutturista e DL (costruttivi-2, fase C2)
+var vdlg=$('cs-vs-dlg'),vId='';
+D.querySelectorAll('[data-visto]').forEach(function(b){b.addEventListener('click',function(){if(!vdlg)return;vId=b.getAttribute('data-visto');$('cs-vs-cod').textContent=b.getAttribute('data-cod')||'';$('cs-vs-chi').value=leggiChi();$('cs-vs-msg').textContent='';$('cs-vs-si').disabled=false;
+if(typeof vdlg.showModal==='function')vdlg.showModal();else vdlg.setAttribute('open','');});});
+if($('cs-vs-si'))$('cs-vs-si').addEventListener('click',function(){var chi=$('cs-vs-chi').value.trim(),m=$('cs-vs-msg');m.textContent='';if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha chiesto il visto.';$('cs-vs-chi').focus();return;}scriviChi(chi);
+var self=this;self.disabled=true;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'visto_chiedi',id:vId,dati:{chi:chi}})})
+.then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Il visto non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;
 
 // Solo per il banco di prova locale (pagina con dati inventati, senza database): stessa pagina della rotta vera.
