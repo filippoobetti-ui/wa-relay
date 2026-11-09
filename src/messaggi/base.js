@@ -30,7 +30,9 @@
 // Per aggiungere un pezzo: import { pezzoX } from "./x.js"; e metterlo in questo elenco.
 // A1 (09/11/2026): comandi e scelte dalle liste (src/messaggi/comandi.js).
 import { pezzoComandi } from "./comandi.js";
-const PEZZI = [pezzoComandi];
+// A2a (09/11/2026): testi nel diario (src/messaggi/testi.js). L'ordine conta: prima i comandi, poi i testi.
+import { pezzoTesti } from "./testi.js";
+const PEZZI = [pezzoComandi, pezzoTesti];
 
 export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "primo", "foto", "ddt", "eco"];
 
