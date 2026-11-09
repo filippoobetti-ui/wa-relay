@@ -78,6 +78,8 @@ function pulisci(d) {
   if ("ribasso_applicato" in x) o.ribasso_applicato = x.ribasso_applicato === true || x.ribasso_applicato === "true";
   if ("leggi" in x) o.leggi = x.leggi === true || x.leggi === "true";
   if ("conferma_tetto" in x) o.conferma_tetto = x.conferma_tetto === true || x.conferma_tetto === "true";
+  // 09/11/2026 (crediti-1, chat 02B): conferma in crediti di «Prepara con TIX»
+  if ("conferma_crediti" in x) o.conferma_crediti = x.conferma_crediti === true || x.conferma_crediti === "true";
   // 05/11/2026 (preventivi-rilettura-1): «Rifai con gli stessi file»
   if ("riprendi" in x) o.riprendi = x.riprendi === true || x.riprendi === "true";
   // 05/11/2026 (preventivi-ricontrollo-1): «Ricontrolla le voci» parte solo con conferma = true (prima la stima del costo)
@@ -189,6 +191,11 @@ async function api(request, env, h) {
     // 08/11/2026 (preventivi-posta-1): po_* = email ricevute su posta.tixcantiere.it
     r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : az.startsWith("cp_") ? "preventivo_risposta" : az.startsWith("po_") ? "preventivo_posta" : "preventivo_chiarimenti",
       { p_token: tok, p_id: dof.id, p_azione: az.slice(3), p_dati: dof }, 15000).catch(() => null);
+  } else if (az === "cr_saldo" || az === "cr_compra" || az === "cr_bonifico") {
+    // 09/11/2026 (crediti-1, chat 02B): Crediti TIX (saldo e movimenti, compra con carta, richiesta con bonifico)
+    const pac = String(b && b.dati && b.dati.pacchetto || "");
+    r = await h.rpc(env, "crediti_azione", { p_token: tok, p_azienda: a, p_azione: az.slice(3),
+      p_dati: { pacchetto: ["5", "20", "50"].indexOf(pac) >= 0 ? pac : "" } }, 15000).catch(() => null);
   } else if (AZIONI.has(az)) {
     r = await h.rpc(env, "preventivo_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 15000).catch(() => null);
   } else if (az === "ia_dati" && UUID.test(dati.id || "")) {
@@ -360,6 +367,8 @@ const STILE =
   ".pv-chi{margin:0;font-size:.88rem;color:var(--s)}h1{display:flex;align-items:center;gap:10px;margin:4px 0 0;font-size:1.5rem;color:var(--navy);letter-spacing:-.02em}h2{color:var(--navy);letter-spacing:-.02em}" +
   ".pv-ic{flex:none;width:40px;height:40px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#A7B54A,#66741C 55%,#4A5512);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 14px -6px rgba(74,85,18,.6)}.pv-ic svg{width:22px;height:22px}" +
   ".pv-spiega{margin:12px 0 0;font-size:.92rem;line-height:1.55;color:var(--s);max-width:960px}.pv-spiega b{color:var(--t)}" +
+  // 09/11/2026 (crediti-1): riquadro «Crediti TIX» nell'elenco, colore oliva dei Preventivi
+  ".pv-cr{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.06)}" + ".pv-cr-t{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}.pv-cr-t b{font-size:1.02rem;color:#66741C}.pv-cr-t span{font-size:.85rem;color:var(--s)}" + ".pv-cr-s{margin:6px 0 8px;font-size:.82rem;line-height:1.45;color:var(--s)}.pv-cr-p{display:flex;flex-wrap:wrap;gap:8px}" + ".pv-cr-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.3);border-radius:10px;font-size:.86rem}" + ".pv-cr-m{margin-top:8px;font-size:.84rem}.pv-cr-m summary{cursor:pointer;color:var(--s)}.pv-cr-m table{border-collapse:collapse;margin-top:6px}" + ".pv-cr-m td{padding:3px 12px 3px 0;vertical-align:top}.pv-cr-m td.n{text-align:right;font-weight:600;white-space:nowrap}" +
   ".pv-b{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;font-weight:700;font-size:.92rem;cursor:pointer;text-decoration:none;white-space:nowrap}" +
   ".pv-b:disabled{opacity:.55;cursor:default}.pv-b.sm{min-height:34px;padding:0 12px;font-size:.84rem;border-radius:10px;border-color:rgba(16,27,43,.18);color:var(--t)}" +
   ".pv-pr{border-color:var(--pv);color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,0) 52%),linear-gradient(180deg,#7D8C27,#66741C);box-shadow:0 10px 22px -12px rgba(74,85,18,.8)}" +
@@ -512,7 +521,7 @@ function elenco(){
  var vis=P.filter(function(p){return (!FIL.cant||(FIL.cant==='senza'?!p.commessa_id:p.commessa_id===FIL.cant))&&(!FIL.stato||p.stato===FIL.stato);});
  var h='<section class="pv-card"><div class="pv-testa"><div><p class="pv-chi">'+es(D.azienda.nome)+'</p><h1><span class="pv-ic">'+ICONA+'</span>Preventivi</h1></div>'+
   '<div class="pv-az-t"><button type="button" class="pv-b pv-pr" id="pv-nuovo">+ Nuovo preventivo</button></div></div>'+scegliImpresa()+
-  '<p class="pv-spiega">Preventivi per i lavori extra di un cantiere e per i lavori nuovi. Le voci si prendono dall\'<b>elenco prezzi del contratto</b> (il computo della sezione SAL), dal <b>prezzario regionale</b> o si scrivono a mano. Un preventivo mandato non si riscrive più: ogni modifica diventa una revisione nuova. I prezzi li vede e li scrive solo l\'ufficio.</p>'+
+  '<p class="pv-spiega">Preventivi per i lavori extra di un cantiere e per i lavori nuovi. Le voci si prendono dall\'<b>elenco prezzi del contratto</b> (il computo della sezione SAL), dal <b>prezzario regionale</b> o si scrivono a mano. Un preventivo mandato non si riscrive più: ogni modifica diventa una revisione nuova. I prezzi li vede e li scrive solo l\'ufficio.</p><div id="pv-crediti"></div>'+
   '<div class="pv-filtri"><span class="et">Cantiere</span>'+chip('cant','',  'Tutti',P.length)+C.filter(function(c){return nC[c.id]||c.id===FIL.cant;}).map(function(c){return chip('cant',c.id,c.nome,nC[c.id]||0);}).join('')+
   (senza||FIL.cant==='senza'?chip('cant','senza','Senza cantiere',senza):'')+'<span class="pv-sep"></span><span class="et">Stato</span>'+
   ['bozza','mandato','accettato','rifiutato'].map(function(s){return chip('stato',s,STATI[s],nS[s]);}).join('')+'</div><div class="pv-elenco">';
@@ -529,6 +538,7 @@ function elenco(){
     :'<div class="pv-azr"><span class="pv-b sm'+(p.stato==='bozza'?' pv-pr':'')+'">Apri</span></div>')+'</a>';});
  h+='</div></section>';
  app.innerHTML=h;
+ caricaCrediti();
  Array.prototype.forEach.call(app.querySelectorAll('[data-elimina]'),function(b){
   var via=function(e){e.preventDefault();e.stopPropagation();
    if(!confirm('Eliminare la bozza '+b.getAttribute('data-cod')+'? Non è mai stata mandata: sparisce dall\'elenco.'))return;
@@ -956,10 +966,35 @@ function legaIa(l){
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iatipo]'),function(s){s.onchange=function(){azIa('tipo_file',{file_id:s.getAttribute('data-iatipo'),tipo:s.value});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-ialeggi]'),function(c){c.onchange=function(){azIa('tipo_file',{file_id:c.getAttribute('data-ialeggi'),leggi:c.checked});};});
  Array.prototype.forEach.call(document.querySelectorAll('#pv-ia [data-iax]'),function(b){b.onclick=function(){azIa('togli_file',{file_id:b.getAttribute('data-iax')},b);};});}
-function parti(b,conferma){b.disabled=true;msgIa('Un momento…');
- api('ia_parti',{id:CFG.id,conferma_tetto:conferma}).then(function(r){b.disabled=false;
-  if(r&&r.esito==='tetto'){msgIa('');if(confirm(r.messaggio))parti(b,true);return;}
+// 09/11/2026 (crediti-1, chat 02B): con i Crediti TIX attivi la conferma è in crediti; senza crediti si comprano dall'elenco
+function parti(b,conferma,crediti){b.disabled=true;msgIa('Un momento…');
+ api('ia_parti',{id:CFG.id,conferma_tetto:conferma,conferma_crediti:!!crediti}).then(function(r){b.disabled=false;
+  if(r&&r.esito==='tetto'){msgIa('');if(confirm(r.messaggio))parti(b,true,crediti);return;}
+  if(r&&r.esito==='crediti'){msgIa('');if(confirm(r.messaggio))parti(b,conferma,true);return;}
+  if(r&&r.esito==='crediti_mancano'){msgIa(r.messaggio+' I crediti si comprano dall\'elenco dei preventivi, nel riquadro «Crediti TIX».','ko');return;}
   if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');});}
+function caricaCrediti(){var box=$('pv-crediti');if(!box)return;
+ api('cr_saldo',{}).then(function(r){if(!r||r.esito!=='ok'){box.innerHTML='';return;}var s=r.saldo||{};
+  var h='<div class="pv-cr"><div class="pv-cr-t"><b>Crediti TIX: '+(s.totale||0)+'</b><span>'+
+   (s.compresi_mese?(s.compresi||0)+' compresi di questo mese (su '+s.compresi_mese+') · ':'')+(s.comprati||0)+' comprati'+
+   (s.prossima_scadenza?' · i primi scadono il '+es(s.prossima_scadenza):'')+'</span></div>'+
+   '<p class="pv-cr-s">«Prepara con TIX» usa 1 credito per un preventivo fino a 100 voci, 2 fino a 300, 3 oltre; +1 per la lettura approfondita o «Subito». '+
+   'Il credito comprende email al direttore dei lavori, richieste di offerta e posta. Se una lettura non riesce per un problema di TIX, il credito torna indietro. '+
+   'I crediti comprati valgono 12 mesi.</p><div class="pv-cr-p">'+
+   (r.pacchetti||[]).map(function(p){return '<span class="pv-cr-k"><b>'+p.crediti+' crediti</b> '+es(euro(p.eur))+' + IVA'+
+    (r.carta?' <button type="button" class="pv-b sm pv-pr" data-crcarta="'+p.crediti+'">Paga con carta</button>':'')+
+    ' <button type="button" class="pv-b sm" data-crbon="'+p.crediti+'">Con bonifico</button></span>';}).join('')+'</div>'+
+   '<p class="pv-msg" id="pv-cr-msg"></p>'+
+   ((r.movimenti||[]).length?'<details class="pv-cr-m"><summary>Movimenti dei crediti</summary><table>'+r.movimenti.map(function(m){
+     return '<tr><td>'+es(m.data)+'</td><td>'+es(m.descrizione||m.tipo)+'</td><td class="n">'+(m.crediti>0?'+':'')+es(m.crediti)+'</td></tr>';}).join('')+'</table></details>':'')+'</div>';
+  box.innerHTML=h;
+  Array.prototype.forEach.call(box.querySelectorAll('[data-crcarta]'),function(b){b.onclick=function(){b.disabled=true;
+   api('cr_compra',{pacchetto:b.getAttribute('data-crcarta')}).then(function(x){b.disabled=false;if(x&&x.esito==='ok'&&x.url){location.href=x.url;}else msg($('pv-cr-msg'),msgErr(x),'ko');});};});
+  Array.prototype.forEach.call(box.querySelectorAll('[data-crbon]'),function(b){b.onclick=function(){
+   if(!confirm('Chiedi '+b.getAttribute('data-crbon')+' crediti da pagare con bonifico? Ti mandiamo i dati per il bonifico; i crediti si caricano quando arriva il pagamento.'))return;
+   b.disabled=true;api('cr_bonifico',{pacchetto:b.getAttribute('data-crbon')}).then(function(x){b.disabled=false;
+    msg($('pv-cr-msg'),x&&x.esito==='ok'?x.messaggio:msgErr(x),x&&x.esito==='ok'?'ok':'ko');});};});
+ });}
 function caricaFileIa(files){var L=Array.prototype.slice.call(files||[]);
  var no=L.filter(function(f){return !/\.(xlsx|xls|xlsm|ods|csv|pdf)$/i.test(f.name)||f.size>18*1024*1024;});
  L=L.filter(function(f){return no.indexOf(f)<0;});
