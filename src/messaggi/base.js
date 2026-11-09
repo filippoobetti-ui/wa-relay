@@ -12,7 +12,9 @@
 // INTERRUTTORI (tabella impostazioni, letti con relay_messaggi_config e tenuti in memoria 60 s):
 //   relay_messaggi               no | si            generale: «no» = tutto a Make come prima
 //   relay_messaggi_<pezzo>       make | prova | si  «prova» = solo i numeri di relay_messaggi_numeri_prova
-//   relay_messaggi_numeri_prova  numeri separati da virgola
+//   relay_messaggi_numeri_prova  numeri separati da virgola (valgono per tutti i pezzi in «prova»)
+//   relay_messaggi_numeri_<pezzo> facoltativo: se c'e', per quel pezzo vale questo elenco al posto di quello comune
+//                                 (09/11/2026: per provare un pezzo su un solo numero mentre un altro e' gia' su un'impresa)
 // Emergenza dal Worker, senza database: variabile RELAY_MESSAGGI=off.
 //
 // RISERVA: il pacchetto arriva qui da inoltraAMake DOPO essere stato registrato in ingresso_make («in invio»).
@@ -39,7 +41,7 @@ export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "primo", "foto", "ddt", 
 let _cache = { t: 0, cfg: null };
 
 function configVuota() {
-  return { attivo: false, numeri_prova: [], pezzi: {}, phone_number_id: "", letta: false };
+  return { attivo: false, numeri_prova: [], numeri_pezzi: {}, pezzi: {}, phone_number_id: "", letta: false };
 }
 
 // Interruttori dal database, in memoria 60 s. Database fermo = tutto spento (tutto a Make).
@@ -55,6 +57,7 @@ export async function messaggiConfig(env, aiuti, forza) {
         attivo: r.attivo === true,
         numeri_prova: (Array.isArray(r.numeri_prova) ? r.numeri_prova : [])
           .map((x) => String(x).replace(/[^0-9]/g, "")).filter(Boolean),
+        numeri_pezzi: numeriPerPezzo(r.numeri_pezzi),
         pezzi: (r.pezzi && typeof r.pezzi === "object" && !Array.isArray(r.pezzi)) ? r.pezzi : {},
         phone_number_id: String(r.phone_number_id || ""),
         letta: true
@@ -65,6 +68,22 @@ export async function messaggiConfig(env, aiuti, forza) {
   return cfg;
 }
 
+// { pezzo: [numeri] } dal database; tutto il resto si scarta
+function numeriPerPezzo(x) {
+  const out = {};
+  if (!x || typeof x !== "object" || Array.isArray(x)) return out;
+  for (const k of Object.keys(x)) {
+    if (Array.isArray(x[k])) out[k] = x[k].map((n) => String(n).replace(/[^0-9]/g, "")).filter(Boolean);
+  }
+  return out;
+}
+
+// Elenco dei numeri in prova per un pezzo: il suo, se c'e', altrimenti quello comune.
+function numeriDelPezzo(cfg, nome) {
+  const proprio = cfg && cfg.numeri_pezzi ? cfg.numeri_pezzi[nome] : null;
+  return Array.isArray(proprio) ? proprio : ((cfg && cfg.numeri_prova) || []);
+}
+
 // Posizione dell'interruttore di un pezzo per un numero: «make», «prova» o «si».
 export function messaggiPosizione(cfg, nome, telefono) {
   if (!cfg || cfg.attivo !== true) return "make";
@@ -72,7 +91,7 @@ export function messaggiPosizione(cfg, nome, telefono) {
   if (p === "si") return "si";
   if (p === "prova") {
     const tel = String(telefono || "").replace(/[^0-9]/g, "");
-    return tel && (cfg.numeri_prova || []).indexOf(tel) !== -1 ? "prova" : "make";
+    return tel && numeriDelPezzo(cfg, nome).indexOf(tel) !== -1 ? "prova" : "make";
   }
   return "make";
 }
@@ -182,7 +201,11 @@ export async function messaggiStato(env, aiuti) {
   if (env && env.RELAY_MESSAGGI === "off") return "RELAY_MESSAGGI (messaggi su wa-relay): spento dal Worker";
   const cfg = await messaggiConfig(env, aiuti, true);
   const nomi = PEZZI.map((p) => p.nome);
-  const pezzi = MESSAGGI_PEZZI_NOMI.map((n) => n + " " + String((cfg.pezzi || {})[n] || "make")).join(", ");
+  const pezzi = MESSAGGI_PEZZI_NOMI.map((n) => {
+    const pos = String((cfg.pezzi || {})[n] || "make");
+    const proprio = cfg.numeri_pezzi && Array.isArray(cfg.numeri_pezzi[n]);
+    return n + " " + pos + (pos === "prova" && proprio ? " (" + cfg.numeri_pezzi[n].length + " numeri propri)" : "");
+  }).join(", ");
   return "RELAY_MESSAGGI (messaggi su wa-relay, piano A/B): "
     + (cfg.letta ? "generale " + (cfg.attivo ? "si" : "no") : "interruttori non letti (tutto a Make)")
     + " · pezzi nel codice: " + (nomi.length ? nomi.join(", ") : "nessuno")
