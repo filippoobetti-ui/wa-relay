@@ -248,6 +248,10 @@ function progetti(base, c, d, e) {
   for (const [k, nome] of TIPI_TAVOLA) {
     const qui = tav.filter((x) => (k === "altro" ? noti.indexOf(x.tipo) === -1 || x.tipo === "altro" : x.tipo === k));
     if (!qui.length) continue;
+    // 09/11/2026 (professionisti-lotto-1): le tavole dello stesso fabbricato / lotto vicine, quelle senza lotto in fondo
+    if (qui.some((x) => lottoDi(x))) {
+      qui.sort((a, b) => (lottoDi(a) ? 0 : 1) - (lottoDi(b) ? 0 : 1) || lottoDi(a).localeCompare(lottoDi(b), "it", { numeric: true, sensitivity: "base" }));
+    }
     h += '<div class="gruppo"><h3>' + nome + " (" + qui.length + ")</h3>" + qui.map((x) => rigaTavola(base, c, x, e)).join("") + "</div>";
   }
   h += '<p class="nota">Sono le tavole caricate dall\'impresa, con la loro impronta. Quando arriva una revisione nuova, qui trovi solo quella. ' +
@@ -255,8 +259,15 @@ function progetti(base, c, d, e) {
   return h + "</section>";
 }
 
+// «Fabbricato / lotto» della tavola (09/11/2026, campo facoltativo della sessione Progetti): testo oppure null
+function lottoDi(x) {
+  return String((x && x.lotto) || "").trim();
+}
+
 function rigaTavola(base, c, x, e) {
-  const titolo = [x.codice, x.titolo].filter(Boolean).map(e).join(" · ") || e(x.nome || "Tavola");
+  const lotto = lottoDi(x);
+  const titolo = ([x.codice, x.titolo].filter(Boolean).map(e).join(" · ") || e(x.nome || "Tavola")) +
+    (lotto ? ' <span class="lotto" title="Fabbricato / lotto">' + e(lotto) + "</span>" : "");
   const chips = (x.revisione ? '<span class="chip pro">Rev. ' + e(x.revisione) + "</span>" : "") +
     (x.variante ? '<span class="chip st-am">Variante</span>' : "") +
     (x.sostituisce ? '<span class="chip">sostituisce la rev. ' + e(x.sostituisce) + "</span>" : "") +
@@ -547,5 +558,8 @@ const STILE = "[hidden]{display:none!important}" +
   // Progetti (09/11/2026): lo stesso rame della scheda Progetti dell'impresa
   ".chip.pro{background:#F7EEE6;color:#6E4526}.ic-pro{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;" +
   "background:linear-gradient(135deg,#D19A6A,#A86F44 45%,#6E4526)}" +
+  // fabbricato / lotto accanto al titolo della tavola (09/11/2026)
+  ".lotto{display:inline-block;vertical-align:middle;margin-left:6px;padding:1px 9px;border-radius:6px;border:1px solid var(--navy);color:var(--navy);font-size:.78rem;font-weight:700;max-width:100%;overflow-wrap:anywhere}" +
+  "@media (prefers-color-scheme:dark){.lotto{border-color:#C9D6E5;color:#C9D6E5}}" +
   "@media (prefers-color-scheme:dark){.chip.pro{background:#3A2A1E;color:#E8C3A0}}" +
   "@media (prefers-reduced-motion:reduce){*{transition:none!important}}";
