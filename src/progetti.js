@@ -12,6 +12,8 @@
 //                          storico, anche le revisioni superate dello stesso codice; interruttore impostazioni.progetti_sposta_attiva)
 //                          {t, c, azione: "lotto", dati: {ids: [...], lotto, chi}}  (09/11/2026, lotto-1: «Fabbricato / lotto»
 //                          facoltativo; nel caricamento X-Progetti-Dati ha anche «lotto»; interruttore impostazioni.progetti_lotto_attiva)
+//                          {t, c, azione: "modifica", id, dati: {titolo, codice, revisione, chi}}  (09/11/2026, modifica-1: titolo
+//                          sempre, codice e revisione solo se la tavola non è mai stata mandata su WhatsApp; interruttore di «Sposta»)
 //   GET  /progetti/file?t=…&c=…&id=…[&scarica=1]          → il file della revisione in vigore
 // Caricamento come la Sicurezza: prima il controllo nel database (progetti_carica_controlla), poi il corpo; tipo letto dai
 // primi byte; impronta ricalcolata qui solo fino a 5 MB (CPU del piano gratuito), altrimenti vale quella del browser.
@@ -268,6 +270,10 @@ async function azione(request, env, h) {
     const ids = Array.from(new Set(lista(dati.ids).map((x) => String(x || "").toLowerCase()).filter((x) => UUID.test(x))));
     if (!UUID.test(c) || !ids.length || ids.length > 400) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "progetti_tavole_lotto", { p_token: tok, p_commessa: c, p_ids: ids, p_lotto: testo(dati.lotto, 60), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "modifica") {
+    if (!UUID.test(c) || !UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "progetti_tavola_modifica", { p_token: tok, p_commessa: c, p_id: id,
+      p_dati: { titolo: testo(dati.titolo, 200), codice: testo(dati.codice, 60), revisione: testo(dati.revisione, 30) }, p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
   } else if (a === "destinatari" || a === "destinatario_aggiungi" || a === "destinatario_togli") {
     if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
     const az = a === "destinatario_aggiungi" ? "aggiungi" : a === "destinatario_togli" ? "togli" : "elenco";
@@ -494,6 +500,16 @@ function pagina(base, h, p, d, torna) {
       '<label for="pg-sp-chi">Il tuo nome</label><input id="pg-sp-chi" maxlength="120" autocomplete="name">' +
       '<p class="pg-msg" id="pg-sp-msg" role="status"></p>' +
       '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-sp-si">Sposta</button></div></form></dialog>' : "") +
+    (sposta ? '<dialog class="pg-dlg" id="pg-md-dlg"><form method="dialog"><h3 id="pg-md-tit">Modifica i dati</h3>' +
+      '<p>Correggi i dati scritti male. Il file, l\'impronta e l\'archivio restano uguali, e resta scritto chi ha corretto e cosa.</p>' +
+      '<label for="pg-md-titolo">Titolo</label><input id="pg-md-titolo" maxlength="200">' +
+      '<label for="pg-md-codice">Codice</label><input id="pg-md-codice" maxlength="60" class="mono">' +
+      '<label for="pg-md-rev">Revisione</label><input id="pg-md-rev" maxlength="30" class="mono">' +
+      '<p class="pg-md-nota" id="pg-md-nota" hidden>Questa tavola è già stata mandata su WhatsApp: codice e revisione non si cambiano più. ' +
+      'Se il file è sbagliato, carica quello giusto come revisione nuova.</p>' +
+      '<label for="pg-md-chi">Il tuo nome</label><input id="pg-md-chi" maxlength="120" autocomplete="name">' +
+      '<p class="pg-msg" id="pg-md-msg" role="status"></p>' +
+      '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-md-si">Salva</button></div></form></dialog>' : "") +
     (lottoModo ? '<dialog class="pg-dlg" id="pg-lt-dlg"><form method="dialog"><h3 id="pg-lt-tit">Fabbricato / lotto</h3>' +
       '<p>Scrivi a quale fabbricato o lotto appartengono, per esempio «Palazzina B» o «Lotto 2». Lascia vuoto per togliere il fabbricato / lotto. ' +
       'Cambiano anche le revisioni superate delle stesse tavole; codice, revisione e file restano uguali.</p>' +
@@ -515,6 +531,15 @@ function riga(e, qui, p, x, chiuso, sposta, scegli) {
   if (sp) meta.push("spostata da <b>" + e(NOME_TIPO[sp.da] || sp.da || "") + "</b> a <b>" + e(NOME_TIPO[sp.a] || sp.a || "") + "</b> da <b>" + e(sp.chi || "") + "</b> il " + e(quando(sp.il)));
   const lc = x.lotto_cambiato && typeof x.lotto_cambiato === "object" ? x.lotto_cambiato : null;
   if (lc) meta.push("fabbricato / lotto " + (lc.a ? "«" + e(lc.a) + "»" : "tolto") + (lc.da ? " (prima «" + e(lc.da) + "»)" : "") + " da <b>" + e(lc.chi || "") + "</b> il " + e(quando(lc.il)));
+  const md = x.modificata && typeof x.modificata === "object" ? x.modificata : null;
+  if (md) {
+    const prima = md.da && typeof md.da === "object" ? md.da : {};
+    const cosa = [];
+    if (prima.codice != null) cosa.push("codice prima «" + e(prima.codice) + "»");
+    if (prima.revisione != null) cosa.push("revisione prima «" + e(prima.revisione) + "»");
+    if (prima.titolo != null) cosa.push("titolo prima «" + e(prima.titolo || "—") + "»");
+    meta.push("dati corretti da <b>" + e(md.chi || "") + "</b> il " + e(quando(md.il)) + (cosa.length ? " (" + cosa.join(", ") + ")" : ""));
+  }
   meta.push(e(mb(x.byte)));
   const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
     (x.drive && x.impronta_drive === "uguale" ? ' <span class="pg-ok">verificata sull\'archivio Drive</span>'
@@ -523,7 +548,9 @@ function riga(e, qui, p, x, chiuso, sposta, scegli) {
     (Number(x.invii) > 0 ? ' · <span class="pg-wa-n">mandata su WhatsApp ' + e(x.invii) + (Number(x.invii) === 1 ? " volta" : " volte") + '</span>' : "");
   const az = '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">Apri</a>' +
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
-    (sposta ? '<button type="button" class="btn sm tenue" data-sposta="' + e(x.id) + '" data-tipo="' + e(x.tipo) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Sposta</button>' : "") +
+    (sposta ? '<button type="button" class="btn sm tenue" data-sposta="' + e(x.id) + '" data-tipo="' + e(x.tipo) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Sposta</button>' +
+      '<button type="button" class="btn sm tenue" data-mod="' + e(x.id) + '" data-m-tit="' + e(x.titolo || "") + '" data-m-cod="' + e(x.codice) + '" data-m-rev="' + e(x.revisione) +
+      '" data-m-fisso="' + (x.codice_fisso ? "1" : "") + '">Modifica</button>' : "") +
     (chiuso ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
   const lotto = String(x.lotto || "").trim();
   const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "") + " " + lotto).toLowerCase();
@@ -656,6 +683,9 @@ const STILE =
   ".pg-lotto{padding:1px 9px;border-radius:999px;border:1px solid #9FB3C8;background:#EEF3F8;color:var(--navy);font-size:.74rem;font-weight:700}" +
   ".pg-lotti{margin:10px 0 2px;align-items:center}.pg-lotti-et{font-size:.78rem;font-weight:700;color:var(--s);margin-right:2px}" +
   ".pg-lotti button.on{background:#3E5A7A;border-color:#3E5A7A}.pg-lotto-box{max-width:520px}.pg-lotto-box small{font-weight:500;color:var(--s)}" +
+  // modifica-1: campi fermi e nota nella finestra «Modifica i dati»
+  ".pg-dlg input.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.pg-dlg input:disabled{background:var(--z);color:var(--s)}" +
+  ".pg-dlg .pg-md-nota{margin:2px 0 6px;padding:8px 10px;border-radius:10px;background:var(--pr-f);border:1px solid var(--pr-b);color:var(--pr-s);font-size:.84rem}" +
   ".pg-dlg select{width:100%;min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:var(--c);font:inherit;font-size:.88rem;color:var(--t)}" +
   "@media (max-width:1100px){.pg-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pg-th{display:none}.pg-fr .pg-fn{grid-column:1/-1}.pg-fr .c-tit{grid-column:1/-1}" +
   ".pg-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
@@ -787,6 +817,19 @@ if(!tipo){m.textContent='Scegli la categoria.';$('pg-sp-tipo').focus();return;}i
 fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'sposta',dati:{ids:sIds,tipo:tipo,chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
 m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Lo spostamento delle tavole non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- modifica i dati (09/11/2026, modifica-1): titolo sempre, codice e revisione solo se la tavola non è mai partita su WhatsApp
+var mdlg=$('pg-md-dlg'),mId='';
+D.querySelectorAll('[data-mod]').forEach(function(b){b.addEventListener('click',function(){if(!mdlg)return;mId=b.getAttribute('data-mod');var fisso=b.getAttribute('data-m-fisso')==='1';
+$('pg-md-tit').textContent='Modifica i dati di '+(b.getAttribute('data-m-cod')||'')+' rev. '+(b.getAttribute('data-m-rev')||'');
+$('pg-md-titolo').value=b.getAttribute('data-m-tit')||'';$('pg-md-codice').value=b.getAttribute('data-m-cod')||'';$('pg-md-rev').value=b.getAttribute('data-m-rev')||'';
+$('pg-md-codice').disabled=fisso;$('pg-md-rev').disabled=fisso;$('pg-md-nota').hidden=!fisso;$('pg-md-chi').value=leggiChi();$('pg-md-msg').textContent='';$('pg-md-si').disabled=false;
+if(typeof mdlg.showModal==='function')mdlg.showModal();else mdlg.setAttribute('open','');});});
+if($('pg-md-si'))$('pg-md-si').addEventListener('click',function(){var m=$('pg-md-msg'),chi=$('pg-md-chi').value.trim(),cod=$('pg-md-codice').value.trim(),rev=$('pg-md-rev').value.trim();m.textContent='';
+if(!cod){m.textContent='Scrivi il codice della tavola.';$('pg-md-codice').focus();return;}if(!rev){m.textContent='Scrivi la revisione.';$('pg-md-rev').focus();return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha corretto la tavola.';$('pg-md-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'modifica',id:mId,dati:{titolo:$('pg-md-titolo').value.trim(),codice:cod,revisione:rev,chi:chi}})})
+.then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
+m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'La modifica dei dati non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- fabbricato / lotto (09/11/2026, lotto-1): alle tavole selezionate; vuoto = toglie il fabbricato / lotto
 var ldlg=$('pg-lt-dlg'),lIds=[];
 if($('pg-sel-lotto'))$('pg-sel-lotto').addEventListener('click',function(){var ids=selezionate();if(!ids||!ids.length||!ldlg)return;lIds=ids;
