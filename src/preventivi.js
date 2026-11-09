@@ -191,6 +191,10 @@ async function api(request, env, h) {
     // 08/11/2026 (preventivi-posta-1): po_* = email ricevute su posta.tixcantiere.it
     r = await h.rpc(env, az.startsWith("of_") ? "preventivo_offerte" : az.startsWith("cp_") ? "preventivo_risposta" : az.startsWith("po_") ? "preventivo_posta" : "preventivo_chiarimenti",
       { p_token: tok, p_id: dof.id, p_azione: az.slice(3), p_dati: dof }, 15000).catch(() => null);
+  } else if ((az === "pc_stato" || az === "pc_apri" || az === "pc_collega") && UUID.test(dati.id || "")) {
+    // 09/11/2026 (cantiere-da-preventivo-1, chat 02B): preventivo accettato → apri o collega il cantiere, «Cosa manca»
+    r = await h.rpc(env, "preventivo_cantiere", { p_token: tok, p_id: dati.id, p_azione: az.slice(3),
+      p_dati: { commessa_id: UUID.test(dati.commessa_id || "") ? dati.commessa_id : "" } }, 15000).catch(() => null);
   } else if (az === "cr_saldo" || az === "cr_compra" || az === "cr_bonifico") {
     // 09/11/2026 (crediti-1, chat 02B): Crediti TIX (saldo e movimenti, compra con carta, richiesta con bonifico)
     const pac = String(b && b.dati && b.dati.pacchetto || "");
@@ -369,6 +373,8 @@ const STILE =
   ".pv-spiega{margin:12px 0 0;font-size:.92rem;line-height:1.55;color:var(--s);max-width:960px}.pv-spiega b{color:var(--t)}" +
   // 09/11/2026 (crediti-1): riquadro «Crediti TIX» nell'elenco, colore oliva dei Preventivi
   ".pv-cr{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.06)}" + ".pv-cr-t{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}.pv-cr-t b{font-size:1.02rem;color:#66741C}.pv-cr-t span{font-size:.85rem;color:var(--s)}" + ".pv-cr-s{margin:6px 0 8px;font-size:.82rem;line-height:1.45;color:var(--s)}.pv-cr-p{display:flex;flex-wrap:wrap;gap:8px}" + ".pv-cr-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.3);border-radius:10px;font-size:.86rem}" + ".pv-cr-m{margin-top:8px;font-size:.84rem}.pv-cr-m summary{cursor:pointer;color:var(--s)}.pv-cr-m table{border-collapse:collapse;margin-top:6px}" + ".pv-cr-m td{padding:3px 12px 3px 0;vertical-align:top}.pv-cr-m td.n{text-align:right;font-weight:600;white-space:nowrap}" +
+  // 09/11/2026 (cantiere-da-preventivo-1): riquadro «Cantiere» del preventivo accettato
+  ".pv-cant{margin:16px 0 0;padding:14px 16px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.05)}" + ".pv-cant h3{margin:0 0 6px}.pv-cant h4{margin:12px 0 6px;font-size:.92rem}.pv-cant-s{margin:6px 0;font-size:.9rem;line-height:1.5;color:var(--s)}" + ".pv-cant-l{list-style:none;margin:0;padding:0;display:grid;gap:4px}.pv-cant-l li{display:flex;gap:8px;font-size:.9rem;line-height:1.45}" + ".pv-cant-l li span{width:16px;flex:none;text-align:center;font-weight:800}.pv-cant-l li.ok span{color:#66741C}.pv-cant-l li.no span{color:#9A6B00}.pv-cant-l li.opz{color:var(--s)}" + ".pv-cant-p{display:flex;flex-wrap:wrap;gap:8px}.pv-cant-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.25);border-radius:10px;font-size:.86rem}" + ".pv-cant-k.su{border-color:#66741C;background:rgba(102,116,28,.08)}" +
   ".pv-b{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;font-weight:700;font-size:.92rem;cursor:pointer;text-decoration:none;white-space:nowrap}" +
   ".pv-b:disabled{opacity:.55;cursor:default}.pv-b.sm{min-height:34px;padding:0 12px;font-size:.84rem;border-radius:10px;border-color:rgba(16,27,43,.18);color:var(--t)}" +
   ".pv-pr{border-color:var(--pv);color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,0) 52%),linear-gradient(180deg,#7D8C27,#66741C);box-shadow:0 10px 22px -12px rgba(74,85,18,.8)}" +
@@ -573,7 +579,7 @@ $('pv-n-crea').onclick=function(){var b=this;b.disabled=true;msg($('pv-n-msg'),'
 
 // ---------------------------------------------------------------- preventivo
 var P=null,F=null,FONTE='',ULTIMA='';
-function carica(){return api('dati',{id:CFG.id}).then(function(r){if(r&&r.esito==='ok'){D=r;disegna();caricaIa();}else{$('pv-app').innerHTML='<section class="pv-card"><p class="pv-msg ko">'+es(msgErr(r))+'</p></section>';}});}
+function carica(){return api('dati',{id:CFG.id}).then(function(r){if(r&&r.esito==='ok'){D=r;disegna();caricaIa();caricaCant();}else{$('pv-app').innerHTML='<section class="pv-card"><p class="pv-msg ko">'+es(msgErr(r))+'</p></section>';}});}
 function disegna(){
  F=D.preventivo;var bozza=D.stato==='bozza',T=F.totali||{},k=F.contratto,c=F.cantiere;
  var rib=num(k&&k.ribasso_pct);
@@ -594,6 +600,7 @@ function disegna(){
  if(c&&!k)h+='<p class="pv-info">Nel cantiere non c\'è un computo caricato nella sezione SAL: le voci si prendono dal prezzario o si scrivono a mano.</p>';
  // «Prepara con TIX» (lo riempie disegnaIa)
  if(bozza)h+='<div id="pv-ia"></div>';
+ if(D.stato==='accettato')h+='<div id="pv-cant"></div>';
  // ricerca
  if(bozza){
   h+='<div class="pv-cerca"><h3>Aggiungi una voce</h3><label class="pv-barra"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/></svg>'+
@@ -973,6 +980,31 @@ function parti(b,conferma,crediti){b.disabled=true;msgIa('Un momento…');
   if(r&&r.esito==='crediti'){msgIa('');if(confirm(r.messaggio))parti(b,conferma,true);return;}
   if(r&&r.esito==='crediti_mancano'){msgIa(r.messaggio+' I crediti si comprano dall\'elenco dei preventivi, nel riquadro «Crediti TIX».','ko');return;}
   if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');});}
+// 09/11/2026 (cantiere-da-preventivo-1, chat 02B): preventivo accettato → «Apri il cantiere» già compilato, «Collega», «Cosa manca»
+var CANT=null;
+function caricaCant(){if(!CFG.id||!D||D.stato!=='accettato')return;api('pc_stato',{id:CFG.id}).then(function(r){CANT=r&&r.esito==='ok'&&r.mostra?r:null;disegnaCant();});}
+function disegnaCant(){var box=$('pv-cant');if(!box)return;var r=CANT;if(!r){box.innerHTML='';return;}var base=String(CFG.pagina||'').replace(/\/preventivi$/,'');
+ var h='<section class="pv-cant"><h3>Cantiere del preventivo accettato</h3>';
+ if(r.collegato){var c=r.cantiere||{};
+  h+='<p class="pv-cant-s">Collegato al cantiere <b>'+es(c.nome)+'</b>'+(c.ubicazione?' · '+es(c.ubicazione):'')+(r.collegato_il?' dal '+es(r.collegato_il):'')+
+   '. Se il preventivo cambia, la differenza diventa una variante nella sezione SAL: il contratto non si riscrive da solo.</p>'+
+   '<h4>Cosa manca per completare l\'attivazione</h4><ul class="pv-cant-l">'+(r.mancano||[]).map(function(m){
+    return '<li class="'+(m.ok===true?'ok':m.ok===false?'no':'opz')+'"><span>'+(m.ok===true?'✓':m.ok===false?'•':'○')+'</span>'+es(m.testo)+'</li>';}).join('')+'</ul>'+
+   '<p class="pv-cant-s"><a class="pv-b sm pv-pr" href="'+es(base+'/?t='+CFG.t+'&c='+c.id)+'">Vai al cantiere</a></p>';}
+ else{var d=r.dati||{};
+  h+='<p class="pv-cant-s">Il preventivo è accettato. Apri il cantiere con il modulo di sempre, già compilato con i dati del preventivo: <b>'+es(d.nome||'')+'</b>'+
+   (d.ubicazione?' · '+es(d.ubicazione):'')+(d.committente?' · committente '+es(d.committente):'')+'. Controlli i dati e confermi tu: il modulo dice anche se il cantiere cambia il canone.</p>'+
+   '<p><button type="button" class="pv-b pv-pr" id="pv-cant-apri">Apri il cantiere</button></p>'+
+   ((r.proposte||[]).length?'<h4>Oppure collega un cantiere che c\'è già</h4><div class="pv-cant-p">'+r.proposte.map(function(p){
+    return '<span class="pv-cant-k'+(p.stesso_nome||p.stesso_luogo?' su':'')+'"><b>'+es(p.nome)+'</b>'+(p.ubicazione?' · '+es(p.ubicazione):'')+
+     ' <button type="button" class="pv-b sm" data-pccol="'+es(p.id)+'">Collega</button></span>';}).join('')+'</div>':'');}
+ h+='<p class="pv-msg" id="pv-cant-msg"></p></section>';box.innerHTML=h;
+ var a=$('pv-cant-apri');if(a)a.onclick=function(){a.disabled=true;api('pc_apri',{id:CFG.id}).then(function(x){a.disabled=false;
+  if(x&&x.esito==='ok'){location.href=base+'/nuovo-cantiere?t='+CFG.t+'&a='+encodeURIComponent(x.azienda_id||'')+'&pv='+encodeURIComponent(CFG.id);}
+  else msg($('pv-cant-msg'),msgErr(x),'ko');});};
+ Array.prototype.forEach.call(box.querySelectorAll('[data-pccol]'),function(b){b.onclick=function(){
+  if(!confirm('Collegare il preventivo a questo cantiere? Dopo il collegamento compare la lista di cosa manca.'))return;b.disabled=true;
+  api('pc_collega',{id:CFG.id,commessa_id:b.getAttribute('data-pccol')}).then(function(x){b.disabled=false;if(x&&x.esito==='ok')caricaCant();else msg($('pv-cant-msg'),msgErr(x),'ko');});};});}
 function caricaCrediti(){var box=$('pv-crediti');if(!box)return;
  api('cr_saldo',{}).then(function(r){if(!r||r.esito!=='ok'){box.innerHTML='';return;}var s=r.saldo||{};
   var h='<div class="pv-cr"><div class="pv-cr-t"><b>Crediti TIX: '+(s.totale||0)+'</b><span>'+
@@ -1017,7 +1049,7 @@ function alternative(id){var v=(F.voci||[]).filter(function(x){return String(x.i
   api('ia_scegli',{id:F.id,voce_id:String(id),alt:b.getAttribute('data-alt')}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-alt',false);carica();}else msg($('pv-alt-msg'),msgErr(r),'ko');});};});
  velo('pv-v-alt',true);}
 
-if(CFG.id){disegna();caricaIa();}else elenco();
+if(CFG.id){disegna();caricaIa();caricaCant();}else elenco();
 })();
 `;
 
