@@ -993,7 +993,7 @@ function disegnaCant(){var box=$('pv-cant');if(!box)return;var r=CANT;if(!r){box
    '<p class="pv-cant-s"><a class="pv-b sm pv-pr" href="'+es(base+'/?t='+CFG.t+'&c='+c.id)+'">Vai al cantiere</a></p>';}
  else{var d=r.dati||{};
   h+='<p class="pv-cant-s">Il preventivo è accettato. Apri il cantiere con il modulo di sempre, già compilato con i dati del preventivo: <b>'+es(d.nome||'')+'</b>'+
-   (d.ubicazione?' · '+es(d.ubicazione):'')+(d.committente?' · committente '+es(d.committente):'')+'. Controlli i dati e confermi tu: il modulo dice anche se il cantiere cambia il canone.</p>'+
+   (d.ubicazione?' · '+es(d.ubicazione):'')+(d.committente?' · cliente del preventivo '+es(d.committente)+' (il committente dei lavori lo confermi nel modulo)':'')+'. Controlli i dati e confermi tu: il modulo dice anche se il cantiere cambia il canone.</p>'+
    '<p><button type="button" class="pv-b pv-pr" id="pv-cant-apri">Apri il cantiere</button></p>'+
    ((r.proposte||[]).length?'<h4>Oppure collega un cantiere che c\'è già</h4><div class="pv-cant-p">'+r.proposte.map(function(p){
     return '<span class="pv-cant-k'+(p.stesso_nome||p.stesso_luogo?' su':'')+'"><b>'+es(p.nome)+'</b>'+(p.ubicazione?' · '+es(p.ubicazione):'')+
