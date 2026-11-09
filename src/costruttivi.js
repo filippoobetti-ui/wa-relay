@@ -9,6 +9,9 @@
 // anche «Chiedi il visto» per i costruttivi delle strutture (tabella costruttivi_visti); strutturista e DL rispondono dalle pagine
 // /studio della chat 02A. Dal 09/11/2026 (costruttivi-3, C3a) «Firma per approvazione» con il firmatore comune (src/firma.js,
 // /firma/firma-tix.js), «Firme e timbro» e la copia firmata; si firma solo «Da approvare» e, per le strutture, con il visto completo.
+// Dal 09/11/2026 (costruttivi-4, C3b) «Manda al fornitore»: POST /costruttivi/azione {azione: "manda_prepara", id} e
+// {azione: "manda", id, firma_id, dati: {a: [...], messaggio, chi}}; email con la copia firmata ALLEGATA (collegamento a tempo di 2 giorni
+// preparato qui, scaricato dallo scenario Make «Email con allegato — ai fornitori (Brevo)»).
 //   GET  /costruttivi?t=<gettone>&c=<cantiere>             → pagina (database: costruttivi_contesto)
 //   POST /costruttivi/carica  intestazione X-Costruttivi-Dati = JSON in base64url {t, c, fornitore, codice, titolo, revisione,
 //                          strutture, autore, nome, byte, sha256}; corpo = il file (PDF o .p7m, fino a progetti_max_mb)
@@ -251,6 +254,30 @@ async function azione(request, env, h) {
   if (a === "annulla") {
     if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "costruttivi_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "manda_prepara") {
+    if (!UUID.test(id) || !UUID.test(String(d.c || "").toLowerCase())) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "costruttivi_manda_prepara", { p_token: tok, p_commessa: String(d.c).toLowerCase(), p_id: id }, 15000).catch(() => null);
+  } else if (a === "manda") {
+    // C3b: «Manda al fornitore» con la copia firmata allegata. Il relay prepara un collegamento firmato a tempo (2 giorni) alla copia
+    // firmata; lo scarica lo scenario Make delle email con allegato. Il database controlla che il collegamento sia della copia firmata.
+    const c = String(d.c || "").toLowerCase(), fid = String(d.firma_id || "").toLowerCase();
+    if (!UUID.test(id) || !UUID.test(c) || !UUID.test(fid)) return json({ esito: "richiesta_non_valida" }, 400);
+    const info = await h.rpc(env, "firma_file_info", { p_token: tok, p_commessa: c, p_id: fid }, 10000).catch(() => null);
+    if (!info || info.esito !== "ok") return json({ esito: "errore", messaggio: "La copia firmata non si trova: ricarica la pagina." }, 200);
+    const perc = String(info.percorso || "");
+    if (perc.indexOf("firme/" + info.azienda_id + "/documenti/") !== 0 || perc.indexOf("..") !== -1) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 400);
+    let url = "";
+    try {
+      const sg = await fetch(supabaseUrl(env) + "/storage/v1/object/sign/wa-media/" + percorsoStorage(perc), {
+        method: "POST", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresIn: 172800 }) });
+      const sj = sg.ok ? await sg.json().catch(() => null) : null;
+      if (sj && typeof sj.signedURL === "string") url = supabaseUrl(env) + "/storage/v1" + sj.signedURL;
+    } catch (e) { url = ""; }
+    if (!url) return json({ esito: "archivio", messaggio: "La copia firmata non si legge dall'archivio: riprova tra un minuto." }, 502);
+    const lista = (Array.isArray(dati.a) ? dati.a : []).slice(0, 10).map((x) => testo(x, 200)).filter(Boolean);
+    r = await h.rpc(env, "costruttivi_manda", { p_token: tok, p_commessa: c, p_id: id,
+      p_dati: { a: lista, messaggio: String(dati.messaggio == null ? "" : dati.messaggio).slice(0, 2000), chi: testo(dati.chi, 120), url } }, 15000).catch(() => null);
   } else if (a === "visto_chiedi") {
     if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "costruttivi_visto_chiedi", { p_token: tok, p_id: id, p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
@@ -347,6 +374,7 @@ function pagina(base, h, p, d, torna) {
   // costruttivi-3 (fase C3a): firma per approvazione
   const firmaAttiva = d.firma_attiva === true;
   const impostazioniFirma = base + "/firma/impostazioni?t=" + p.tok + "&c=" + p.c + "&da=costruttivi";
+  const mandaAttivo = d.manda_attivo === true;   // C3b: «Manda al fornitore»
   const fornitori = Array.from(new Set(voci.map((x) => String(x.fornitore || "").trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }));
 
@@ -373,7 +401,7 @@ function pagina(base, h, p, d, torna) {
     if (!t.length) return;
     num++;
     sezioni += '<section class="cs-sez"><h2><span class="n">' + num + '</span>' + e(f) + ' <small>' + t.length + (t.length === 1 ? " costruttivo" : " costruttivi") + '</small></h2>' +
-      t.map((x) => riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base)).join("") + '</section>';
+      t.map((x) => riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo)).join("") + '</section>';
   });
   if (!voci.length) {
     sezioni = '<div class="cs-vuoto">' + SVG.casa + '<p><b>Nessun costruttivo ancora.</b> ' +
@@ -445,6 +473,15 @@ function pagina(base, h, p, d, torna) {
       '<label for="cs-vs-chi">Il tuo nome</label><input id="cs-vs-chi" maxlength="120" autocomplete="name">' +
       '<p class="cs-msg" id="cs-vs-msg" role="status"></p>' +
       '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cs-vs-si">Chiedi il visto</button></div></form></dialog>' : "") +
+    (mandaAttivo ? '<dialog class="cs-dlg" id="cs-md-dlg"><form method="dialog"><h3 id="cs-md-tit">Manda al fornitore</h3>' +
+      '<p>Parte un\'email a nome dell\'impresa con la <b>copia firmata allegata</b>, l\'esito e le osservazioni. Il fornitore risponde con «Rispondi».</p>' +
+      '<div id="cs-md-dest" class="cs-md-dest"><p class="cs-sotto">Carico i contatti…</p></div>' +
+      '<label for="cs-md-altri">Altri indirizzi (facoltativo, separati da virgola)</label><input id="cs-md-altri" maxlength="600" placeholder="es. ufficiotecnico@ditta.it">' +
+      '<label for="cs-md-msg-t">Messaggio (facoltativo)</label><textarea id="cs-md-msg-t" maxlength="2000" rows="3" placeholder="es. Procedete pure con la produzione."></textarea>' +
+      '<p class="cs-md-rr" id="cs-md-rr"></p><div id="cs-md-prima" class="cs-md-prima"></div>' +
+      '<label for="cs-md-chi">Il tuo nome</label><input id="cs-md-chi" maxlength="120" autocomplete="name">' +
+      '<p class="cs-msg" id="cs-md-msg" role="status"></p>' +
+      '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cs-md-si">Manda</button></div></form></dialog>' : "") +
     "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 
@@ -471,7 +508,7 @@ function bloccoVisto(e, x, chiuso) {
     }).join("") + '</div>';
 }
 
-function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base) {
+function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo) {
   const apri = qui + "/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(x.id);
   const st = STATI[x.approvazione] || STATI.da_approvare;
   const meta = [];
@@ -479,7 +516,7 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base) {
   meta.push("caricato da <b>" + e(x.caricato_da || "") + "</b> il " + e(quando(x.caricato_il)));
   if (x.approvazione !== "da_approvare" && x.approvato_da) meta.push("firmato da <b>" + e(x.approvato_da) + "</b> il " + e(quando(x.approvato_il)));
   meta.push(e(mb(x.byte)));
-  const imp = '<span class="cs-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
+  const imp = (x.firma ? "originale: " : "") + '<span class="cs-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
   const nota = x.nota ? '<p class="cs-nota"><b>' + (x.approvazione === "da_rivedere" ? "Da rivedere:" : "Osservazioni:") + '</b> ' + e(x.nota) + '</p>' : "";
   // C3a: firma per approvazione (spenta finché manca il visto delle strutture) e copia firmata
   const fm = x.firma && typeof x.firma === "object" ? x.firma : null;
@@ -490,7 +527,11 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base) {
       : '<button type="button" class="btn sm pr" data-firma="' + e(x.id) + '">Firma per approvazione</button>') : "";
   if (fm) meta.push('copia firmata: <span class="cs-imp" title="Impronta SHA-256 della copia firmata: ' + e(fm.sha256 || "") + '">impronta ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
     (fm.qualificata ? " · firma digitale qualificata" : ""));
-  const az = bFirma + (fm ? '<a class="btn sm sec" href="' + e(copia) + '" target="_blank" rel="noopener">Copia firmata</a>' : "") +
+  // C3b: invii al fornitore
+  const inv = x.invii && typeof x.invii === "object" ? x.invii : null;
+  if (inv && Number(inv.n) > 0) meta.push((Number(inv.n) === 1 ? "mandato a " : "mandato " + e(inv.n) + " volte, l'ultima a ") + "<b>" + e(inv.ultimo_a || "") + "</b> il " + e(quando(inv.ultimo_il)));
+  const bManda = fm && mandaAttivo ? '<button type="button" class="btn sm pr" data-manda="' + e(x.id) + '" data-firma-id="' + e(fm.id) + '">' + (inv ? "Manda di nuovo" : "Manda al fornitore") + '</button>' : "";
+  const az = bFirma + bManda + (fm ? '<a class="btn sm sec" href="' + e(copia) + '" target="_blank" rel="noopener">Copia firmata</a>' : "") +
     '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">' + (fm ? "Originale" : "Apri") + '</a>' +
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
     (chiuso || x.approvazione !== "da_approvare" ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
@@ -623,6 +664,12 @@ const STILE =
   ".cs-manca svg{flex:none;width:22px;height:22px;color:var(--da);margin-top:1px}.cs-manca b{color:var(--da)}.cs-manca-az{margin:8px 0 0}" +
   // costruttivi-3 (C3a): firma
   ".btn.pr:disabled{opacity:.45;cursor:not-allowed}.cs-attesa-firma{margin:8px 0 0;font-size:.82rem;color:var(--s)}.cs-regole a{color:var(--pr-s);font-weight:700}" +
+  // C3b: «Manda al fornitore»
+  ".cs-md-dest{display:flex;flex-direction:column;gap:6px;margin:0 0 6px}.cs-md-dest label{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--t);font-size:.88rem}" +
+  ".cs-md-dest input{width:18px;height:18px;min-height:0;accent-color:#3F4A9E}.cs-md-dest em{font-style:normal;color:var(--s);font-weight:500}" +
+  ".cs-dlg textarea{width:100%;padding:8px 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;font:inherit;font-size:.88rem;resize:vertical}" +
+  ".cs-md-rr{margin:6px 0 0!important;font-size:.84rem!important}.cs-md-rr.av{padding:8px 10px;border-radius:10px;background:var(--da-f);border:1px solid var(--da-b);color:var(--da)!important}" +
+  ".cs-md-prima{font-size:.82rem;color:var(--s)}" +
   "@media (max-width:1100px){.cs-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cs-th{display:none}.cs-fr .cs-fn{grid-column:1/-1}.cs-fr .c-tit{grid-column:1/-1}" +
   ".cs-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
   "@media (max-width:680px){main{padding:14px 16px 40px}.cs-card{padding:16px 14px 14px}h1{font-size:1.35rem}" +
@@ -719,6 +766,27 @@ D.querySelectorAll('[data-firma]').forEach(function(b){b.addEventListener('click
 firmatore().then(function(F){b.disabled=false;F.apri({base:CFG.b,t:CFG.t,c:CFG.c,tipo:'progetto_costruttivo',rif_id:id,pdf:CFG.u+'/file?t='+CFG.t+'&c='+CFG.c+'&id='+id,
 impostazioni:CFG.b+'/firma/impostazioni?t='+CFG.t+'&c='+CFG.c+'&da=costruttivi',onFatto:function(){location.reload();}});})
 .catch(function(){b.disabled=false;alert('Il firmatore non si carica: controlla la connessione e riprova.');});});});
+// ---- manda al fornitore (costruttivi-4, fase C3b): email con la copia firmata allegata
+var mdlg=$('cs-md-dlg'),mdId='',mdF='';
+function chiamaA(az,extra){var b={t:CFG.t,c:CFG.c,azione:az};for(var k in extra)b[k]=extra[k];return fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json();});}
+D.querySelectorAll('[data-manda]').forEach(function(b){b.addEventListener('click',function(){if(!mdlg)return;mdId=b.getAttribute('data-manda');mdF=b.getAttribute('data-firma-id');
+$('cs-md-dest').innerHTML='<p class="cs-sotto">Carico i contatti…</p>';$('cs-md-altri').value='';$('cs-md-msg-t').value='';$('cs-md-rr').textContent='';$('cs-md-rr').className='cs-md-rr';$('cs-md-prima').textContent='';
+$('cs-md-chi').value=leggiChi();$('cs-md-msg').textContent='';$('cs-md-si').disabled=true;if(typeof mdlg.showModal==='function')mdlg.showModal();else mdlg.setAttribute('open','');
+chiamaA('manda_prepara',{id:mdId}).then(function(r){if(!r||r.esito!=='ok'){$('cs-md-dest').innerHTML='';$('cs-md-msg').textContent=(r&&r.messaggio)||'Non riesco a preparare l\'invio: riprova.';return;}
+$('cs-md-tit').textContent='Manda '+r.codice+' rev. '+r.revisione+' a '+r.fornitore;var ds=r.destinatari||[];
+$('cs-md-dest').innerHTML=ds.length?ds.map(function(x){return '<label><input type="checkbox" checked value="'+esc(x.email)+'"> '+esc(x.nome||x.email)+' <em>'+esc(x.email)+(x.ruolo?' · '+esc(x.ruolo):'')+'</em></label>';}).join(''):
+'<p class="cs-sotto">Nella Rubrica non c\'è nessuno di '+esc(r.fornitore)+' con un\'email: scrivi l\'indirizzo qui sotto.</p>';
+var rr=$('cs-md-rr');if(r.rispondi_a){rr.textContent='Le risposte del fornitore arrivano a '+r.rispondi_a+'.';}else{rr.className='cs-md-rr av';rr.textContent='Nei dati dell\'impresa manca l\'email di riferimento: le risposte del fornitore arriveranno a info@tixcantiere.it.';}
+var pr=r.invii||[];if(pr.length)$('cs-md-prima').textContent='Già mandato: '+pr.slice(0,3).map(function(i){return i.a+' il '+String(i.il||'').slice(8,10)+'/'+String(i.il||'').slice(5,7)+' alle '+String(i.il||'').slice(11,16);}).join('; ')+(pr.length>3?'…':'');
+$('cs-md-si').disabled=false;}).catch(function(){$('cs-md-dest').innerHTML='';$('cs-md-msg').textContent='Non riesco a preparare l\'invio: controlla la connessione.';});});});
+if($('cs-md-si'))$('cs-md-si').addEventListener('click',function(){var m=$('cs-md-msg'),chi=$('cs-md-chi').value.trim();m.textContent='';
+var a=Array.prototype.map.call(D.querySelectorAll('#cs-md-dest input:checked'),function(x){return x.value;});
+($('cs-md-altri').value||'').split(/[,;\s]+/).forEach(function(x){x=x.trim();if(x)a.push(x);});
+var brutti=a.filter(function(x){return !/^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$/.test(x);});
+if(!a.length){m.textContent='Scegli o scrivi almeno un indirizzo email.';return;}if(brutti.length){m.textContent='Questo indirizzo non è valido: '+brutti[0];return;}if(a.length>5){m.textContent='Al massimo 5 indirizzi per volta.';return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.';$('cs-md-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+chiamaA('manda',{id:mdId,firma_id:mdF,dati:{a:a,messaggio:$('cs-md-msg-t').value,chi:chi}}).then(function(r){if(r&&r.esito==='ok'){m.style.color='#146C43';m.textContent=(r.mandate===1?'Email preparata':'Email preparate: '+r.mandate)+'. Partono tra pochi secondi.';setTimeout(function(){location.reload();},1400);return;}
+self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- chiedi il visto di strutturista e DL (costruttivi-2, fase C2)
 var vdlg=$('cs-vs-dlg'),vId='';
 D.querySelectorAll('[data-visto]').forEach(function(b){b.addEventListener('click',function(){if(!vdlg)return;vId=b.getAttribute('data-visto');$('cs-vs-cod').textContent=b.getAttribute('data-cod')||'';$('cs-vs-chi').value=leggiChi();$('cs-vs-msg').textContent='';$('cs-vs-si').disabled=false;
