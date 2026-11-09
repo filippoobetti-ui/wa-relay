@@ -9,13 +9,15 @@
 //   GET  /sal/pdf?t=<gettone>&c=<cantiere>[&id=<sal>]          → PDF da firmare, scritto qui senza librerie (fase 3, 30/10/2026)
 //   POST /sal/firmato/carica?t=&id=&nome=&chi=                  → copia firmata (PDF o .p7m) nell'archivio del cantiere
 //   GET  /sal/firmato?t=<gettone>&id=<sal>                      → scarica la copia firmata
+//   /sal/sub/…                                                  → contabilità dei subappaltatori (subappalti.js, 09/11/2026)
 // Il database decide tutto: chi entra (impostazioni.sal_attivo), calcolo, numeri, impronta, versioni.
 // Il relay non conserva nulla. Si spegne anche con la variabile del Worker SAL = "off".
 // ============================================================================
+import { portaleSub, SUB_APP, SUB_STILE } from "./subappalti.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
-const SCHEDE = ["avanzamento", "sal", "contratto", "computo"];
+const SCHEDE = ["avanzamento", "sal", "contratto", "computo", "subappalti"];
 
 function json(o, stato) {
   return new Response(JSON.stringify(o), {
@@ -155,6 +157,7 @@ export async function portaleSal(request, env, base, inUrl, h) {
   if (sotto === "/sal/firmato/carica") return caricaFirmato(request, env, inUrl, h);
   if (sotto === "/sal/firmato") return scaricaFirmato(request, env, base, inUrl, h);
   if (sotto === "/sal/documento") return documento(request, env, base, inUrl, h);
+  if (sotto.startsWith("/sal/sub/")) return portaleSub(request, env, base, inUrl, h, { salPdf, salXlsx });
   if (sotto !== "/sal") return new Response("Not Found", { status: 404 });
   const metodo = request.method;
   if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -397,6 +400,7 @@ async function scaricaFirmato(request, env, base, inUrl, h) {
 }
 
 function titoloDoc(sal, N) {
+  if (sal.tipo === "sub" && sal.titolo) return String(sal.titolo);
   const t = sal.tipo === "finale" ? "Conto finale dei lavori" : sal.tipo === "svincolo" ? "Svincolo delle ritenute di garanzia" : "Stato di avanzamento lavori n. " + N;
   return t + (Number(sal.versione) > 1 ? " (versione " + sal.versione + ")" : "");
 }
@@ -488,7 +492,9 @@ export function salPdf(d) {
   const N = Number(sal.numero) || 1;
   const voci = (Array.isArray(d.voci) ? d.voci : []).filter((v) => num(v.qt) || num(v.qn) || num(v.qp));
   const alt = Array.isArray(d.altre_voci) ? d.altre_voci : [];
-  const titolo = titoloDoc(sal, N) + " — proposta dell’impresa";
+  // contabilità del subappaltatore (subappalti.js): stesso documento, con etichette, conto e firme suoi
+  const sub = tipo === "sub", et = sal.etichette || {};
+  const titolo = titoloDoc(sal, N) + (sub ? "" : " — proposta dell’impresa");
   const f2 = (n) => String(Math.round(n * 100) / 100);
   const pagine = [];
   let p = null, y = 0;
@@ -538,13 +544,17 @@ export function salPdf(d) {
   for (const r of aCapo(titolo, W - 2 * M, 15, true)) { testo(M, y - 14, r, 15, true, "0.24 0.1 0.43 rg"); y -= 19; }
   y -= 4;
   const tipoC = { a_misura: "a misura", a_corpo: "a corpo", misto: "a corpo e a misura" }[cm.tipo_contratto] || "";
-  const sx = [["Impresa", ca.impresa], ["Cantiere", ca.nome], ["Ubicazione", ca.ubicazione], ["Committente", ca.committente],
+  const sx = [[et.impresa || "Impresa", ca.impresa], ["Cantiere", ca.nome], ["Ubicazione", ca.ubicazione], [et.committente || "Committente", ca.committente],
     ["Direzione Lavori", ca.dl], ["CUP / CIG", [ca.cup, ca.cig].filter(Boolean).join(" / ")]];
   const periodo = tipo === "svincolo"
     ? [(sal.collaudo_tipo === "cre" ? "Certificato di regolare esecuzione" : "Collaudo"), dataIt(sal.data_collaudo)]
     : tipo === "finale" ? ["Fine dei lavori", dataIt(sal.data_fine_lavori || sal.periodo_a)]
     : ["Lavori", "dal " + dataIt(sal.periodo_da) + " al " + dataIt(sal.periodo_a)];
-  const dx = [["Contratto", [tipoC, num(cm.importo_contratto) !== null ? eurIt(cm.importo_contratto) + " €" : ""].filter(Boolean).join(", ")],
+  const dx = sub
+    ? [["Contratto del subappalto", num(cm.importo_contratto) ? eurIt(cm.importo_contratto) + " €" : ""],
+       ["Ritenuta a garanzia", pcIt(cm.ritenuta_pct || 0)], periodo,
+       ["Approvata", bozza ? "non ancora" : (sal.emesso_il || "") + (sal.emesso_da ? " da " + sal.emesso_da : "")]]
+    : [["Contratto", [tipoC, num(cm.importo_contratto) !== null ? eurIt(cm.importo_contratto) + " €" : ""].filter(Boolean).join(", ")],
     ["Ribasso · ritenuta · anticipazione", pcIt(cm.ribasso_pct || 0) + " · " + pcIt(cm.ritenuta_pct || 0) + " · " + pcIt(cm.anticipazione_pct || 0)],
     ["Computo", "versione " + (cm.versione || "") + (cm.variante_n ? " (variante n. " + cm.variante_n + (cm.variante_descrizione ? ": " + cm.variante_descrizione : "") + ")" : "")],
     periodo,
@@ -628,7 +638,11 @@ export function salPdf(d) {
   const tr = co.traguardo && co.traguardo.modo === "percentuale" ? co.traguardo : null;
   const lavPer = co.lavori_periodo != null ? num(co.lavori_periodo) : Math.round(voci.reduce((t, v) => t + (num(v.in) || 0), 0) * 100) / 100;
   const rc = [];
-  if (tr) rc.push(["Traguardo «" + (tr.nome || "") + "»: " + pcIt(tr.percentuale) + " del contratto", (num(co.netto) || 0) - (num(co.altre_voci) || 0), false, "in tutto " + pcIt(tr.cumulata)]);
+  if (sub) {
+    rc.push(["Lavori a oggi", co.lavori, true, "di cui in questo periodo " + eurIt(lavPer) + " €"]);
+    if (num(co.ritenuta)) { rc.push(["− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta]); rc.push(["= Spettanza a oggi", co.spettanza, true]); }
+    rc.push(["− Contabilità già approvate", co.precedenti]);
+  } else if (tr) rc.push(["Traguardo «" + (tr.nome || "") + "»: " + pcIt(tr.percentuale) + " del contratto", (num(co.netto) || 0) - (num(co.altre_voci) || 0), false, "in tutto " + pcIt(tr.cumulata)]);
   else {
     rc.push(["Lavori a misura a oggi", co.lavori_misura]);
     if (num(co.lavori_corpo)) rc.push(["Lavori a corpo a oggi", co.lavori_corpo]);
@@ -636,14 +650,16 @@ export function salPdf(d) {
     rc.push(["− Ribasso " + pcIt(co.ribasso_pct || 0), co.ribasso]);
     rc.push(["+ Oneri della sicurezza", co.sicurezza, false, { nei_prezzi: "compresi nei prezzi", voci: "nelle voci non ribassabili", proporzionale: "in proporzione ai lavori" }[co.sicurezza_modo] || ""]);
   }
-  if (num(co.altre_voci)) rc.push(["+ Altre voci a oggi (economie e noli)", co.altre_voci]);
-  rc.push(["= Lavori netti a oggi", co.netto, true]);
-  rc.push([tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta, false,
-    tipo === "finale" ? "trattenuta fino allo svincolo" : ""]);
-  if (num(co.recupero) || num(co.anticipazione)) rc.push(["− Recupero dell’anticipazione" + (tipo === "sal" ? "" : " (per intero)"), co.recupero]);
-  rc.push(["= Spettanza a oggi", co.spettanza, true]);
-  rc.push(["− SAL già emessi", co.precedenti]);
-  const fin = tipo === "finale" ? "SALDO DEL CONTO FINALE, RITENUTE ESCLUSE" : tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTO SAL";
+  if (!sub) {
+    if (num(co.altre_voci)) rc.push(["+ Altre voci a oggi (economie e noli)", co.altre_voci]);
+    rc.push(["= Lavori netti a oggi", co.netto, true]);
+    rc.push([tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta, false,
+      tipo === "finale" ? "trattenuta fino allo svincolo" : ""]);
+    if (num(co.recupero) || num(co.anticipazione)) rc.push(["− Recupero dell’anticipazione" + (tipo === "sal" ? "" : " (per intero)"), co.recupero]);
+    rc.push(["= Spettanza a oggi", co.spettanza, true]);
+    rc.push(["− SAL già emessi", co.precedenti]);
+  }
+  const fin = sub ? "IMPORTO DI QUESTA CONTABILITÀ" : tipo === "finale" ? "SALDO DEL CONTO FINALE, RITENUTE ESCLUSE" : tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTO SAL";
   serve(rc.length * 14 + 60);
   testo(M, y - 10, "Conto", 10, true, "0.24 0.1 0.43 rg");
   y -= 16;
@@ -673,7 +689,8 @@ export function salPdf(d) {
   // ---- firme
   serve(96);
   const bw = (W - 2 * M - 30) / 2;
-  [[M, "Per l’impresa: data, timbro e firma", sal.firma_impresa], [M + bw + 30, "Visto della Direzione Lavori: data e firma", sal.firma_dl]].forEach(([x, et, nome]) => {
+  const firme = Array.isArray(sal.firme) && sal.firme.length === 2 ? sal.firme : ["Per l’impresa: data, timbro e firma", "Visto della Direzione Lavori: data e firma"];
+  [[M, firme[0], sal.firma_impresa], [M + bw + 30, firme[1], sal.firma_dl]].forEach(([x, et, nome]) => {
     op("0.6 G 0.6 w " + f2(x) + " " + f2(y - 80) + " " + f2(bw) + " 80 re S");
     testo(x + 6, y - 12, et, 8, true, "0.3 g");
     if (nome) testo(x + 6, y - 26, nome, 9);
@@ -686,7 +703,8 @@ export function salPdf(d) {
   pagine.forEach((pg, i) => {
     p = pg;
     linea(M, M + 22, W - M, M + 22, 0.4, "0.8 G");
-    testo(M, M + 12, "Documento preparato dall’impresa con TIX™: la verifica e l’approvazione spettano alla Direzione Lavori.", 7, false, "0.42 g");
+    testo(M, M + 12, sub ? "Contabilità del subappaltatore preparata con TIX™: misure scritte dal subappaltatore e approvate dall’impresa appaltatrice."
+      : "Documento preparato dall’impresa con TIX™: la verifica e l’approvazione spettano alla Direzione Lavori.", 7, false, "0.42 g");
     destra(W - M, M + 12, "Pagina " + (i + 1) + " di " + pagine.length, 7, false, "0.42 g");
     if (imp) testo(M, M + 3, imp, 6.5, false, "0.42 g");
   });
@@ -966,7 +984,7 @@ export function salXlsx(d) {
   const R = new Foglio("Riepilogo");
   R.larg = [52, 18, 18, 14, 4, 12, 40, 8, 12, 12, 14];
   const tipo = sal.tipo || co.tipo || "sal";
-  R.c(1, 1, "TIX™ · " + titoloDoc(sal, N) + " — proposta dell’impresa", S.TIT);
+  R.c(1, 1, "TIX™ · " + titoloDoc(sal, N) + (tipo === "sub" ? "" : " — proposta dell’impresa"), S.TIT);
   R.c(2, 1, (ca.nome || "") + (ca.ubicazione ? " · " + ca.ubicazione : "") + (ca.impresa ? " · " + ca.impresa : ""), S.LAB);
   R.c(4, 1, "Dati del SAL", S.HDR); R.c(4, 2, "", S.HDR);
   const righeDati = [["SAL n.", N, S.INT], ["Versione", Number(sal.versione) || 1, S.INT], ["Stato", STATI[sal.stato] || sal.stato || "", S.TXT],
@@ -975,7 +993,9 @@ export function salXlsx(d) {
     .concat(tipo === "svincolo" ? [[sal.collaudo_tipo === "cre" ? "Certificato di regolare esecuzione" : "Collaudo", seriale(sal.data_collaudo), S.DATA]] : [])
     .concat([["Emesso", sal.emesso_il ? sal.emesso_il + (sal.emesso_da ? " da " + sal.emesso_da : "") : "non ancora", S.TXT],
     ["Impronta SHA-256 del documento del SAL", sal.sha || "si assegna all’emissione", S.TXT],
-    ["Committente", ca.committente || "", S.TXT], ["Direzione Lavori", ca.dl || "", S.TXT]]);
+    ].concat(tipo === "sub"
+      ? [["Subappaltatore", ca.impresa || "", S.TXT], ["Impresa appaltatrice", ca.committente || "", S.TXT]]
+      : [["Committente", ca.committente || "", S.TXT], ["Direzione Lavori", ca.dl || "", S.TXT]]));
   let rr = 5;
   for (const [et, v, st] of righeDati) { R.c(rr, 1, et, S.TXT); R.c(rr, 2, v, st); rr++; }
   rr++;
@@ -1104,7 +1124,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>SAL - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body>" +
+    "<style>" + STILE + SUB_STILE + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>SAL</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -1112,7 +1132,8 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<div id="sal-testa"></div>' +
     '<nav class="sal-tab" role="tablist" aria-label="Sezioni del SAL">' +
     '<button type="button" role="tab" data-s="avanzamento">Avanzamento</button><button type="button" role="tab" data-s="sal">SAL</button>' +
-    '<button type="button" role="tab" data-s="contratto">Contratto</button><button type="button" role="tab" data-s="computo">Computo</button></nav>' +
+    '<button type="button" role="tab" data-s="contratto">Contratto</button><button type="button" role="tab" data-s="computo">Computo</button>' +
+    '<button type="button" role="tab" data-s="subappalti" id="tab-sub" hidden>Subappalti</button></nav>' +
     '<section id="sal-corpo" class="sal-corpo" aria-live="polite"></section>' +
     '<p class="nota">TIX™ prepara il SAL dell’impresa: la verifica e l’approvazione spettano alla Direzione Lavori. ' +
     'Gli importi sono visibili solo a chi entra nell’area riservata dell’impresa e non vengono mai mandati a nessuno da TIX.</p>' +
@@ -1121,7 +1142,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<div class="dl-c" id="dlg-c"></div><p class="msg" id="dlg-m" aria-live="polite"></p>' +
     '<div class="dl-b"><button type="button" class="no" id="dlg-no">Chiudi</button><button type="submit" class="si" id="dlg-si">Salva</button></div></form></dialog>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
-    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + APP + "</script></body></html>";
+    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
 }
 
 const STILE =
@@ -1269,6 +1290,7 @@ function testa(){
 function regola(){if(!K)return '';var c=K.cadenza_sal;return c==='mensile'?'SAL mensile':c==='soglia'?'ogni '+eur(K.soglia_sal_importo)+' € di lavori':c==='traguardi'?'a traguardi':c==='fine_lavori'?'unico a fine lavori':'regola dei SAL da scegliere';}
 function schede(){[].forEach.call(document.querySelectorAll('.sal-tab button'),function(b){b.setAttribute('aria-selected',b.getAttribute('data-s')===scheda?'true':'false');});}
 function corpo(){var el=$('#sal-corpo');
+  if(scheda==='subappalti'){if(window.SUB_MOSTRA)window.SUB_MOSTRA(el);else el.innerHTML='';return;}
   if(scheda==='avanzamento')el.innerHTML=avanzamento();else if(scheda==='sal')el.innerHTML=salTab();else if(scheda==='contratto')el.innerHTML=contratto();else el.innerHTML=computo();
   if(scheda==='contratto')legaContratto();if(scheda==='avanzamento')curvaSegui();}
 
