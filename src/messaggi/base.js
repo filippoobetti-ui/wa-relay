@@ -23,12 +23,14 @@
 // nel registro chat_unica_eventi (tipo relay_messaggi).
 // ============================================================================
 
-// Pezzi costruiti. A0: nessuno. Ogni pezzo e' un oggetto con:
+// Pezzi costruiti. Ogni pezzo e' un oggetto con:
 //   nome       uno di MESSAGGI_PEZZI_NOMI (e' anche la fine della chiave relay_messaggi_<nome>)
 //   riconosce  (msg, bundle, origine) -> true / false: veloce, senza database
 //   esegui     async (c) -> true se il messaggio e' stato lavorato; c e' il contesto preparato da contesto()
 // Per aggiungere un pezzo: import { pezzoX } from "./x.js"; e metterlo in questo elenco.
-const PEZZI = [];
+// A1 (09/11/2026): comandi e scelte dalle liste (src/messaggi/comandi.js).
+import { pezzoComandi } from "./comandi.js";
+const PEZZI = [pezzoComandi];
 
 export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "primo", "foto", "ddt", "eco"];
 
@@ -90,6 +92,8 @@ function contesto(env, bundle, msg, origine, aiuti, cfg, nome, posizione) {
   // Da chiamare appena il pezzo scrive qualcosa nel database: da quel momento il pacchetto non va piu' a Make.
   c.segnaScritto = () => { c.scritto = true; };
   c.rpc = (nomeRpc, corpo, ms) => aiuti.rpc(env, nomeRpc, corpo, ms);
+  // Scrittura diretta in una tabella (come i moduli «Supabase … Upsert» di Make): POST /rest/v1/<percorso>.
+  c.rest = (percorso, corpo, prefer, ms) => messaggiRest(env, percorso, corpo, prefer, ms);
   // Invio a chi ha scritto. Un messaggio vero mandato conta come «scritto» (a Make sarebbe una risposta doppia);
   // la spunta di lettura ({status:"read"}) no.
   c.invia = async (payload, motivo, commessa) => {
@@ -101,6 +105,23 @@ function contesto(env, bundle, msg, origine, aiuti, cfg, nome, posizione) {
     return r;
   };
   return c;
+}
+
+// POST su una tabella di Supabase con la chiave di servizio (stessa forma delle chiamate «makeAnApiCall» di Make).
+async function messaggiRest(env, percorso, corpo, prefer, ms) {
+  const url = (env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co") + "/rest/v1/" + percorso;
+  const svc = env.SUPABASE_SERVICE_KEY;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || 8000);
+  try {
+    const h = { Authorization: "Bearer " + svc, apikey: svc, "Content-Type": "application/json" };
+    if (prefer) h.Prefer = prefer;
+    const r = await fetch(url, { method: "POST", headers: h, body: JSON.stringify(corpo), signal: ctrl.signal });
+    if (!r.ok) throw new Error(percorso.split("?")[0] + " " + r.status);
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Riga nel registro chat_unica_eventi. Non deve MAI fermare il giro: un registro che non risponde non cambia
