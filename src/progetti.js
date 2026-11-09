@@ -8,6 +8,8 @@
 //   POST /progetti/carica  intestazione X-Progetti-Dati = JSON in base64url {t, c, tipo, codice, titolo, revisione,
 //                          variante, autore, nome, byte, sha256}; corpo = il file (PDF o .p7m, fino a progetti_max_mb)
 //   POST /progetti/azione  {t, c, azione: "annulla", id, dati: {chi, motivo}}
+//                          {t, c, azione: "sposta", dati: {ids: [...], tipo, chi}}  (09/11/2026, sposta-1: categoria nuova con
+//                          storico, anche le revisioni superate dello stesso codice; interruttore impostazioni.progetti_sposta_attiva)
 //   GET  /progetti/file?t=…&c=…&id=…[&scarica=1]          → il file della revisione in vigore
 // Caricamento come la Sicurezza: prima il controllo nel database (progetti_carica_controlla), poi il corpo; tipo letto dai
 // primi byte; impronta ricalcolata qui solo fino a 5 MB (CPU del piano gratuito), altrimenti vale quella del browser.
@@ -256,6 +258,10 @@ async function azione(request, env, h) {
   if (a === "annulla") {
     if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "progetti_tavola_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "sposta") {
+    const ids = Array.from(new Set(lista(dati.ids).map((x) => String(x || "").toLowerCase()).filter((x) => UUID.test(x))));
+    if (!UUID.test(c) || !ids.length || ids.length > 400) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "progetti_tavole_sposta", { p_token: tok, p_commessa: c, p_ids: ids, p_tipo: testo(dati.tipo, 40), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
   } else if (a === "destinatari" || a === "destinatario_aggiungi" || a === "destinatario_togli") {
     if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
     const az = a === "destinatario_aggiungi" ? "aggiungi" : a === "destinatario_togli" ? "togli" : "elenco";
@@ -357,6 +363,7 @@ function pagina(base, h, p, d, torna) {
   const e = h.esc;
   const tavole = lista(d.tavole);
   const chiuso = !!d.chiuso;
+  const sposta = !chiuso && d.sposta === true;
   const maxMb = Math.max(1, Math.min(50, Number(d.max_mb) || 25));
   const sup = Math.max(0, Number(d.superate) || 0);
   const spazio = tavole.reduce((s, x) => s + (Number(x.byte) || 0), 0);
@@ -383,8 +390,9 @@ function pagina(base, h, p, d, torna) {
     const t = tavole.filter((x) => x.tipo === k).sort((a, b) => String(a.codice).localeCompare(String(b.codice), "it", { numeric: true }));
     if (!t.length) return;
     num++;
-    sezioni += '<section class="pg-sez" data-sez="' + k + '"><h2><span class="n">' + num + '</span>' + e(n) + ' <small>' + t.length + (t.length === 1 ? " tavola" : " tavole") + '</small></h2>' +
-      t.map((x) => riga(e, qui, p, x, chiuso)).join("") + '</section>';
+    sezioni += '<section class="pg-sez" data-sez="' + k + '"><h2><span class="n">' + num + '</span>' + e(n) + ' <small>' + t.length + (t.length === 1 ? " tavola" : " tavole") + '</small>' +
+      (sposta ? '<button type="button" class="pg-sel-tutte" data-sel-sez="' + k + '">Seleziona tutte</button>' : "") + '</h2>' +
+      t.map((x) => riga(e, qui, p, x, chiuso, sposta)).join("") + '</section>';
   });
   if (!tavole.length) {
     sezioni = '<div class="pg-vuoto">' + SVG.compasso + '<p><b>Nessuna tavola ancora.</b> ' +
@@ -446,6 +454,8 @@ function pagina(base, h, p, d, torna) {
     (d.modo === "prova" ? '<p class="pg-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
     (chiuso ? "" : '<div class="pg-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica tavole</a></div>') + '</div>' +
     cifre + avvVecchie + (tavole.length ? filtri : "") + sezioni + '<p class="pg-nessuno" id="pg-nessuno" hidden>Nessuna tavola con questa ricerca.</p>' +
+    (sposta && tavole.length ? '<div class="pg-selbar" id="pg-selbar" hidden><span id="pg-sel-n"></span><button type="button" class="btn sm pr" id="pg-sel-sposta">Sposta le selezionate in…</button>' +
+      '<button type="button" class="btn sm tenue" id="pg-sel-via">Annulla la selezione</button></div>' : "") +
     form + wa + email +
     '<p class="pg-fonti">TIX™ conserva le tavole, le tiene in ordine e mostra solo la revisione in vigore. Non controlla i disegni: la responsabilità del progetto resta dei progettisti e della Direzione Lavori.</p>' +
     '</div></main>' +
@@ -455,14 +465,25 @@ function pagina(base, h, p, d, torna) {
     '<label for="pg-dlg-mot">Perché (facoltativo)</label><input id="pg-dlg-mot" maxlength="300" placeholder="Per esempio: file sbagliato">' +
     '<p class="pg-msg" id="pg-dlg-msg" role="status"></p>' +
     '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="pg-dlg-si">Togli</button></div></form></dialog>' +
+    (sposta ? '<dialog class="pg-dlg" id="pg-sp-dlg"><form method="dialog"><h3 id="pg-sp-tit">Sposta</h3>' +
+      '<p>Cambia solo la categoria. Codice, revisione e file restano uguali, e con la tavola si spostano anche le sue revisioni superate. Non parte nessun avviso email.</p>' +
+      '<label for="pg-sp-tipo">Nuova categoria</label><select id="pg-sp-tipo"><option value="">Scegli…</option>' +
+      TIPI.map(([k, n]) => '<option value="' + k + '">' + e(n) + '</option>').join("") + '</select>' +
+      '<label for="pg-sp-chi">Il tuo nome</label><input id="pg-sp-chi" maxlength="120" autocomplete="name">' +
+      '<p class="pg-msg" id="pg-sp-msg" role="status"></p>' +
+      '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-sp-si">Sposta</button></div></form></dialog>' : "") +
     "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 
-function riga(e, qui, p, x, chiuso) {
+const NOME_TIPO = Object.fromEntries(TIPI);
+
+function riga(e, qui, p, x, chiuso, sposta) {
   const apri = qui + "/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(x.id);
   const meta = [];
   meta.push("<b>rev. " + e(x.revisione) + "</b>" + (x.sostituisce ? ", sostituisce la rev. " + e(x.sostituisce) : ""));
   meta.push("caricata da <b>" + e(x.caricato_da || "") + "</b> il " + e(quando(x.caricato_il)));
+  const sp = x.spostata && typeof x.spostata === "object" ? x.spostata : null;
+  if (sp) meta.push("spostata da <b>" + e(NOME_TIPO[sp.da] || sp.da || "") + "</b> a <b>" + e(NOME_TIPO[sp.a] || sp.a || "") + "</b> da <b>" + e(sp.chi || "") + "</b> il " + e(quando(sp.il)));
   meta.push(e(mb(x.byte)));
   const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
     (x.drive && x.impronta_drive === "uguale" ? ' <span class="pg-ok">verificata sull\'archivio Drive</span>'
@@ -471,10 +492,12 @@ function riga(e, qui, p, x, chiuso) {
     (Number(x.invii) > 0 ? ' · <span class="pg-wa-n">mandata su WhatsApp ' + e(x.invii) + (Number(x.invii) === 1 ? " volta" : " volte") + '</span>' : "");
   const az = '<a class="btn sm tenue" href="' + e(apri) + '" target="_blank" rel="noopener">Apri</a>' +
     '<a class="btn sm tenue" href="' + e(apri + "&scarica=1") + '">Scarica</a>' +
+    (sposta ? '<button type="button" class="btn sm tenue" data-sposta="' + e(x.id) + '" data-tipo="' + e(x.tipo) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Sposta</button>' : "") +
     (chiuso ? "" : '<button type="button" class="btn sm togli" data-togli="' + e(x.id) + '" data-cod="' + e(x.codice + " rev. " + x.revisione) + '">Togli</button>');
   const q = (String(x.codice || "") + " " + String(x.titolo || "") + " " + String(x.nome || "")).toLowerCase();
   return '<div class="pg-tv" data-tipo="' + e(x.tipo) + '" data-var="' + (x.variante ? "1" : "") + '" data-q="' + e(q) + '">' +
-    '<div class="pg-cod"><b>' + e(x.codice) + '</b><span class="pg-rev">rev. ' + e(x.revisione) + '</span></div>' +
+    '<div class="pg-cod"><b>' + e(x.codice) + '</b><span class="pg-rev">rev. ' + e(x.revisione) + '</span>' +
+    (sposta ? '<label class="pg-sel"><input type="checkbox" data-sel="' + e(x.id) + '" aria-label="Seleziona ' + e(x.codice) + '"> Seleziona</label>' : "") + '</div>' +
     '<div class="pg-corpo"><p class="pg-tit">' + e(x.titolo || x.nome || x.codice) + (x.variante ? ' <span class="pg-var">Variante</span>' : "") + '</p>' +
     '<p class="pg-meta">' + meta.join(" · ") + " · " + imp + '</p></div>' +
     '<div class="pg-lato"><span class="pg-st">In vigore</span><div class="pg-az">' + az + '</div></div></div>';
@@ -591,6 +614,12 @@ const STILE =
   ".pg-dlg{max-width:460px;width:calc(100vw - 32px);border:0;border-radius:16px;padding:18px;box-shadow:0 24px 60px -20px rgba(16,27,43,.45)}" +
   ".pg-dlg::backdrop{background:rgba(16,27,43,.45)}.pg-dlg h3{margin:0 0 8px;color:var(--navy)}.pg-dlg p{margin:0 0 12px;font-size:.9rem;line-height:1.45;color:var(--s)}" +
   ".pg-dlg form{display:flex;flex-direction:column;gap:6px}" +
+  // sposta-1: caselle di selezione, «Seleziona tutte» nella sezione, barra in basso con le selezionate, tendina nella finestra
+  ".pg-sel{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;color:var(--s);cursor:pointer}.pg-sel input{width:18px;height:18px;accent-color:#7A4E2D}" +
+  ".pg-sel-tutte{padding:3px 10px;border:1px solid var(--pr-b);border-radius:999px;background:var(--pr-f);color:var(--pr-s);font:inherit;font-size:.74rem;font-weight:700;letter-spacing:0;text-transform:none;cursor:pointer}" +
+  ".pg-selbar{position:sticky;bottom:12px;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:14px 0 0;padding:10px 12px;border:1.5px solid var(--pr);border-radius:14px;background:#fff;box-shadow:0 12px 28px -14px rgba(16,27,43,.45)}" +
+  ".pg-selbar span{flex:1 1 160px;font-weight:700;color:var(--pr-s);font-size:.92rem}" +
+  ".pg-dlg select{width:100%;min-height:36px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:var(--c);font:inherit;font-size:.88rem;color:var(--t)}" +
   "@media (max-width:1100px){.pg-fr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pg-th{display:none}.pg-fr .pg-fn{grid-column:1/-1}.pg-fr .c-tit{grid-column:1/-1}" +
   ".pg-fr .et{display:block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin-bottom:3px}}" +
   "@media (max-width:680px){main{padding:14px 16px 40px}.pg-card{padding:16px 14px 14px}h1{font-size:1.35rem}" +
@@ -701,6 +730,25 @@ if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else if(dlg)dlg.setAtt
 if($('pg-dlg-si'))$('pg-dlg-si').addEventListener('click',function(){var chi=$('pg-dlg-chi').value.trim(),m=$('pg-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('pg-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- sposta (09/11/2026, sposta-1): una tavola dal suo pulsante, oppure le selezionate dalla barra in basso
+var sdlg=$('pg-sp-dlg'),sIds=[];
+function selezionate(){return Array.prototype.map.call(D.querySelectorAll('[data-sel]:checked'),function(x){return x.getAttribute('data-sel');});}
+function barra(){var b=$('pg-selbar');if(!b)return;var n=selezionate().length;b.hidden=!n;$('pg-sel-n').textContent=n===1?'1 tavola selezionata':n+' tavole selezionate';}
+D.addEventListener('change',function(ev){var t=ev.target;if(t&&t.hasAttribute&&t.hasAttribute('data-sel'))barra();});
+D.querySelectorAll('[data-sel-sez]').forEach(function(b){b.addEventListener('click',function(){var s=b.closest('.pg-sez');if(!s)return;
+var cs=Array.prototype.filter.call(s.querySelectorAll('[data-sel]'),function(x){var tv=x.closest('.pg-tv');return !tv||!tv.classList.contains('pg-via');});
+var tutte=cs.length&&cs.every(function(x){return x.checked;});cs.forEach(function(x){x.checked=!tutte;});b.textContent=tutte?'Seleziona tutte':'Togli la selezione';barra();});});
+function apriSposta(ids,tipo,titolo){if(!sdlg)return;sIds=ids;$('pg-sp-tit').textContent=titolo;var s=$('pg-sp-tipo');s.value='';
+Array.prototype.forEach.call(s.options,function(o){o.disabled=!!tipo&&o.value===tipo;});$('pg-sp-chi').value=leggiChi();$('pg-sp-msg').textContent='';$('pg-sp-si').disabled=false;
+if(typeof sdlg.showModal==='function')sdlg.showModal();else sdlg.setAttribute('open','');}
+D.querySelectorAll('[data-sposta]').forEach(function(b){b.addEventListener('click',function(){apriSposta([b.getAttribute('data-sposta')],b.getAttribute('data-tipo')||'','Sposta la tavola '+(b.getAttribute('data-cod')||''));});});
+if($('pg-sel-sposta'))$('pg-sel-sposta').addEventListener('click',function(){var ids=selezionate();if(!ids.length)return;apriSposta(ids,'',ids.length===1?'Sposta 1 tavola':'Sposta '+ids.length+' tavole');});
+if($('pg-sel-via'))$('pg-sel-via').addEventListener('click',function(){D.querySelectorAll('[data-sel]:checked').forEach(function(x){x.checked=false;});D.querySelectorAll('[data-sel-sez]').forEach(function(b){b.textContent='Seleziona tutte';});barra();});
+if($('pg-sp-si'))$('pg-sp-si').addEventListener('click',function(){var m=$('pg-sp-msg'),tipo=$('pg-sp-tipo').value,chi=$('pg-sp-chi').value.trim();m.textContent='';
+if(!tipo){m.textContent='Scegli la categoria.';$('pg-sp-tipo').focus();return;}if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha spostato le tavole.';$('pg-sp-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'sposta',dati:{ids:sIds,tipo:tipo,chi:chi}})})
+.then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
+m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Lo spostamento delle tavole non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;
 
 // ---------------------------------------------------------------------------- P2: la tavola su WhatsApp (08/11/2026, progetti-2)
