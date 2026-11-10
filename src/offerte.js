@@ -13,8 +13,17 @@
 //                          dei prezzi possono essere tante.
 //   POST /offerte/azione   {t, c, azione: "stato" | "modifica" | "righe" | "togli", id, dati}
 //   GET  /offerte/file?t=…&c=…&id=…[&scarica=1]   → il file dell'offerta
-// Interruttori: impostazioni.offerte_attiva (no / prova = solo l'accesso «Tutte le aziende» / si) e OFFERTE = "off".
+//   POST /offerte/leggi    (10/11/2026, offerte-2, fase O2a) LETTURA AUTOMATICA con l'IA: stesso corpo del caricamento (8 cifre + JSON
+//                          {t, c, nome, byte, sha256} + il file) per il file appena scelto, oppure JSON {t, c, id} per un'offerta già
+//                          caricata. Il relay manda il PDF o la foto a Claude (API Anthropic, chiave ANTHROPIC_API_KEY del Worker) e
+//                          restituisce la PROPOSTA dei campi: la pagina li riempie segnati «da controllare»; non si salva niente da solo.
+//                          Prima offerte_lettura_controlla (accesso, offerte_ia_attiva, letture del mese, tetto), dopo offerte_lettura_registra.
+//                          La lettura vera la fa il lettore comune src/lettore-offerte.js (usato anche dalle Richieste di offerta dei Preventivi).
+// Interruttori: impostazioni.offerte_attiva (no / prova = solo l'accesso «Tutte le aziende» / si) e OFFERTE = "off";
+// lettura automatica: impostazioni.offerte_ia_attiva e OFFERTE_IA = "off".
 // ============================================================================
+
+import { leggiOffertaFornitore, pulisciPropostaOfferta } from "./lettore-offerte.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
@@ -142,6 +151,7 @@ export async function portaleOfferte(request, env, base, inUrl, h) {
   if (sotto === "/offerte/carica") return carica(request, env, h);
   if (sotto === "/offerte/azione") return azione(request, env, h);
   if (sotto === "/offerte/file") return apriFile(request, env, base, inUrl, h);
+  if (sotto === "/offerte/leggi") return leggi(request, env, h);
   if (sotto !== "/offerte") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -326,6 +336,64 @@ function servi(f, info, scarica, metodo) {
   return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: hd });
 }
 
+// ---------------------------------------------------------------------------- lettura automatica con l'IA (offerte-2, fase O2a)
+// Qui solo accesso, tetto e registro; la lettura del file la fa il lettore comune src/lettore-offerte.js.
+async function leggi(request, env, h) {
+  if (request.method !== "POST") return json({ esito: "metodo_non_consentito" }, 405);
+  if (env.OFFERTE_IA === "off" || !env.ANTHROPIC_API_KEY) return json({ esito: "spento" });
+  const tutto = new Uint8Array(await request.arrayBuffer());
+  if (tutto.length < 10 || tutto.length > 60 * 1048576) return json({ esito: "richiesta_non_valida" }, 400);
+  let d = null, bytes = null;
+  if (tutto[0] === 0x7b) {
+    // offerta già caricata: {t, c, id}
+    try { d = JSON.parse(new TextDecoder().decode(tutto)); } catch (e) { d = null; }
+  } else {
+    const lunTesto = String.fromCharCode.apply(null, Array.from(tutto.subarray(0, 8)));
+    const lun = /^[0-9]{8}$/.test(lunTesto) ? Number(lunTesto) : 0;
+    if (!lun || lun > JSON_MAX || 8 + lun >= tutto.length) return json({ esito: "richiesta_non_valida" }, 400);
+    try { d = JSON.parse(new TextDecoder().decode(tutto.subarray(8, 8 + lun))); } catch (e) { d = null; }
+    bytes = tutto.subarray(8 + lun);
+  }
+  if (!d || typeof d !== "object") return json({ esito: "richiesta_non_valida" }, 400);
+  const tok = /^[0-9a-fA-F]{64}$/.test(String(d.t || "")) ? String(d.t).toLowerCase() : "";
+  const c = String(d.c || "").toLowerCase();
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
+  const ctl = await h.rpc(env, "offerte_lettura_controlla", { p_token: tok, p_commessa: c }, 10000).catch(() => null);
+  if (!ctl || typeof ctl !== "object") return json({ esito: "incerto", messaggio: "La lettura automatica non risponde: compila i campi a mano." }, 502);
+  if (ctl.esito !== "ok") return json(ctl, ctl.esito === "gettone" ? 403 : 200);
+  let nome = "", sha = "", offertaId = null;
+  if (bytes) {
+    nome = testo(d.nome, 200);
+    sha = String(d.sha256 || "").toLowerCase();
+    if (bytes.length !== Number(d.byte)) return json({ esito: "incompleto", messaggio: "Il file non è arrivato intero: riprova." }, 400);
+  } else {
+    offertaId = String(d.id || "").toLowerCase();
+    if (!UUID.test(offertaId)) return json({ esito: "richiesta_non_valida" }, 400);
+    const info = await h.rpc(env, "offerte_file_info", { p_token: tok, p_id: offertaId }, 10000).catch(() => null);
+    if (!info || info.esito !== "ok" || String(info.commessa_id || "") !== c) return json({ esito: "errore", messaggio: "L'offerta non si trova: ricarica la pagina." });
+    const ps = String(info.percorso || "");
+    if (!new RegExp("^documenti/" + c + "/offerte/[0-9]{8}-[0-9a-f]{12}\\.(pdf|p7m|jpg|png)$").test(ps)) return json({ esito: "errore", messaggio: "Il file di questa offerta non è disponibile." });
+    const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+    if (!f || !f.ok) return json({ esito: "archivio", messaggio: "Il file non si legge dall'archivio in questo momento: riprova tra un minuto." }, 502);
+    bytes = new Uint8Array(await f.arrayBuffer());
+    nome = testo(info.nome, 200);
+  }
+  const r = await leggiOffertaFornitore(env, { bytes, nome, modello: ctl.modello, effort: ctl.effort, fornitori: ctl.fornitori,
+    materiali: lista(ctl.materiali).concat(MATERIALI_BASE) });
+  // file non leggibile (.p7m o altro), troppo grande o chiave mancante: l'API non è stata chiamata, niente da registrare
+  if (r.esito === "formato" || r.esito === "grande" || r.esito === "spento") return json({ esito: r.esito, messaggio: r.messaggio });
+  if (!/^[0-9a-f]{64}$/.test(sha)) sha = esadecimale(await crypto.subtle.digest("SHA-256", bytes));
+  const reg = await h.rpc(env, "offerte_lettura_registra", { p_token: tok, p_commessa: c, p_dati: {
+    esito: r.esito, offerta_id: offertaId, sha256: sha, modello: r.modello,
+    token_in: r.token_in, token_out: r.token_out, ms: String(r.ms || 0), errore: r.errore || "" } }, 10000).catch(() => null);
+  const usate = reg && reg.esito === "ok" ? Number(reg.usate) || 0 : (Number(ctl.usate) || 0) + 1;
+  if (r.esito === "ok") return json({ esito: "ok", proposta: r.proposta, usate, limite: ctl.limite });
+  if (r.esito === "vuota") return json({ esito: "vuota", messaggio: r.messaggio, usate, limite: ctl.limite });
+  return json({ esito: "errore", messaggio: r.messaggio || "Non sono riuscito a leggere l'offerta: compila i campi a mano.", usate, limite: ctl.limite });
+}
+
 // ---------------------------------------------------------------------------- pagina
 const SVG = {
   tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
@@ -362,6 +430,10 @@ function pagina(base, h, p, d, torna) {
   const conta = (k) => voci.filter((x) => gruppo(x) === k).length;
   const daDecidere = conta("da_decidere"), accettate = conta("accettate"), nonScelte = conta("non_scelte"), scadute = conta("scadute");
   const inScadenza = voci.filter((x) => gruppo(x) === "da_decidere" && x.valida_fino && (giorni(oggi, x.valida_fino) ?? 99) <= 7);
+  // offerte-2 (fase O2a): lettura automatica del file con l'IA
+  const ia = d.ia && typeof d.ia === "object" ? d.ia : {};
+  const iaAttiva = ia.attiva === true;
+  const iaLimite = Math.max(0, Number(ia.limite) || 0), iaUsate = Math.max(0, Number(ia.usate) || 0);
 
   const cifre = '<div class="of-cifre">' +
     '<div class="of-c-pr"><b>' + voci.length + '</b><span>Offerte</span></div>' +
@@ -373,7 +445,9 @@ function pagina(base, h, p, d, torna) {
     'il PDF (o la foto), la validità e, se vuoi, i prezzi + IVA voce per voce. Le offerte dello stesso materiale stanno una accanto all\'altra e TIX ' +
     'segna il prezzo più basso della stessa voce. Quando decidi, segna l\'offerta come «Accettata» o «Non scelta». ' +
     '<b>Le vedono solo le persone della tua impresa</b> che hanno l\'accesso all\'app: mai i professionisti, mai i subappaltatori, mai WhatsApp. ' +
-    'Mezz\'ora dopo il caricamento TIX ne mette una copia su Drive, nella cartella «Offerte dei fornitori» del cantiere.</div></div>';
+    'Mezz\'ora dopo il caricamento TIX ne mette una copia su Drive, nella cartella «Offerte dei fornitori» del cantiere.' +
+    (iaAttiva ? ' <b>Quando scegli il file, TIX lo legge da solo</b> e compila fornitore, date, prezzi e condizioni: i campi in giallo vanno controllati prima di salvare' +
+      (iaLimite ? ' (letture automatiche di questo mese: ' + iaUsate + ' di ' + iaLimite + ')' : '') + '.' : '') + '</div></div>';
 
   const scadenza = inScadenza.length ? '<div class="of-scad">' + SVG.orologio + '<div><b>' + (inScadenza.length === 1 ? "Un'offerta scade" : inScadenza.length + " offerte scadono") +
     ' entro 7 giorni.</b> ' + inScadenza.map((x) => {
@@ -438,13 +512,14 @@ function pagina(base, h, p, d, torna) {
     '<p class="of-sotto">Un\'offerta alla volta: il PDF che ti ha mandato il fornitore, oppure la foto se è su carta.</p>' +
     '<label class="of-drop" id="of-drop"><span class="of-scegli">' + SVG.file + '<span id="of-file-nome">Trascina qui il file o tocca per sceglierlo<small>PDF, PDF firmato (.p7m), JPG o PNG, fino a ' + maxMb + ' MB · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli il file</span><input type="file" id="of-file" accept="application/pdf,.pdf,.p7m,image/jpeg,image/png,.jpg,.jpeg,.png" hidden></label>' +
+    (iaAttiva ? '<div class="of-ia" id="of-ia" role="status" hidden></div>' : '') +
     campiDati("of-c") +
     '<details class="of-det" id="of-c-det"><summary>Prezzi voce per voce (facoltativi, si possono aggiungere anche dopo)</summary>' + editorPrezzi("of-c") + '</details>' +
     '<div class="of-chi"><label for="of-c-chi">Il tuo nome</label><input id="of-c-chi" maxlength="120" autocomplete="name" placeholder="Resta scritto chi ha caricato l\'offerta"></div>' +
     '<p class="of-msg" id="of-c-msg" role="status"></p>' +
     '<div class="of-form-az"><button type="button" class="btn pr" id="of-c-salva">' + SVG.su + 'Salva l\'offerta</button></div></section>';
 
-  const cfg = JSON.stringify({ u: qui, b: base, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb,
+  const cfg = JSON.stringify({ u: qui, b: base, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb, ia: iaAttiva,
     voci: voci.map((x) => ({ id: x.id, fornitore: x.fornitore, materiale: x.materiale, descrizione: x.descrizione || "", numero: x.numero || "",
       data: x.data || "", valida_fino: x.valida_fino || "", note: x.note || "", stato: x.stato, righe: lista(x.righe) })) }).replace(/</g, "\\u003c");
 
@@ -469,6 +544,7 @@ function pagina(base, h, p, d, torna) {
     '<div class="of-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="of-st-si">Conferma</button></div></form></dialog>' +
     '<dialog class="of-dlg of-dlg-l" id="of-pr-dlg"><form method="dialog"><h3 id="of-pr-tit">Prezzi dell\'offerta</h3>' +
     '<p>Scrivi i prezzi come nell\'offerta, + IVA. Le voci scritte allo stesso modo in più offerte dello stesso materiale si confrontano.</p>' +
+    (iaAttiva ? '<p class="of-p-leggi"><button type="button" class="btn sm sec" id="of-p-leggi">Leggi i prezzi dal documento</button></p><div class="of-ia" id="of-p-ia" role="status" hidden></div>' : '') +
     editorPrezzi("of-p") +
     '<label for="of-p-chi">Il tuo nome</label><input id="of-p-chi" maxlength="120" autocomplete="name">' +
     '<p class="of-msg" id="of-p-msg" role="status"></p>' +
@@ -632,7 +708,7 @@ const STILE =
   ".of-det[open] summary{border-bottom:1px solid var(--pr-b)}.of-det .of-prezzi-ed{padding:10px 12px}" +
   ".of-pr-th,.of-pr-r{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px 40px;gap:8px;align-items:center}" +
   ".of-pr-th{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--s);margin:0 0 6px}" +
-  ".of-pr-r{margin:0 0 6px}.of-pr-r input.n{text-align:right}.of-pr-x{min-height:38px;border:1px solid var(--ro-b);border-radius:10px;background:#fff;color:var(--ro);font:inherit;font-weight:800;cursor:pointer}" +
+  ".of-pr-r{margin:0 0 6px}.of-pr-r input.n{text-align:right}.of-pr-r input.o{grid-column:1/-1;font-size:.85rem}.of-pr-x{min-height:38px;border:1px solid var(--ro-b);border-radius:10px;background:#fff;color:var(--ro);font:inherit;font-weight:800;cursor:pointer}" +
   ".of-chi{margin-top:12px;display:flex;flex-direction:column;gap:4px;max-width:420px}" +
   ".of-msg{margin:10px 0 0;font-size:.9rem;font-weight:600;color:var(--ro);min-height:1px}.of-msg.ok{color:var(--ok)}" +
   ".of-form-az{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}" +
@@ -641,6 +717,14 @@ const STILE =
   ".of-dlg.of-dlg-l{max-width:820px}" +
   ".of-dlg::backdrop{background:rgba(16,27,43,.45)}.of-dlg h3{margin:0 0 8px;color:var(--navy)}.of-dlg p{margin:0 0 12px;font-size:.9rem;line-height:1.45;color:var(--s)}" +
   ".of-dlg form{display:flex;flex-direction:column;gap:6px}" +
+  // offerte-2 (O2a): lettura automatica, campi proposti da controllare
+  ".of-ia{margin:12px 0 0;padding:10px 12px;border-radius:12px;border:1px solid #E8D48A;background:#FFF9E6;font-size:.88rem;line-height:1.5;color:#5C4500}" +
+  ".of-ia b{color:#5C4500}.of-ia ul{margin:6px 0 0;padding-left:18px}.of-ia .of-ia-az{margin:8px 0 0}" +
+  ".of-ia.at{border-color:var(--pr-b);background:var(--pr-f);color:var(--pr-s)}.of-ia.no{border-color:var(--ro-b);background:var(--ro-f);color:#7a1c16}" +
+  ".of-gira{display:inline-block;width:14px;height:14px;margin-right:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:ofgira .8s linear infinite}" +
+  "@keyframes ofgira{to{transform:rotate(360deg)}}" +
+  ".of-campi input.ia,.of-campi textarea.ia,.of-prezzi-ed input.ia{background:#FFF4C2;border-color:#D9B23C}" +
+  ".of-p-leggi{margin:0 0 6px!important}" +
   "@media (max-width:900px){.of-campi{grid-template-columns:repeat(2,minmax(0,1fr))}.of-campi .of-l2,.of-campi .of-l3{grid-column:1/-1}}" +
   "@media (max-width:680px){main{padding:14px 16px 40px}.of-card{padding:16px 14px 14px}h1{font-size:1.35rem}" +
   ".of-az-testa{width:100%}.of-az-testa .btn{flex:1 1 auto}.of-cifre{grid-template-columns:repeat(2,minmax(0,1fr))}.of-campo{flex:1 1 100%}" +
@@ -669,13 +753,13 @@ Array.prototype.forEach.call(D.querySelectorAll('.of-filtri button'),function(x)
 if(q)q.addEventListener('input',applica);
 // ---- editor dei prezzi (righe: voce, unità, prezzo)
 function rigaEd(cont,r){var d=D.createElement('div');d.className='of-pr-r';
-d.innerHTML='<input class="d" maxlength="300" placeholder="es. C25/30 XC2 S4" aria-label="Voce"><input class="u" maxlength="20" list="of-unita" placeholder="m³" aria-label="Unità"><input class="n" inputmode="decimal" maxlength="14" placeholder="0,00" aria-label="Prezzo + IVA"><button type="button" class="of-pr-x" aria-label="Togli la voce">×</button>';
-var i=d.querySelectorAll('input');i[0].value=r&&r.descrizione||'';i[1].value=r&&r.unita||'';i[2].value=r?prezzoIt(r.prezzo):'';
+d.innerHTML='<input class="d" maxlength="300" placeholder="es. C25/30 XC2 S4" aria-label="Voce"><input class="u" maxlength="20" list="of-unita" placeholder="m³" aria-label="Unità"><input class="n" inputmode="decimal" maxlength="14" placeholder="0,00" aria-label="Prezzo + IVA"><button type="button" class="of-pr-x" aria-label="Togli la voce">×</button>'+(r&&r.note?'<input class="o" maxlength="300" aria-label="Note della voce" placeholder="Note della voce: minimi, sconti, maggiorazioni">':'');
+var i=d.querySelectorAll('input');i[0].value=r&&r.descrizione||'';i[1].value=r&&r.unita||'';i[2].value=r?prezzoIt(r.prezzo):'';if(i[3])i[3].value=r.note;
 d.querySelector('.of-pr-x').addEventListener('click',function(){cont.removeChild(d);if(!cont.children.length)rigaEd(cont);});cont.appendChild(d);return d;}
 function righeDi(cont){var out=[],bad=false;Array.prototype.forEach.call(cont.querySelectorAll('.of-pr-r'),function(d){var i=d.querySelectorAll('input');
 var ds=i[0].value.trim(),u=i[1].value.trim(),p=i[2].value.trim().replace(/\s+/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.');
 i[2].classList.remove('manca');if(!ds&&!p)return;if(!ds){i[0].classList.add('manca');bad=true;return;}
-if(p&&!/^[0-9]{1,7}(\.[0-9]{1,4})?$/.test(p)){i[2].classList.add('manca');bad=true;return;}out.push({descrizione:ds,unita:u,prezzo:p});});return bad?null:out;}
+if(p&&!/^[0-9]{1,7}(\.[0-9]{1,4})?$/.test(p)){i[2].classList.add('manca');bad=true;return;}out.push({descrizione:ds,unita:u,prezzo:p,note:i[3]?i[3].value.trim():''});});return bad?null:out;}
 function prepEd(pre,righe){var cont=$(pre+'-righe');if(!cont)return;cont.innerHTML='';(righe&&righe.length?righe:[null]).forEach(function(r){rigaEd(cont,r);});
 var agg=$(pre+'-agg');if(agg&&!agg._ok){agg._ok=1;agg.addEventListener('click',function(){var r=rigaEd(cont);r.querySelector('input').focus();});}}
 function campi(pre){return{fornitore:$(pre+'-forn').value.trim(),materiale:$(pre+'-mat').value.trim(),descrizione:$(pre+'-descr').value.trim(),numero:$(pre+'-num').value.trim(),
@@ -688,7 +772,35 @@ var FILE=null,drop=$('of-drop'),inp=$('of-file');
 function scegli(f){if(!f)return;var est=(f.name.match(/\.([A-Za-z0-9]{1,5})$/)||[])[1];est=(est||'').toLowerCase();var msg=$('of-c-msg');msg.className='of-msg';msg.textContent='';
 if(['pdf','p7m','jpg','jpeg','png'].indexOf(est)===-1){FILE=null;msg.textContent='Carica l\u2019offerta in PDF (anche firmato, .p7m) oppure la foto (JPG o PNG).';return;}
 if(f.size>CFG.max){FILE=null;msg.textContent='Il file è troppo grande: in TIX un\u2019offerta arriva fino a '+CFG.maxMb+' MB.';return;}
-FILE=f;$('of-file-nome').innerHTML=esc(f.name)+'<small>'+esc(mb(f.size))+' · tocca per cambiarlo</small>';drop.classList.add('ok');}
+FILE=f;$('of-file-nome').innerHTML=esc(f.name)+'<small>'+esc(mb(f.size))+' · tocca per cambiarlo</small>';drop.classList.add('ok');
+if(CFG.ia&&['pdf','jpg','jpeg','png'].indexOf(est)!==-1)leggiFile(f);}
+// ---- lettura automatica con l'IA (offerte-2): la proposta riempie solo i campi vuoti, in giallo; niente si salva da solo
+var LETTURA=0;
+function boxIa(id,cls,html){var b=$(id);if(!b)return;b.hidden=!html;b.className='of-ia'+(cls?' '+cls:'');b.innerHTML=html||'';}
+function segna(el,v){if(!el||v===undefined||v===null||String(v)==='')return false;if(String(el.value||'').trim())return false;el.value=v;el.classList.add('ia');return true;}
+function righeIa(cont,righe){cont.innerHTML='';righe.forEach(function(x){var d=rigaEd(cont,x);Array.prototype.forEach.call(d.querySelectorAll('input'),function(i){if(i.value)i.classList.add('ia');});});}
+function applicaIa(pre,p){var ex=[],fe=$(pre+'-forn'),fv=fe?String(fe.value||'').trim():'';
+if(fv&&p.fornitore&&fv.toLowerCase()!==String(p.fornitore).toLowerCase())ex.push('Nel documento il fornitore è «'+p.fornitore+'»: è rimasto quello che hai scritto tu.');
+segna($(pre+'-forn'),p.fornitore);segna($(pre+'-mat'),p.materiale);segna($(pre+'-descr'),p.descrizione);segna($(pre+'-num'),p.numero);
+segna($(pre+'-data'),p.data);segna($(pre+'-val'),p.valida_fino);segna($(pre+'-note'),p.note);
+var cont=$(pre+'-righe'),piene=cont?righeDi(cont):null;if(cont&&p.righe&&p.righe.length&&piene&&!piene.length){righeIa(cont,p.righe);var det=$(pre+'-det');if(det)det.open=true;}return ex;}
+function riassunto(p,r,ex){var h='<b>TIX ha letto l’offerta e compilato i campi in giallo: controllali prima di salvare.</b>';var l=[];
+(ex||[]).concat(p.dubbi||[]).forEach(function(x){l.push(esc(x));});if(p.mancano&&p.mancano.length)l.push('Non trovati nel documento: '+esc(p.mancano.join(', '))+'.');
+if(l.length)h+='<ul><li>'+l.join('</li><li>')+'</li></ul>';if(r.limite)h+='<p class="of-ia-az">Letture automatiche di questo mese: '+esc(r.usate)+' di '+esc(r.limite)+'.</p>';return h;}
+function leggiFile(f){var mio=++LETTURA;var sv=$('of-c-salva');
+Array.prototype.forEach.call(D.querySelectorAll('#carica .ia'),function(el){el.value='';el.classList.remove('ia');});
+if(sv)sv.disabled=true;boxIa('of-ia','at','<span class="of-gira"></span>TIX sta leggendo l’offerta: di solito bastano 10–30 secondi. <button type="button" class="btn sm tenue" id="of-ia-salta">Compila a mano</button>');
+var sb=$('of-ia-salta');if(sb)sb.addEventListener('click',function(){LETTURA++;if(sv)sv.disabled=false;boxIa('of-ia','','');});
+f.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){var dati={t:CFG.t,c:CFG.c,nome:f.name,byte:buf.byteLength,sha256:esa(h)};
+var js=new TextEncoder().encode(JSON.stringify(dati));var lun=String(js.length);while(lun.length<8)lun='0'+lun;
+var corpo=new Uint8Array(8+js.length+buf.byteLength);corpo.set(new TextEncoder().encode(lun),0);corpo.set(js,8);corpo.set(new Uint8Array(buf),8+js.length);
+return fetch(CFG.u+'/leggi',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:corpo});});}).then(function(r){return r.json();}).then(function(r){
+if(mio!==LETTURA)return;if(sv)sv.disabled=false;
+if(r&&r.esito==='ok'&&r.proposta){var ex=applicaIa('of-c',r.proposta);boxIa('of-ia','',riassunto(r.proposta,r,ex));return;}
+if(r&&r.esito==='spento'){boxIa('of-ia','','');return;}
+boxIa('of-ia','no',esc((r&&r.messaggio)||'Non sono riuscito a leggere l’offerta: compila i campi a mano.'));})
+.catch(function(){if(mio!==LETTURA)return;if(sv)sv.disabled=false;boxIa('of-ia','no','Non sono riuscito a leggere l’offerta: compila i campi a mano.');});}
+D.addEventListener('input',function(ev){var t=ev.target;if(t&&t.classList&&t.classList.contains('ia'))t.classList.remove('ia');},true);
 if(drop){['dragenter','dragover'].forEach(function(t){drop.addEventListener(t,function(ev){ev.preventDefault();drop.classList.add('sopra');});});
 ['dragleave','drop'].forEach(function(t){drop.addEventListener(t,function(ev){ev.preventDefault();drop.classList.remove('sopra');});});
 drop.addEventListener('drop',function(ev){var f=ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files[0];scegli(f);});
@@ -721,7 +833,15 @@ scriviChi(chi);var self=this;self.disabled=true;chiamaA('stato',stId,{stato:stVa
 // ---- prezzi
 var prDlg=$('of-pr-dlg'),prId='';
 Array.prototype.forEach.call(D.querySelectorAll('[data-pr]'),function(b){b.addEventListener('click',function(){prId=b.getAttribute('data-pr');var v=voce(prId);
-$('of-pr-tit').textContent='Prezzi · '+(v?v.fornitore+' · '+v.materiale:'');prepEd('of-p',v?v.righe:[]);$('of-p-chi').value=leggiChi();$('of-p-msg').textContent='';prDlg.showModal();});});
+$('of-pr-tit').textContent='Prezzi · '+(v?v.fornitore+' · '+v.materiale:'');prepEd('of-p',v?v.righe:[]);$('of-p-chi').value=leggiChi();$('of-p-msg').textContent='';boxIa('of-p-ia','','');prDlg.showModal();});});
+var pLeggi=$('of-p-leggi');
+if(pLeggi)pLeggi.addEventListener('click',function(){var self=this;self.disabled=true;boxIa('of-p-ia','at','<span class="of-gira"></span>TIX sta leggendo i prezzi dal documento…');
+fetch(CFG.u+'/leggi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,id:prId})}).then(function(r){return r.json();}).then(function(r){self.disabled=false;
+if(r&&r.esito==='ok'&&r.proposta){var righe=r.proposta.righe||[];if(!righe.length){boxIa('of-p-ia','no','Nel documento non ho trovato prezzi da ricopiare.');return;}
+righeIa($('of-p-righe'),righe);var dd=r.proposta.dubbi||[];
+boxIa('of-p-ia','','<b>Ho ricopiato '+righe.length+(righe.length===1?' voce':' voci')+' dal documento: controllale, poi «Salva i prezzi».</b>'+(dd.length?'<ul><li>'+dd.map(esc).join('</li><li>')+'</li></ul>':''));return;}
+boxIa('of-p-ia','no',esc((r&&r.messaggio)||'Non sono riuscito a leggere i prezzi: scrivili a mano.'));})
+.catch(function(){self.disabled=false;boxIa('of-p-ia','no','Non sono riuscito a leggere i prezzi: scrivili a mano.');});});
 if($('of-p-si'))$('of-p-si').addEventListener('click',function(){var m=$('of-p-msg');var righe=righeDi($('of-p-righe'));if(righe===null){m.textContent='Controlla le voci segnate in rosso: serve la voce e un prezzo come 98,50.';return;}
 var chi=$('of-p-chi').value.trim();if(!chi){$('of-p-chi').classList.add('manca');m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);var self=this;self.disabled=true;
 chiamaA('righe',prId,{righe:righe,chi:chi}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';})
@@ -747,4 +867,8 @@ self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';})
 // Solo per il banco di prova locale (pagina con dati inventati, senza database): stessa pagina della rotta vera.
 export function offertePaginaProva(base, h, p, d) {
   return pagina(base, h, p, d, base + "/?t=" + p.tok + "&c=" + p.c);
+}
+// Solo per il banco di prova: la pulizia della proposta letta dall'IA.
+export function offerteIaProva(p, fornitori, materiali) {
+  return pulisciPropostaOfferta(p, fornitori, materiali);
 }
