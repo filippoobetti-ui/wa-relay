@@ -27,6 +27,12 @@
 //     token_in, token_out, ms, modello, errore
 //   }
 // Modello di riserva acceso (fallbacks "default"): se il modello rifiuta, la stessa richiesta la rifà un modello di riserva.
+//
+// SECONDA FUNZIONE (10/11/2026, costi-2, «Costi e margine» fase MG2): leggiFatturaFornitore(env, { bytes, nome, modello, effort, fornitori })
+//   legge il PDF (o la foto) di una FATTURA o NOTA DI CREDITO di un fornitore e restituisce la proposta { fornitore, fornitore_rubrica,
+//   partita_iva, numero, data, tipo ("fattura" | "nota_credito"), imponibile, iva, totale, righe: [{ descrizione, quantita, unita, prezzo,
+//   importo, ddt }], ddt: [{ numero, data }], cantiere, dubbi, mancano } con gli stessi esiti e lo stesso registro di chi chiama.
+//   Le fatture elettroniche XML NON passano di qui: le legge la pagina, gratis.
 // ============================================================================
 
 export const LETTORE_MAX_PDF = 20 * 1048576;   // il PDF va in base64 nella richiesta (limite dell'API 32 MB per richiesta)
@@ -238,6 +244,140 @@ export async function leggiOffertaFornitore(env, o) {
   if (!proposta.fornitore && !proposta.righe.length && !proposta.numero) {
     return Object.assign(base, { esito: "vuota", proposta,
       messaggio: "Nel file non ho trovato i dati di un'offerta: controlla di aver scelto il file giusto, oppure compila a mano." });
+  }
+  return Object.assign(base, { esito: "ok", proposta });
+}
+
+// ---------------------------------------------------------------------------- fatture dei fornitori (costi-2, fase MG2)
+const SCHEMA_FATTURA = {
+  type: "object",
+  properties: {
+    fornitore: { type: "string" }, partita_iva: { type: "string" }, numero: { type: "string" }, data: { type: "string" },
+    tipo: { type: "string", enum: ["fattura", "nota di credito", "altro"] },
+    imponibile: { type: "string" }, iva: { type: "string" }, totale: { type: "string" },
+    righe: { type: "array", items: { type: "object", properties: {
+      descrizione: { type: "string" }, quantita: { type: "string" }, unita: { type: "string" }, prezzo: { type: "string" },
+      importo: { type: "string" }, ddt: { type: "string" } }, required: ["descrizione", "quantita", "unita", "prezzo", "importo", "ddt"], additionalProperties: false } },
+    ddt: { type: "array", items: { type: "object", properties: { numero: { type: "string" }, data: { type: "string" } }, required: ["numero", "data"], additionalProperties: false } },
+    cantiere: { type: "string" },
+    dubbi: { type: "array", items: { type: "string" } }
+  },
+  required: ["fornitore", "partita_iva", "numero", "data", "tipo", "imponibile", "iva", "totale", "righe", "ddt", "cantiere", "dubbi"],
+  additionalProperties: false
+};
+const SISTEMA_FATTURA =
+  "Leggi fatture e note di credito che i fornitori (materiali, noli, trasporti, smaltimenti…) mandano a un'impresa edile italiana " +
+  "e ne ricopi i dati in un modulo. Chi usa il modulo controlla tutto prima di salvare, quindi conta più non inventare che riempire: " +
+  "se un dato non c'è o non si legge con sicurezza, lascia la stringa vuota e scrivilo in «dubbi». Mai calcolare importi che il documento non riporta.\n" +
+  "Regole dei campi:\n" +
+  "- fornitore: la ditta che emette la fattura (il cedente), non l'impresa che la riceve; partita_iva: la sua partita IVA, solo cifre.\n" +
+  "- data: la data della fattura, formato AAAA-MM-GG. tipo: «fattura», «nota di credito» oppure «altro» se il documento non è una fattura.\n" +
+  "- imponibile, iva, totale: solo il numero, punto per i decimali, senza migliaia e senza simbolo dell'euro, come scritti nel riepilogo; " +
+  "per una nota di credito gli importi sono positivi.\n" +
+  "- righe: una per ogni riga della fattura, con quantità, unità di misura, prezzo unitario e importo della riga (numeri come sopra) e, " +
+  "in «ddt», il numero della bolla a cui la riga si riferisce se è scritto.\n" +
+  "- ddt: tutte le bolle (DDT, documenti di trasporto) citate nella fattura, con numero e data (AAAA-MM-GG; vuota se manca).\n" +
+  "- cantiere: il cantiere, la commessa o l'indirizzo dei lavori citato, se c'è.\n" +
+  "- dubbi: frasi brevi in italiano sui dati incerti o mancanti (al massimo 6).";
+
+function importoIa(x) {
+  let s = String(x == null ? "" : x).trim().replace(/[€\s]/g, "");
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^-?\d+,\d+$/.test(s)) s = s.replace(",", ".");
+  if (!/^-?\d{1,9}(\.\d+)?$/.test(s)) return "";
+  const n = Math.round(Math.abs(Number(s)) * 10000) / 10000;
+  return Number.isFinite(n) ? String(n) : "";
+}
+
+export function pulisciPropostaFattura(p, fornitori) {
+  const o = p && typeof p === "object" ? p : {};
+  const forn = fornitoreRubrica(o.fornitore, fornitori);
+  const piva = String(o.partita_iva || "").replace(/[^0-9A-Za-z]/g, "").replace(/^IT/i, "").slice(0, 16);
+  const tipo = o.tipo === "nota di credito" ? "nota_credito" : "fattura";
+  const righe = lista(o.righe).slice(0, 300).map((r) => {
+    const x = r && typeof r === "object" ? r : {};
+    return { descrizione: testo(x.descrizione, 300), quantita: importoIa(x.quantita), unita: testo(x.unita, 20), prezzo: importoIa(x.prezzo),
+      importo: importoIa(x.importo), ddt: testo(x.ddt, 60) };
+  }).filter((r) => r.descrizione);
+  const ddt = lista(o.ddt).slice(0, 100).map((x) => ({ numero: testo(x && x.numero, 60), data: dataIa(x && x.data) })).filter((x) => x.numero);
+  const dubbi = lista(o.dubbi).map((d) => testo(d, 200)).filter(Boolean).slice(0, 6);
+  if (o.tipo === "altro") dubbi.unshift("Il documento non sembra una fattura: controlla di aver scelto il file giusto.");
+  if (forn.nome && !forn.rubrica) dubbi.push("Il fornitore «" + forn.nome + "» non è nella Rubrica dell'impresa: controlla come è scritto.");
+  const imponibile = importoIa(o.imponibile), iva = importoIa(o.iva), totale = importoIa(o.totale);
+  if (imponibile && iva && totale && Math.abs(Number(imponibile) + Number(iva) - Number(totale)) > 1) {
+    dubbi.push("Imponibile + IVA non fa il totale: controlla gli importi.");
+  }
+  const mancano = [];
+  if (!forn.nome) mancano.push("fornitore");
+  if (!testo(o.numero, 60)) mancano.push("numero");
+  if (!dataIa(o.data)) mancano.push("data");
+  if (!imponibile) mancano.push("imponibile");
+  return {
+    fornitore: forn.nome, fornitore_rubrica: forn.rubrica, partita_iva: piva, numero: testo(o.numero, 60), data: dataIa(o.data), tipo,
+    imponibile, iva, totale, righe, ddt, cantiere: testo(o.cantiere, 200), dubbi: dubbi.slice(0, 8), mancano
+  };
+}
+
+export async function leggiFatturaFornitore(env, o) {
+  const opz = o && typeof o === "object" ? o : {};
+  const modello = testo(opz.modello, 60) || "claude-opus-5-5";
+  const vuoto = { token_in: 0, token_out: 0, ms: 0, modello };
+  if (!env || !env.ANTHROPIC_API_KEY) return Object.assign(vuoto, { esito: "spento", messaggio: "La lettura automatica non è disponibile: compila i campi a mano." });
+  const bytes = opz.bytes instanceof Uint8Array ? opz.bytes : null;
+  const tipo = tipoFile(bytes);
+  if (tipo === "p7m") return Object.assign(vuoto, { esito: "formato", messaggio: "Il file firmato (.p7m) si legge dalla pagina: se è una fattura elettronica, caricala come XML." });
+  if (!MIME[tipo]) return Object.assign(vuoto, { esito: "formato", messaggio: "Questo file non si legge in automatico: compila i campi a mano." });
+  if (tipo === "pdf" ? bytes.length > LETTORE_MAX_PDF : bytes.length > LETTORE_MAX_FOTO) {
+    return Object.assign(vuoto, { esito: "grande", messaggio: "Il file è troppo grande per la lettura automatica: compila i campi a mano." });
+  }
+  const mime = MIME[tipo];
+  const doc = tipo === "pdf"
+    ? { type: "document", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } }
+    : { type: "image", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } };
+  const contesto = "File: " + testo(opz.nome, 120) + "\n" +
+    "Fornitori già noti all'impresa (se è uno di questi, scrivilo uguale): " + lista(opz.fornitori).slice(0, 400).map((x) => testo(x, 120)).join(" · ") + "\n" +
+    "Ricopia i dati della fattura nel modulo.";
+  const effort = ["low", "medium", "high"].indexOf(opz.effort) !== -1 ? opz.effort : "low";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 110000);
+  const inizio = Date.now();
+  let r = null, j = null;
+  const no = "Non sono riuscito a leggere la fattura: compila i campi a mano.";
+  try {
+    r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST", signal: ctrl.signal,
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2026-10-21", "anthropic-beta": "server-side-fallback-2026-07-01",
+        "content-type": "application/json" },
+      body: JSON.stringify({
+        model: modello, max_tokens: 16000, system: SISTEMA_FATTURA, fallbacks: "default",
+        output_config: { effort, format: { type: "json_schema", schema: SCHEMA_FATTURA } },
+        messages: [{ role: "user", content: [doc, { type: "text", text: contesto }] }]
+      })
+    });
+    j = await r.json().catch(() => null);
+  } catch (e) {
+    clearTimeout(timer);
+    return Object.assign(vuoto, { ms: Date.now() - inizio, esito: "errore", errore: e && e.name === "AbortError" ? "tempo scaduto" : "rete", messaggio: no });
+  }
+  clearTimeout(timer);
+  const uso = (j && j.usage) || {};
+  const base = {
+    ms: Date.now() - inizio,
+    token_in: (Number(uso.input_tokens) || 0) + (Number(uso.cache_creation_input_tokens) || 0) + (Number(uso.cache_read_input_tokens) || 0),
+    token_out: Number(uso.output_tokens) || 0,
+    modello: testo((j && j.model) || modello, 60)
+  };
+  if (!r.ok || !j) return Object.assign(base, { esito: "errore", errore: "api " + r.status + " " + testo(j && j.error && j.error.type, 60), messaggio: no });
+  if (j.stop_reason === "refusal") return Object.assign(base, { esito: "rifiutata", errore: "refusal " + testo(j.stop_details && j.stop_details.category, 40), messaggio: no });
+  if (j.stop_reason === "max_tokens") return Object.assign(base, { esito: "errore", errore: "max_tokens", messaggio: no });
+  const blocco = lista(j.content).find((b) => b && b.type === "text" && typeof b.text === "string");
+  let p = null;
+  try { p = blocco ? JSON.parse(blocco.text) : null; } catch (e) { p = null; }
+  if (!p || typeof p !== "object") return Object.assign(base, { esito: "errore", errore: "risposta non in JSON", messaggio: no });
+  const proposta = pulisciPropostaFattura(p, opz.fornitori);
+  if (!proposta.fornitore && !proposta.numero && !proposta.imponibile) {
+    return Object.assign(base, { esito: "vuota", proposta,
+      messaggio: "Nel file non ho trovato i dati di una fattura: controlla di aver scelto il file giusto, oppure compila a mano." });
   }
   return Object.assign(base, { esito: "ok", proposta });
 }

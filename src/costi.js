@@ -8,12 +8,26 @@
 // link dei subappaltatori, mai WhatsApp), come le Offerte.
 //   GET  /costi?t=<gettone>&c=<cantiere>   → pagina del cantiere (database: costi_contesto)
 //   GET  /costi?t=<gettone>                → riepilogo di tutti i cantieri dell'impresa (database: costi_riepilogo)
-//   POST /costi/azione   {t, c, azione: "costo_impresa" | "costo_mezzo" | "manuale_salva" | "manuale_togli", dati}
-// Interruttori: impostazioni.costi_margine_attiva (no / prova = solo l'accesso «Tutte le aziende» / si) e COSTI = "off".
+//   POST /costi/azione   {t, c, azione: "costo_impresa" | "costo_mezzo" | "manuale_salva" | "manuale_togli"
+//                        | "bolla_stima" | "bolla_togli" | "fattura_modifica" | "fattura_togli", dati}
+// costi-2 (10/11/2026, fase MG2 — materiali da bolle e fatture):
+//   POST /costi/carica-fattura  corpo = 8 cifre con la lunghezza del JSON + JSON {t, c, nome, byte, sha256, fornitore, partita_iva, numero,
+//                        data, tipo, categoria, imponibile, iva, totale, importo_cantiere, competenza, note, autore, righe, ddt} + il file
+//                        (XML della fattura elettronica, .xml.p7m oppure PDF). L'XML lo legge la pagina (gratis); qui si archivia.
+//   POST /costi/leggi-fattura   stesso corpo con {t, c, nome, byte, sha256} + il PDF (o la foto): lettura con Claude (lettore comune
+//                        src/lettore-offerte.js, leggiFatturaFornitore), con tetto e registro nel database (costi_lettura_*).
+//   GET  /costi/file?t=…&c=…&id=…   → il file della fattura.
+// Interruttori: impostazioni.costi_margine_attiva (no / prova = solo l'accesso «Tutte le aziende» / si) e COSTI = "off";
+// lettura delle fatture PDF: impostazioni.costi_fatture_ia_attiva e COSTI_IA = "off".
 // ============================================================================
 
+import { leggiFatturaFornitore } from "./lettore-offerte.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const AZIONI = ["costo_impresa", "costo_mezzo", "manuale_salva", "manuale_togli"];
+const AZIONI = ["costo_impresa", "costo_mezzo", "manuale_salva", "manuale_togli", "bolla_stima", "bolla_togli", "fattura_modifica", "fattura_togli"];
+const VERIFICA_MAX = 5 * 1048576;   // il Worker ricalcola l'impronta solo fino a 5 MB
+const JSON_MAX = 400000;            // dati della fattura nel corpo del caricamento (le righe possono essere tante)
+const MIME_F = { xml: "application/xml", p7m: "application/pkcs7-mime", pdf: "application/pdf" };
 const VOCI = [
   ["manodopera_operaio_comune", "Operaio comune", "€/ora"],
   ["manodopera_operaio_qualificato", "Operaio qualificato", "€/ora"],
@@ -61,7 +75,120 @@ function puliscoDati(a, x) {
   if (a === "costo_mezzo") return { mezzo_id: UUID.test(String(x.mezzo_id || "")) ? String(x.mezzo_id) : "", costo: t("costo", 20), valido_dal: dataIso(x.valido_dal), autore: t("autore", 120) };
   if (a === "manuale_salva") return { id: UUID.test(String(x.id || "")) ? String(x.id) : "", data: dataIso(x.data), categoria: t("categoria", 30),
     fornitore: t("fornitore", 120), descrizione: t("descrizione", 300), numero: t("numero", 60), importo: t("importo", 20), autore: t("autore", 120) };
+  // costi-2: stima di una bolla (il prezzo NON si manda: lo prende il database dalla riga dell'offerta)
+  if (a === "bolla_stima") return { ddt_id: /^[0-9]{1,12}$/.test(String(x.ddt_id || "")) ? String(x.ddt_id) : "",
+    offerta_id: UUID.test(String(x.offerta_id || "")) ? String(x.offerta_id) : "", autore: t("autore", 120),
+    righe: lista(x.righe).slice(0, 40).map((r) => ({ descrizione_ddt: testo(r && r.descrizione_ddt, 200), quantita: testo(r && r.quantita, 20),
+      unita: testo(r && r.unita, 20), offerta_riga_id: /^[0-9]{1,12}$/.test(String(r && r.offerta_riga_id || "")) ? String(r.offerta_riga_id) : "" })) };
+  if (a === "fattura_modifica") return { id: UUID.test(String(x.id || "")) ? String(x.id) : "", categoria: t("categoria", 30),
+    importo_cantiere: t("importo_cantiere", 20), competenza: dataIso(x.competenza), note: t("note", 500), autore: t("autore", 120) };
   return { id: UUID.test(String(x.id || "")) ? String(x.id) : "", motivo: t("motivo", 300), autore: t("autore", 120) };
+}
+// costi-2: aiuti per file, unità e nomi delle ditte (gli stessi della pagina)
+function casuale(n) { const b = new Uint8Array(n); crypto.getRandomValues(b); return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join(""); }
+function esadecimale(buf) { return Array.from(new Uint8Array(buf), (x) => x.toString(16).padStart(2, "0")).join(""); }
+function percorsoStorage(p) { return String(p).split("/").map(encodeURIComponent).join("/"); }
+function supabaseFile(env, percorso, init) {
+  return fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(percorso),
+    Object.assign({ headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }, init || {}));
+}
+// tipo dai byte: PDF, foto, XML (anche con BOM o spazi davanti), p7m binario (0x30) o in base64 («MI…»)
+export function tipoFattura(b) {
+  if (!b || b.length < 8) return "";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (b[0] === 0x30) return "p7m";
+  const testa = String.fromCharCode.apply(null, Array.from(b.subarray(0, 1024)));
+  if (testa.indexOf("%PDF-") !== -1) return "pdf";
+  if (/^(﻿|ï»¿)?\s*</.test(testa)) return "xml";
+  if (/^\s*(-----BEGIN[^\n]*\n)?\s*MI[A-Za-z0-9+/]/.test(testa)) return "p7m";
+  return "";
+}
+export function nomeDitta(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\./g, "")
+    .replace(/\b(srls?|spa|snc|sas|soc|societa|coop|cooperativa|unipersonale)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+export function stessaDitta(a, b) {
+  const x = nomeDitta(a), y = nomeDitta(b);
+  if (!x || !y) return false;
+  return x === y || (x.length >= 5 && y.length >= 5 && (x.indexOf(y) !== -1 || y.indexOf(x) !== -1));
+}
+export function numeroBolla(s) { return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, ""); }
+export function unitaNorm(u) {
+  const s = String(u || "").toLowerCase().replace(/[\s.]/g, "");
+  if (/^(m3|mc|m³|metricubi|metrocubo)$/.test(s)) return "m3";
+  if (/^(m2|mq|m²|metriquadri|metroquadro)$/.test(s)) return "m2";
+  if (/^(m|ml|metri|metro|mt)$/.test(s)) return "m";
+  if (/^(kg|chili|kilogrammi)$/.test(s)) return "kg";
+  if (/^(t|ton|tonnellate|tonnellata|q?t)$/.test(s)) return "t";
+  if (/^(h|ora|ore|hh)$/.test(s)) return "ora";
+  if (/^(n|nr|num|pz|pezzi|cad|cadauno|un|unita)$/.test(s)) return "cad";
+  if (/^(viaggio|viaggi|vg)$/.test(s)) return "viaggio";
+  return s;
+}
+function parole(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9/]+/).filter((w) => w.length >= 2);
+}
+// la riga dell'offerta più simile a una descrizione (parole in comune, almeno metà di quelle della riga dell'offerta)
+export function rigaSimile(descr, righe) {
+  const a = new Set(parole(descr));
+  let meglio = null, punti = 0;
+  lista(righe).forEach((r) => {
+    const b = parole(r.descrizione);
+    if (!b.length) return;
+    const comuni = b.filter((w) => a.has(w)).length;
+    const p = comuni / b.length;
+    if (comuni && p > punti) { punti = p; meglio = r; }
+  });
+  return punti >= 0.5 ? meglio : null;
+}
+// il confronto di una fattura con le bolle del cantiere e con le offerte accettate dello stesso fornitore
+export function confrontoFattura(f, bolle, offerte) {
+  const out = [];
+  const nostre = lista(bolle).filter((b) => stessaDitta(b.fornitore, f.fornitore));
+  const citate = lista(f.ddt).map((d) => ({ numero: String(d.numero || ""), data: String(d.data || ""), n: numeroBolla(d.numero) })).filter((d) => d.n);
+  if (!citate.length) out.push({ cls: "gi", t: "La fattura non cita bolle: non si può confrontare con le consegne del Diario." });
+  citate.forEach((d) => {
+    const b = nostre.find((x) => numeroBolla(x.numero) === d.n) || lista(bolle).find((x) => numeroBolla(x.numero) === d.n && !String(x.fornitore || "").trim());
+    if (!b) { out.push({ cls: "gi", t: "La bolla n. " + d.numero + (d.data ? " del " + dataIt(d.data) : "") + " è in fattura ma non nel Diario del cantiere." }); return; }
+    const altre = lista(b.fatture).filter((x) => x.id !== f.id);
+    if (altre.length) out.push({ cls: "gi", t: "La bolla n. " + d.numero + " è citata anche dalla fattura n. " + altre.map((x) => x.numero).join(", ") + ": fatturata due volte?" });
+    else out.push({ cls: "ok", t: "Bolla n. " + d.numero + (b.data ? " del " + dataIt(b.data) : "") + " trovata nel Diario" + (b.stima ? ": la stima di " + euro(b.stima.importo) + " lascia il posto alla fattura" : "") + "." });
+    // quantità: se la bolla era stata stimata, si confrontano le quantità per unità di misura
+    if (b.stima && citate.length === 1) {
+      const qf = {}, qs = {};
+      lista(f.righe).forEach((r) => { const u = unitaNorm(r.unita), q = n(r.quantita); if (u && q) qf[u] = (qf[u] || 0) + q; });
+      lista(b.stima.righe).forEach((r) => { const u = unitaNorm(r.unita_offerta || r.unita), q = n(r.quantita); if (u && q) qs[u] = (qs[u] || 0) + q; });
+      Object.keys(qs).forEach((u) => {
+        if (qf[u] !== undefined && Math.abs(qf[u] - qs[u]) > Math.max(0.01, qs[u] * 0.01)) {
+          out.push({ cls: "gi", t: "Quantità diversa: in fattura " + valoreIt(qf[u]) + " " + u + ", sulla bolla n. " + d.numero + " " + valoreIt(qs[u]) + " " + u + "." });
+        }
+      });
+    }
+  });
+  // prezzi: righe della fattura contro le righe dell'offerta accettata dello stesso fornitore
+  const off = lista(offerte).filter((o) => stessaDitta(o.fornitore, f.fornitore));
+  if (off.length) {
+    const righeOff = [].concat.apply([], off.map((o) => lista(o.righe)));
+    let uguali = 0;
+    lista(f.righe).forEach((r) => {
+      const p = n(r.prezzo);
+      if (p === null) return;
+      const o = rigaSimile(r.descrizione, righeOff);
+      if (!o || n(o.prezzo) === null) return;
+      if (unitaNorm(r.unita) && unitaNorm(o.unita) && unitaNorm(r.unita) !== unitaNorm(o.unita)) return;
+      if (p > n(o.prezzo) * 1.005 + 0.001) out.push({ cls: "gi", t: "Prezzo più alto dell'offerta: «" + testo(r.descrizione, 60) + "» " + euro(p) + " in fattura, " + euro(o.prezzo) + " nell'offerta." });
+      else uguali++;
+    });
+    if (uguali) out.push({ cls: "ok", t: (uguali === 1 ? "Una riga ha" : uguali + " righe hanno") + " il prezzo dell'offerta accettata (o più basso)." });
+  } else {
+    out.push({ cls: "bl", t: "Nessuna offerta accettata di questo fornitore nel cantiere: i prezzi non si possono confrontare." });
+  }
+  // bolle dello stesso fornitore arrivate prima della fattura e non ancora fatturate
+  const fd = String(f.data || "");
+  const nonFatt = nostre.filter((b) => !lista(b.fatture).length && b.data && fd && b.data <= fd);
+  if (nonFatt.length) out.push({ cls: "gi", t: "Bolle di questo fornitore arrivate prima della fattura e non ancora fatturate: " + nonFatt.slice(0, 8).map((b) => "n. " + b.numero + (b.data ? " del " + dataIt(b.data) : "")).join(", ") + (nonFatt.length > 8 ? "…" : "") + "." });
+  return out;
 }
 
 // ---------------------------------------------------------------------------- pulsanti
@@ -138,6 +265,9 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (!env.SUPABASE_SERVICE_KEY) return new Response("Servizio non configurato.", { status: 503, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   const sotto = inUrl.pathname.slice(base.length).replace(/\/+$/, "");
   if (sotto === "/costi/azione") return azione(request, env, h);
+  if (sotto === "/costi/carica-fattura") return caricaFattura(request, env, h);
+  if (sotto === "/costi/leggi-fattura") return leggiFattura(request, env, h);
+  if (sotto === "/costi/file") return apriFattura(request, env, base, inUrl, h);
   if (sotto !== "/costi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const p = parametri(inUrl);
@@ -178,6 +308,155 @@ async function azione(request, env, h) {
   return json(r, r.esito === "gettone" ? 403 : 200);
 }
 
+// ---------------------------------------------------------------------------- costi-2: fatture dei fornitori
+// corpo: 8 cifre con la lunghezza del JSON + JSON + i byte del file
+async function corpoConFile(request, max) {
+  const tutto = new Uint8Array(await request.arrayBuffer());
+  if (tutto.length < 10) return null;
+  const lunTesto = String.fromCharCode.apply(null, Array.from(tutto.subarray(0, 8)));
+  if (!/^[0-9]{8}$/.test(lunTesto)) return null;
+  const lun = Number(lunTesto);
+  if (!lun || lun > max || 8 + lun >= tutto.length) return null;
+  let d = null;
+  try { d = JSON.parse(new TextDecoder().decode(tutto.subarray(8, 8 + lun))); } catch (e) { d = null; }
+  if (!d || typeof d !== "object") return null;
+  return { d, bytes: tutto.subarray(8 + lun) };
+}
+function datiFattura(d) {
+  const num = (k) => testo(d[k], 20);
+  return {
+    fornitore: testo(d.fornitore, 160), partita_iva: testo(d.partita_iva, 30), numero: testo(d.numero, 60), data: dataIso(d.data),
+    tipo: d.tipo === "nota_credito" ? "nota_credito" : "fattura", categoria: testo(d.categoria, 30),
+    imponibile: num("imponibile"), iva: num("iva"), totale: num("totale"), importo_cantiere: num("importo_cantiere"), competenza: dataIso(d.competenza),
+    note: testo(d.note, 500), autore: testo(d.autore, 120),
+    righe: lista(d.righe).slice(0, 300).map((r) => { const x = ogg(r); return { descrizione: testo(x.descrizione, 300), quantita: testo(x.quantita, 20),
+      unita: testo(x.unita, 20), prezzo: testo(x.prezzo, 20), importo: testo(x.importo, 20), ddt: testo(x.ddt, 60) }; }).filter((r) => r.descrizione),
+    ddt: lista(d.ddt).slice(0, 100).map((x) => ({ numero: testo(ogg(x).numero, 60), data: testo(ogg(x).data, 20) })).filter((x) => x.numero)
+  };
+}
+
+async function caricaFattura(request, env, h) {
+  if (request.method !== "POST") return json({ esito: "metodo_non_consentito" }, 405);
+  const dichiarati = Number(request.headers.get("Content-Length") || 0);
+  if (dichiarati && dichiarati > 60 * 1048576) return json({ esito: "grande", messaggio: "Il file è troppo grande." }, 413);
+  const cf = await corpoConFile(request, JSON_MAX);
+  if (!cf) return json({ esito: "richiesta_non_valida", messaggio: "Richiesta non valida: ricarica la pagina." }, 400);
+  const d = cf.d, bytes = cf.bytes;
+  const tok = /^[0-9a-fA-F]{64}$/.test(String(d.t || "")) ? String(d.t).toLowerCase() : "";
+  const c = String(d.c || "").toLowerCase();
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return json({ esito: "richiesta_non_valida", messaggio: "Richiesta non valida: ricarica la pagina." }, 400);
+  const nome = testo(d.nome, 200).replace(/[\\/]+/g, " ");
+  const byte = Number(d.byte);
+  const sha = String(d.sha256 || "").toLowerCase();
+  if (!Number.isFinite(byte) || byte <= 0 || !bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length !== byte) return json({ esito: "incompleto", messaggio: "Il file non è arrivato intero: riprova." }, 400);
+  const ctl = await h.rpc(env, "costi_fattura_controlla", { p_token: tok, p_commessa: c, p_dati: { nome, byte } }, 10000).catch(() => null);
+  if (!ctl || typeof ctl !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 502);
+  if (ctl.esito !== "ok") return json(ctl, ctl.esito === "gettone" ? 403 : 200);
+  const cartella = "documenti/" + c + "/fatture/";
+  const est = MIME_F[ctl.est] ? ctl.est : "";
+  const max = Number(ctl.max_byte) || 0;
+  if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
+  if (bytes.length > max) return json({ esito: "grande", messaggio: "Il file è troppo grande: in TIX una fattura arriva fino a " + Math.round(max / 1048576) + " MB." }, 413);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  const vero = tipoFattura(bytes);
+  if (vero !== est) {
+    const atteso = { xml: "una fattura elettronica XML", p7m: "una fattura elettronica firmata (.p7m)", pdf: "un PDF" }[est];
+    return json({ esito: "formato", messaggio: "Il file non sembra " + atteso + ": controlla di aver scelto quello giusto." }, 415);
+  }
+  if (bytes.length <= VERIFICA_MAX && esadecimale(await crypto.subtle.digest("SHA-256", bytes)) !== sha) {
+    return json({ esito: "impronta", messaggio: "Il file non è arrivato intero: riprova." }, 400);
+  }
+  const ora = new Date();
+  const giorno = ora.getUTCFullYear() + String(ora.getUTCMonth() + 1).padStart(2, "0") + String(ora.getUTCDate()).padStart(2, "0");
+  const percorso = cartella + giorno + "-" + casuale(6) + "." + est;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const up = await supabaseFile(env, percorso, { method: "POST", signal: ctrl.signal, body: bytes,
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": MIME_F[est], "x-upsert": "false" } });
+    if (!up.ok) return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } catch (e) {
+    await togliFile(env, percorso, c);
+    return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  const r = await h.rpc(env, "costi_fattura_registra", { p_token: tok, p_commessa: c,
+    p_dati: Object.assign(datiFattura(d), { nome, byte: bytes.length, sha256: sha, percorso }) }, 15000).catch(() => null);
+  if (!r || typeof r !== "object") return json({ esito: "incerto", messaggio: "Non so se la fattura è stata registrata: ricarica la pagina prima di riprovare." }, 502);
+  if (r.esito !== "ok") {
+    await togliFile(env, percorso, c);
+    return json(r, r.esito === "gettone" ? 403 : 200);
+  }
+  return json({ esito: "ok", id: r.id, competenza: r.competenza });
+}
+
+// Toglie dall'archivio una copia di questo cantiere appena caricata (mai altro).
+async function togliFile(env, percorso, c) {
+  const p = String(percorso || "");
+  if (!UUID.test(c) || !new RegExp("^documenti/" + c + "/fatture/[0-9]{8}-[0-9a-f]{12}\\.(xml|p7m|pdf)$").test(p)) return false;
+  try { const r = await supabaseFile(env, p, { method: "DELETE" }); return r.ok; } catch (e) { return false; }
+}
+
+// Lettura automatica del PDF di una fattura (le fatture XML le legge la pagina, gratis)
+async function leggiFattura(request, env, h) {
+  if (request.method !== "POST") return json({ esito: "metodo_non_consentito" }, 405);
+  if (env.COSTI_IA === "off" || !env.ANTHROPIC_API_KEY) return json({ esito: "spento" });
+  const cf = await corpoConFile(request, 20000);
+  if (!cf) return json({ esito: "richiesta_non_valida" }, 400);
+  const d = cf.d, bytes = cf.bytes;
+  const tok = /^[0-9a-fA-F]{64}$/.test(String(d.t || "")) ? String(d.t).toLowerCase() : "";
+  const c = String(d.c || "").toLowerCase();
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
+  if (bytes.length !== Number(d.byte)) return json({ esito: "incompleto", messaggio: "Il file non è arrivato intero: riprova." }, 400);
+  const ctl = await h.rpc(env, "costi_lettura_controlla", { p_token: tok, p_commessa: c }, 10000).catch(() => null);
+  if (!ctl || typeof ctl !== "object") return json({ esito: "incerto", messaggio: "La lettura automatica non risponde: compila i campi a mano." }, 502);
+  if (ctl.esito !== "ok") return json(ctl, ctl.esito === "gettone" ? 403 : 200);
+  const r = await leggiFatturaFornitore(env, { bytes, nome: testo(d.nome, 200), modello: ctl.modello, effort: ctl.effort, fornitori: ctl.fornitori });
+  if (r.esito === "formato" || r.esito === "grande" || r.esito === "spento") return json({ esito: r.esito, messaggio: r.messaggio });
+  let sha = String(d.sha256 || "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(sha)) sha = esadecimale(await crypto.subtle.digest("SHA-256", bytes));
+  const reg = await h.rpc(env, "costi_lettura_registra", { p_token: tok, p_commessa: c, p_dati: {
+    esito: r.esito, sha256: sha, modello: r.modello, token_in: r.token_in, token_out: r.token_out, ms: String(r.ms || 0), errore: r.errore || "" } }, 10000).catch(() => null);
+  const usate = reg && reg.esito === "ok" ? Number(reg.usate) || 0 : (Number(ctl.usate) || 0) + 1;
+  if (r.esito === "ok") return json({ esito: "ok", proposta: r.proposta, usate, limite: ctl.limite });
+  if (r.esito === "vuota") return json({ esito: "vuota", messaggio: r.messaggio, usate, limite: ctl.limite });
+  return json({ esito: "errore", messaggio: r.messaggio || "Non sono riuscito a leggere la fattura: compila i campi a mano.", usate, limite: ctl.limite });
+}
+
+async function apriFattura(request, env, base, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const p = parametri(inUrl);
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  if (!p.tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  const torna = base + "/costi?t=" + p.tok + "&c=" + p.c;
+  const indietro = '<a class="btn" href="' + h.esc(torna) + '">Torna a Costi e margine</a>';
+  if (!UUID.test(p.c) || !UUID.test(id)) return h.risposta(h.foglio(base, "Fattura non trovata", "", indietro), 404);
+  const info = await h.rpc(env, "costi_fattura_file_info", { p_token: p.tok, p_id: id }, 10000).catch(() => null);
+  if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Fattura", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (info.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (info.esito === "tolta") return h.risposta(h.foglio(base, "Questa fattura è stata tolta", "Non è più tra le fatture del cantiere.", indietro), 410);
+  if (info.esito !== "ok" || String(info.commessa_id || "") !== p.c) return h.risposta(h.foglio(base, "Fattura non trovata", "", indietro), 404);
+  const ps = String(info.percorso || "");
+  if (!new RegExp("^documenti/" + p.c + "/fatture/[0-9]{8}-[0-9a-f]{12}\\.(xml|p7m|pdf)$").test(ps)) {
+    return h.risposta(h.foglio(base, "Fattura", "Il file di questa fattura non è disponibile in questo momento.", indietro), 404);
+  }
+  const f = await supabaseFile(env, ps).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Fattura", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
+  const mime = Object.values(MIME_F).indexOf(info.mime) !== -1 ? info.mime : "application/pdf";
+  const nomeF = String(info.nome || "fattura");
+  const ascii = nomeF.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || "fattura";
+  const hd = { "Content-Type": mime, "Content-Disposition": (mime === "application/pdf" ? "inline" : "attachment") + '; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(nomeF),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
+  const lun = f.headers.get("Content-Length");
+  if (lun && /^[0-9]+$/.test(lun)) hd["Content-Length"] = lun;
+  return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: hd });
+}
+
 // ---------------------------------------------------------------------------- pagina del cantiere
 function testaHtml(h, base, titolo) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -197,6 +476,7 @@ function pagina(base, h, p, d, torna, elenco) {
   const cora = ogg(q.costi_ora);
   const dopo = ogg(q.dopo);
   const man = ogg(cal.manodopera), mez = ogg(cal.mezzi), mano = ogg(cal.manuali), sub = ogg(cal.subappalti);
+  const fat = ogg(cal.fatture), bol = ogg(cal.bolle);   // costi-2
   const manOra = ogg(cora.manodopera);
   const soglia = n(q.soglia) ?? 10;
   const sotto = q.stato === "sotto";
@@ -241,7 +521,8 @@ function pagina(base, h, p, d, torna, elenco) {
   const rigaT = (et, a, b) => '<tr><th scope="row">' + et + '</th><td class="n">' + euroTondo(a) + '</td>' + (ult ? '<td class="n">' + euroTondo(b) + '</td>' : "") + '</tr>';
   const tabella = '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Costi</th><th class="n">' + col + '</th>' + (ult ? '<th class="n">Dopo il SAL</th>' : "") + '</tr></thead><tbody>' +
     rigaT("Manodopera", man.euro, dopo.manodopera) + rigaT("Mezzi propri", mez.euro, dopo.mezzi) +
-    rigaT("Costi a mano (materiali, noli…)", mano.euro, dopo.manuali) + rigaT("Subappalti", sub.euro, dopo.subappalti) +
+    rigaT("Fatture dei fornitori", fat.euro, dopo.fatture) + rigaT("Bolle stimate con l'offerta (da controllare)", bol.euro, dopo.bolle) +
+    rigaT("Costi a mano", mano.euro, dopo.manuali) + rigaT("Subappalti", sub.euro, dopo.subappalti) +
     '</tbody><tfoot><tr><th scope="row">Totale</th><td class="n">' + euroTondo(cal.totale) + '</td>' + (ult ? '<td class="n">' + euroTondo(dopo.totale) + '</td>' : "") + '</tr></tfoot></table></div>';
 
   // 3. avvisi
@@ -260,7 +541,15 @@ function pagina(base, h, p, d, torna, elenco) {
   if (mezSenza.length) avvisi += avviso("gi", "<b>Mezzi senza costo interno:</b> " + mezSenza.map(e).join(", ") + ". Scrivilo qui sotto, in «Costi della tua impresa».");
   if (ogg(cora.mezzi).fonte === "economia") avvisi += avviso("bl", "<b>Mezzi propri:</b> TIX conta i giorni in cui il mezzo è segnato nelle economie. I mezzi a noleggio si pagano con la fattura del noleggiatore: scrivila nei costi a mano.");
   if (!ogg(cora.subappalti).disponibile) avvisi += avviso("bl", "<b>Subappalti:</b> il collegamento con la contabilità dei subappaltatori della sezione SAL non è attivo.");
-  avvisi += avviso("bl", "<b>Materiali, noli e trasporti:</b> scrivi le fatture dei fornitori nei costi a mano, qui sotto.");
+  // costi-2: bolle da prezzare e bolle senza offerta
+  const bolle = lista(d.bolle), offerte = lista(d.offerte);
+  const conOfferta = (b) => offerte.some((o) => stessaDitta(o.fornitore, b.fornitore));
+  const daPrezzare = bolle.filter((b) => !b.stima && !lista(b.fatture).length && conOfferta(b));
+  const senzaPrezzo = bolle.filter((b) => !b.stima && !lista(b.fatture).length && !conOfferta(b));
+  if (daPrezzare.length) avvisi += avviso("gi", "<b>" + (daPrezzare.length === 1 ? "Una bolla si può" : daPrezzare.length + " bolle si possono") +
+    " prezzare con l'offerta accettata del fornitore.</b> Aprile in «Bolle e fatture dei fornitori» e premi «Prezza con l'offerta»: la stima resta gialla finché non arriva la fattura.");
+  if (senzaPrezzo.length) avvisi += avviso("bl", "<b>" + (senzaPrezzo.length === 1 ? "Una bolla è una consegna" : senzaPrezzo.length + " bolle sono consegne") +
+    " senza prezzo</b>: il fornitore non ha un'offerta accettata in questo cantiere. Il costo entra con la fattura.");
 
   // 4. dettagli
   const nomeVoce = (v) => (VOCI.find((x) => x[0] === v) || [v, "Senza qualifica"])[1];
@@ -286,7 +575,7 @@ function pagina(base, h, p, d, torna, elenco) {
   const nomeCat = (k) => (CATEGORIE.find((x) => x[0] === k) || [k, k])[1];
   const opzCat = CATEGORIE.map((x) => '<option value="' + x[0] + '">' + e(x[1]) + '</option>').join("");
   const manoDett = '<details class="cm-det" id="manuali"' + (manuali.length ? "" : " open") + '><summary>Costi scritti a mano <span>' + euroTondo(ogg(cora.manuali).euro) + '</span></summary><div class="cm-det-c">' +
-    '<p class="cm-nota">Materiali, noli, trasporti, smaltimenti, autonomi: scrivi l\'importo + IVA della fattura o del documento. Un subappaltatore con la sua contabilità in TIX non va scritto qui, altrimenti si conta due volte.</p>' +
+    '<p class="cm-nota">Qui i costi senza una fattura da caricare: piccoli acquisti, scontrini, autonomi. Le fatture dei fornitori si caricano in «Bolle e fatture dei fornitori», così si confrontano con le bolle e con l\'offerta. Un subappaltatore con la sua contabilità in TIX non va scritto qui, altrimenti si conta due volte.</p>' +
     (manuali.length ? '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Data</th><th>Tipo</th><th>Che cosa</th><th class="n">Importo</th><th></th></tr></thead><tbody>' +
       manuali.map((x) => '<tr><td>' + e(dataIt(x.data)) + '</td><td>' + e(nomeCat(x.categoria)) + '</td><td>' + e(testo(x.descrizione, 300)) +
         (x.fornitore || x.numero ? '<small>' + e([testo(x.fornitore, 120), x.numero ? "n. " + testo(x.numero, 60) : ""].filter(Boolean).join(" · ")) + '</small>' : "") +
@@ -302,6 +591,76 @@ function pagina(base, h, p, d, torna, elenco) {
     '<label><span>Numero del documento (facoltativo)</span><input id="cm-f-num" maxlength="60"></label></div>' +
     '<div class="cm-chi"><label for="cm-f-chi">Il tuo nome</label><input id="cm-f-chi" maxlength="120" autocomplete="name"></div>' +
     '<p class="cm-msg" id="cm-f-msg" role="status"></p><div class="cm-form-az"><button type="button" class="btn tenue" id="cm-f-annulla" hidden>Annulla la modifica</button><button type="button" class="btn pr" id="cm-f-salva">Salva il costo</button></div></form>' +
+    '</div></details>';
+
+  // costi-2: bolle e fatture dei fornitori
+  const fatture = lista(d.fatture);
+  const ia = ogg(d.fatture_ia);
+  const maxMb = Math.max(1, Math.min(50, Number(d.max_mb) || 25));
+  const linkFile = (id) => base + "/costi/file?t=" + p.tok + "&c=" + p.c + "&id=" + encodeURIComponent(String(id || ""));
+  const schedaFattura = (f) => {
+    const conf = confrontoFattura(f, bolle, offerte);
+    const nc = f.tipo === "nota_credito";
+    const righeF = lista(f.righe);
+    return '<div class="cm-fa' + (conf.some((x) => x.cls === "gi") ? " gi" : "") + '"><div class="cm-fa-t"><h3>' + e(testo(f.fornitore, 160)) + '</h3>' +
+      '<span class="cm-st ' + (nc ? "no" : "ok") + '">' + (nc ? "nota di credito" : "fattura") + ' · ' + (f.fonte === "xml" ? "XML" : "PDF") + '</span></div>' +
+      '<p class="cm-fa-m">n. <b>' + e(testo(f.numero, 60)) + '</b> del ' + e(dataIt(f.data)) + (f.partita_iva ? ' · P. IVA ' + e(testo(f.partita_iva, 30)) : "") + '</p>' +
+      '<p class="cm-fa-m">Imponibile <b>' + euro(f.imponibile) + '</b>' + (n(f.iva) !== null ? ' · IVA ' + euro(f.iva) : "") +
+      ' · <b>per questo cantiere ' + (nc ? "−" : "") + euro(f.importo_cantiere) + '</b>' + (n(f.importo_cantiere) !== n(f.imponibile) ? ' (quota)' : "") +
+      ' · conta dal ' + e(dataIt(f.competenza)) + ' · ' + e((CATEGORIE.find((x) => x[0] === f.categoria) || [0, f.categoria])[1]) + '</p>' +
+      '<ul class="cm-conf">' + conf.map((x) => '<li class="' + x.cls + '">' + e(x.t) + '</li>').join("") + '</ul>' +
+      (righeF.length ? '<details class="cm-sotto"><summary>Righe della fattura (' + righeF.length + ')</summary><div class="cm-tabw"><table class="cm-tab cm-pic"><thead><tr><th>Descrizione</th><th class="n">Quantità</th><th class="n">Prezzo</th><th class="n">Importo</th><th>Bolla</th></tr></thead><tbody>' +
+        righeF.slice(0, 300).map((r) => '<tr><td>' + e(testo(r.descrizione, 300)) + '</td><td class="n">' + (n(r.quantita) !== null ? e(valoreIt(r.quantita)) + " " + e(testo(r.unita, 20)) : "—") +
+          '</td><td class="n">' + (n(r.prezzo) !== null ? euro(r.prezzo) : "—") + '</td><td class="n">' + (n(r.importo) !== null ? euro(r.importo) : "—") + '</td><td>' + e(testo(r.ddt, 60)) + '</td></tr>').join("") +
+        '</tbody></table></div></details>' : "") +
+      (f.note ? '<p class="cm-fa-m">' + e(testo(f.note, 500)) + '</p>' : "") +
+      '<p class="cm-fa-m cm-tenue">caricata da ' + e(testo(f.autore, 120)) + (f.modificato_da ? ", modificata da " + e(testo(f.modificato_da, 120)) : "") + '</p>' +
+      '<div class="cm-az-r">' + (f.file ? '<a class="btn sm tenue" href="' + e(linkFile(f.id)) + '" target="_blank" rel="noopener">Apri il file</a>' : "") +
+      '<button type="button" class="btn sm tenue" data-fmod="' + e(f.id) + '">Modifica</button><button type="button" class="btn sm togli" data-ftog="' + e(f.id) + '">Togli</button></div></div>';
+  };
+  const schedaBolla = (b) => {
+    const fattB = lista(b.fatture);
+    let stato;
+    if (fattB.length) stato = '<span class="cm-st ok">fatturata</span><small>fattura n. ' + fattB.map((x) => e(testo(x.numero, 60))).join(", ") + '</small>';
+    else if (b.stima) stato = '<span class="cm-st gi">stimata ' + euro(b.stima.importo) + '</span><small>con l\'offerta, da controllare (' + e(testo(b.stima.autore, 60)) + ')</small>';
+    else if (conOfferta(b)) stato = '<span class="cm-st gi">da prezzare</span>';
+    else stato = '<span class="cm-st gr">senza prezzo</span><small>entra con la fattura</small>';
+    return '<tr><td data-l="Data">' + e(dataIt(b.data)) + (b.data_scritta ? "" : '<small>data di arrivo</small>') + '</td><td><b>' + e(testo(b.fornitore, 120) || "—") + '</b><small>n. ' + e(testo(b.numero, 60) || "—") + '</small></td>' +
+      '<td data-l="Materiale">' + e(testo(b.materiale, 200)) + (b.quantita ? '<small>' + e(testo(b.quantita, 120)) + '</small>' : "") + '</td><td data-l="Stato">' + stato + '</td><td class="cm-az">' +
+      (!fattB.length && conOfferta(b) ? '<button type="button" class="btn sm sec" data-bprezza="' + e(b.ddt_id) + '">' + (b.stima ? "Rifai la stima" : "Prezza con l'offerta") + '</button> ' : "") +
+      (b.stima && !fattB.length ? '<button type="button" class="btn sm togli" data-btog="' + e(b.stima.id) + '">Togli la stima</button> ' : "") +
+      (b.foto && /^https:\/\/drive\.google\.com\//.test(String(b.foto)) ? '<a class="btn sm tenue" href="' + e(b.foto) + '" target="_blank" rel="noopener">Foto</a>' : "") + '</td></tr>';
+  };
+  const opzCatF = CATEGORIE.filter((x) => x[0] !== "subappalti").map((x) => '<option value="' + x[0] + '">' + e(x[1]) + '</option>').join("");
+  const fornDett = '<details class="cm-det" id="fornitori"' + (fatture.length || bolle.length ? " open" : "") + '><summary>Bolle e fatture dei fornitori <span>' +
+    euroTondo((n(ogg(cora.fatture).euro) || 0) + (n(ogg(cora.bolle).euro) || 0)) + '</span></summary><div class="cm-det-c">' +
+    '<p class="cm-nota">Le <b>bolle</b> arrivano dal Diario (foto del DDT su WhatsApp). Se il fornitore ha un\'<b>offerta accettata</b> nel cantiere, la bolla si prezza con l\'offerta: è una stima gialla. ' +
+    'A fine mese carichi la <b>fattura</b>: quella elettronica (.xml, anche .xml.p7m) si legge da sola e gratis' + (ia.attiva ? ', il PDF lo legge TIX con l\'IA' : ', il PDF lo compili tu') +
+    '. La fattura prende il posto delle stime delle bolle che cita e TIX la confronta con bolle e offerta. Importi + IVA.</p>' +
+    // carica una fattura
+    '<form class="cm-form" id="cm-x" autocomplete="off"><h3>Carica una fattura</h3>' +
+    '<label class="cm-drop" id="cm-x-drop"><input type="file" id="cm-x-file" accept=".xml,.p7m,.pdf,application/pdf,text/xml,application/xml"><span id="cm-x-scegli">Scegli la fattura: XML, .xml.p7m oppure PDF (fino a ' + maxMb + ' MB)</span></label>' +
+    '<div class="cm-ia" id="cm-x-ia" role="status" hidden></div>' +
+    '<div id="cm-x-resto" hidden><div class="cm-campi"><label class="l2"><span>Fornitore</span><input id="cm-x-forn" maxlength="160"></label><label><span>Partita IVA</span><input id="cm-x-piva" maxlength="30"></label>' +
+    '<label><span>Numero</span><input id="cm-x-num" maxlength="60"></label><label><span>Data</span><input type="date" id="cm-x-data"></label>' +
+    '<label><span>Tipo</span><select id="cm-x-tipo"><option value="fattura">Fattura</option><option value="nota_credito">Nota di credito</option></select></label>' +
+    '<label><span>Imponibile (€)</span><input id="cm-x-imp" inputmode="decimal" placeholder="1.234,50"></label><label><span>IVA (€)</span><input id="cm-x-iva" inputmode="decimal"></label>' +
+    '<label><span>Totale (€)</span><input id="cm-x-tot" inputmode="decimal"></label>' +
+    '<label><span>Per questo cantiere (€)</span><input id="cm-x-quota" inputmode="decimal" placeholder="tutto l\'imponibile"></label>' +
+    '<label><span>Conta dal</span><input type="date" id="cm-x-comp"></label><label><span>Tipo di costo</span><select id="cm-x-cat">' + opzCatF + '</select></label>' +
+    '<label class="l2"><span>Bolle citate</span><input id="cm-x-ddt" maxlength="2000" placeholder="457 del 05/10/2026; 458 del 06/10/2026"></label>' +
+    '<label><span>Note (facoltative)</span><input id="cm-x-note" maxlength="500"></label></div>' +
+    '<div class="cm-righe-x" id="cm-x-righe" hidden></div>' +
+    '<p class="cm-nota">«Per questo cantiere» serve quando una fattura vale per più cantieri. «Conta dal» è la data in cui il costo entra nel conto: di base la data dell\'ultima bolla citata.</p>' +
+    '<div class="cm-chi"><label for="cm-x-chi">Il tuo nome</label><input id="cm-x-chi" maxlength="120" autocomplete="name"></div>' +
+    '<p class="cm-msg" id="cm-x-msg" role="status"></p><div class="cm-form-az"><button type="button" class="btn pr" id="cm-x-salva">Salva la fattura</button></div></div></form>' +
+    // fatture
+    '<h3 class="cm-h3">Fatture (' + fatture.length + ')</h3>' +
+    (fatture.length ? '<div class="cm-griglia">' + fatture.map(schedaFattura).join("") + '</div>' : '<p class="cm-vuoto">Nessuna fattura caricata.</p>') +
+    // bolle
+    '<h3 class="cm-h3">Bolle del Diario (' + bolle.length + ')</h3>' +
+    (bolle.length ? '<div class="cm-tabw"><table class="cm-tab cm-bolle"><thead><tr><th>Data</th><th>Fornitore</th><th>Materiale</th><th>Stato</th><th></th></tr></thead><tbody>' +
+      bolle.map(schedaBolla).join("") + '</tbody></table></div>' : '<p class="cm-vuoto">Nessuna bolla nel Diario di questo cantiere.</p>') +
     '</div></details>';
 
   const subOra = ogg(cora.subappalti);
@@ -342,14 +701,39 @@ function pagina(base, h, p, d, torna, elenco) {
     '<b>Questa pagina la vedono solo le persone della tua impresa</b> con l\'accesso all\'app: mai il DL, il committente, i professionisti, i subappaltatori o gli operai su WhatsApp. Tutti gli importi sono + IVA.</p>';
 
   const cfg = JSON.stringify({ u: base + "/costi/azione", t: p.tok, c: p.c, manuali: manuali.map((x) => ({ id: x.id, data: x.data, categoria: x.categoria,
-    fornitore: x.fornitore || "", descrizione: x.descrizione || "", numero: x.numero || "", importo: x.importo })) }).replace(/</g, "\\u003c");
+    fornitore: x.fornitore || "", descrizione: x.descrizione || "", numero: x.numero || "", importo: x.importo })),
+    // costi-2
+    uc: base + "/costi/carica-fattura", ul: base + "/costi/leggi-fattura", ia: ia.attiva === true, max: maxMb * 1048576, maxMb,
+    fatture: fatture.map((f) => ({ id: f.id, numero: f.numero, fornitore: f.fornitore, categoria: f.categoria, importo_cantiere: f.importo_cantiere,
+      imponibile: f.imponibile, competenza: f.competenza, note: f.note || "" })),
+    bolle: bolle.map((b) => ({ ddt_id: b.ddt_id, fornitore: b.fornitore || "", numero: b.numero || "", materiale: b.materiale || "", quantita: b.quantita || "",
+      stima: b.stima ? { offerta_id: b.stima.offerta_id, righe: lista(b.stima.righe) } : null })),
+    offerte: offerte.map((o) => ({ id: o.id, fornitore: o.fornitore, materiale: o.materiale || "", numero: o.numero || "", righe: lista(o.righe) })) }).replace(/</g, "\\u003c");
 
   return testaHtml(h, base, "Costi e margine") +
     '<nav class="cm-nav"><a class="cm-torna" href="' + e(torna) + '">‹ Torna al cantiere</a><a class="cm-torna" href="' + e(base + "/costi?t=" + p.tok) + '">Tutti i cantieri</a></nav>' +
     '<div class="cm-card' + (sotto ? " cm-rosso" : "") + '"><div class="cm-testa"><div>' + (d.cantiere ? '<p class="cm-cant">' + e(d.cantiere) + '</p>' : "") +
     '<h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine</h1>' +
     (d.modo === "prova" ? '<p class="cm-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div></div>' +
-    quadro + tabella + avvisi + manDett + mezDett + manoDett + subDett + impresa + fonti + '</div></main>' +
+    quadro + tabella + avvisi + manDett + mezDett + fornDett + manoDett + subDett + impresa + fonti + '</div></main>' +
+    // costi-2: finestre per la stima di una bolla, la modifica di una fattura, togli fattura o stima
+    '<dialog class="cm-dlg cm-dlg-l" id="cm-b-dlg"><form method="dialog"><h3 id="cm-b-tit">Prezza la bolla con l\'offerta</h3>' +
+    '<p id="cm-b-txt"></p><label for="cm-b-off">Offerta accettata</label><select id="cm-b-off"></select>' +
+    '<div id="cm-b-righe"></div><p><button type="button" class="btn sm tenue" id="cm-b-piu">+ Aggiungi una riga</button></p>' +
+    '<p class="cm-b-tot">Stima: <b id="cm-b-tot">—</b> + IVA <small>(il prezzo lo prende TIX dall\'offerta)</small></p>' +
+    '<label for="cm-b-chi">Il tuo nome</label><input id="cm-b-chi" maxlength="120" autocomplete="name">' +
+    '<p class="cm-msg" id="cm-b-msg" role="status"></p><div class="cm-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cm-b-si">Salva la stima</button></div></form></dialog>' +
+    '<dialog class="cm-dlg" id="cm-fm-dlg"><form method="dialog"><h3>Modifica la fattura</h3><p id="cm-fm-txt"></p>' +
+    '<label for="cm-fm-quota">Per questo cantiere (€)</label><input id="cm-fm-quota" inputmode="decimal">' +
+    '<label for="cm-fm-comp">Conta dal</label><input type="date" id="cm-fm-comp">' +
+    '<label for="cm-fm-cat">Tipo di costo</label><select id="cm-fm-cat">' + opzCatF + '</select>' +
+    '<label for="cm-fm-note">Note</label><input id="cm-fm-note" maxlength="500">' +
+    '<label for="cm-fm-chi">Il tuo nome</label><input id="cm-fm-chi" maxlength="120" autocomplete="name">' +
+    '<p class="cm-msg" id="cm-fm-msg" role="status"></p><div class="cm-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cm-fm-si">Salva</button></div></form></dialog>' +
+    '<dialog class="cm-dlg" id="cm-t2-dlg"><form method="dialog"><h3 id="cm-t2-tit">Togli</h3><p id="cm-t2-txt"></p>' +
+    '<label for="cm-t2-chi">Il tuo nome</label><input id="cm-t2-chi" maxlength="120" autocomplete="name">' +
+    '<label for="cm-t2-mot">Perché (facoltativo)</label><input id="cm-t2-mot" maxlength="300">' +
+    '<p class="cm-msg" id="cm-t2-msg" role="status"></p><div class="cm-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="cm-t2-si">Togli</button></div></form></dialog>' +
     '<dialog class="cm-dlg" id="cm-t-dlg"><form method="dialog"><h3>Togli il costo</h3><p id="cm-t-txt"></p>' +
     '<label for="cm-t-chi">Il tuo nome</label><input id="cm-t-chi" maxlength="120" autocomplete="name">' +
     '<label for="cm-t-mot">Perché (facoltativo)</label><input id="cm-t-mot" maxlength="300" placeholder="Per esempio: scritto due volte">' +
@@ -457,6 +841,30 @@ const STILE =
   ".cm-form-az{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px}" +
   ".cm-fonti{margin:20px 0 0;font-size:.82rem;line-height:1.55;color:var(--s)}" +
   ".cm-riep td a{font-weight:700}" +
+  // costi-2: bolle e fatture
+  ".cm-st.gi{background:var(--gi-f);color:var(--gi);border:1px solid var(--gi-b)}.btn.sec{border-color:var(--cm);color:var(--cm-s);background:var(--cm-f)}" +
+  ".cm-h3{margin:18px 0 8px;font-size:1rem;color:var(--navy)}.cm-tenue{color:#8A96A3!important}" +
+  ".cm-griglia{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;align-items:start}" +
+  ".cm-fa{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--l);border-left:4px solid var(--ok);border-radius:14px;background:var(--c)}" +
+  ".cm-fa.gi{border-left-color:#D08A1C}.cm-fa-t{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.cm-fa-t h3{margin:0;font-size:1rem;color:var(--navy);overflow-wrap:anywhere}" +
+  ".cm-fa-m{margin:0;font-size:.86rem;line-height:1.5;color:var(--s)}.cm-fa-m b{color:var(--t)}" +
+  ".cm-conf{margin:4px 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}" +
+  ".cm-conf li{padding:5px 9px;border-radius:9px;font-size:.84rem;line-height:1.4}.cm-conf li.ok{background:var(--ok-f);color:var(--ok)}" +
+  ".cm-conf li.gi{background:var(--gi-f);color:var(--gi)}.cm-conf li.bl{background:var(--bl-f);color:var(--t)}" +
+  ".cm-az-r{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.cm-bolle td small{display:block}" +
+  ".cm-drop{display:flex;align-items:center;gap:10px;padding:14px;margin:0 0 10px;border:2px dashed var(--cm-b);border-radius:14px;background:var(--cm-f);color:var(--cm-s);font-weight:600;cursor:pointer;overflow-wrap:anywhere}" +
+  ".cm-drop{flex-wrap:wrap}.cm-drop input{max-width:100%;min-width:0}.cm-drop span{flex:1 1 200px;min-width:0;overflow-wrap:break-word}.cm-drop.ok{border-style:solid;border-color:var(--cm)}" +
+  ".cm-ia{margin:0 0 10px;padding:10px 12px;border-radius:12px;border:1px solid var(--gi-b);background:var(--gi-f);font-size:.88rem;line-height:1.5;color:var(--gi)}" +
+  ".cm-ia.no{border-color:var(--ro-b);background:var(--ro-f);color:#7a1c16}.cm-ia.at{border-color:var(--cm-b);background:var(--cm-f);color:var(--cm-s)}.cm-ia ul{margin:6px 0 0;padding-left:18px}" +
+  ".cm-campi input.ia,.cm-campi select.ia{background:#FFF4C2;border-color:#D9B23C}" +
+  ".cm-righe-x{margin:6px 0;font-size:.84rem;color:var(--s)}" +
+  ".cm-dlg.cm-dlg-l{max-width:820px}.cm-dlg select{width:100%;min-height:40px;padding:0 10px;border:1px solid rgba(16,27,43,.18);border-radius:10px;background:var(--c);font:inherit;font-size:.92rem}" +
+  ".cm-b-r{display:grid;grid-template-columns:minmax(0,1.2fr) 110px minmax(0,1.6fr) 110px 36px;gap:8px;align-items:center;margin:8px 0 0}" +
+  ".cm-b-r input,.cm-b-r select{width:100%;min-height:38px;padding:0 8px;border:1px solid rgba(16,27,43,.18);border-radius:10px;font:inherit;font-size:.88rem}" +
+  ".cm-b-r .imp{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}.cm-b-r .avv{grid-column:1/-1;font-size:.8rem;color:var(--gi)}" +
+  ".cm-b-x{min-height:38px;border:1px solid var(--ro-b);border-radius:10px;background:#fff;color:var(--ro);font:inherit;font-weight:800;cursor:pointer}" +
+  ".cm-b-tot{margin:12px 0 4px!important;color:var(--t)!important;font-size:.95rem!important}" +
+  "@media (max-width:680px){.cm-griglia{grid-template-columns:minmax(0,1fr)}.cm-b-r{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:8px;border:1px solid var(--l);border-radius:10px}.cm-b-r .lr{grid-column:1/-1}}" +
   ".cm-dlg{max-width:460px;width:calc(100vw - 32px);border:0;border-radius:16px;padding:18px;box-shadow:0 24px 60px -20px rgba(16,27,43,.45)}" +
   ".cm-dlg::backdrop{background:rgba(16,27,43,.45)}.cm-dlg h3{margin:0 0 8px;color:var(--navy)}.cm-dlg p{margin:0 0 12px;font-size:.9rem;line-height:1.45;color:var(--s)}.cm-dlg form{display:flex;flex-direction:column;gap:6px}" +
   "@media (max-width:900px){.cm-quadro{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-campi{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
@@ -467,7 +875,11 @@ const STILE =
   ".cm-riep tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;padding:10px 12px;margin:0 0 10px;border:1px solid var(--l);border-radius:12px}" +
   ".cm-riep td{display:block;padding:0;border:0;text-align:left!important;white-space:normal}.cm-riep td:first-child{grid-column:1/-1;font-size:1rem}" +
   ".cm-riep tr.no{background:var(--ro-f);border-color:var(--ro-b)}.cm-riep tr.no td{background:transparent}" +
-  ".cm-riep td[data-l]::before{content:attr(data-l);display:block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--s)}}";
+  ".cm-riep td[data-l]::before,.cm-bolle td[data-l]::before{content:attr(data-l);display:block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--s)}" +
+  // bolle sul telefono: un riquadro per bolla, fornitore in alto e pulsanti sotto
+  ".cm-bolle thead{display:none}.cm-bolle,.cm-bolle tbody{display:block}" +
+  ".cm-bolle tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;padding:10px 12px;margin:0 0 10px;border:1px solid var(--l);border-radius:12px}" +
+  ".cm-bolle td{display:block;padding:0;border:0;white-space:normal}.cm-bolle td:nth-child(2){grid-column:1/-1;order:-1;font-size:1rem}.cm-bolle td.cm-az{grid-column:1/-1}.cm-bolle td.cm-az:empty{display:none}}";
 
 const SCRIPT = String.raw`(function(){try{
 var D=document;function $(i){return D.getElementById(i);}
@@ -506,6 +918,180 @@ Array.prototype.forEach.call(D.querySelectorAll('[data-tog]'),function(b){b.addE
 $('cm-t-txt').textContent='«'+x.descrizione+'»: resta registrato come tolto, con il tuo nome.';$('cm-t-msg').textContent='';if(dlg.showModal)dlg.showModal();else dlg.setAttribute('open','');});});
 var ts=$('cm-t-si');if(ts)ts.addEventListener('click',function(){var msg=$('cm-t-msg');var chi=chiDi('cm-t-chi',msg);if(!chi)return;ts.disabled=true;
 invia('manuale_togli',{id:daTogliere,motivo:$('cm-t-mot').value.trim(),autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='manuali';location.reload();return;}ts.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a toglierlo: riprova.';}).catch(function(){ts.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
+// ---------------------------------------------------------------- costi-2: fatture dei fornitori e bolle
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function esa(buf){return Array.prototype.map.call(new Uint8Array(buf),function(x){return ('0'+x.toString(16)).slice(-2);}).join('');}
+function nIt(v){if(v===null||v===undefined||v==='')return '';var x=Number(v);if(!isFinite(x))return '';return String(Math.round(x*10000)/10000).replace('.',',');}
+function eur(v){var x=Number(v);if(!isFinite(x))return '—';var s=Math.abs(x).toFixed(2).split('.');return (x<0?'−':'')+s[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+s[1]+' €';}
+function dIt(iso){return /^\d{4}-\d{2}-\d{2}/.test(iso||'')?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'';}
+function dIso(s){s=String(s||'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);var m=s.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);if(!m)return '';var a=Number(m[3]);if(a<100)a+=2000;return a+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);}
+function mbx(n){n=Number(n)||0;return n>=1048576?(Math.round(n/104857.6)/10).toString().replace('.',',')+' MB':Math.max(1,Math.round(n/1024))+' KB';}
+function nomeD(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\./g,'').replace(/\b(srls?|spa|snc|sas|soc|societa|coop|cooperativa|unipersonale)\b/g,' ').replace(/[^a-z0-9]+/g,' ').trim();}
+function stessa(a,b){var x=nomeD(a),y=nomeD(b);if(!x||!y)return false;return x===y||(x.length>=5&&y.length>=5&&(x.indexOf(y)!==-1||y.indexOf(x)!==-1));}
+function parole(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().split(/[^a-z0-9\/]+/).filter(function(w){return w.length>=2;});}
+function simile(descr,righe){var a={};parole(descr).forEach(function(w){a[w]=1;});var m=null,pt=0;(righe||[]).forEach(function(r){var b=parole(r.descrizione);if(!b.length)return;var c=b.filter(function(w){return a[w];}).length;var p=c/b.length;if(c&&p>pt){pt=p;m=r;}});return pt>=0.5?m:null;}
+function unitaN(u){var s=String(u||'').toLowerCase().replace(/[\s.]/g,'');if(/^(m3|mc|m³)$/.test(s))return 'm3';if(/^(m2|mq|m²)$/.test(s))return 'm2';if(/^(kg)$/.test(s))return 'kg';if(/^(t|ton|tonnellate?)$/.test(s))return 't';if(/^(h|ora|ore)$/.test(s))return 'ora';if(/^(n|nr|pz|pezzi|cad)$/.test(s))return 'cad';return s;}
+['cm-x-chi','cm-b-chi','cm-fm-chi','cm-t2-chi'].forEach(function(i){var el=$(i);if(el&&!el.value)el.value=leggiChi();});
+var DOC=null,FAT={righe:[],ddt:[]},LETTURA=0;
+function boxX(cls,html){var b=$('cm-x-ia');if(!b)return;b.hidden=!html;b.className='cm-ia'+(cls?' '+cls:'');b.innerHTML=html||'';}
+function metti(id,v){var el=$(id);if(!el||v===undefined||v===null||String(v)==='')return;el.value=v;el.classList.add('ia');}
+['cm-x-forn','cm-x-piva','cm-x-num','cm-x-data','cm-x-tipo','cm-x-imp','cm-x-iva','cm-x-tot','cm-x-quota','cm-x-comp','cm-x-ddt'].forEach(function(i){var el=$(i);if(el){el.addEventListener('input',function(){el.classList.remove('ia');});el.addEventListener('change',function(){el.classList.remove('ia');});}});
+// testo dell'XML con la codifica dichiarata (UTF-8 o ISO-8859-1)
+function testoDaByte(u8){var t=String.fromCharCode.apply(null,Array.prototype.slice.call(u8.subarray(0,300)));var m=t.match(/encoding=["']([A-Za-z0-9_-]+)["']/);var enc=m?m[1].toLowerCase():'utf-8';try{return new TextDecoder(enc).decode(u8);}catch(e){return new TextDecoder('utf-8').decode(u8);}}
+// .xml.p7m: busta CMS (binaria o in base64); il contenuto è un OCTET STRING, anche spezzato in pezzi (codifica BER)
+function daP7m(u8){
+  if(u8[0]!==0x30){try{var s=new TextDecoder('latin1').decode(u8).replace(/-----[^-]*-----/g,'').replace(/[^A-Za-z0-9+\/=]/g,'');var bin=atob(s);var x=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)x[i]=bin.charCodeAt(i);u8=x;}catch(e){return null;}}
+  var cand=[];
+  function lun(p){var l=u8[p];if(l<0x80)return [l,p+1];if(l===0x80)return [-1,p+1];var nb=l&0x7f,v=0;for(var k=0;k<nb;k++)v=v*256+u8[p+1+k];return [v,p+1+nb];}
+  function giro(pos,fine,acc,prof){
+    while(pos<fine){
+      if(prof>40)return fine;
+      var tag=u8[pos];
+      if(tag===0&&u8[pos+1]===0)return pos+2;
+      var p=pos+1;if((tag&0x1f)===0x1f){while(p<fine&&(u8[p]&0x80))p++;p++;}
+      var ll=lun(p),len=ll[0];p=ll[1];
+      if(tag&0x20){
+        var mio=tag===0x24?[]:null;var fineC=len<0?fine:Math.min(fine,p+len);
+        var dopo=giro(p,fineC,mio||acc,prof+1);
+        if(mio){var tot=0;mio.forEach(function(a){tot+=a.length;});var buf=new Uint8Array(tot),o=0;mio.forEach(function(a){buf.set(a,o);o+=a.length;});if(acc)acc.push(buf);else cand.push(buf);}
+        pos=len<0?dopo:p+len;
+      }else{
+        if(len<0||p+len>u8.length)return fine;
+        var dati=u8.subarray(p,p+len);if(tag===0x04){if(acc)acc.push(dati);else cand.push(dati);}
+        pos=p+len;
+      }
+    }
+    return pos;
+  }
+  try{giro(0,u8.length,null,0);}catch(e){return null;}
+  var meglio=null;
+  cand.forEach(function(c){if(c.length<50)return;if(/FatturaElettronica/.test(testoDaByte(c))&&(!meglio||c.length>meglio.length))meglio=c;});
+  return meglio;
+}
+// fattura elettronica (tracciato FatturaPA) → campi del modulo
+function leggiXml(txt){
+  var doc;try{doc=new DOMParser().parseFromString(txt,'application/xml');}catch(e){return null;}
+  if(!doc||doc.getElementsByTagName('parsererror').length)return null;
+  function tutti(el,n){return el?Array.prototype.slice.call(el.getElementsByTagNameNS('*',n)):[];}
+  function uno(el,n){var a=tutti(el,n);return a.length?a[0]:null;}
+  function t(el,n){var x=uno(el,n);return x?String(x.textContent||'').trim():'';}
+  if(!uno(doc,'FatturaElettronicaBody'))return null;
+  var ced=uno(doc,'CedentePrestatore'),an=uno(ced,'Anagrafica');
+  var forn=t(an,'Denominazione')||(t(an,'Nome')+' '+t(an,'Cognome')).trim();
+  var piva=t(uno(ced,'IdFiscaleIVA'),'IdCodice')||t(uno(ced,'DatiAnagrafici'),'CodiceFiscale');
+  var corpi=tutti(doc,'FatturaElettronicaBody'),b=corpi[0],dg=uno(b,'DatiGeneraliDocumento');
+  var righe=tutti(b,'DettaglioLinee').map(function(l){return{n:t(l,'NumeroLinea'),descrizione:t(l,'Descrizione'),quantita:t(l,'Quantita'),unita:t(l,'UnitaMisura'),prezzo:t(l,'PrezzoUnitario'),importo:t(l,'PrezzoTotale'),ddt:''};});
+  var imp=0,iva=0,haR=false;tutti(b,'DatiRiepilogo').forEach(function(r){var a=Number(t(r,'ImponibileImporto')),c=Number(t(r,'Imposta'));if(isFinite(a)){imp+=a;haR=true;}if(isFinite(c))iva+=c;});
+  if(!haR)righe.forEach(function(r){var x=Number(r.importo);if(isFinite(x))imp+=x;});
+  var ddt=tutti(b,'DatiDDT').map(function(x){var num=t(x,'NumeroDDT'),dat=t(x,'DataDDT');tutti(x,'RiferimentoNumeroLinea').forEach(function(rl){var k=String(rl.textContent||'').trim();righe.forEach(function(r){if(r.n===k)r.ddt=num;});});return{numero:num,data:dIso(dat)};}).filter(function(x){return x.numero;});
+  var tot=Number(t(dg,'ImportoTotaleDocumento'));
+  return{fornitore:forn,partita_iva:piva,numero:t(dg,'Numero'),data:dIso(t(dg,'Data')),tipo:t(dg,'TipoDocumento')==='TD04'?'nota_credito':'fattura',
+    imponibile:String(Math.round(Math.abs(imp)*100)/100),iva:String(Math.round(Math.abs(iva)*100)/100),totale:String(Math.round(Math.abs(isFinite(tot)&&tot?tot:imp+iva)*100)/100),
+    righe:righe.map(function(r){return{descrizione:r.descrizione,quantita:r.quantita,unita:r.unita,prezzo:r.prezzo,importo:r.importo,ddt:r.ddt};}),ddt:ddt,corpi:corpi.length,dubbi:[],mancano:[]};
+}
+function ddtTesto(l){return (l||[]).map(function(x){return x.numero+(x.data?' del '+dIt(x.data):'');}).join('; ');}
+function ddtDaTesto(s){return String(s||'').split(/[;\n]+/).map(function(x){x=x.trim();if(!x)return null;var num=x.split(/\s+del\s+|\s+/)[0];return{numero:num,data:dIso(x.slice(num.length))};}).filter(function(x){return x&&x.numero;});}
+function riempi(p){
+  Array.prototype.forEach.call(D.querySelectorAll('#cm-x .ia'),function(el){el.classList.remove('ia');});
+  metti('cm-x-forn',p.fornitore);metti('cm-x-piva',p.partita_iva);metti('cm-x-num',p.numero);metti('cm-x-data',p.data);
+  var tp=$('cm-x-tipo');if(p.tipo){tp.value=p.tipo;tp.classList.add('ia');}
+  metti('cm-x-imp',nIt(p.imponibile));metti('cm-x-iva',nIt(p.iva));metti('cm-x-tot',nIt(p.totale));$('cm-x-quota').value='';
+  FAT.righe=p.righe||[];FAT.ddt=p.ddt||[];metti('cm-x-ddt',ddtTesto(FAT.ddt));
+  var ult='';FAT.ddt.forEach(function(x){if(x.data&&x.data>ult)ult=x.data;});metti('cm-x-comp',ult||p.data);
+  var rr=$('cm-x-righe');rr.hidden=!FAT.righe.length;rr.textContent=FAT.righe.length?'Righe lette: '+FAT.righe.length+'. Si vedono nella scheda della fattura dopo il salvataggio, con il confronto.':'';
+}
+function unisci(js,u8){var l=new TextEncoder().encode(String(js.length).padStart(8,'0'));var b=new Uint8Array(8+js.length+u8.length);b.set(l,0);b.set(js,8);b.set(u8,8+js.length);return b;}
+function scegliFattura(f){
+  var msg=$('cm-x-msg');msg.textContent='';boxX('','');DOC=null;FAT={righe:[],ddt:[]};
+  if(f.size>CFG.max){boxX('no','Il file è troppo grande: in TIX una fattura arriva fino a '+CFG.maxMb+' MB.');return;}
+  var est=((f.name.match(/\.([A-Za-z0-9]{1,5})$/)||[])[1]||'').toLowerCase();
+  if(['xml','p7m','pdf'].indexOf(est)===-1){boxX('no','Carica la fattura elettronica (.xml o .xml.p7m) oppure il PDF.');return;}
+  var mio=++LETTURA;
+  f.arrayBuffer().then(function(ab){return crypto.subtle.digest('SHA-256',ab).then(function(h){return{u8:new Uint8Array(ab),sha:esa(h)};});}).then(function(x){
+    if(mio!==LETTURA)return;
+    DOC={nome:f.name,byte:x.u8.length,sha:x.sha,bytes:x.u8};
+    $('cm-x-scegli').textContent=f.name+' ('+mbx(f.size)+')';$('cm-x-drop').classList.add('ok');$('cm-x-resto').hidden=false;
+    if(est==='xml'||est==='p7m'){
+      var src=est==='p7m'?daP7m(x.u8):x.u8;var p=src?leggiXml(testoDaByte(src)):null;
+      if(!p){boxX('no','Non riesco a leggere questa fattura elettronica: controlla il file, oppure compila i campi a mano.');return;}
+      riempi(p);var av=[];if(p.corpi>1)av.push('Il file contiene '+p.corpi+' fatture: TIX ha letto la prima. Le altre caricale a parte.');if(!p.ddt.length)av.push('La fattura non cita bolle: «Conta dal» è la data della fattura.');
+      boxX('','<b>Fattura elettronica letta: controlla i campi in giallo e salva.</b>'+(av.length?'<ul><li>'+av.map(esc).join('</li><li>')+'</li></ul>':''));
+    }else{
+      if(!CFG.ia){boxX('at','Compila i campi guardando il PDF, oppure carica l’XML della fattura elettronica: si legge da solo, gratis.');return;}
+      boxX('at','TIX sta leggendo la fattura (10–30 secondi)…');
+      var js=new TextEncoder().encode(JSON.stringify({t:CFG.t,c:CFG.c,nome:f.name,byte:x.u8.length,sha256:x.sha}));
+      fetch(CFG.ul,{method:'POST',body:unisci(js,x.u8)}).then(function(r){return r.json();}).then(function(j){
+        if(mio!==LETTURA)return;
+        if(j&&j.esito==='ok'&&j.proposta){var pp=j.proposta;riempi(pp);var l=(pp.dubbi||[]).slice();if((pp.mancano||[]).length)l.unshift('Non trovati nel documento: '+pp.mancano.join(', ')+'.');
+          boxX('','<b>TIX ha letto la fattura: controlla i campi in giallo e salva.</b>'+(l.length?'<ul><li>'+l.map(esc).join('</li><li>')+'</li></ul>':''));}
+        else boxX('no',esc((j&&j.messaggio)||'Non sono riuscito a leggere la fattura: compila i campi a mano.'));
+      }).catch(function(){if(mio===LETTURA)boxX('no','La lettura automatica non risponde: compila i campi a mano.');});
+    }
+  });
+}
+var fx=$('cm-x-file');if(fx)fx.addEventListener('change',function(){var f=fx.files&&fx.files[0];if(f)scegliFattura(f);});
+var xs=$('cm-x-salva');if(xs)xs.addEventListener('click',function(){
+  var msg=$('cm-x-msg');if(!DOC){msg.className='cm-msg';msg.textContent='Scegli prima il file della fattura.';return;}
+  var chi=chiDi('cm-x-chi',msg);if(!chi)return;
+  var imp=numero($('cm-x-imp').value),iva=numero($('cm-x-iva').value),tot=numero($('cm-x-tot').value),quota=numero($('cm-x-quota').value);
+  var obb=[['cm-x-forn',$('cm-x-forn').value.trim()],['cm-x-num',$('cm-x-num').value.trim()],['cm-x-data',$('cm-x-data').value],['cm-x-imp',imp]];
+  var bad=false;obb.forEach(function(k){var ok=!!k[1];$(k[0]).classList.toggle('manca',!ok);if(!ok)bad=true;});
+  if(bad||iva===null||tot===null||quota===null){msg.className='cm-msg';msg.textContent='Servono fornitore, numero, data e imponibile; i numeri si scrivono così: 1.234,50.';return;}
+  xs.disabled=true;msg.className='cm-msg ok';msg.textContent='Salvo…';
+  var dati={t:CFG.t,c:CFG.c,nome:DOC.nome,byte:DOC.byte,sha256:DOC.sha,fornitore:$('cm-x-forn').value.trim(),partita_iva:$('cm-x-piva').value.trim(),numero:$('cm-x-num').value.trim(),
+    data:$('cm-x-data').value,tipo:$('cm-x-tipo').value,categoria:$('cm-x-cat').value,imponibile:imp,iva:iva||'',totale:tot||'',importo_cantiere:quota||'',competenza:$('cm-x-comp').value,
+    note:$('cm-x-note').value.trim(),autore:chi,righe:FAT.righe,ddt:ddtDaTesto($('cm-x-ddt').value)};
+  fetch(CFG.uc,{method:'POST',body:unisci(new TextEncoder().encode(JSON.stringify(dati)),DOC.bytes)}).then(function(r){return r.json();}).then(function(j){
+    if(j&&j.esito==='ok'){msg.textContent='Salvata.';location.hash='fornitori';location.reload();return;}
+    xs.disabled=false;msg.className='cm-msg';msg.textContent=(j&&j.messaggio)||'Non sono riuscito a salvare la fattura: riprova.';
+  }).catch(function(){xs.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});
+});
+// stima di una bolla con l'offerta accettata
+var BOL=null,bdlg=$('cm-b-dlg');
+function bolla(id){for(var i=0;i<CFG.bolle.length;i++){if(String(CFG.bolle[i].ddt_id)===String(id))return CFG.bolle[i];}return null;}
+function offerta(id){for(var i=0;i<CFG.offerte.length;i++){if(CFG.offerte[i].id===id)return CFG.offerte[i];}return null;}
+function righeDaBolla(b){var m=String(b.materiale||'').split(';'),q=String(b.quantita||'').split(';'),k=Math.max(m.length,q.length),out=[];for(var i=0;i<k;i++){var qq=(q[i]||'').trim(),mm=qq.match(/(\d[\d.]*(?:,\d+)?)\s*([A-Za-z²³\/]+)?/);out.push({descrizione_ddt:(m[i]||'').trim(),quantita:mm?mm[1]:'',unita:mm&&mm[2]?mm[2]:''});}return out;}
+function rigaB(r,off){
+  var d=D.createElement('div');d.className='cm-b-r';
+  var sel='<select class="lr" aria-label="Voce dell’offerta">'+'<option value="">— voce dell’offerta —</option>'+(off?off.righe:[]).map(function(x){return '<option value="'+x.id+'">'+esc(x.descrizione)+' · '+esc(eur(x.prezzo))+(x.unita?'/'+esc(x.unita):'')+'</option>';}).join('')+'</select>';
+  d.innerHTML='<input class="lr" placeholder="Materiale della bolla" aria-label="Materiale della bolla" maxlength="200"><input placeholder="Quantità" aria-label="Quantità" inputmode="decimal"><span class="lr">'+sel+'</span><span class="imp">—</span><button type="button" class="cm-b-x" title="Togli la riga" aria-label="Togli la riga">×</button><span class="avv"></span>';
+  var i=d.querySelectorAll('input'),s=d.querySelector('select');i[0].value=r.descrizione_ddt||'';i[1].value=r.quantita?nIt(numero(r.quantita)):'';d.dataset.unita=r.unita||'';
+  if(r.unita){i[1].placeholder='Quantità ('+r.unita+')';i[1].setAttribute('aria-label','Quantità in '+r.unita);}
+  var scelta=r.offerta_riga_id?String(r.offerta_riga_id):'';if(!scelta&&off){var sm=simile(r.descrizione_ddt,off.righe);if(sm)scelta=String(sm.id);}s.value=scelta;
+  function conto(){var q=numero(i[1].value),rr=null;(off?off.righe:[]).forEach(function(x){if(String(x.id)===s.value)rr=x;});var im=d.querySelector('.imp'),av=d.querySelector('.avv');
+    im.textContent=q&&rr?eur(Number(q)*Number(rr.prezzo)):'—';av.textContent=rr&&d.dataset.unita&&unitaN(d.dataset.unita)!==unitaN(rr.unita)?'Unità diverse: bolla in '+d.dataset.unita+', offerta in '+(rr.unita||'?')+'. Controlla la quantità.':'';totaleB();}
+  i[1].addEventListener('input',conto);s.addEventListener('change',conto);d.querySelector('.cm-b-x').addEventListener('click',function(){d.parentNode.removeChild(d);totaleB();});
+  $('cm-b-righe').appendChild(d);conto();
+}
+function totaleB(){var t=0,ok=false;Array.prototype.forEach.call(D.querySelectorAll('#cm-b-righe .cm-b-r'),function(d){var q=numero(d.querySelectorAll('input')[1].value),s=d.querySelector('select').value,off=offerta($('cm-b-off').value);if(!q||!s||!off)return;off.righe.forEach(function(x){if(String(x.id)===s){t+=Number(q)*Number(x.prezzo);ok=true;}});});$('cm-b-tot').textContent=ok?eur(t):'—';}
+function apriBolla(b){
+  BOL=b;$('cm-b-msg').textContent='';$('cm-b-txt').textContent='Bolla n. '+(b.numero||'—')+' di '+(b.fornitore||'—')+(b.materiale?': '+b.materiale:'')+(b.quantita?' ('+b.quantita+')':'');
+  var opz=CFG.offerte.filter(function(o){return stessa(o.fornitore,b.fornitore);});if(!opz.length)opz=CFG.offerte;
+  var so=$('cm-b-off');so.innerHTML=opz.map(function(o){return '<option value="'+o.id+'">'+esc(o.fornitore)+' · '+esc(o.materiale)+(o.numero?' n. '+esc(o.numero):'')+'</option>';}).join('');
+  if(b.stima&&b.stima.offerta_id&&offerta(b.stima.offerta_id))so.value=b.stima.offerta_id;
+  function disegna(){$('cm-b-righe').innerHTML='';var off=offerta(so.value);var rr=b.stima&&b.stima.offerta_id===so.value&&b.stima.righe.length?b.stima.righe.map(function(x){return{descrizione_ddt:x.descrizione_ddt,quantita:String(x.quantita),unita:x.unita,offerta_riga_id:x.offerta_riga_id};}):righeDaBolla(b);rr.forEach(function(r){rigaB(r,off);});totaleB();}
+  so.onchange=disegna;disegna();if(bdlg.showModal)bdlg.showModal();else bdlg.setAttribute('open','');
+}
+Array.prototype.forEach.call(D.querySelectorAll('[data-bprezza]'),function(x){x.addEventListener('click',function(){var b=bolla(x.getAttribute('data-bprezza'));if(b)apriBolla(b);});});
+var bpiu=$('cm-b-piu');if(bpiu)bpiu.addEventListener('click',function(){rigaB({descrizione_ddt:'',quantita:'',unita:''},offerta($('cm-b-off').value));});
+var bsi=$('cm-b-si');if(bsi)bsi.addEventListener('click',function(){var msg=$('cm-b-msg');var chi=chiDi('cm-b-chi',msg);if(!chi||!BOL)return;var righe=[],bad=false;
+  Array.prototype.forEach.call(D.querySelectorAll('#cm-b-righe .cm-b-r'),function(d){var i=d.querySelectorAll('input'),q=numero(i[1].value),s=d.querySelector('select').value;if(!q&&!s)return;if(!q||!s){bad=true;return;}righe.push({descrizione_ddt:i[0].value.trim(),quantita:q,unita:d.dataset.unita||'',offerta_riga_id:s});});
+  if(bad||!righe.length){msg.className='cm-msg';msg.textContent='Per ogni riga servono la quantità e la voce dell’offerta.';return;}
+  bsi.disabled=true;invia('bolla_stima',{ddt_id:String(BOL.ddt_id),offerta_id:$('cm-b-off').value,righe:righe,autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='fornitori';location.reload();return;}bsi.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){bsi.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
+// modifica e togli di fatture e stime
+var fdlg=$('cm-fm-dlg'),FMOD=null;
+function fattura(id){for(var i=0;i<CFG.fatture.length;i++){if(CFG.fatture[i].id===id)return CFG.fatture[i];}return null;}
+Array.prototype.forEach.call(D.querySelectorAll('[data-fmod]'),function(x){x.addEventListener('click',function(){var f=fattura(x.getAttribute('data-fmod'));if(!f)return;FMOD=f;
+  $('cm-fm-txt').textContent=f.fornitore+', fattura n. '+f.numero+': imponibile '+eur(f.imponibile)+'.';$('cm-fm-quota').value=nIt(f.importo_cantiere);$('cm-fm-comp').value=f.competenza||'';$('cm-fm-cat').value=f.categoria;$('cm-fm-note').value=f.note||'';$('cm-fm-msg').textContent='';
+  if(fdlg.showModal)fdlg.showModal();else fdlg.setAttribute('open','');});});
+var fsi=$('cm-fm-si');if(fsi)fsi.addEventListener('click',function(){var msg=$('cm-fm-msg');var chi=chiDi('cm-fm-chi',msg);if(!chi||!FMOD)return;var q=numero($('cm-fm-quota').value);if(!q){msg.className='cm-msg';msg.textContent='Scrivi la quota del cantiere, per esempio 1.234,50.';return;}
+  fsi.disabled=true;invia('fattura_modifica',{id:FMOD.id,importo_cantiere:q,competenza:$('cm-fm-comp').value,categoria:$('cm-fm-cat').value,note:$('cm-fm-note').value.trim(),autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='fornitori';location.reload();return;}fsi.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){fsi.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
+var t2=$('cm-t2-dlg'),T2=null;
+function apriT2(az,id,tit,txt){T2={az:az,id:id};$('cm-t2-tit').textContent=tit;$('cm-t2-txt').textContent=txt;$('cm-t2-msg').textContent='';if(t2.showModal)t2.showModal();else t2.setAttribute('open','');}
+Array.prototype.forEach.call(D.querySelectorAll('[data-ftog]'),function(x){x.addEventListener('click',function(){var f=fattura(x.getAttribute('data-ftog'));if(f)apriT2('fattura_togli',f.id,'Togli la fattura','Fattura n. '+f.numero+' di '+f.fornitore+': resta registrata come tolta, con il tuo nome. Le bolle che cita tornano «stimate» o «senza prezzo».');});});
+Array.prototype.forEach.call(D.querySelectorAll('[data-btog]'),function(x){x.addEventListener('click',function(){apriT2('bolla_togli',x.getAttribute('data-btog'),'Togli la stima','La stima della bolla non conta più; resta registrata come tolta, con il tuo nome.');});});
+var t2si=$('cm-t2-si');if(t2si)t2si.addEventListener('click',function(){var msg=$('cm-t2-msg');var chi=chiDi('cm-t2-chi',msg);if(!chi||!T2)return;t2si.disabled=true;
+  invia(T2.az,{id:T2.id,motivo:$('cm-t2-mot').value.trim(),autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='fornitori';location.reload();return;}t2si.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito: riprova.';}).catch(function(){t2si.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
 if(location.hash){var t=D.querySelector(location.hash);if(t&&t.tagName==='DETAILS')t.open=true;}
 }catch(e){}})();`;
 
