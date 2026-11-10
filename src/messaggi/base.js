@@ -7,7 +7,8 @@
 //  1. ogni pezzo COPIA un ramo dello scenario Make: stesse funzioni del database, stesso ordine, stesse frasi;
 //     accanto a ogni passo si scrive il numero del modulo Make corrispondente;
 //  2. le decisioni restano nel database: qui si chiama e si risponde, non si decide;
-//  3. un file per pezzo in src/messaggi/, elencato in PEZZI qui sotto; index.js non si tocca piu'.
+//  3. un file per pezzo in src/messaggi/, elencato in PEZZI qui sotto; index.js non si tocca piu'
+//     (eccezione del 10/11/2026: in messaggiAiuti di index.js la trascrizione e il rientro per il pezzo «vocale»).
 //
 // INTERRUTTORI (tabella impostazioni, letti con relay_messaggi_config e tenuti in memoria 60 s):
 //   relay_messaggi               no | si            generale: «no» = tutto a Make come prima
@@ -34,9 +35,16 @@
 import { pezzoComandi } from "./comandi.js";
 // A2a (09/11/2026): testi nel diario (src/messaggi/testi.js). L'ordine conta: prima i comandi, poi i testi.
 import { pezzoTesti } from "./testi.js";
-const PEZZI = [pezzoComandi, pezzoTesti];
+// A2b, A2c, A3 (10/11/2026): posizione, vocale di riserva, primo contatto (src/messaggi/posizione.js, vocale.js, primo.js).
+import { pezzoPosizione } from "./posizione.js";
+import { pezzoVocale } from "./vocale.js";
+import { pezzoPrimo } from "./primo.js";
+// 10/11/2026: un pezzo che riconosce il messaggio ma lo lascia SENZA aver scritto niente (per esempio i testi
+// di chi non e' ancora registrato) lo passa al pezzo successivo dell'elenco; dopo l'ultimo va a Make.
+// Per questo «primo» sta in fondo: prende quello che gli altri lasciano.
+const PEZZI = [pezzoComandi, pezzoTesti, pezzoPosizione, pezzoVocale, pezzoPrimo];
 
-export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "primo", "foto", "ddt", "eco"];
+export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "posizione", "vocale", "primo", "foto", "ddt", "eco"];
 
 let _cache = { t: 0, cfg: null };
 
@@ -125,6 +133,10 @@ function contesto(env, bundle, msg, origine, aiuti, cfg, nome, posizione) {
     if (!p.status && r && r.ok) c.scritto = true;
     return r;
   };
+  // Trascrizione del vocale con lo strumento della chat unica (Whisper di Workers AI) e rientro di un pacchetto
+  // nuovo da inoltraAMake (registro ingresso_make, pezzi accesi, altrimenti Make). Usati dal pezzo «vocale».
+  c.trascrivi = aiuti.trascrivi ? () => aiuti.trascrivi(msg) : null;
+  c.rientra = aiuti.rientra ? (pacchetto) => aiuti.rientra(pacchetto) : null;
   return c;
 }
 
@@ -161,39 +173,39 @@ export async function messaggiRelay(env, bundle, origine, aiuti) {
   if (!env || env.RELAY_MESSAGGI === "off" || !PEZZI.length || !aiuti) return null;
   const msg = bundle && Array.isArray(bundle.messages) ? bundle.messages[0] : null;
   if (!msg || !msg.id || !msg.from) return null;
-  let pezzo = null;
-  for (const p of PEZZI) {
+  let cfg = null;
+  for (const pezzo of PEZZI) {
     let si = false;
-    try { si = !!p.riconosce(msg, bundle, origine); } catch (e) { si = false; }
-    if (si) { pezzo = p; break; }
+    try { si = !!pezzo.riconosce(msg, bundle, origine); } catch (e) { si = false; }
+    if (!si) continue;
+    if (!cfg) cfg = await messaggiConfig(env, aiuti);
+    const pos = messaggiPosizione(cfg, pezzo.nome, msg.from);
+    if (pos === "make") continue;                                  // spento per questo numero: si prova il pezzo dopo
+    const c = contesto(env, bundle, msg, origine || "relay", aiuti, cfg, pezzo.nome, pos);
+    const inizio = Date.now();
+    try {
+      const fatto = await pezzo.esegui(c);
+      if (fatto) {
+        await registro(aiuti, env, c, "fatto", inizio, null);
+        return { ramo: "relay_" + pezzo.nome };
+      }
+      if (!c.scritto) {
+        await registro(aiuti, env, c, "lasciato a Make", inizio, null);
+        continue;                                                  // niente scritto: lo puo' prendere il pezzo dopo
+      }
+      await registro(aiuti, env, c, "fermato dopo aver scritto (non va a Make)", inizio, null);
+      return { ramo: "relay_" + pezzo.nome + "_errore" };
+    } catch (e) {
+      const err = (e && e.message) || e;
+      if (!c.scritto) {
+        await registro(aiuti, env, c, "errore prima di scrivere: a Make", inizio, err);
+        return null;                                               // con un errore non si prova altro: va a Make
+      }
+      await registro(aiuti, env, c, "errore dopo aver scritto (non va a Make)", inizio, err);
+      return { ramo: "relay_" + pezzo.nome + "_errore" };
+    }
   }
-  if (!pezzo) return null;
-  const cfg = await messaggiConfig(env, aiuti);
-  const pos = messaggiPosizione(cfg, pezzo.nome, msg.from);
-  if (pos === "make") return null;
-  const c = contesto(env, bundle, msg, origine || "relay", aiuti, cfg, pezzo.nome, pos);
-  const inizio = Date.now();
-  try {
-    const fatto = await pezzo.esegui(c);
-    if (fatto) {
-      await registro(aiuti, env, c, "fatto", inizio, null);
-      return { ramo: "relay_" + pezzo.nome };
-    }
-    if (!c.scritto) {
-      await registro(aiuti, env, c, "lasciato a Make", inizio, null);
-      return null;
-    }
-    await registro(aiuti, env, c, "fermato dopo aver scritto (non va a Make)", inizio, null);
-    return { ramo: "relay_" + pezzo.nome + "_errore" };
-  } catch (e) {
-    const err = (e && e.message) || e;
-    if (!c.scritto) {
-      await registro(aiuti, env, c, "errore prima di scrivere: a Make", inizio, err);
-      return null;
-    }
-    await registro(aiuti, env, c, "errore dopo aver scritto (non va a Make)", inizio, err);
-    return { ramo: "relay_" + pezzo.nome + "_errore" };
-  }
+  return null;
 }
 
 // Riga per /stato: interruttori letti adesso dal database (mai valori segreti).
