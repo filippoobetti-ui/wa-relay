@@ -159,7 +159,7 @@ export async function portaleSal(request, env, base, inUrl, h) {
   if (sotto === "/sal/documento") return documento(request, env, base, inUrl, h);
   // 10/11/2026 (Filippo): pagina «Subappaltatori» a sé, aperta dal pulsante nella pagina del cantiere
   if (sotto === "/sal/subappaltatori") return rottaSubappaltatori(request, env, base, inUrl, h);
-  if (sotto.startsWith("/sal/sub/")) return portaleSub(request, env, base, inUrl, h, { salPdf, salXlsx });
+  if (sotto.startsWith("/sal/sub/")) return portaleSub(request, env, base, inUrl, h, { salPdf, salXlsx, preparaLogo });
   if (sotto !== "/sal") return new Response("Not Found", { status: 404 });
   const metodo = request.method;
   if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -291,6 +291,7 @@ async function excel(request, env, base, inUrl, h) {
   if (!r) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
   if (r.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (r.esito !== "ok") return h.risposta(h.foglio(base, "SAL", "", '<p class="err">' + h.esc(r.messaggio || "File non preparato.") + "</p>"), 400);
+  r.logo = await preparaLogo(r.logo_impresa);
   const file = salXlsx(r);
   const nome = String(r.nome_file || "TIX SAL.xlsx");
   const ascii = nome.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || "TIX SAL.xlsx";
@@ -317,6 +318,7 @@ async function pdf(request, env, base, inUrl, h) {
   if (!r) return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
   if (r.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (r.esito !== "ok") return h.risposta(h.foglio(base, "SAL", "", '<p class="err">' + h.esc(r.messaggio || "File non preparato.") + "</p>"), 400);
+  r.logo = await preparaLogo(r.logo_impresa);
   const file = salPdf(r);
   const nome = String(r.nome_file || "TIX SAL.xlsx").replace(/\.xlsx$/i, "") + ".pdf";
   return new Response(metodo === "HEAD" ? null : file, { status: 200, headers: {
@@ -497,9 +499,141 @@ function logoBin() {
   return LOGO_BIN;
 }
 
+// ---------------------------------------------------------------------------- loghi nei file (10/11/2026)
+// Filippo: «oltre al logo TIX che sarebbe meglio se fosse messo a piè pagina in basso a destra, deve sempre comparire il logo
+// dell'impresa, cioè dell'utente che ha acquistato il servizio». Il logo dell'impresa cliente arriva dal database
+// (logo_impresa: URL https:// o data:image/) e si prepara qui, prima di fare PDF ed Excel: PNG (letto qui, con la trasparenza)
+// o JPEG; qualsiasi problema = niente logo e al suo posto il nome dell'impresa.
+const LOGO_TIX_PNG = "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";
+let LOGO_TIX_BYTE = null;
+function logoTixPng() {
+  if (!LOGO_TIX_BYTE) { const s = atob(LOGO_TIX_PNG); LOGO_TIX_BYTE = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) LOGO_TIX_BYTE[i] = s.charCodeAt(i); }
+  return LOGO_TIX_BYTE;
+}
+function binStr(u8) {
+  let s = "";
+  for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
+  return s;
+}
+async function zlibFlusso(u8, comprimi) {
+  const t = comprimi ? new CompressionStream("deflate") : new DecompressionStream("deflate");
+  return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(t)).arrayBuffer());
+}
+async function pngPerPdf(b) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let p = 8, w = 0, h = 0, bit = 0, col = -1, inter = 0, pal = null, trns = null;
+  const idat = [];
+  while (p + 12 <= b.length) {
+    const n = dv.getUint32(p), t = String.fromCharCode(b[p + 4], b[p + 5], b[p + 6], b[p + 7]);
+    if (p + 12 + n > b.length) break;
+    const dati = b.subarray(p + 8, p + 8 + n);
+    if (t === "IHDR") { w = dv.getUint32(p + 8); h = dv.getUint32(p + 12); bit = b[p + 16]; col = b[p + 17]; inter = b[p + 20]; }
+    else if (t === "PLTE") pal = dati;
+    else if (t === "tRNS") trns = dati;
+    else if (t === "IDAT") idat.push(dati);
+    else if (t === "IEND") break;
+    p += 12 + n;
+  }
+  const can = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[col];
+  if (!w || !h || !can || inter !== 0 || w * h > 4000000 || !idat.length) return null;
+  if (col === 3 ? [1, 2, 4, 8].indexOf(bit) === -1 || !pal : bit !== 8) return null;
+  let tot = 0;
+  for (const x of idat) tot += x.length;
+  const z = new Uint8Array(tot);
+  let o = 0;
+  for (const x of idat) { z.set(x, o); o += x.length; }
+  const raw = await zlibFlusso(z, false);
+  const riga = Math.ceil(w * can * bit / 8), bpp = Math.max(1, (can * bit) >> 3);
+  if (raw.length < h * (riga + 1)) return null;
+  const pix = new Uint8Array(h * riga);
+  let prec = new Uint8Array(riga);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (riga + 1)], src = raw.subarray(y * (riga + 1) + 1, (y + 1) * (riga + 1)), cur = pix.subarray(y * riga, (y + 1) * riga);
+    for (let x = 0; x < riga; x++) {
+      const a = x >= bpp ? cur[x - bpp] : 0, bb = prec[x], c = x >= bpp ? prec[x - bpp] : 0;
+      let v = src[x];
+      if (f === 1) v += a;
+      else if (f === 2) v += bb;
+      else if (f === 3) v += (a + bb) >> 1;
+      else if (f === 4) { const pp = a + bb - c, pa = Math.abs(pp - a), pb = Math.abs(pp - bb), pc = Math.abs(pp - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? bb : c; }
+      cur[x] = v & 255;
+    }
+    prec = cur;
+  }
+  const rgb = new Uint8Array(w * h * 3), alfa = new Uint8Array(w * h);
+  let trasp = false;
+  for (let y = 0; y < h; y++) {
+    const r0 = y * riga;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let R, G, B, A = 255;
+      if (col === 3) {
+        const bp = x * bit, k = (pix[r0 + (bp >> 3)] >> (8 - bit - (bp & 7))) & ((1 << bit) - 1);
+        R = pal[k * 3] || 0; G = pal[k * 3 + 1] || 0; B = pal[k * 3 + 2] || 0;
+        if (trns && k < trns.length) A = trns[k];
+      } else if (col === 0) { R = G = B = pix[r0 + x]; }
+      else if (col === 4) { R = G = B = pix[r0 + x * 2]; A = pix[r0 + x * 2 + 1]; }
+      else if (col === 2) { R = pix[r0 + x * 3]; G = pix[r0 + x * 3 + 1]; B = pix[r0 + x * 3 + 2]; }
+      else { R = pix[r0 + x * 4]; G = pix[r0 + x * 4 + 1]; B = pix[r0 + x * 4 + 2]; A = pix[r0 + x * 4 + 3]; }
+      rgb[i * 3] = R; rgb[i * 3 + 1] = G; rgb[i * 3 + 2] = B; alfa[i] = A;
+      if (A !== 255) trasp = true;
+    }
+  }
+  return { w, h, filtro: "FlateDecode", colori: "DeviceRGB", dati: binStr(await zlibFlusso(rgb, true)), alfa: trasp ? binStr(await zlibFlusso(alfa, true)) : null };
+}
+function jpegPerPdf(b) {
+  let p = 2;
+  while (p + 9 < b.length) {
+    if (b[p] !== 0xFF) { p++; continue; }
+    const m = b[p + 1];
+    if (m === 0xFF) { p++; continue; }
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { p += 2; continue; }
+    const len = (b[p + 2] << 8) | b[p + 3];
+    if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+      const h = (b[p + 5] << 8) | b[p + 6], w = (b[p + 7] << 8) | b[p + 8], nc = b[p + 9];
+      if (!w || !h || (nc !== 1 && nc !== 3)) return null;
+      return { w, h, filtro: "DCTDecode", colori: nc === 1 ? "DeviceGray" : "DeviceRGB", dati: binStr(b), alfa: null };
+    }
+    p += 2 + len;
+  }
+  return null;
+}
+export async function preparaLogo(url) {
+  try {
+    const u = String(url || "").trim();
+    let b = null;
+    if (/^data:image\/(png|jpe?g);base64,/i.test(u)) {
+      const s = atob(u.slice(u.indexOf(",") + 1));
+      b = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+    } else if (/^https:\/\//i.test(u)) {
+      const ctrl = new AbortController();
+      const tm = setTimeout(() => ctrl.abort(), 6000);
+      try {
+        const r = await fetch(u, { signal: ctrl.signal });
+        if (!r.ok) return null;
+        b = new Uint8Array(await r.arrayBuffer());
+      } finally { clearTimeout(tm); }
+    }
+    if (!b || b.length < 32 || b.length > 3000000) return null;
+    const png = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47, jpg = b[0] === 0xFF && b[1] === 0xD8;
+    const pdf = png ? await pngPerPdf(b) : jpg ? jpegPerPdf(b) : null;
+    if (!pdf) return null;
+    return { w: pdf.w, h: pdf.h, ext: png ? "png" : "jpeg", file: b, pdf };
+  } catch (e) {
+    return null;
+  }
+}
+
 export function salPdf(d) {
   const W = 842, H = 595, M = 32, BASSO = M + 30;
-  const LH = 20, LW = Math.round(LH * LOGO_PDF.w / LOGO_PDF.h * 100) / 100;
+  // 10/11/2026 (Filippo): «deve sempre comparire il logo dell'impresa» → in testata il logo dell'impresa cliente (d.logo, preparato
+  // da preparaLogo), alto al massimo 24 pt e largo al massimo 150 pt, oppure il suo nome; il logo TIX va a piè di pagina, a destra.
+  const TH = 16, TW = Math.round(TH * LOGO_PDF.w / LOGO_PDF.h * 100) / 100;
+  const li = d.logo && d.logo.pdf ? d.logo : null;
+  const nomeImpresa = String(d.azienda_nome || "").trim();
+  let LIW = 0, LIH = 0;
+  if (li) { LIH = 24; LIW = LIH * li.w / li.h; if (LIW > 150) { LIW = 150; LIH = LIW * li.h / li.w; } }
   const sal = d.sal || {}, co = d.conto || {}, cm = d.computo || {}, ca = d.cantiere || {};
   const tipo = sal.tipo || co.tipo || "sal";
   const bozza = sal.stato === "bozza" || sal.stato === "anteprima";
@@ -541,11 +675,18 @@ export function salPdf(d) {
   };
   const nuova = () => {
     p = []; pagine.push(p); y = H - M;
-    op("q " + f2(LW) + " 0 0 " + LH + " " + M + " " + f2(y - LH) + " cm /Lg Do Q");
-    testo(M + LW + 10, y - 13, titolo, 8.5, true, "0.29 0.12 0.53 rg");
-    destra(W - M, y - 13, (ca.nome || "") + (ca.impresa ? " · " + ca.impresa : ""), 8, false, "0.35 g");
-    linea(M, y - LH - 5, W - M, y - LH - 5, 0.6, "0.57 0.27 0.86 RG");
-    y -= LH + 16;
+    let xt = M;
+    if (li) {
+      op("q " + f2(LIW) + " 0 0 " + f2(LIH) + " " + M + " " + f2(y - 24 + (24 - LIH) / 2) + " cm /Li Do Q");
+      xt = M + LIW + 12;
+    } else if (nomeImpresa) {
+      testo(M, y - 16, nomeImpresa, 11, true, "0 g");
+      xt = M + largTesto(nomeImpresa, 11, true) + 12;
+    }
+    testo(xt, y - 15, titolo, 8.5, true, "0.29 0.12 0.53 rg");
+    destra(W - M, y - 15, (ca.nome || "") + (ca.impresa ? " · " + ca.impresa : ""), 8, false, "0.35 g");
+    linea(M, y - 30, W - M, y - 30, 0.6, "0.57 0.27 0.86 RG");
+    y -= 41;
   };
   const serve = (alt0) => { if (y - alt0 < BASSO) nuova(); };
 
@@ -720,7 +861,9 @@ export function salPdf(d) {
     linea(M, M + 22, W - M, M + 22, 0.4, "0.8 G");
     testo(M, M + 12, sub ? "Contabilità del subappaltatore preparata con TIX™: misure scritte dal subappaltatore e approvate dall’impresa appaltatrice."
       : "Documento preparato dall’impresa con TIX™: la verifica e l’approvazione spettano alla Direzione Lavori.", 7, false, "0.42 g");
-    destra(W - M, M + 12, "Pagina " + (i + 1) + " di " + pagine.length, 7, false, "0.42 g");
+    // 10/11/2026 (Filippo): logo TIX a piè di pagina, in basso a destra; il numero di pagina alla sua sinistra
+    op("q " + f2(TW) + " 0 0 " + TH + " " + f2(W - M - TW) + " " + f2(M - 1) + " cm /Lg Do Q");
+    destra(W - M - TW - 10, M + 5, "Pagina " + (i + 1) + " di " + pagine.length, 7, false, "0.42 g");
     if (imp) testo(M, M + 3, imp, 6.5, false, "0.42 g");
   });
 
@@ -740,11 +883,21 @@ export function salPdf(d) {
     " /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length " + lg.alfa.length + " >>\nstream\n" + lg.alfa + "\nendstream");
   const lgI = agg("<< /Type /XObject /Subtype /Image /Width " + LOGO_PDF.w + " /Height " + LOGO_PDF.h +
     " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask " + lgA + " 0 R /Length " + lg.rgb.length + " >>\nstream\n" + lg.rgb + "\nendstream");
+  // logo dell'impresa cliente (PNG con eventuale trasparenza, oppure JPEG)
+  let liI = 0;
+  if (li) {
+    const q = li.pdf;
+    const liA = q.alfa ? agg("<< /Type /XObject /Subtype /Image /Width " + q.w + " /Height " + q.h +
+      " /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length " + q.alfa.length + " >>\nstream\n" + q.alfa + "\nendstream") : 0;
+    liI = agg("<< /Type /XObject /Subtype /Image /Width " + q.w + " /Height " + q.h + " /ColorSpace /" + q.colori + " /BitsPerComponent 8 /Filter /" + q.filtro +
+      (liA ? " /SMask " + liA + " 0 R" : "") + " /Length " + q.dati.length + " >>\nstream\n" + q.dati + "\nendstream");
+  }
   const figli = [];
   for (const pg of pagine) {
     const flusso = pg.join("\n");
     const c = agg("<< /Length " + flusso.length + " >>\nstream\n" + flusso + "\nendstream");
-    figli.push(agg("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + W + " " + H + "] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Lg " + lgI + " 0 R >> >> /Contents " + c + " 0 R >>"));
+    figli.push(agg("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + W + " " + H + "] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Lg " + lgI + " 0 R" +
+      (liI ? " /Li " + liI + " 0 R" : "") + " >> >> /Contents " + c + " 0 R >>"));
   }
   oggetti[1] = "<< /Type /Pages /Kids [" + figli.map((n) => n + " 0 R").join(" ") + "] /Count " + figli.length + " >>";
   // dopo l'intestazione (con i 4 byte «binari» del commento) è tutto ASCII: si codifica in un colpo solo
@@ -843,7 +996,7 @@ class Foglio {
     if (!this.r.has(riga)) this.r.set(riga, new Map());
     this.r.get(riga).set(col, { v, st: st || 0, f });
   }
-  xml(scelto) {
+  xml(scelto, hf) {
     let righe = "";
     for (const riga of [...this.r.keys()].sort((a, b) => a - b)) {
       const celle = this.r.get(riga);
@@ -875,8 +1028,11 @@ class Foglio {
       '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews>' + vista + '</sheetViews><sheetFormatPr defaultRowHeight="14"/>' +
       (cols ? "<cols>" + cols + "</cols>" : "") + "<sheetData>" + righe + "</sheetData>" +
       (this.unioni.length ? '<mergeCells count="' + this.unioni.length + '">' + this.unioni.map((u) => '<mergeCell ref="' + u + '"/>').join("") + "</mergeCells>" : "") +
-      '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>' +
-      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
+      (hf ? '<pageMargins left="0.4" right="0.4" top="1" bottom="0.85" header="0.3" footer="0.3"/>'
+          : '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>') +
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>' +
+      // 10/11/2026: testata e piè di pagina con i loghi (immagini nel disegno VML del foglio, rId1 nelle sue relazioni)
+      (hf ? "<headerFooter>" + hf + '</headerFooter><legacyDrawingHF r:id="rId1"/>' : "") + "</worksheet>";
   }
 }
 
@@ -1005,7 +1161,8 @@ export function salXlsx(d) {
   const R = new Foglio("Riepilogo");
   R.larg = [52, 18, 18, 14, 4, 12, 40, 8, 12, 12, 14];
   const tipo = sal.tipo || co.tipo || "sal";
-  R.c(1, 1, "TIX™ · " + titoloDoc(sal, N) + (tipo === "sub" ? "" : " — proposta dell’impresa"), S.TIT);
+  // 10/11/2026: niente più «TIX™ ·» nel titolo: il logo TIX è a piè di pagina, quello dell'impresa in testata
+  R.c(1, 1, titoloDoc(sal, N) + (tipo === "sub" ? "" : " — proposta dell’impresa"), S.TIT);
   R.c(2, 1, (ca.nome || "") + (ca.ubicazione ? " · " + ca.ubicazione : "") + (ca.impresa ? " · " + ca.impresa : ""), S.LAB);
   R.c(4, 1, "Dati del SAL", S.HDR); R.c(4, 2, "", S.HDR);
   const righeDati = [["SAL n.", N, S.INT], ["Versione", Number(sal.versione) || 1, S.INT], ["Stato", STATI[sal.stato] || sal.stato || "", S.TXT],
@@ -1097,9 +1254,29 @@ export function salXlsx(d) {
   const dataDoc = (String(sal.periodo_a || "2026-01-01").slice(0, 10) || "2026-01-01") + "T00:00:00Z";
   const f = [];
   const add = (n, testo) => f.push({ n, d: ENC.encode(testo) });
+  // 10/11/2026 (Filippo): in testata il logo dell'impresa cliente (o il suo nome), a piè di pagina a destra il logo TIX.
+  // Sono immagini di testata e piè di pagina: si vedono in stampa, nell'anteprima di stampa e in «Layout di pagina».
+  const li = d.logo && d.logo.file && (d.logo.ext === "png" || d.logo.ext === "jpeg") ? d.logo : null;
+  const nomeImp = String(d.azienda_nome || "").trim();
+  let liW = 0, liH = 0;
+  if (li) { liH = 36; liW = liH * li.w / li.h; if (liW > 180) { liW = 180; liH = liW * li.h / li.w; } }
+  const tH = 18, tW = Math.round(tH * LOGO_PDF.w / LOGO_PDF.h * 100) / 100;
+  const hf = (li ? "<oddHeader>" + xe("&L&G") + "</oddHeader>" : nomeImp ? "<oddHeader>" + xe("&L&B&12" + nomeImp.replace(/&/g, "&&")) + "</oddHeader>" : "") +
+    "<oddFooter>" + xe("&LPagina &P di &N&R&G") + "</oddFooter>";
+  const forma = (id, sp, w, h, rid, tit) => '<v:shape id="' + id + '" o:spid="_x0000_s' + sp + '" type="#_x0000_t75" style="position:absolute;margin-left:0;margin-top:0;width:' +
+    (Math.round(w * 100) / 100) + "pt;height:" + (Math.round(h * 100) / 100) + 'pt;z-index:' + (id === "LH" ? 1 : 2) + '"><v:imagedata o:relid="' + rid + '" o:title="' + tit + '"/><o:lock v:ext="edit" rotation="t"/></v:shape>';
+  const vml = (n) => '<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">' +
+    '<o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="' + n + '"/></o:shapelayout>' +
+    '<v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas>' +
+    ["if lineDrawn pixelLineWidth 0", "sum @0 1 0", "sum 0 0 @1", "prod @2 1 2", "prod @3 21600 pixelWidth", "prod @3 21600 pixelHeight", "sum @0 0 1", "prod @6 1 2",
+      "prod @7 21600 pixelWidth", "sum @8 21600 0", "prod @7 21600 pixelHeight", "sum @10 21600 0"].map((e) => '<v:f eqn="' + e + '"/>').join("") +
+    '</v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype>' +
+    (li ? forma("LH", n * 1024 + 1, liW, liH, "rId1", "Logo dell'impresa") : "") + forma("RF", n * 1024 + 2, tW, tH, "rId2", "TIX") + "</xml>";
   add("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+    '<Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/><Default Extension="png" ContentType="image/png"/>' +
+    '<Default Extension="jpeg" ContentType="image/jpeg"/>' +
     '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
     fogli.map((x, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") +
     '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
@@ -1127,7 +1304,21 @@ export function salXlsx(d) {
     fogli.map((x, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join("") +
     '<Relationship Id="rId' + (fogli.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
   add("xl/styles.xml", STILI);
-  fogli.forEach((x, i) => add("xl/worksheets/sheet" + (i + 1) + ".xml", x.xml(i === 0)));
+  fogli.forEach((x, i) => add("xl/worksheets/sheet" + (i + 1) + ".xml", x.xml(i === 0, hf)));
+  // loghi: un disegno VML per foglio (testata e piè di pagina), le immagini in xl/media
+  if (li) f.push({ n: "xl/media/logo-impresa." + li.ext, d: li.file });
+  f.push({ n: "xl/media/logo-tix.png", d: logoTixPng() });
+  fogli.forEach((x, i) => {
+    const n = i + 1;
+    add("xl/worksheets/_rels/sheet" + n + ".xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing" Target="../drawings/vmlDrawing' + n + '.vml"/></Relationships>');
+    add("xl/drawings/vmlDrawing" + n + ".vml", vml(n));
+    add("xl/drawings/_rels/vmlDrawing" + n + ".vml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      (li ? '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo-impresa.' + li.ext + '"/>' : "") +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo-tix.png"/></Relationships>');
+  });
   return zipStore(f);
 }
 

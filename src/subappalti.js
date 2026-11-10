@@ -227,6 +227,8 @@ async function docImpresa(request, env, base, inUrl, h, fn) {
   const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
   if (!UUID.test(c) || !UUID.test(k)) return new Response("Not Found", { status: 404 });
   const r = await h.rpc(env, "sub_doc_dati", { p_token: tok, p_commessa: c, p_contratto: k, p_sal: UUID.test(id) ? id : null }, 25000).catch(() => null);
+  // 10/11/2026: logo dell'impresa cliente in testata (sal.js, preparaLogo)
+  if (r && r.esito === "ok" && fn.preparaLogo) r.logo = await fn.preparaLogo(r.logo_impresa);
   return rispostaFile(r, inUrl.searchParams.get("f") === "pdf" ? "pdf" : "xlsx", fn, metodo, h, base, inUrl, base + "/sal/subappaltatori?t=" + tok + "&c=" + c);
 }
 
@@ -367,6 +369,8 @@ async function docPorta(request, env, base, inUrl, h, fn) {
   if (!k) return paginaErrore(base, h, "nessuno", false);
   const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
   const r = await h.rpc(env, "sub_porta_doc", { p_k: k, p_sal: UUID.test(id) ? id : null }, 25000).catch(() => null);
+  // 10/11/2026: logo dell'impresa cliente in testata (sal.js, preparaLogo)
+  if (r && r.esito === "ok" && fn.preparaLogo) r.logo = await fn.preparaLogo(r.logo_impresa);
   return rispostaFile(r, inUrl.searchParams.get("f") === "pdf" ? "pdf" : "xlsx", fn, metodo, h, base, inUrl, base + "/sal/sub/porta");
 }
 
