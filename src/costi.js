@@ -458,13 +458,27 @@ async function apriFattura(request, env, base, inUrl, h) {
 }
 
 // ---------------------------------------------------------------------------- pagina del cantiere
-function testaHtml(h, base, titolo) {
+function testaHtml(h, base, titolo, moderna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + "</style></head><body><main>";
+    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
 }
-function riquadro(cls, etichetta, valore, sotto) {
-  return '<div class="cm-r ' + cls + '"><span>' + etichetta + '</span><b>' + valore + '</b>' + (sotto ? '<small>' + sotto + '</small>' : "") + '</div>';
+// costi-3 (MG3): pagina del cantiere nello stile scelto da Filippo il 10/11 (lo stesso del riepilogo «versione moderna»)
+const svI = (d) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";
+const ICK = {
+  ric: svI('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'),
+  cos: svI('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M16 15h2"/>'),
+  mar: svI('<path d="m4 16 5-5 4 4 7-8"/><path d="M15 7h5v5"/>'),
+  pre: svI('<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>')
+};
+function riquadro(cls, etichetta, valore, sotto, extra) {
+  const k = String(cls).split(" ")[0];
+  return '<div class="cm-r ' + cls + '"><span class="cm-r-t">' + (ICK[k] ? '<span class="cm-r-i" aria-hidden="true">' + ICK[k] + '</span>' : "") + etichetta + '</span><b>' + valore + '</b>' + (extra || "") + (sotto ? '<small>' + sotto + '</small>' : "") + '</div>';
+}
+function barraMargine(m, soglia) {
+  const v = n(m); if (v === null) return "";
+  const max = Math.max(30, Math.ceil(Math.max(v, soglia) / 10) * 10), w = Math.max(0, Math.min(100, (v / max) * 100));
+  return '<span class="cm-bar" aria-hidden="true"><i style="width:' + w.toFixed(1) + '%"></i><u style="left:calc(' + ((soglia / max) * 100).toFixed(1) + '% - 1px)" title="Soglia ' + soglia + '%"></u></span>';
 }
 function avviso(cls, html) { return '<div class="cm-av ' + cls + '">' + html + '</div>'; }
 
@@ -492,7 +506,7 @@ function pagina(base, h, p, d, torna, elenco) {
     quadro += '<div class="cm-quadro">' +
       riquadro("ric", "Ricavo al SAL n. " + e(String(ult.numero ?? "")), euroTondo(q.ricavo), "lavori fino al " + e(dataIt(q.al)) + (avz !== null ? " · lavori al " + pct(avz) : "")) +
       riquadro("cos", "Costi fino al " + e(dataIt(q.al)), euroTondo(q.costi), "manodopera, mezzi, subappalti, costi a mano") +
-      riquadro("mar " + (sotto ? "no" : "ok"), "Margine al SAL n. " + e(String(ult.numero ?? "")), euroTondo(q.margine), pct(q.margine_pct) + (sotto ? " · sotto la soglia del " + pct(soglia) : " · soglia " + pct(soglia))) +
+      riquadro("mar " + (sotto ? "no" : "ok"), "Margine al SAL n. " + e(String(ult.numero ?? "")), pct(q.margine_pct), euroTondo(q.margine) + (sotto ? " · sotto la soglia del " + pct(soglia) : " · soglia " + pct(soglia)), barraMargine(q.margine_pct, soglia)) +
       riquadro("pre" + (n(q.previsto_pct) !== null && n(q.previsto_pct) < soglia ? " no" : ""), "Previsto a fine lavori",
         n(q.previsto_pct) !== null ? pct(q.previsto_pct) : "—",
         n(q.previsto_pct) !== null ? "circa " + euroTondo(q.previsto) + " su " + euroTondo(q.contratto) + " di contratto" : "si vede quando i lavori superano il " + pct(q.previsto_da)) +
@@ -518,12 +532,14 @@ function pagina(base, h, p, d, torna, elenco) {
 
   // 2. dove vanno i soldi
   const col = ult ? "Fino al " + e(dataIt(q.al)) : "Finora";
-  const rigaT = (et, a, b) => '<tr><th scope="row">' + et + '</th><td class="n">' + euroTondo(a) + '</td>' + (ult ? '<td class="n">' + euroTondo(b) + '</td>' : "") + '</tr>';
-  const tabella = '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Costi</th><th class="n">' + col + '</th>' + (ult ? '<th class="n">Dopo il SAL</th>' : "") + '</tr></thead><tbody>' +
+  const totT = n(cal.totale) || 0;
+  const rigaT = (et, a, b) => { const qa = totT > 0 && n(a) > 0 ? (n(a) / totT) * 100 : 0;
+    return '<tr><th scope="row">' + et + (qa ? '<span class="cm-quota" aria-hidden="true"><i style="width:' + qa.toFixed(1) + '%"></i></span><small>' + Math.round(qa) + '% dei costi</small>' : "") + '</th><td class="n">' + euroTondo(a) + '</td>' + (ult ? '<td class="n">' + euroTondo(b) + '</td>' : "") + '</tr>'; };
+  const tabella = '<section class="cm-costi"><h2 class="cm-sez">Dove vanno i costi</h2><div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Costi</th><th class="n">' + col + '</th>' + (ult ? '<th class="n">Dopo il SAL</th>' : "") + '</tr></thead><tbody>' +
     rigaT("Manodopera", man.euro, dopo.manodopera) + rigaT("Mezzi propri", mez.euro, dopo.mezzi) +
     rigaT("Fatture dei fornitori", fat.euro, dopo.fatture) + rigaT("Bolle stimate con l'offerta (da controllare)", bol.euro, dopo.bolle) +
     rigaT("Costi a mano", mano.euro, dopo.manuali) + rigaT("Subappalti", sub.euro, dopo.subappalti) +
-    '</tbody><tfoot><tr><th scope="row">Totale</th><td class="n">' + euroTondo(cal.totale) + '</td>' + (ult ? '<td class="n">' + euroTondo(dopo.totale) + '</td>' : "") + '</tr></tfoot></table></div>';
+    '</tbody><tfoot><tr><th scope="row">Totale</th><td class="n">' + euroTondo(cal.totale) + '</td>' + (ult ? '<td class="n">' + euroTondo(dopo.totale) + '</td>' : "") + '</tr></tfoot></table></div></section>';
 
   // 3. avvisi
   let avvisi = "";
@@ -710,11 +726,11 @@ function pagina(base, h, p, d, torna, elenco) {
       stima: b.stima ? { offerta_id: b.stima.offerta_id, righe: lista(b.stima.righe) } : null })),
     offerte: offerte.map((o) => ({ id: o.id, fornitore: o.fornitore, materiale: o.materiale || "", numero: o.numero || "", righe: lista(o.righe) })) }).replace(/</g, "\\u003c");
 
-  return testaHtml(h, base, "Costi e margine") +
+  return testaHtml(h, base, "Costi e margine", true) +
     '<nav class="cm-nav"><a class="cm-torna" href="' + e(torna) + '">‹ Torna al cantiere</a><a class="cm-torna" href="' + e(base + "/costi?t=" + p.tok) + '">Tutti i cantieri</a></nav>' +
-    '<div class="cm-card' + (sotto ? " cm-rosso" : "") + '"><div class="cm-testa"><div>' + (d.cantiere ? '<p class="cm-cant">' + e(d.cantiere) + '</p>' : "") +
-    '<h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine</h1>' +
-    (d.modo === "prova" ? '<p class="cm-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div></div>' +
+    '<div class="cm-card' + (sotto ? " cm-rosso" : "") + '"><header class="cm-band"><div><h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine</h1>' +
+    (d.cantiere ? '<p class="cm-cant">' + e(d.cantiere) + '</p>' : "") + '</div>' +
+    (d.modo === "prova" ? '<span class="cm-prova">In prova · la vede solo «Tutte le aziende»</span>' : "") + '</header>' +
     quadro + tabella + avvisi + manDett + mezDett + fornDett + manoDett + subDett + impresa + fonti + '</div></main>' +
     // costi-2: finestre per la stima di una bolla, la modifica di una fattura, togli fattura o stima
     '<dialog class="cm-dlg cm-dlg-l" id="cm-b-dlg"><form method="dialog"><h3 id="cm-b-tit">Prezza la bolla con l\'offerta</h3>' +
@@ -746,31 +762,86 @@ function addGiorno(iso) {
 }
 
 // ---------------------------------------------------------------------------- riepilogo di tutti i cantieri
+// costi-3 (MG3): riepilogo nello stile scelto da Filippo il 10/11 (versione moderna 2, parte alta «A · fascia»): fascia, 4 riquadri con icona,
+// ricerca, filtri per stato e colonne ordinabili, iniziali e riga colorata per stato, quota dei costi sul ricavo, barretta del margine con la soglia.
+const svR = (d, w) => '<svg viewBox="0 0 24 24" width="' + (w || 20) + '" height="' + (w || 20) + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";
+const ICR = {
+  sezione: svR('<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>', 22),
+  cantieri: svR('<path d="M3 21h18"/><path d="M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/>'),
+  ricavo: svR('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'),
+  costi: svR('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M16 15h2"/>'),
+  margine: svR('<path d="m4 16 5-5 4 4 7-8"/><path d="M15 7h5v5"/>'),
+  cerca: svR('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/>', 18),
+  info: svR('<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>', 18),
+  freccia: svR('<path d="m9 6 6 6-6 6"/>', 16),
+  ord: svR('<path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/>', 13)
+};
+const iniziali = (s) => { const p = String(s || "").replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter((x) => !/^(di|del|della|via|e|il|la|lo|le|i|gli|s)$/i.test(x)); return ((p[0] || "?")[0] + ((p[1] || "")[0] || "")).toUpperCase(); };
 function riepilogo(base, h, p, d, elenco) {
   const e = h.esc;
   const cc = lista(d.cantieri);
-  const sotto = cc.filter((x) => x.stato === "sotto").length;
-  const righe = cc.map((x) => {
+  const conSal = cc.filter((x) => x.sal);
+  const nSotto = cc.filter((x) => x.stato === "sotto").length, nOk = cc.filter((x) => x.stato === "ok").length, nSenza = cc.length - nSotto - nOk;
+  const ricavo = conSal.reduce((s, x) => s + (n(x.ricavo) || 0), 0), costi = conSal.reduce((s, x) => s + (n(x.costi) || 0), 0);
+  const mTot = ricavo ? ((ricavo - costi) / ricavo) * 100 : null, soglia = n((cc[0] || {}).soglia) ?? 10, mNo = mTot !== null && mTot < soglia;
+  const max = Math.max(30, Math.ceil(Math.max.apply(null, [0, soglia, mTot || 0].concat(conSal.map((x) => n(x.margine_pct) || 0))) / 10) * 10);
+  const barra = (v) => { const w = n(v) === null ? 0 : Math.max(0, Math.min(100, (n(v) / max) * 100));
+    return '<span class="rp-bar" aria-hidden="true"><i style="width:' + w.toFixed(1) + '%"></i><u style="left:calc(' + ((soglia / max) * 100).toFixed(1) + '% - 1px)" title="Soglia ' + soglia + '%"></u></span>'; };
+  const ordine = { sotto: 0, ok: 1 };
+  const righe = cc.slice().sort((a, b) => (ordine[a.stato] ?? 2) - (ordine[b.stato] ?? 2) || String(a.nome || "").localeCompare(String(b.nome || ""), "it")).map((x) => {
     const u = base + "/costi?t=" + p.tok + "&c=" + encodeURIComponent(String(x.id || ""));
-    const st = x.stato === "sotto" ? '<span class="cm-st no">sotto la soglia</span>' : x.stato === "ok" ? '<span class="cm-st ok">ok</span>' : '<span class="cm-st gr">senza SAL</span>';
-    return '<tr' + (x.stato === "sotto" ? ' class="no"' : "") + '><td><a href="' + e(u) + '">' + e(testo(x.nome, 120)) + '</a>' + (d.filippo && x.impresa ? '<small>' + e(testo(x.impresa, 80)) + '</small>' : "") +
-      (x.chiuso ? '<small>chiuso</small>' : "") + (x.parziale ? '<small class="cm-man">costo parziale</small>' : "") + '</td>' +
+    const cl = x.stato === "sotto" ? "no" : x.stato === "ok" ? "ok" : "vuoto";
+    const st = x.stato === "sotto" ? '<span class="rp-st no">Sotto la soglia</span>' : x.stato === "ok" ? '<span class="rp-st ok">In linea</span>' : '<span class="rp-st gr">Senza SAL</span>';
+    const quota = x.sal && n(x.ricavo) ? Math.round(((n(x.costi) || 0) / n(x.ricavo)) * 100) : null;
+    const mg = x.sal ? '<div class="rp-mg ' + (x.stato === "sotto" ? "no" : "ok") + '">' + barra(x.margine_pct) + '<b>' + pct(x.margine_pct) + '</b></div><small class="rp-dx">' + euroTondo(x.margine) + '</small>' : '<span class="rp-tenue">—</span>';
+    const k = (v) => (n(v) === null ? "" : String(n(v)));
+    const nome = testo(x.nome, 120);
+    return '<tr class="' + cl + '" data-href="' + e(u) + '" data-stato="' + cl + '" data-nome="' + e(nome.toLowerCase()) + '" data-ricavo="' + k(x.sal ? x.ricavo : null) + '" data-costi="' + k(x.sal ? x.costi : x.speso) +
+      '" data-margine="' + k(x.sal ? x.margine_pct : null) + '" data-previsto="' + k(x.previsto_pct) + '" data-sal="' + k(x.sal) + '">' +
+      '<td class="rp-tdn"><div class="rp-nome"><span class="rp-av" aria-hidden="true">' + e(iniziali(nome)) + '</span><div><a href="' + e(u) + '">' + e(nome) + '</a> <span class="rp-vai">' + ICR.freccia + '</span>' +
+      (d.filippo && x.impresa ? '<small>' + e(testo(x.impresa, 80)) + '</small>' : "") +
+      (x.parziale ? '<span class="rp-tag gi">Costo parziale</span>' : "") + (x.chiuso ? '<span class="rp-tag gr">Chiuso</span>' : "") + '</div></div></td>' +
       '<td class="n" data-l="Ultimo SAL">' + (x.sal ? "n. " + e(String(x.sal)) + "<small>al " + e(dataIt(x.al)) + "</small>" : "—") + '</td>' +
-      '<td class="n" data-l="Ricavo">' + (n(x.ricavo) !== null && x.sal ? euroTondo(x.ricavo) : "—") + '</td>' +
-      '<td class="n" data-l="' + (x.sal ? "Costi al SAL" : "Speso finora") + '">' + euroTondo(x.sal ? x.costi : x.speso) + '</td>' +
-      '<td class="n" data-l="Margine"><b>' + (x.sal ? pct(x.margine_pct) : "—") + '</b>' + (x.sal ? "<small>" + euroTondo(x.margine) + "</small>" : "") + '</td>' +
-      '<td class="n" data-l="Previsto">' + (n(x.previsto_pct) !== null ? pct(x.previsto_pct) : "—") + '</td><td data-l="Stato">' + st + '</td></tr>';
+      '<td class="n" data-l="Ricavo">' + (x.sal && n(x.ricavo) !== null ? euroTondo(x.ricavo) : "—") + '</td>' +
+      '<td class="n" data-l="' + (x.sal ? "Costi al SAL" : "Speso finora") + '">' + euroTondo(x.sal ? x.costi : x.speso) + (quota !== null ? '<small>' + quota + '% del ricavo</small>' : "") + '</td>' +
+      '<td class="n rp-tdm" data-l="Margine">' + mg + '</td>' +
+      '<td class="n" data-l="Previsto a fine lavori">' + (n(x.previsto_pct) !== null ? pct(x.previsto_pct) + '<small>a fine lavori</small>' : "—") + '</td>' +
+      '<td class="rp-tds" data-l="Stato">' + st + '</td></tr>';
   }).join("");
-  return testaHtml(h, base, "Costi e margine") +
-    '<nav class="cm-nav"><a class="cm-torna" href="' + e(elenco) + '">‹ Torna ai cantieri</a></nav>' +
-    '<div class="cm-card"><div class="cm-testa"><div><h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine di tutti i cantieri</h1>' +
-    (d.modo === "prova" ? '<p class="cm-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div></div>' +
-    (sotto ? avviso("ro", "<b>" + (sotto === 1 ? "Un cantiere è" : sotto + " cantieri sono") + " sotto la soglia del margine.</b> Aprilo per vedere dove vanno i costi.") : "") +
-    (cc.length ? '<div class="cm-tabw"><table class="cm-tab cm-riep"><thead><tr><th>Cantiere</th><th class="n">Ultimo SAL</th><th class="n">Ricavo</th><th class="n">Costi</th><th class="n">Margine</th><th class="n">Previsto</th><th>Stato</th></tr></thead><tbody>' +
-      righe + '</tbody></table></div>' : '<p class="cm-vuoto">Nessun cantiere.</p>') +
-    '<p class="cm-fonti">Il margine di ogni cantiere si calcola all\'ultimo SAL: ricavo del SAL meno i costi fino alla sua data. Senza SAL, «Costi» è quanto si è speso finora. ' +
-    'Lo vedono solo le persone della tua impresa con l\'accesso all\'app. Importi + IVA.</p></div></main></body></html>';
+  const th = (t, chiave, num) => '<th' + (num ? ' class="n"' : "") + '><button type="button" data-ord="' + chiave + '">' + (num ? ICR.ord + t : t + ICR.ord) + '</button></th>';
+  const filtro = (f, t, quanti, extra) => '<button type="button" data-fil="' + f + '" aria-pressed="' + (f === "tutti") + '"' + (extra ? ' class="' + extra + '"' : "") + '>' + t + ' <i>' + quanti + '</i></button>';
+  const kr = (ic, l, b, s, cl, ex) => '<div class="rp-k' + (cl ? " " + cl : "") + '"><span class="rp-k-t"><span class="rp-k-i">' + ic + '</span>' + l + '</span><b>' + b + '</b>' + (ex || "") + '<small>' + s + '</small></div>';
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
+    "<title>Costi e margine - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE_RIEPILOGO + "</style></head><body class=\"rp-pagina\"><main>" +
+    '<nav class="rp-nav"><a href="' + e(elenco) + '">‹ Torna ai cantieri</a></nav>' +
+    '<header class="rp-band"><div class="rp-band-r"><div><h1><span class="rp-ic" aria-hidden="true">' + ICR.sezione + '</span>Costi e margine di tutti i cantieri</h1>' +
+    '<p class="rp-sub">Margine all\'ultimo SAL di ogni cantiere · soglia ' + pct(soglia) + ' · importi + IVA</p></div>' +
+    (d.modo === "prova" ? '<span class="rp-prova">In prova · la vede solo «Tutte le aziende»</span>' : "") + '</div></header>' +
+    '<section class="rp-kpi" aria-label="Riepilogo">' +
+    kr(ICR.cantieri, "Cantieri", String(cc.length), nSenza ? nSenza + " ancora senza SAL" : "tutti con almeno un SAL") +
+    kr(ICR.ricavo, "Ricavo maturato", euroTondo(ricavo), "somma degli ultimi SAL") +
+    kr(ICR.costi, "Costi al SAL", euroTondo(costi), ricavo ? Math.round((costi / ricavo) * 100) + "% del ricavo maturato" : "fino alla data di ogni SAL") +
+    kr(ICR.margine, "Margine complessivo", mTot !== null ? pct(mTot) : "—", (mTot !== null ? euroTondo(ricavo - costi) + " · " : "") + (nSotto ? nSotto + (nSotto === 1 ? " cantiere" : " cantieri") + " sotto la soglia" : "nessuno sotto la soglia"),
+      "mg" + (mNo ? " no" : ""), mTot !== null ? barra(mTot) : "") + '</section>' +
+    (nSotto ? '<div class="rp-avv" role="status"><span class="rp-avv-i">!</span><div><b>' + (nSotto === 1 ? "Un cantiere è" : nSotto + " cantieri sono") + ' sotto la soglia del ' + pct(soglia) + '.</b> È in cima all\'elenco: aprilo per vedere dove vanno i costi.</div></div>' : "") +
+    (cc.length ? '<section class="rp-card"><div class="rp-tool"><h2>Cantieri<span>' + cc.length + '</span></h2><div class="rp-tool-r">' +
+      '<label class="rp-cerca">' + ICR.cerca + '<input type="search" id="rp-q" placeholder="Cerca un cantiere" aria-label="Cerca un cantiere"></label>' +
+      '<div class="rp-fil" role="group" aria-label="Filtra per stato">' + filtro("tutti", "Tutti", cc.length) + filtro("no", "Sotto soglia", nSotto, "no") + filtro("ok", "In linea", nOk) + filtro("vuoto", "Senza SAL", nSenza) + '</div></div></div>' +
+      '<div class="rp-tw"><table class="rp-tab"><thead><tr>' + th("Cantiere", "nome") + th("Ultimo SAL", "sal", 1) + th("Ricavo", "ricavo", 1) + th("Costi", "costi", 1) + th("Margine", "margine", 1) + th("Previsto", "previsto", 1) +
+      '<th><span>Stato</span></th></tr></thead><tbody>' + righe + '</tbody></table></div><div class="rp-nessuno" id="rp-vuoto" hidden>Nessun cantiere con questi filtri.</div></section>' : '<p class="rp-nessuno">Nessun cantiere.</p>') +
+    '<p class="rp-fonti">' + ICR.info + '<span>Il margine di ogni cantiere si calcola all\'ultimo SAL: ricavo del SAL meno i costi fino alla sua data. Senza SAL, «Costi» è quanto si è speso finora. ' +
+    'La barretta mostra il margine; il segno scuro è la soglia. Lo vedono solo le persone della tua impresa con l\'accesso all\'app.</span></p></main>' +
+    '<script>' + SCRIPT_RIEPILOGO + '</script></body></html>';
 }
+const SCRIPT_RIEPILOGO = '(function(){var D=document,tb=D.querySelector(".rp-tab tbody");if(!tb)return;var q=D.getElementById("rp-q"),fil="tutti",vuoto=D.getElementById("rp-vuoto");' +
+  'function filtra(){var t=(q.value||"").trim().toLowerCase(),c=0;Array.prototype.forEach.call(tb.rows,function(r){var ok=(fil==="tutti"||r.dataset.stato===fil)&&(!t||r.dataset.nome.indexOf(t)!==-1);r.hidden=!ok;if(ok)c++;});vuoto.hidden=c>0;}' +
+  'q.addEventListener("input",filtra);D.querySelectorAll("[data-fil]").forEach(function(b){b.addEventListener("click",function(){fil=b.dataset.fil;D.querySelectorAll("[data-fil]").forEach(function(x){x.setAttribute("aria-pressed",x===b);});filtra();});});' +
+  'var ultimo=null,su=true;D.querySelectorAll("[data-ord]").forEach(function(b){b.addEventListener("click",function(){var k=b.dataset.ord;su=ultimo===k?!su:(k==="nome");ultimo=k;' +
+  'D.querySelectorAll(".rp-tab th").forEach(function(h){h.removeAttribute("aria-sort");});b.parentNode.setAttribute("aria-sort",su?"ascending":"descending");' +
+  'var rr=Array.prototype.slice.call(tb.rows);rr.sort(function(a,c){var x=a.dataset[k],y=c.dataset[k];if(k==="nome")return su?x.localeCompare(y,"it"):y.localeCompare(x,"it");' +
+  'var nx=x===""?null:Number(x),ny=y===""?null:Number(y);if(nx===null&&ny===null)return 0;if(nx===null)return 1;if(ny===null)return -1;return su?nx-ny:ny-nx;});rr.forEach(function(r){tb.appendChild(r);});});});' +
+  'Array.prototype.forEach.call(tb.rows,function(r){r.addEventListener("click",function(e){if(e.target.closest("a"))return;location.href=r.dataset.href;});});})();';
 
 // ---------------------------------------------------------------------------- stile e script della pagina
 const STILE =
@@ -880,6 +951,157 @@ const STILE =
   ".cm-bolle thead{display:none}.cm-bolle,.cm-bolle tbody{display:block}" +
   ".cm-bolle tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;padding:10px 12px;margin:0 0 10px;border:1px solid var(--l);border-radius:12px}" +
   ".cm-bolle td{display:block;padding:0;border:0;white-space:normal}.cm-bolle td:nth-child(2){grid-column:1/-1;order:-1;font-size:1rem}.cm-bolle td.cm-az{grid-column:1/-1}.cm-bolle td.cm-az:empty{display:none}}";
+
+// costi-3 (MG3): stile del riepilogo di tutti i cantieri (versione moderna 2, scelta da Filippo il 10/11)
+const STILE_RIEPILOGO =
+  ":root{--navy:#14263D;--cm:#0F766E;--cm-2:#14958A;--cm-s:#0B4F4A;--cm-f:#E8F5F3;--cm-b:#BFE3DD;--t:#101828;--s:#475467;--m:#98A2B3;--l:#EAECF0;--l2:#F2F4F7;--z:#F9FAFB;" +
+  "--ro:#D92D20;--ro-t:#B42318;--ro-f:#FEF3F2;--ro-b:#FECDCA;--ok:#067647;--ok-f:#ECFDF3;--ok-b:#ABEFC6;--gr-f:#F2F4F7;--gi:#B54708;--gi-f:#FFFAEB;--gi-b:#FEDF89;" +
+  "--om:0 1px 2px rgba(16,24,40,.05);--om2:0 1px 3px rgba(16,24,40,.06),0 18px 36px -24px rgba(16,24,40,.28)}" +
+  "*{box-sizing:border-box}[hidden]{display:none!important}html{-webkit-font-smoothing:antialiased}body{margin:0;color:var(--t);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;" +
+  "background:#F5F7F9;font-variant-numeric:tabular-nums;letter-spacing:-.005em}" +
+  "main{width:min(1280px,calc(100vw - 48px));margin:0 auto;padding:18px 0 56px}" +
+  ".rp-nav a{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:10px;color:var(--s);font-size:.88rem;font-weight:600;text-decoration:none}.rp-nav a:hover{background:#fff;color:var(--t)}" +
+  // intestazione su fascia
+  ".rp-band{position:relative;overflow:hidden;margin:10px 0 18px;padding:22px 24px;border-radius:20px;color:#fff;" +
+  "background:radial-gradient(600px 220px at 85% -40%,rgba(255,255,255,.18),transparent 60%),linear-gradient(135deg,#0F766E 0%,#0C5F59 55%,#14263D 100%);box-shadow:0 18px 40px -26px rgba(12,95,89,.75)}" +
+  ".rp-band::after{content:'';position:absolute;right:-60px;bottom:-80px;width:260px;height:260px;border-radius:50%;border:1px solid rgba(255,255,255,.12);box-shadow:0 0 0 40px rgba(255,255,255,.03),0 0 0 80px rgba(255,255,255,.02)}" +
+  ".rp-band-r{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px}" +
+  ".rp-band h1{display:flex;align-items:center;gap:14px;margin:0;font-size:1.55rem;font-weight:700;letter-spacing:-.02em}" +
+  ".rp-ic{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(4px)}" +
+  ".rp-sub{margin:8px 0 0 60px;color:rgba(255,255,255,.78);font-size:.92rem}.rp-prova{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);font-size:.8rem;font-weight:600}" +
+  ".rp-prova::before{content:'';width:7px;height:7px;border-radius:50%;background:#5EEAD4;box-shadow:0 0 0 3px rgba(94,234,212,.25)}" +
+  // numeri in alto
+  ".rp-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 16px}" +
+  ".rp-k{position:relative;display:flex;flex-direction:column;padding:16px 18px;border-radius:16px;background:#fff;border:1px solid var(--l);box-shadow:var(--om)}" +
+  ".rp-k-t{display:flex;align-items:center;gap:10px;font-size:.8rem;font-weight:600;color:var(--s)}" +
+  ".rp-k-i{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:var(--cm-f);color:var(--cm);border:1px solid var(--cm-b)}" +
+  ".rp-k b{display:block;margin:12px 0 4px;font-size:1.6rem;font-weight:700;letter-spacing:-.025em;color:var(--t)}.rp-k small{display:block;font-size:.8rem;color:var(--m)}" +
+  ".rp-k.mg{background:linear-gradient(180deg,#F3FBF9,#fff 70%);border-color:var(--cm-b)}.rp-k.mg b{color:var(--cm)}" +
+  ".rp-k.mg.no{background:linear-gradient(180deg,#FFF6F5,#fff 70%);border-color:var(--ro-b)}.rp-k.mg.no b{color:var(--ro-t)}.rp-k.mg.no .rp-k-i{background:var(--ro-f);color:var(--ro-t);border-color:var(--ro-b)}" +
+  ".rp-k .rp-bar{width:100%;margin:10px 0 6px}" +
+  // avviso
+  ".rp-avv{display:flex;align-items:center;gap:12px;margin:0 0 16px;padding:12px 16px;border-radius:14px;background:#fff;border:1px solid var(--ro-b);box-shadow:inset 4px 0 0 var(--ro);color:var(--t);font-size:.92rem}" +
+  ".rp-avv-i{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--ro-f);color:var(--ro-t);font-weight:800}.rp-avv b{color:var(--ro-t)}" +
+  // tabella
+  ".rp-card{border-radius:18px;background:#fff;border:1px solid var(--l);box-shadow:var(--om2);overflow:hidden}" +
+  ".rp-tool{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--l)}" +
+  ".rp-tool h2{margin:0;font-size:1rem;font-weight:700}.rp-tool h2 span{margin-left:6px;padding:2px 8px;border-radius:999px;background:var(--l2);color:var(--s);font-size:.78rem;font-weight:600}" +
+  ".rp-tool-r{display:flex;flex-wrap:wrap;align-items:center;gap:10px}" +
+  ".rp-cerca{position:relative;display:flex;align-items:center}.rp-cerca svg{position:absolute;left:10px;color:var(--m);pointer-events:none}" +
+  ".rp-cerca input{width:220px;height:36px;padding:0 12px 0 34px;border:1px solid var(--l);border-radius:10px;background:var(--z);font:inherit;font-size:.88rem;color:var(--t)}" +
+  ".rp-cerca input:focus{outline:none;border-color:var(--cm-2);background:#fff;box-shadow:0 0 0 3px rgba(20,149,138,.15)}" +
+  ".rp-fil{display:inline-flex;padding:3px;border-radius:11px;background:var(--l2);gap:2px}" +
+  ".rp-fil button{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:.82rem;font-weight:600;color:var(--s);cursor:pointer}" +
+  ".rp-fil button i{font-style:normal;padding:0 6px;border-radius:999px;background:rgba(16,24,40,.06);font-size:.74rem}" +
+  ".rp-fil button[aria-pressed=true]{background:#fff;color:var(--t);box-shadow:0 1px 2px rgba(16,24,40,.08),0 0 0 1px rgba(16,24,40,.04)}" +
+  ".rp-fil button.no[aria-pressed=true]{color:var(--ro-t)}" +
+  ".rp-tab{width:100%;border-collapse:collapse}.rp-tab th{padding:0;background:var(--z);border-bottom:1px solid var(--l);text-align:left;white-space:nowrap}" +
+  ".rp-tab th button,.rp-tab th span{display:inline-flex;align-items:center;gap:5px;width:100%;padding:11px 16px;border:0;background:none;font:inherit;font-size:.74rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--s);cursor:pointer}" +
+  ".rp-tab th.n button{justify-content:flex-end}.rp-tab th button svg{opacity:.35}.rp-tab th[aria-sort] button{color:var(--t)}.rp-tab th[aria-sort] button svg{opacity:1;color:var(--cm)}" +
+  ".rp-tab td{padding:14px 16px;border-bottom:1px solid var(--l2);vertical-align:middle;font-size:.93rem}.rp-tab tr:last-child td{border-bottom:0}" +
+  ".rp-tab .n{text-align:right;white-space:nowrap}.rp-tab small{display:block;margin:3px 0 0;font-size:.78rem;color:var(--m)}" +
+  ".rp-tab tbody tr{cursor:pointer;transition:background .12s}.rp-tab tbody tr:hover{background:#FAFCFC}" +
+  ".rp-tab td:first-child{box-shadow:inset 3px 0 0 transparent}.rp-tab tr.no td:first-child{box-shadow:inset 3px 0 0 var(--ro)}.rp-tab tr.ok td:first-child{box-shadow:inset 3px 0 0 var(--cm-2)}.rp-tab tr.vuoto td:first-child{box-shadow:inset 3px 0 0 #D0D5DD}" +
+  ".rp-nome{display:flex;align-items:center;gap:12px;min-width:220px}" +
+  ".rp-av{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:11px;background:var(--cm-f);color:var(--cm-s);border:1px solid var(--cm-b);font-size:.82rem;font-weight:700;letter-spacing:.02em}" +
+  ".rp-tab tr.no .rp-av{background:var(--ro-f);color:var(--ro-t);border-color:var(--ro-b)}.rp-tab tr.vuoto .rp-av{background:var(--l2);color:var(--s);border-color:var(--l)}" +
+  ".rp-nome a{color:var(--t);font-weight:650;text-decoration:none}.rp-tab tr:hover .rp-nome a{color:var(--cm)}" +
+  ".rp-vai{color:var(--m);transition:transform .15s,color .15s}.rp-tab tr:hover .rp-vai{color:var(--cm);transform:translateX(2px)}" +
+  ".rp-tag{display:inline-block;margin:5px 6px 0 0;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:600}.rp-tag.gi{background:var(--gi-f);color:var(--gi);border:1px solid var(--gi-b)}.rp-tag.gr{background:var(--gr-f);color:var(--s)}" +
+  ".rp-tab tr.vuoto td{color:var(--m)}.rp-tab tr.vuoto .rp-nome a{color:var(--s)}" +
+  // margine con barretta
+  ".rp-mg{display:flex;align-items:center;justify-content:flex-end;gap:12px}.rp-mg b{min-width:56px;text-align:right;font-weight:700;font-size:1rem}.rp-mg.no b{color:var(--ro-t)}.rp-mg.ok b{color:var(--cm)}" +
+  ".rp-bar{position:relative;display:block;width:120px;height:10px;border-radius:999px;background:var(--l2);box-shadow:inset 0 1px 1px rgba(16,24,40,.06)}" +
+  ".rp-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,#14958A,#0F766E)}.rp-mg.no .rp-bar i,.rp-k.no .rp-bar i{background:linear-gradient(90deg,#F97066,#D92D20)}" +
+  ".rp-bar u{position:absolute;top:-4px;bottom:-4px;width:2px;border-radius:1px;background:var(--navy);opacity:.6}" +
+  // stato
+  ".rp-st{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:999px;font-size:.8rem;font-weight:600;white-space:nowrap;border:1px solid transparent}" +
+  ".rp-st::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}.rp-st.ok{background:var(--ok-f);color:var(--ok);border-color:var(--ok-b)}.rp-st.no{background:var(--ro-f);color:var(--ro-t);border-color:var(--ro-b)}.rp-st.gr{background:var(--gr-f);color:var(--s);border-color:var(--l)}" +
+  ".rp-nessuno{padding:26px 16px;text-align:center;color:var(--m);font-size:.92rem}" +
+  ".rp-fonti{display:flex;align-items:flex-start;gap:10px;margin:14px 0 0;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--l);color:var(--s);font-size:.84rem;line-height:1.5}.rp-fonti svg{flex:0 0 auto;margin-top:1px;color:var(--cm)}" +
+  // tablet e telefono
+  ".rp-tw{overflow-x:auto}" +
+  "@media (max-width:1060px){.rp-kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.rp-cerca input{width:180px}.rp-tab td,.rp-tab th button,.rp-tab th span{padding-left:12px;padding-right:12px}" +
+  ".rp-mg .rp-bar{width:72px}.rp-nome{min-width:190px}.rp-av{width:34px;height:34px}}" +
+  "@media (max-width:760px){main{width:auto;padding:12px 14px 40px}.rp-band{padding:18px 16px;border-radius:18px}.rp-band h1{font-size:1.2rem;gap:10px}.rp-ic{width:38px;height:38px}.rp-sub{margin-left:0}" +
+  ".rp-k{padding:13px 14px}.rp-k b{font-size:1.2rem;margin-top:10px}.rp-k-i{width:30px;height:30px}" +
+  ".rp-tool{padding:12px}.rp-tool-r{width:100%}.rp-cerca{flex:1 1 100%}.rp-cerca input{width:100%}.rp-fil{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.rp-fil button{justify-content:center}" +
+  ".rp-card{border-radius:16px}.rp-tab thead{display:none}.rp-tab,.rp-tab tbody{display:block}" +
+  ".rp-tab tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;padding:14px;border-bottom:1px solid var(--l2)}.rp-tab tr:last-child{border-bottom:0}" +
+  ".rp-tab td{display:block;padding:0;border:0;text-align:left!important}.rp-tab td:first-child{box-shadow:none!important}" +
+  ".rp-tab tr.no{box-shadow:inset 3px 0 0 var(--ro)}.rp-tab tr.ok{box-shadow:inset 3px 0 0 var(--cm-2)}.rp-tab tr.vuoto{box-shadow:inset 3px 0 0 #D0D5DD}" +
+  ".rp-tab td.rp-tdn,.rp-tab td.rp-tdm,.rp-tab td.rp-tds{grid-column:1/-1}.rp-nome{min-width:0}" +
+  ".rp-tab td[data-l]::before{content:attr(data-l);display:block;margin:0 0 2px;font-size:.72rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--m)}" +
+  ".rp-tab td:nth-child(6){order:4}.rp-tab td:nth-child(6) small{display:none}.rp-tab td.rp-tdm{order:5}.rp-tab td.rp-tds{order:6}.rp-tab td.rp-tdm small{text-align:left!important}" +
+  ".rp-mg{justify-content:flex-start}.rp-mg b{min-width:0;text-align:left}.rp-mg .rp-bar{flex:1 1 auto;width:auto}}" +
+  ".rp-dx{text-align:right}.rp-tenue{color:var(--m)}";
+
+// costi-3 (MG3): stile della pagina del cantiere, come il riepilogo «versione moderna» scelto da Filippo il 10/11.
+// Vale solo con <body class="cm-moderna">: le altre pagine restano come sono.
+const CM = ".cm-moderna ";
+const STILE_MODERNO =
+  ":root{--m:#98A2B3;--l2:#F2F4F7;--ro-t:#B42318;--om:0 1px 2px rgba(16,24,40,.05);--om2:0 1px 3px rgba(16,24,40,.06),0 18px 36px -24px rgba(16,24,40,.28)}" +
+  "body.cm-moderna{background:#F5F7F9;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;letter-spacing:-.005em}" +
+  CM + "main{width:min(1280px,calc(100vw - 48px));max-width:none;margin:0 auto;padding:18px 0 56px}" +
+  CM + ".cm-nav{gap:4px;margin:0 0 4px}" + CM + ".cm-torna{padding:7px 12px;border:0;border-radius:10px;background:transparent;color:#475467;font-size:.88rem}" + CM + ".cm-torna:hover{background:#fff;color:var(--t)}" +
+  CM + ".cm-card{padding:0;background:none;box-shadow:none;border-radius:0}" + CM + ".cm-card::before{display:none}" +
+  // fascia in alto
+  CM + ".cm-band{position:relative;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin:10px 0 18px;padding:22px 24px;border-radius:20px;color:#fff;" +
+  "background:radial-gradient(600px 220px at 85% -40%,rgba(255,255,255,.18),transparent 60%),linear-gradient(135deg,#0F766E 0%,#0C5F59 55%,#14263D 100%);box-shadow:0 18px 40px -26px rgba(12,95,89,.75)}" +
+  CM + ".cm-band::after{content:'';position:absolute;right:-60px;bottom:-80px;width:260px;height:260px;border-radius:50%;border:1px solid rgba(255,255,255,.12);box-shadow:0 0 0 40px rgba(255,255,255,.03),0 0 0 80px rgba(255,255,255,.02);pointer-events:none}" +
+  CM + ".cm-band>*{position:relative;z-index:1}" + CM + ".cm-band h1{margin:0;gap:14px;font-size:1.55rem;font-weight:700;color:#fff}" +
+  CM + ".cm-band .cm-ic{width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);box-shadow:none}" +
+  CM + ".cm-band .cm-cant{margin:8px 0 0 60px;color:rgba(255,255,255,.82);font-size:.98rem;font-weight:600}" +
+  CM + ".cm-band .cm-prova{display:inline-flex;align-items:center;gap:7px;margin:0;padding:6px 12px;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:.8rem;font-weight:600}" +
+  CM + ".cm-band .cm-prova::before{content:'';width:7px;height:7px;border-radius:50%;background:#5EEAD4;box-shadow:0 0 0 3px rgba(94,234,212,.25)}" +
+  // quattro riquadri
+  CM + ".cm-quadro{gap:14px;margin:0 0 14px}" +
+  CM + ".cm-r{gap:0;padding:16px 18px;border:1px solid #EAECF0;border-radius:16px;background:#fff;box-shadow:var(--om)}" + CM + ".cm-r::before{display:none}" +
+  CM + ".cm-r .cm-r-t{display:flex;align-items:center;gap:10px;font-size:.8rem;font-weight:600;color:#475467}" +
+  CM + ".cm-r .cm-r-i{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:34px;height:34px;border-radius:10px;background:var(--cm-f);color:var(--cm);border:1px solid var(--cm-b)}" +
+  CM + ".cm-r b{margin:12px 0 4px;font-size:1.6rem;font-weight:700;letter-spacing:-.025em;line-height:1.2;color:var(--t)}" + CM + ".cm-r small{color:var(--m)}" +
+  CM + ".cm-r.mar.ok{background:linear-gradient(180deg,#F3FBF9,#fff 70%);border-color:var(--cm-b)}" + CM + ".cm-r.mar.ok b{color:var(--cm)}" +
+  CM + ".cm-r.no{background:linear-gradient(180deg,#FFF6F5,#fff 70%);border-color:#FECDCA}" + CM + ".cm-r.no b{color:var(--ro-t)}" + CM + ".cm-r.no .cm-r-i{background:#FEF3F2;color:var(--ro-t);border-color:#FECDCA}" +
+  ".cm-bar{position:relative;display:block;height:10px;border-radius:999px;background:var(--l2);box-shadow:inset 0 1px 1px rgba(16,24,40,.06)}" +
+  ".cm-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,#14958A,#0F766E)}.cm-r.no .cm-bar i{background:linear-gradient(90deg,#F97066,#D92D20)}" +
+  ".cm-bar u{position:absolute;top:-4px;bottom:-4px;width:2px;border-radius:1px;background:#14263D;opacity:.6}" + CM + ".cm-r .cm-bar{width:100%;margin:8px 0 6px}" +
+  // spese generali e «in attesa del prossimo SAL»
+  CM + ".cm-sg{margin:0 0 12px;padding:12px 16px;border:1px solid #EAECF0;border-radius:14px;background:#fff;box-shadow:var(--om)}" +
+  CM + ".cm-dopo{position:relative;margin:0 0 14px;padding:14px 16px 14px 54px;border:1px solid #EAECF0;border-radius:14px;background:#fff;box-shadow:inset 4px 0 0 #2E90FA,var(--om);line-height:1.55}" +
+  CM + ".cm-dopo::before{content:'';position:absolute;left:16px;top:14px;width:26px;height:26px;border-radius:50%;background:#EFF8FF url(\"data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27%23175CD3%27%20stroke-width=%272%27%20stroke-linecap=%27round%27%3E%3Ccircle%20cx=%2712%27%20cy=%2712%27%20r=%279%27/%3E%3Cpath%20d=%27M12%207v5l3%202%27/%3E%3C/svg%3E\") center/16px no-repeat}" +
+  CM + ".cm-dopo b{color:#175CD3}" +
+  // dove vanno i costi
+  CM + ".cm-costi{margin:0 0 14px;border:1px solid #EAECF0;border-radius:18px;background:#fff;box-shadow:var(--om2);overflow:hidden}" +
+  CM + ".cm-sez{margin:0;padding:14px 16px;border-bottom:1px solid #EAECF0;font-size:1rem;font-weight:700;color:var(--t)}" + CM + ".cm-costi .cm-tabw{margin:0}" +
+  CM + ".cm-tab th," + CM + ".cm-tab td{padding:12px 16px;border-bottom:1px solid var(--l2);vertical-align:middle}" +
+  CM + ".cm-tab thead th{background:#F9FAFB;font-weight:600;color:#475467;border-bottom:1px solid #EAECF0}" + CM + ".cm-tab tbody th{font-weight:600}" +
+  CM + ".cm-tab tfoot th," + CM + ".cm-tab tfoot td{border-top:1px solid #EAECF0;background:#FCFCFD;font-weight:700}" +
+  ".cm-quota{display:block;width:140px;max-width:100%;height:6px;margin:7px 0 3px;border-radius:999px;background:var(--l2);overflow:hidden}.cm-quota i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#14958A,#0F766E)}" +
+  CM + ".cm-costi .cm-tab small{color:var(--m);font-weight:500}" +
+  // avvisi
+  CM + ".cm-av{position:relative;margin:0 0 10px;padding:12px 16px 12px 50px;border:1px solid #EAECF0;border-radius:14px;background:#fff;color:var(--t);box-shadow:var(--om)}" +
+  CM + ".cm-av::before{position:absolute;left:14px;top:11px;width:24px;height:24px;border-radius:50%;font:800 13px/24px system-ui;text-align:center}" +
+  CM + ".cm-av.gi{box-shadow:inset 4px 0 0 #F79009,var(--om)}" + CM + ".cm-av.gi::before{content:'!';background:#FFFAEB;color:#B54708}" + CM + ".cm-av.gi b{color:#B54708}" +
+  CM + ".cm-av.bl{box-shadow:inset 4px 0 0 #2E90FA,var(--om)}" + CM + ".cm-av.bl::before{content:'i';background:#EFF8FF;color:#175CD3}" + CM + ".cm-av.bl b{color:#175CD3}" +
+  CM + ".cm-av.ro{border-color:#FECDCA;box-shadow:inset 4px 0 0 #D92D20,var(--om)}" + CM + ".cm-av.ro::before{content:'!';background:#FEF3F2;color:var(--ro-t)}" + CM + ".cm-av.ro b{color:var(--ro-t)}" +
+  // sezioni che si aprono
+  CM + ".cm-det{margin:14px 0 0;border:1px solid #EAECF0;border-radius:16px;background:#fff;box-shadow:var(--om);overflow:hidden}" +
+  CM + ".cm-det>summary{list-style:none;justify-content:flex-start;align-items:center;gap:12px;padding:15px 18px;font-weight:700;color:var(--t)}" + CM + ".cm-det>summary::-webkit-details-marker{display:none}" +
+  CM + ".cm-det>summary::before{content:'';flex:0 0 auto;width:8px;height:8px;margin:0 4px 0 2px;border-right:2px solid var(--m);border-bottom:2px solid var(--m);transform:rotate(-45deg);transition:transform .15s}" +
+  CM + ".cm-det[open]>summary::before{transform:rotate(45deg)}" + CM + ".cm-det>summary span{margin-left:auto;color:var(--cm-s)}" +
+  CM + ".cm-det>summary:hover{background:#FAFCFC}" + CM + ".cm-det[open]>summary{border-bottom:1px solid #EAECF0;background:#FCFCFD}" + CM + ".cm-det-c{padding:14px 18px}" +
+  // costi della tua impresa, moduli, fonti
+  CM + ".cm-imp{margin:22px 0 0;padding:20px;border:1px solid #EAECF0;border-radius:18px;background:#fff;box-shadow:var(--om2)}" +
+  CM + ".cm-form{border:1px solid #EAECF0;border-radius:14px;background:#F9FAFB}" +
+  CM + ".cm-campi input," + CM + ".cm-campi select," + CM + ".cm-chi input{border-color:#D0D5DD;border-radius:10px}" + CM + ".cm-campi input:focus," + CM + ".cm-campi select:focus," + CM + ".cm-chi input:focus{outline:none;border-color:var(--cm-2);box-shadow:0 0 0 3px rgba(20,149,138,.15)}" +
+  CM + ".btn{border-radius:10px}" + CM + ".cm-fonti{padding:12px 14px;border:1px solid #EAECF0;border-radius:14px;background:#fff;color:#475467}" +
+  "@media (max-width:760px){" + CM + "main{width:auto;padding:12px 14px 40px}" + CM + ".cm-band{padding:18px 16px;border-radius:18px}" + CM + ".cm-band h1{font-size:1.2rem;gap:10px}" +
+  CM + ".cm-band .cm-ic{width:38px;height:38px}" + CM + ".cm-band .cm-cant{margin-left:0}" + CM + ".cm-quadro{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}" +
+  CM + ".cm-r{padding:13px 14px}" + CM + ".cm-r b{font-size:1.2rem!important;margin-top:10px}" + CM + ".cm-r .cm-r-i{width:30px;height:30px}" + CM + ".cm-r .cm-r-t{font-size:.74rem;gap:8px}" +
+  CM + ".cm-tab th," + CM + ".cm-tab td{padding:10px 12px}" +
+  CM + ".cm-costi .cm-tab{font-size:.84rem}" + CM + ".cm-costi .cm-tab th," + CM + ".cm-costi .cm-tab td{padding:10px 8px}" + CM + ".cm-costi .cm-tab th:first-child{padding-left:12px}" +
+  CM + ".cm-costi .cm-tab thead th{white-space:normal;font-size:.66rem;letter-spacing:.02em}" + CM + ".cm-costi .cm-tab .n:last-child{padding-right:12px}" + CM + ".cm-costi .cm-quota{width:84px}" +
+  CM + ".cm-dopo{padding-left:48px}" + CM + ".cm-dopo::before{left:12px}" + CM + ".cm-det>summary{padding:13px 14px}" + CM + ".cm-imp{padding:16px 14px}}";
 
 const SCRIPT = String.raw`(function(){try{
 var D=document;function $(i){return D.getElementById(i);}
