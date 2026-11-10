@@ -211,6 +211,16 @@ async function api(request, env, h) {
       await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso).split("/").map(encodeURIComponent).join("/"), {
         method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
     }
+  } else if (az === "el_cerca") {
+    // 10/11/2026 (elenco-1, chat 02B): «Cerca nell'elenco TIX» nelle richieste di offerta (elenco_cerca; solo_stato = mostra il pulsante?)
+    const x = b && b.dati && typeof b.dati === "object" ? b.dati : {};
+    r = await h.rpc(env, "elenco_cerca", { p_token: tok, p_dati: { tipo: ["fornitore", "subappaltatore", "noleggio"].indexOf(String(x.tipo || "")) >= 0 ? String(x.tipo) : "",
+      testo: testo(x.testo, 80), provincia: testo(x.provincia, 2).toUpperCase(), solo_stato: x.solo_stato === true } }, 15000).catch(() => null);
+  } else if (az.startsWith("ea_") && ["lista", "scheda", "approva", "rifiuta", "nascondi", "riattiva", "riquadro", "invito", "nuovo_codice"].indexOf(az.slice(3)) >= 0) {
+    // 10/11/2026 (elenco-1): approvazione delle iscrizioni all'elenco, solo con l'accesso «Tutte le aziende» (lo controlla elenco_admin)
+    const x = b && b.dati && typeof b.dati === "object" ? b.dati : {};
+    r = await h.rpc(env, "elenco_admin", { p_token: tok, p_azione: az.slice(3), p_dati: { id: uuid(x.id), motivo: testo(x.motivo, 500),
+      per: x.per === "riquadro" ? "riquadro" : "", stato: testo(x.stato, 20), pubblicato: x.pubblicato === true, url: testo(x.url, 300) } }, 15000).catch(() => null);
   } else return json({ esito: "errore" }, 400);
   return json(r || { esito: "errore" }, r ? 200 : 503);
 }
@@ -372,7 +382,7 @@ const STILE =
   ".pv-ic{flex:none;width:40px;height:40px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#A7B54A,#66741C 55%,#4A5512);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 14px -6px rgba(74,85,18,.6)}.pv-ic svg{width:22px;height:22px}" +
   ".pv-spiega{margin:12px 0 0;font-size:.92rem;line-height:1.55;color:var(--s);max-width:960px}.pv-spiega b{color:var(--t)}" +
   // 09/11/2026 (crediti-1): riquadro «Crediti TIX» nell'elenco, colore oliva dei Preventivi
-  ".pv-cr{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.06)}" + ".pv-cr-t{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}.pv-cr-t b{font-size:1.02rem;color:#66741C}.pv-cr-t span{font-size:.85rem;color:var(--s)}" + ".pv-cr-s{margin:6px 0 8px;font-size:.82rem;line-height:1.45;color:var(--s)}.pv-cr-ia{margin:8px 0;padding:8px 10px;border-left:3px solid #66741C;background:rgba(102,116,28,.07);border-radius:0 8px 8px 0;font-size:.85rem}.pv-cr-ia b{color:#66741C}.pv-cr-ia span{display:block;margin-top:2px}.pv-cr-ia small{display:block;margin-top:4px;color:var(--s);line-height:1.4}.pv-cr-av{margin:4px 0 0;font-size:.8rem;color:#7a4a00}.pv-cr-p{display:flex;flex-wrap:wrap;gap:8px}" + ".pv-cr-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.3);border-radius:10px;font-size:.86rem}.pv-cr-u{flex-basis:100%;font-size:.78rem;color:var(--s)}.pv-cr-u b{color:#66741C;font-weight:700}" + ".pv-cr-m{margin-top:8px;font-size:.84rem}.pv-cr-m summary{cursor:pointer;color:var(--s)}.pv-cr-m table{border-collapse:collapse;margin-top:6px}" + ".pv-cr-m td{padding:3px 12px 3px 0;vertical-align:top}.pv-cr-m td.n{text-align:right;font-weight:600;white-space:nowrap}" +
+  ".pv-cr{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.06)}" + ".pv-cr-t{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}.pv-cr-t b{font-size:1.02rem;color:#66741C}.pv-cr-t span{font-size:.85rem;color:var(--s)}" + ".pv-cr-s{margin:6px 0 8px;font-size:.82rem;line-height:1.45;color:var(--s)}.pv-cr-ia{margin:8px 0;padding:8px 10px;border-left:3px solid #66741C;background:rgba(102,116,28,.07);border-radius:0 8px 8px 0;font-size:.85rem}.pv-cr-ia b{color:#66741C}.pv-cr-ia span{display:block;margin-top:2px}.pv-cr-ia small{display:block;margin-top:4px;color:var(--s);line-height:1.4}.pv-cr-av{margin:4px 0 0;font-size:.8rem;color:#7a4a00}.pv-ea{margin:14px 0 0;padding:10px 14px;border:1px solid rgba(27,47,74,.25);border-radius:12px;background:#F7F9FB}.pv-ea>summary{cursor:pointer;color:#1B2F4A}.pv-ea-b{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}.pv-ea-b input{flex:1 1 320px;font:inherit;padding:6px 8px;border:1px solid #CBD2DA;border-radius:8px}.pv-ea-r{border-top:1px solid #E1E6EC;padding:8px 0}.pv-ea-r .tt{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between}.pv-ea-r .st{font-size:.75rem;font-weight:700;padding:2px 10px;border-radius:999px;background:#EEF1E2;color:#4E5915}.pv-ea-r .st.da_approvare{background:#FFF3E8;color:#B34E0B}.pv-ea-r .st.rifiutato,.pv-ea-r .st.nascosto{background:#F5E9E9;color:#8A2B2B}.pv-ea-s{font-size:.85rem;color:var(--s);margin:6px 0}.pv-ea-s img{max-height:48px;max-width:160px;display:block;margin:4px 0}.pv-cr-p{display:flex;flex-wrap:wrap;gap:8px}" + ".pv-cr-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.3);border-radius:10px;font-size:.86rem}.pv-cr-u{flex-basis:100%;font-size:.78rem;color:var(--s)}.pv-cr-u b{color:#66741C;font-weight:700}" + ".pv-cr-m{margin-top:8px;font-size:.84rem}.pv-cr-m summary{cursor:pointer;color:var(--s)}.pv-cr-m table{border-collapse:collapse;margin-top:6px}" + ".pv-cr-m td{padding:3px 12px 3px 0;vertical-align:top}.pv-cr-m td.n{text-align:right;font-weight:600;white-space:nowrap}" +
   // 09/11/2026 (cantiere-da-preventivo-1): riquadro «Cantiere» del preventivo accettato
   ".pv-cant{margin:16px 0 0;padding:14px 16px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.05)}" + ".pv-cant h3{margin:0 0 6px}.pv-cant h4{margin:12px 0 6px;font-size:.92rem}.pv-cant-s{margin:6px 0;font-size:.9rem;line-height:1.5;color:var(--s)}" + ".pv-cant-l{list-style:none;margin:0;padding:0;display:grid;gap:4px}.pv-cant-l li{display:flex;gap:8px;font-size:.9rem;line-height:1.45}" + ".pv-cant-l li span{width:16px;flex:none;text-align:center;font-weight:800}.pv-cant-l li.ok span{color:#66741C}.pv-cant-l li.no span{color:#9A6B00}.pv-cant-l li.opz{color:var(--s)}" + ".pv-cant-p{display:flex;flex-wrap:wrap;gap:8px}.pv-cant-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.25);border-radius:10px;font-size:.86rem}" + ".pv-cant-k.su{border-color:#66741C;background:rgba(102,116,28,.08)}" +
   ".pv-b{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;font-weight:700;font-size:.92rem;cursor:pointer;text-decoration:none;white-space:nowrap}" +
@@ -527,7 +537,7 @@ function elenco(){
  var vis=P.filter(function(p){return (!FIL.cant||(FIL.cant==='senza'?!p.commessa_id:p.commessa_id===FIL.cant))&&(!FIL.stato||p.stato===FIL.stato);});
  var h='<section class="pv-card"><div class="pv-testa"><div><p class="pv-chi">'+es(D.azienda.nome)+'</p><h1><span class="pv-ic">'+ICONA+'</span>Preventivi</h1></div>'+
   '<div class="pv-az-t"><button type="button" class="pv-b pv-pr" id="pv-nuovo">+ Nuovo preventivo</button></div></div>'+scegliImpresa()+
-  '<p class="pv-spiega">Preventivi per i lavori extra di un cantiere e per i lavori nuovi. Le voci si prendono dall\'<b>elenco prezzi del contratto</b> (il computo della sezione SAL), dal <b>prezzario regionale</b> o si scrivono a mano. Un preventivo mandato non si riscrive più: ogni modifica diventa una revisione nuova. I prezzi li vede e li scrive solo l\'ufficio.</p><div id="pv-crediti"></div>'+
+  '<p class="pv-spiega">Preventivi per i lavori extra di un cantiere e per i lavori nuovi. Le voci si prendono dall\'<b>elenco prezzi del contratto</b> (il computo della sezione SAL), dal <b>prezzario regionale</b> o si scrivono a mano. Un preventivo mandato non si riscrive più: ogni modifica diventa una revisione nuova. I prezzi li vede e li scrive solo l\'ufficio.</p><div id="pv-crediti"></div><div id="pv-elenco-adm"></div>'+
   '<div class="pv-filtri"><span class="et">Cantiere</span>'+chip('cant','',  'Tutti',P.length)+C.filter(function(c){return nC[c.id]||c.id===FIL.cant;}).map(function(c){return chip('cant',c.id,c.nome,nC[c.id]||0);}).join('')+
   (senza||FIL.cant==='senza'?chip('cant','senza','Senza cantiere',senza):'')+'<span class="pv-sep"></span><span class="et">Stato</span>'+
   ['bozza','mandato','accettato','rifiutato'].map(function(s){return chip('stato',s,STATI[s],nS[s]);}).join('')+'</div><div class="pv-elenco">';
@@ -544,7 +554,7 @@ function elenco(){
     :'<div class="pv-azr"><span class="pv-b sm'+(p.stato==='bozza'?' pv-pr':'')+'">Apri</span></div>')+'</a>';});
  h+='</div></section>';
  app.innerHTML=h;
- caricaCrediti();
+ caricaCrediti();caricaElencoAdm();
  Array.prototype.forEach.call(app.querySelectorAll('[data-elimina]'),function(b){
   var via=function(e){e.preventDefault();e.stopPropagation();
    if(!confirm('Eliminare la bozza '+b.getAttribute('data-cod')+'? Non è mai stata mandata: sparisce dall\'elenco.'))return;
@@ -1005,6 +1015,36 @@ function disegnaCant(){var box=$('pv-cant');if(!box)return;var r=CANT;if(!r){box
  Array.prototype.forEach.call(box.querySelectorAll('[data-pccol]'),function(b){b.onclick=function(){
   if(!confirm('Collegare il preventivo a questo cantiere? Dopo il collegamento compare la lista di cosa manca.'))return;b.disabled=true;
   api('pc_collega',{id:CFG.id,commessa_id:b.getAttribute('data-pccol')}).then(function(x){b.disabled=false;if(x&&x.esito==='ok')caricaCant();else msg($('pv-cant-msg'),msgErr(x),'ko');});};});}
+// 10/11/2026 (elenco-1, chat 02B): Elenco fornitori TIX — iscrizioni da approvare, solo con l'accesso «Tutte le aziende»
+var EA=null,EA_ST={da_confermare:'Email da confermare',da_approvare:'Da approvare',approvato:'Nell\'elenco',rifiutato:'Rifiutata',nascosto:'Nascosta'},EA_TIPI={fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio'};
+function caricaElencoAdm(){var box=$('pv-elenco-adm');if(!box)return;api('ea_lista',{}).then(function(r){if(!r||r.esito!=='ok'){box.innerHTML='';return;}EA=r;disegnaEa();});}
+function disegnaEa(){var box=$('pv-elenco-adm'),r=EA,c=r.conteggi||{},aperto=box.querySelector('details')?box.querySelector('details').open:!!c.da_approvare;
+ var h='<details class="pv-ea"'+(aperto?' open':'')+'><summary><b>Elenco fornitori TIX</b> · solo per te · '+(c.da_approvare||0)+' da approvare · '+(c.approvato||0)+' nell\'elenco'+
+  (r.attivo!=='si'?' · le imprese lo vedono: '+es(r.attivo==='prova'?'solo tu (prova)':'no'):'')+'</summary>'+
+  '<div class="pv-ea-b"><button type="button" class="pv-b sm" data-ea="invito">Link d\'invito per i fornitori</button><button type="button" class="pv-b sm" data-ea="nuovo_codice">Cambia il link d\'invito</button><input type="text" id="ea-link" readonly placeholder="il link compare qui"></div>'+
+  ((r.righe||[]).length?'':'<p class="pv-ea-s">Nessuna iscrizione ancora.</p>')+
+  (r.righe||[]).map(function(f){return '<div class="pv-ea-r" data-eaid="'+es(f.id)+'"><div class="tt"><span><b>'+es(f.ragione_sociale)+'</b> · P. IVA '+es(f.partita_iva)+' · '+es(f.sede)+' · '+
+   (f.tipi||[]).map(function(t){return EA_TIPI[t]||t;}).join(', ')+(f.modificato_dopo_approvazione_il?' · <b>modificata dopo l\'approvazione</b>':'')+'</span><span class="st '+es(f.stato)+'">'+es(EA_ST[f.stato]||f.stato)+'</span></div>'+
+   '<div class="pv-ea-b"><button type="button" class="pv-b sm" data-ea="scheda">Scheda</button>'+
+   (f.stato==='da_approvare'||f.stato==='rifiutato'?'<button type="button" class="pv-b sm pv-pr" data-ea="approva">Approva</button>':'')+
+   (f.stato==='da_approvare'?'<button type="button" class="pv-b sm pv-togli" data-ea="rifiuta">Rifiuta</button>':'')+
+   (f.stato==='approvato'?'<button type="button" class="pv-b sm pv-togli" data-ea="nascondi">Nascondi</button>':'')+
+   (f.stato==='nascosto'?'<button type="button" class="pv-b sm" data-ea="riattiva">Riattiva</button>':'')+'</div><div class="pv-ea-s" data-easc></div></div>';}).join('')+'</details>';
+ box.innerHTML=h;}
+function schedaEa(s,ev){var L=function(t,v){return v?'<div><b>'+t+':</b> '+v+'</div>':'';};
+ return (s.logo_path?'<img alt="" src="https://www.tixcantiere.it/elenco/logo?p='+encodeURIComponent(s.logo_path)+'">':'')+
+  L('Voci',(s.voci||[]).map(function(v){return es(v.nome);}).join(' · '))+L('Altro',es(s.altro||''))+L('Province',es((s.province||[]).join(', ')))+
+  L('Email',es(s.email))+L('Telefono',es(s.telefono||''))+L('Sito',s.sito?'<a href="'+es(s.sito)+'" target="_blank" rel="noopener noreferrer">'+es(s.sito)+'</a>':'')+
+  L('Referente',es([s.referente_nome,s.referente_ruolo].filter(Boolean).join(', ')))+L('Su di loro',es(s.descrizione||''))+L('Motivo',es(s.motivo||''))+
+  L('Storia',(ev||[]).map(function(e){return es(e.evento)+' ('+es(String(e.il||'').slice(0,10).split('-').reverse().join('/'))+(e.chi?', '+es(e.chi):'')+')';}).join(' · '));}
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-ea]');if(!b)return;var az=b.getAttribute('data-ea'),riga=b.closest('[data-eaid]'),id=riga?riga.getAttribute('data-eaid'):'';
+ if(az==='invito'||az==='nuovo_codice'){if(az==='nuovo_codice'&&!confirm('Cambiare il link d\'invito? Quello di prima smette di funzionare.'))return;
+  api('ea_'+az,{}).then(function(r){var i=$('ea-link');if(i){i.value=r&&r.link?r.link:'Non è andato: riprova.';i.select();}});return;}
+ if(az==='scheda'){var sc=riga.querySelector('[data-easc]');if(sc.innerHTML){sc.innerHTML='';return;}sc.textContent='…';
+  api('ea_scheda',{id:id}).then(function(r){sc.innerHTML=r&&r.esito==='ok'?schedaEa(r.scheda||{},r.eventi):'Non è andato: riprova.';});return;}
+ var d={id:id};if(az==='rifiuta'||az==='nascondi'){var m=prompt(az==='rifiuta'?'Motivo del rifiuto (resta tra le note, il fornitore non riceve email):':'Motivo per cui la nascondi:','');if(m===null)return;d.motivo=m;}
+ if(az==='approva'&&!confirm('Approvare l\'iscrizione? Il fornitore riceve un\'email e compare nell\'elenco per le imprese.'))return;
+ b.disabled=true;api('ea_'+az,d).then(function(r){b.disabled=false;if(!r||r.esito!=='ok'){alert(r&&r.messaggio||'Non è andato: riprova.');return;}caricaElencoAdm();});});
 function caricaCrediti(){var box=$('pv-crediti');if(!box)return;
  api('cr_saldo',{}).then(function(r){if(!r||r.esito!=='ok'){box.innerHTML='';return;}var s=r.saldo||{};
   var h='<div class="pv-cr"><div class="pv-cr-t"><b>Crediti TIX: '+(s.totale||0)+'</b><span>'+
@@ -2164,7 +2204,21 @@ function azionePo(az,el){var pid=el.dataset.p;
   api('po_sposta',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}(CH?caricaCh():caricaOf());});return;}
  if(az==='usa'){if(!confirm('Mettere il testo di questa email come risposta del DL?'))return;el.disabled=true;
   api('po_usa_risposta',{posta_id:pid}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaCh();});}}
-function caricaOf(){CH=null;return Promise.all([api('of_elenco'),caricaPosta()]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;disegnaOf();});}
+function caricaOf(){CH=null;return Promise.all([api('of_elenco'),caricaPosta(),api('el_cerca',{solo_stato:true})]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;OF.elenco=!!(x[2]&&x[2].esito==='ok');disegnaOf();});}
+// 10/11/2026 (elenco-1, chat 02B): «Cerca nell'elenco TIX» — fornitori e subappaltatori iscritti all'elenco di TIX, per tipo, parola e provincia
+var EL=[],EL_TIPO='';
+function elForm(){var b=document.getElementById('of-el-box');if(!b)return;b.innerHTML='<div class="pv-ofbt"><select id="el-tipo" style="max-width:220px"><option value="">Tutti</option><option value="fornitore">Fornitori</option><option value="subappaltatore">Subappaltatori</option><option value="noleggio">Noleggi</option></select>'+
+ '<input type="text" id="el-testo" placeholder="Cosa cerchi: calcestruzzo, scavi, gru…" style="max-width:320px"><input type="text" id="el-prov" maxlength="2" placeholder="Prov." style="max-width:80px;text-transform:uppercase">'+
+ '<button type="button" class="pv-b sm pv-pr" data-ofx="el_cerca">Cerca</button></div><div id="el-ris"></div>';var t=document.getElementById('el-testo');if(t)t.focus();}
+function elRisultati(r){var box=document.getElementById('el-ris');if(!box)return;if(!r||r.esito!=='ok'){box.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}EL=r.righe||[];
+ if(!EL.length){box.innerHTML='<p class="sotto">Nessuna azienda dell\'elenco con questi filtri.</p>';return;}
+ box.innerHTML='<p class="sotto">'+EL.length+' aziende · prima quelle con la sede nella provincia, poi in ordine di nome. TIX non dà giudizi né classifiche.</p>'+EL.map(function(f,i){
+  return '<div class="pv-ofr"><div class="tt"><b>'+es(f.ragione_sociale)+'</b><span class="sotto">'+es(f.sede_comune)+' ('+es(f.sede_provincia)+')'+(f.stessa_provincia?' · sede nella provincia':'')+'</span></div>'+
+   (f.logo_path?'<img alt="" style="max-height:40px;max-width:140px;display:block;margin:4px 0" src="https://www.tixcantiere.it/elenco/logo?p='+encodeURIComponent(f.logo_path)+'">':'')+
+   '<p class="sotto" style="margin:4px 0">'+es((f.voci||[]).slice(0,8).map(function(v){return v.nome;}).join(' · '))+((f.voci||[]).length>8?' · …':'')+(f.altro?' · '+es(f.altro):'')+'</p>'+
+   '<p class="sotto" style="margin:4px 0">'+es(f.email)+(f.telefono?' · '+es(f.telefono):'')+(f.sito?' · <a href="'+es(f.sito)+'" target="_blank" rel="noopener noreferrer">sito</a>':'')+
+   (f.referente_nome?' · '+es(f.referente_nome)+(f.referente_ruolo?' ('+es(f.referente_ruolo)+')':''):'')+'</p>'+(f.descrizione?'<p class="sotto" style="margin:4px 0">'+es(f.descrizione)+'</p>':'')+
+   '<div class="pv-ofbt"><button type="button" class="pv-b sm pv-pr" data-ofx="el_usa" data-i="'+i+'">Chiedi l\'offerta a questa azienda</button></div></div>';}).join('');}
 function disegnaOf(){
  var r=OF,bozza=r.stato==='bozza';
  var aperte={np:1,da_quotare:1,da_verificare:1};
@@ -2175,6 +2229,7 @@ function disegnaOf(){
  h+='<label><span>Dalla Rubrica (fornitori e subappaltatori)</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
   rub.map(function(k,i){return '<option value="'+i+'">'+es((k.tipo==='fornitore'?'Fornitore · ':'Subappaltatore · ')+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
   (rub.length?'':'<p class="pv-ofnota">Nella Rubrica non ci sono ancora fornitori o subappaltatori: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Fornitore».</p>')+
+  (OF.elenco?'<div class="pv-ofnota"><button type="button" class="pv-b sm" data-ofx="el_apri">Cerca nell\'elenco TIX</button> <small>fornitori, subappaltatori e noleggi iscritti all\'elenco di TIX</small><div id="of-el-box"></div></div>':'')+
   '<label><span>A chi va la richiesta</span><input type="text" id="of-dest" maxlength="200"></label>'+
   '<label><span>Email del fornitore (fino a 10, separate da virgola)</span><input type="text" id="of-ea"></label>'+
   '<label><span>Email dell\'impresa dove arrivano le risposte (fino a 5) · ricevono anche una copia della richiesta</span><input type="text" id="of-ei" value="'+es(ricorda('of_imp')||(r.impresa&&r.impresa.email)||'')+'"></label>'+
@@ -2214,13 +2269,20 @@ function voceSel(){return Array.prototype.slice.call(document.querySelectorAll('
 function campiRdo(box){var d={};box.querySelectorAll('[data-k]').forEach(function(x){d[x.dataset.k]=x.value;});return d;}
 function mOf(box,t,cl){var el=box?box.querySelector('[data-m]'):null;if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
 function azioneOf(az,el){
+ if(az==='el_apri'){elForm();return;}
+ if(az==='el_cerca'){var r0=document.getElementById('el-ris');if(r0)r0.innerHTML='<p class="sotto">Cerco…</p>';
+  api('el_cerca',{tipo:document.getElementById('el-tipo').value,testo:document.getElementById('el-testo').value,provincia:document.getElementById('el-prov').value}).then(elRisultati);return;}
+ if(az==='el_usa'){var f=EL[Number(el.dataset.i)];if(!f)return;var s0=document.getElementById('of-rub');if(s0){s0.value='';delete s0.dataset.cid;}
+  document.getElementById('of-dest').value=f.ragione_sociale||'';document.getElementById('of-ea').value=f.email||'';
+  var tp=document.getElementById('el-tipo').value;EL_TIPO=tp==='subappaltatore'?'subappaltatore':tp==='fornitore'?'fornitore':((f.tipi||[]).length===1&&f.tipi[0]!=='noleggio'?f.tipi[0]:'altro');
+  nota('of-msg','Destinatario preso dall\'elenco TIX: controlla e premi «Prepara la richiesta».','ok');document.getElementById('of-dest').scrollIntoView({block:'center'});return;}
  var box=el.closest('[data-rdo]'),rid=box?box.dataset.rdo:null;
  if(az==='prepara'){var sel=document.getElementById('of-rub'),ei=document.getElementById('of-ei').value;
   var d={voci:voceSel(),destinatario:document.getElementById('of-dest').value,email_a:document.getElementById('of-ea').value,email_impresa:ei,
-   contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:sel&&sel.value!==''?sel.dataset.tipo:'altro'};
+   contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro')};
   if(!d.voci.length){nota('of-msg','Scegli almeno una voce.','err');return;}
   el.disabled=true;nota('of-msg','Preparo la richiesta…');
-  api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);caricaOf();});return;}
+  api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';caricaOf();});return;}
  if(az==='scegli'){el.disabled=true;api('of_scegli',{riga_id:el.dataset.riga}).then(function(r){if(r.esito!=='ok'){el.disabled=false;alert(errore(r));return;}caricaOf().then(function(){OF.cambiato=true;});});return;}
  if(az==='copia'){var q=(OF.richieste||[]).filter(function(x){return x.id===rid;})[0];var d2=campiRdo(box);
   var t=(d2.oggetto||q.oggetto)+'\n\n'+(d2.testo||q.testo);
