@@ -403,6 +403,9 @@ const STILE_PORTA =
   ".riga-b{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}" +
   ".ms{list-style:none;margin:0;padding:0}.ms li{border-top:1px solid #eee;padding:10px 0}.ms .q{font-weight:800;font-variant-numeric:tabular-nums}.ms .sub{color:#5b6560;font-size:.85rem}" +
   ".oss{background:#FEF2F2;border-left:4px solid #b91c1c;border-radius:8px;padding:8px 10px;margin:6px 0;color:#7f1d1d;font-weight:700;font-size:.9rem}" +
+  ".fl{font-size:.88rem;font-weight:700;margin:0 0 4px}.fl small{font-weight:400;color:#6b7280}.foto-b{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px}" +
+  ".foto-b label.fb{display:inline-flex;align-items:center;gap:6px;min-height:46px;margin:0;padding:0 14px;border:1.5px solid var(--sub);border-radius:10px;background:#FBF0EC;color:var(--sub-s);font-weight:700;cursor:pointer}" +
+  ".foto-b input{display:none}" +
   ".ft{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}.ft a,.ft span.th{position:relative;display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;background:#eee}.ft img{width:100%;height:100%;object-fit:cover}" +
   ".ft .x{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-weight:900;cursor:pointer}" +
   "table.el{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}table.el td,table.el th{padding:6px 4px;border-bottom:1px solid #eee;text-align:right;vertical-align:top}" +
@@ -495,7 +498,10 @@ function modulo(m){m=m||{};FOTO=(m.foto||[]).slice();INVIO=0;var voci=(K.voci||[
     '<p class="calc" id="m-calc"></p><label>Quantità<input type="text" inputmode="decimal" id="m-q" value="'+(vuoto(m.pu)&&vuoto(m.l)&&vuoto(m.w)&&vuoto(m.h)?n(m.quantita!=null?Math.abs(m.quantita):null):'')+'"></label>'+
     '<label><input type="checkbox" id="m-meno"'+(Number(m.quantita)<0?' checked':'')+'> Misura in meno (correzione)</label>'+
     '<label>Descrizione <small>(facoltativa; obbligatoria per una misura in meno)</small><input type="text" id="m-ds" maxlength="600" value="'+es(m.descrizione||'')+'"></label>'+
-    '<label>Foto <small>(fino a 6)</small><input type="file" id="m-file" accept="image/*" multiple></label><div class="ft" id="m-ft"></div>'+
+    // 10/11/2026 (Filippo): oltre alle foto già fatte, anche la fotocamera del telefono
+    '<p class="fl">Foto <small>(fino a 6)</small></p><div class="foto-b">'+
+    '<label class="fb">&#128247; Scatta una foto<input type="file" id="m-cam" accept="image/*" capture="environment"></label>'+
+    '<label class="fb">&#128444;&#65039; Scegli dalle foto<input type="file" id="m-file" accept="image/*" multiple></label></div><div class="ft" id="m-ft"></div>'+
     '<label>Chi scrive <small>(nome e cognome)</small><input type="text" id="m-chi" maxlength="120" autocomplete="name" value="'+es(ls('sp_chi'))+'"></label>';
   dlg(m.id?(m.stato==='osservazione'?'Correggi la misura':'Modifica la misura'):'Nuova misura',m.osservazione&&m.stato==='osservazione'?'Osservazione: '+m.osservazione:'',c,'Salva',function(){
     if(INVIO){$('#sp-dlg-m').textContent='Aspetta la fine dell’invio delle foto.';return;}
@@ -505,7 +511,7 @@ function modulo(m){m=m||{};FOTO=(m.foto||[]).slice();INVIO=0;var voci=(K.voci||[
     ls('sp_chi',d.autore);ls('sp_lotto',d.lotto);var b=$('#sp-dlg-si');b.disabled=true;
     api('misura',{dati:d}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();avviso('Misura salvata: '+qt(r.quantita));ricarica();}else $('#sp-dlg-m').textContent=errore(r);});});
   ['m-pu','m-l','m-w','m-h','m-v'].forEach(function(i){var x=$('#'+i);if(x)x.addEventListener('input',calcola);});calcola();fotoLista();}
-document.addEventListener('change',function(ev){if(ev.target.id==='m-file'){caricaFoto(ev.target.files);ev.target.value='';}});
+document.addEventListener('change',function(ev){if(ev.target.id==='m-file'||ev.target.id==='m-cam'){caricaFoto(ev.target.files);ev.target.value='';}});
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a'):null;if(!t)return;
   if(t.id==='sp-dlg-no'){chiudi();return;}
   if(t.id==='sp-dlg-si'){if(dlg.fn)dlg.fn();return;}
