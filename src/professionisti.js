@@ -651,7 +651,9 @@ const STILE = "[hidden]{display:none!important}" +
   "box-shadow:0 1px 2px rgba(16,27,43,.05),0 8px 20px -14px rgba(16,27,43,.2)}" +
   "@media screen{.scheda::before{content:\"\";position:absolute;inset:-1px;background:linear-gradient(135deg,#1B2F4A,#F26A10);padding:2px;" +
   "-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;border-radius:inherit}}" +
-  "@media print{.scheda{border:1px solid #1B2F4A;box-shadow:none}.testa{background:none;color:#000}.testa p,.chi{color:#333}.esci,.azioni,.torna{display:none}}" +
+  // 10/11/2026 (Filippo, regola dei loghi): sui fogli stampati il logo TIX va solo in basso a destra (lo mette il documento) e in alto
+  // quello dell'impresa: in stampa si toglie la riga del marchio «TIX · Area professionisti» con il nome di chi è entrato
+  "@media print{.scheda{border:1px solid #1B2F4A;box-shadow:none}.testa{background:none;color:#000;padding:0 0 8px}.testa .riga{display:none}.testa h1{margin-top:0}.testa p,.chi{color:#333}.esci,.azioni,.torna{display:none}}" +
   "a.scheda:hover,a.scheda:focus-visible{outline:none;box-shadow:0 1px 2px rgba(16,27,43,.08),0 12px 26px -14px rgba(16,27,43,.35)}" +
   ".nome{font-weight:700;font-size:1.05rem;overflow-wrap:anywhere}.sub{color:var(--s);font-size:.9rem;margin-top:2px}.sub b{color:var(--t);font-weight:600}" +
   ".chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--chip);border-radius:999px;padding:2px 10px;font-size:.8rem;font-weight:600;white-space:nowrap}" +
