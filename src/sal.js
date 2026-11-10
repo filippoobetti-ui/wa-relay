@@ -157,6 +157,8 @@ export async function portaleSal(request, env, base, inUrl, h) {
   if (sotto === "/sal/firmato/carica") return caricaFirmato(request, env, inUrl, h);
   if (sotto === "/sal/firmato") return scaricaFirmato(request, env, base, inUrl, h);
   if (sotto === "/sal/documento") return documento(request, env, base, inUrl, h);
+  // 10/11/2026 (Filippo): pagina «Subappaltatori» a sé, aperta dal pulsante nella pagina del cantiere
+  if (sotto === "/sal/subappaltatori") return rottaSubappaltatori(request, env, base, inUrl, h);
   if (sotto.startsWith("/sal/sub/")) return portaleSub(request, env, base, inUrl, h, { salPdf, salXlsx });
   if (sotto !== "/sal") return new Response("Not Found", { status: 404 });
   const metodo = request.method;
@@ -167,6 +169,8 @@ export async function portaleSal(request, env, base, inUrl, h) {
   const c = String(inUrl.searchParams.get("c") || "").toLowerCase().replace(/[^0-9a-f-]/g, "").slice(0, 36);
   if (!UUID.test(c)) return Response.redirect(inUrl.origin + base + "/?t=" + tok, 303);
   const torna = base + "/?t=" + tok + "&c=" + c;
+  // 10/11/2026: i subappaltatori hanno la loro pagina; i vecchi collegamenti alla scheda vanno lì
+  if (inUrl.searchParams.get("s") === "subappalti") return Response.redirect(inUrl.origin + base + "/sal/subappaltatori?t=" + tok + "&c=" + c, 303);
   const d = await h.rpc(env, "sal_contesto", { p_token: tok, p_commessa: c }, 20000).catch(() => null);
   if (!d) {
     return h.risposta(h.foglio(base, "SAL", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>' +
@@ -1133,7 +1137,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<nav class="sal-tab" role="tablist" aria-label="Sezioni del SAL">' +
     '<button type="button" role="tab" data-s="avanzamento">Avanzamento</button><button type="button" role="tab" data-s="sal">SAL</button>' +
     '<button type="button" role="tab" data-s="contratto">Contratto</button><button type="button" role="tab" data-s="computo">Computo</button>' +
-    '<button type="button" role="tab" data-s="subappalti" id="tab-sub" hidden>Subappalti</button></nav>' +
+    '<button type="button" role="tab" data-s="subappalti" id="tab-sub" hidden>Subappaltatori &rsaquo;</button></nav>' +
     '<section id="sal-corpo" class="sal-corpo" aria-live="polite"></section>' +
     '<p class="nota">TIX™ prepara il SAL dell’impresa: la verifica e l’approvazione spettano alla Direzione Lavori. ' +
     'Gli importi sono visibili solo a chi entra nell’area riservata dell’impresa e non vengono mai mandati a nessuno da TIX.</p>' +
@@ -1143,6 +1147,56 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<div class="dl-b"><button type="button" class="no" id="dlg-no">Chiudi</button><button type="submit" class="si" id="dlg-si">Salva</button></div></form></dialog>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
     "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
+}
+
+// ---------------------------------------------------------------------------- pagina «Subappaltatori» (10/11/2026)
+// Filippo: «Io devo avere un'icona con scritto subappaltatori»: il pulsante nella pagina del cantiere (subIniezione in
+// subappalti.js) apre questa pagina, con l'elenco dei subappaltatori di quel cantiere. Stessa app della scheda (SUB_APP),
+// da sola; il database decide chi entra (sub_pulsante → _sub_accesso: SAL acceso, subappalti_attivo, cantiere non cancellato).
+async function rottaSubappaltatori(request, env, base, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
+  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  const tok = m[0].toLowerCase();
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase().replace(/[^0-9a-f-]/g, "").slice(0, 36);
+  if (!UUID.test(c)) return Response.redirect(inUrl.origin + base + "/?t=" + tok, 303);
+  const torna = base + "/?t=" + tok + "&c=" + c;
+  if (env.SUBAPPALTI === "off") return Response.redirect(inUrl.origin + torna, 303);
+  const d = await h.rpc(env, "sub_pulsante", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+  if (!d) {
+    return h.risposta(h.foglio(base, "Subappaltatori", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>' +
+      '<p class="piede"><a href="' + h.esc(torna) + '">&larr; Torna al cantiere</a></p>'), 503);
+  }
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito !== "ok" || d.attiva !== true) return Response.redirect(inUrl.origin + torna, 303);
+  return new Response(metodo === "HEAD" ? null : paginaSubappaltatori(base, tok, c, d, h), { status: 200, headers: h.headers() });
+}
+
+function paginaSubappaltatori(base, tok, c, d, h) {
+  const e = h.esc;
+  const cant = d.cantiere || {};
+  const torna = base + "/?t=" + tok + "&c=" + c;
+  const logoImpresa = d.logo_impresa
+    ? '<div class="dx"><div class="logo-impresa"><img src="' + e(d.logo_impresa) + '" alt="' + e(d.azienda_nome || "") + '"></div></div>'
+    : '<div class="dx"></div>';
+  const cfg = JSON.stringify({ u: base + "/sal", t: tok, c: c, torna: torna, s: "subappalti", solo: true }).replace(/</g, "\\u003c");
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
+    "<title>Subappaltatori - " + e(cant.nome || "") + "</title>" + h.testa(base) +
+    // colore dei subappalti (terracotta) al posto del viola del SAL
+    "<style>" + STILE + SUB_STILE + ":root{--sal:#B5523B;--sal-s:#8A3A27;--sal-c:#FBF0EC;--sal-b:#EBC9BE}</style></head><body>" +
+    "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
+    '<div class="centro"><h1>Subappaltatori</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
+    '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
+    (d.chiuso ? '<div class="avviso">Cantiere chiuso: i subappalti restano da consultare, non si scrivono misure nuove.</div>' : "") +
+    '<section id="sal-corpo" class="sal-corpo" aria-live="polite"></section>' +
+    '<p class="nota">Prezzi e contabilità dei subappaltatori si vedono solo nell’area riservata dell’impresa. Ogni subappaltatore, con il suo link, vede solo le sue voci. ' +
+    'TIX non manda niente a nessuno: il link lo mandi tu.</p>' +
+    '<noscript><p class="nota"><b>Per usare questa pagina serve JavaScript attivo nel browser.</b></p></noscript></main>' +
+    '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
+    "<script>window.SAL_C=" + cfg + ";</script><script>" + SUB_APP + "</script></body></html>";
 }
 
 const STILE =
@@ -1266,7 +1320,7 @@ function api(azione,extra){var b={t:C.t,c:C.c,azione:azione};extra=extra||{};for
 function ricarica(){return api('contesto').then(function(r){if(r&&r.esito==='ok'){D=r;tutto();}else if(r&&(r.esito==='gettone'||r.esito==='spento')){location.href=C.torna;}});}
 function errore(r){if(!r)return 'Il servizio non risponde: riprova.';if(r.esito==='chiuso')return 'Il cantiere è chiuso.';if(r.esito==='incerto')return 'Non sappiamo se è andata a buon fine: ricarica la pagina e controlla.';return r.messaggio||'Non è stato possibile salvare.';}
 var K=D.computo||null,CL=D.calcolo||null,CO=CL?CL.conto:null;
-var scheda=C.s||ls('sal_scheda')||'avanzamento';if(!K||!CL||!(CL.voci||[]).length)scheda=C.s||'computo';
+var scheda=C.s||ls('sal_scheda')||'avanzamento';if(scheda==='subappalti')scheda='avanzamento';if(!K||!CL||!(CL.voci||[]).length)scheda=C.s||'computo';
 var IMP=null,impId=D.import?D.import.id:null,impTutte=false,impTimer=null,impGiri=0;
 var filtro='tutte',cerca='';
 var chiusi={};
@@ -1677,6 +1731,7 @@ document.addEventListener('change',function(ev){var i=ev.target;if(!i.classList|
 
 // ---------------- eventi
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a,tr'):null;if(!t)return;
+  if(t.id==='tab-sub'){location.href=C.u+'/subappaltatori?t='+C.t+'&c='+C.c;return;}
   if(t.matches('.sal-tab button')){scheda=t.getAttribute('data-s');ls('sal_scheda',scheda);schede();corpo();return;}
   if(t.hasAttribute('data-vai')){ev.preventDefault();scheda=t.getAttribute('data-vai');schede();corpo();return;}
   if(t.hasAttribute('data-f')){filtro=t.getAttribute('data-f');corpo();return;}

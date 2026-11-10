@@ -6,6 +6,8 @@
 //                                                       sub_misura_decidi, sub_sal_emetti, sub_sal_stato
 //   GET  /sal/sub/doc?t=&c=&k=<subappalto>[&id=<contabilità>]&f=pdf|xlsx → PDF ed Excel (gli stessi del SAL)
 //   GET  /sal/sub/foto?t=&c=&p=<percorso>            → foto di una misura del sub
+//   GET  /sal/subappaltatori?t=&c=                   → pagina «Subappaltatori» a sé (sal.js, 10/11/2026), aperta dal
+//                                                       pulsante nella pagina del cantiere (subPulsante / subIniezione)
 // Porta del sub (link personale senza password: un cantiere, scadenza, revoca, registro):
 //   GET  /sal/sub/porta?k=<codice>   → il codice va in un cookie (tix_sub, HttpOnly) e sparisce dall'indirizzo
 //   GET  /sal/sub/porta              → pagina del sub: misure dal telefono, osservazioni, contabilità
@@ -80,6 +82,64 @@ function pulisci(azione, d) {
     }
   }
   return o;
+}
+
+// ---------------------------------------------------------------------------- pulsante nella pagina del cantiere (10/11/2026)
+// Filippo: «Io devo avere un'icona con scritto subappaltatori … cliccando là capire quali sono i subappaltatori dentro in quel
+// determinato cantiere». Chiamata fatta da index.js insieme a dashboard_html: errore o attesa oltre 8 secondi = nessun pulsante.
+export async function subPulsante(env, token, commessa) {
+  if (!env || !env.SUPABASE_SERVICE_KEY || env.SUBAPPALTI === "off") return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch((env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co") + "/rest/v1/rpc/sub_pulsante", {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
+        "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ p_token: token, p_commessa: commessa }), signal: ctrl.signal
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || typeof j !== "object" || j.esito !== "ok" || j.attiva !== true) return null;
+    return { attiva: true, contratti: Math.max(0, Math.min(9999, Number(j.contratti) || 0)),
+      da_decidere: Math.max(0, Math.min(999, Number(j.da_decidere) || 0)) };
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Nono pulsante della riga dei pulsanti del cantiere, subito dopo «Offerte» (o dopo «Costruttivi» / «Progetti» se mancano).
+// index.js mette questo script DOPO quello delle Offerte nella catena: a ogni giro (subito, 0, 60, 150, 400 ms e al caricamento)
+// si rimette dopo di loro. Il numero arancione = misure mandate dai subappaltatori e ancora da decidere.
+export function subIniezione(base, token, commessa, daDecidere) {
+  const u = base + "/sal/subappaltatori?t=" + token + "&c=" + encodeURIComponent(commessa);
+  const n = Math.max(0, Math.min(999, Number(daDecidere) || 0));
+  const icona = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v2z"/><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/>' +
+    '<path d="M4 15v-3a6 6 0 0 1 6-6"/><path d="M14 6a6 6 0 0 1 6 6v3"/></svg>';
+  const etichetta = icona + " Subappaltatori" + (n ? ' <span class="gl-sb-n" title="Misure da decidere">' + n + "</span>" : "");
+  return "<style>.gl-sb-barra{max-width:960px;margin:10px auto 0;padding:0 12px;text-align:right}" +
+    ".gl-sb-b{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:0 16px;border:1.5px solid #B5523B;border-radius:10px;background:#FBF0EC;color:#8A3A27;font:inherit;font-size:.92rem;font-weight:700;text-decoration:none;box-shadow:0 0 0 3px rgba(181,82,59,.14)}" +
+    ".gl-sb-b:hover,.gl-sb-b:focus-visible{background:#B5523B;color:#fff;outline:none}" +
+    ".gl-sb-n{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#B45309;color:#fff;font-size:.74rem;font-weight:800}" +
+    ".gl-of-barra .gl-sb-b,.gl-cs-barra .gl-sb-b,.gl-pg-barra .gl-sb-b{margin-left:8px}" +
+    // con nove pulsanti: 3 colonne sul computer (tre righe), 2 fino a 900 px, 1 sul telefono
+    ".gl-azioni.gl-az5.gl-az6.gl-az7.gl-az8.gl-az9{grid-template-columns:repeat(3,minmax(0,1fr))}" +
+    "@media (max-width:900px){.gl-azioni.gl-az5.gl-az6.gl-az7.gl-az8.gl-az9{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
+    "@media (max-width:640px){.gl-azioni.gl-az5.gl-az6.gl-az7.gl-az8.gl-az9{grid-template-columns:minmax(0,1fr)}}" +
+    "@media (prefers-color-scheme:dark){.gl-sb-b{background:#3a1d15;color:#f3d6cc;border-color:#D07A63}}</style>" +
+    "<script>(function(){try{var a=document.createElement('a');a.className='gl-sb-b';a.href=" + JSON.stringify(u) + ";a.innerHTML=" + JSON.stringify(etichetta) + ";" +
+    "function metti(){var r=document.querySelector('.gl-azioni');" +
+    "if(r){var prima=r.querySelector('.gl-of-b')||r.querySelector('.gl-cs-b')||r.querySelector('.gl-pg-b');if(prima){if(prima.nextElementSibling!==a)r.insertBefore(a,prima.nextSibling);}else if(r.lastElementChild!==a)r.appendChild(a);" +
+    "var v=document.querySelector('.gl-sb-barra');if(v&&!v.children.length&&v.parentNode)v.parentNode.removeChild(v);" +
+    "var n=r.children.length;r.classList.toggle('gl-az4',n===4);r.classList.toggle('gl-az5',n>=5);r.classList.toggle('gl-az6',n>=6);r.classList.toggle('gl-az7',n>=7);r.classList.toggle('gl-az8',n>=8);r.classList.toggle('gl-az9',n>=9);return;}" +
+    "var pb=document.querySelector('.gl-of-barra')||document.querySelector('.gl-cs-barra')||document.querySelector('.gl-pg-barra');if(pb){if(pb.lastElementChild!==a)pb.appendChild(a);return;}" +
+    "if(a.parentNode)return;var b=document.createElement('div');b.className='gl-sb-barra';b.appendChild(a);var nav=document.querySelector('nav.schede');" +
+    "if(nav&&nav.parentNode){nav.parentNode.insertBefore(b,nav.nextSibling);}else{document.body.insertBefore(b,document.body.firstChild);}}" +
+    "metti();if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',metti);setTimeout(metti,0);setTimeout(metti,60);setTimeout(metti,150);setTimeout(metti,400);" +
+    "window.addEventListener('load',metti);}catch(e){}})();</script>";
 }
 
 export async function portaleSub(request, env, base, inUrl, h, fn) {
@@ -167,7 +227,7 @@ async function docImpresa(request, env, base, inUrl, h, fn) {
   const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
   if (!UUID.test(c) || !UUID.test(k)) return new Response("Not Found", { status: 404 });
   const r = await h.rpc(env, "sub_doc_dati", { p_token: tok, p_commessa: c, p_contratto: k, p_sal: UUID.test(id) ? id : null }, 25000).catch(() => null);
-  return rispostaFile(r, inUrl.searchParams.get("f") === "pdf" ? "pdf" : "xlsx", fn, metodo, h, base, inUrl, base + "/sal?t=" + tok + "&c=" + c + "&s=subappalti");
+  return rispostaFile(r, inUrl.searchParams.get("f") === "pdf" ? "pdf" : "xlsx", fn, metodo, h, base, inUrl, base + "/sal/subappaltatori?t=" + tok + "&c=" + c);
 }
 
 async function streamFoto(env, percorso, metodo) {
@@ -488,11 +548,12 @@ function api(azione,extra){var b={t:C.t,c:C.c,azione:azione};extra=extra||{};for
   return fetch(C.u+'/sub/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
     .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};});}
 function errore(r){if(!r)return 'Il servizio non risponde: riprova.';if(r.esito==='chiuso')return 'Il cantiere è chiuso.';if(r.esito==='incerto')return 'Non sappiamo se è andata a buon fine: ricarica la pagina e controlla.';return r.messaggio||'Non è stato possibile salvare.';}
-function attiva(){var b=document.querySelector('.sal-tab button[data-s=subappalti]');return b&&b.getAttribute('aria-selected')==='true';}
+function attiva(){if(C.solo)return true;var b=document.querySelector('.sal-tab button[data-s=subappalti]');return b&&b.getAttribute('aria-selected')==='true';}
 function carica(){return api('contesto').then(function(r){SD=r||{esito:'incerto'};var t=document.getElementById('tab-sub');if(t)t.hidden=!(SD.esito==='ok');if(EL&&attiva())EL.innerHTML=pagina();});}
 window.SUB_MOSTRA=function(el){EL=el;el.innerHTML=pagina();if(!carico){carico=true;carica();}};
 // all'apertura della pagina SAL: se la contabilità dei sub è attiva per questo accesso, compare la scheda
-document.addEventListener('DOMContentLoaded',function(){if(!carico){carico=true;carica();}});
+// pagina «Subappaltatori» a sé (10/11/2026): l'elenco si apre subito
+document.addEventListener('DOMContentLoaded',function(){var el=C.solo?document.getElementById('sal-corpo'):null;if(el){window.SUB_MOSTRA(el);return;}if(!carico){carico=true;carica();}});
 function regola(k){var r=k.regola;return r==='mensile'?'contabilità mensile':r==='soglia'?'ogni '+eur(k.soglia_importo)+' € di lavori':r==='traguardi'?'a traguardi':'unica a fine lavori';}
 function kk(id){var a=(SD&&SD.contratti)||[];for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
 function voceDi(k,id){var a=k.voci||[];for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
@@ -500,8 +561,8 @@ function fotoU(p){return C.u+'/sub/foto?t='+C.t+'&c='+C.c+'&p='+encodeURICompone
 function docU(k,id,f){return C.u+'/sub/doc?t='+C.t+'&c='+C.c+'&k='+k+(id?'&id='+id:'')+'&f='+f;}
 function pagina(){
   if(!SD)return '<div class="pann"><p class="nota" style="margin:0">Caricamento dei subappalti…</p></div>';
-  if(SD.esito!=='ok')return '<div class="pann"><h2>Subappalti</h2><p>'+(SD.esito==='spento'?'La contabilità dei subappaltatori non è attiva per questo accesso.':errore(SD))+'</p></div>';
-  var h='<div class="pann"><h2 style="color:var(--sub-s)">Subappalti</h2><p style="margin:0">Ogni subappaltatore scrive le sue misure dal telefono con un link personale, senza password. Tu le accetti riga per riga e approvi la sua contabilità. '+
+  if(SD.esito!=='ok')return '<div class="pann"><h2>Subappaltatori</h2><p>'+(SD.esito==='spento'?'La contabilità dei subappaltatori non è attiva per questo accesso.':errore(SD))+'</p></div>';
+  var h='<div class="pann"><h2 style="color:var(--sub-s)">'+(C.solo?'Subappaltatori di questo cantiere':'Subappaltatori')+'</h2><p style="margin:0">Ogni subappaltatore scrive le sue misure dal telefono con un link personale, senza password. Tu le accetti riga per riga e approvi la sua contabilità. '+
     'Il sub vede solo le sue voci e i suoi prezzi: mai i prezzi verso il committente, il margine o gli altri subappaltatori. TIX non manda niente a nessuno: il link lo mandi tu.</p>'+
     (SD.chiuso?'':'<div class="riga-b"><button type="button" class="b sb-pr" data-sb="nuovo">+ Nuovo subappalto</button></div>')+'</div>';
   var K=SD.contratti||[];
