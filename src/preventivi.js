@@ -28,6 +28,9 @@
 // per «Prepara con TIX» anche impostazioni.preventivi_ia_attiva (no / prova / si).
 // ============================================================================
 
+// 10/11/2026 (rdo-lettura-1, chat 02B): lettore comune delle offerte (della chat Analisi; qui solo usato)
+import { leggiOffertaFornitore, LETTORE_MAX_PDF, LETTORE_MAX_FOTO } from "./lettore-offerte.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_FILE = 18 * 1024 * 1024;
 const AZIONI = new Set(["nuovo", "intestazione", "voce", "togli_voce", "sposta_voce", "manda", "revisione", "accettato", "rifiutato",
@@ -145,6 +148,8 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/firmato") return request.method === "POST" ? caricaFirmato(request, env, inUrl, h) : scaricaFirmato(request, env, base, inUrl, h);
   if (sotto === "/preventivi/ia/file") return caricaFileIa(request, env, inUrl, h);
   if (sotto === "/preventivi/posta/file") return scaricaPosta(request, env, base, inUrl, h); // 08/11/2026 (preventivi-posta-1)
+  if (sotto === "/preventivi/of/leggi") return leggiOffertaRdo(request, env, inUrl, h);        // 10/11/2026 (rdo-lettura-1)
+  if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -2256,7 +2261,10 @@ function disegnaOf(){
     return '<tr><td><b>'+g.ordine+'.</b> '+es(g.descrizione)+'</td><td class="n">'+String(g.quantita==null?'':g.quantita).replace('.',',')+' '+es(g.unita||'')+'</td>'+
      '<td><input type="text" inputmode="decimal" data-voce="'+g.voce_id+'" value="'+(g.prezzo==null?'':String(g.prezzo).replace('.',','))+'"></td><td><input type="text" data-nota="'+g.voce_id+'" maxlength="500" value="'+es(g.note||'')+'" style="width:100%"></td></tr>';}).join('')+'</table>'+
     '<label><span>Data dell\'offerta</span><input type="date" data-k="data" value="'+es(q.offerta_data||'')+'" style="max-width:200px"></label>'+
-    '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button><button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button></div>';
+    '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button><button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button>'+
+    (OF.lettura_attiva?'<label class="pv-b" style="cursor:pointer">Leggi l\'offerta del fornitore<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofleggi="'+q.id+'" style="display:none"></label>':'')+
+    (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
+    '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>';
   }
   h+=postaDi('rdo',q.id);
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
@@ -2265,6 +2273,26 @@ function disegnaOf(){
  var sel=document.getElementById('of-rub');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;};
 }
+// 10/11/2026 (rdo-lettura-1): «Leggi l'offerta del fornitore» → i prezzi letti vanno nei campi, da controllare e salvare
+function leggiOfferta(inp){var f=inp.files&&inp.files[0],rid=inp.getAttribute('data-ofleggi'),box=document.querySelector('[data-rdo="'+rid+'"]'),nb=box?box.querySelector('[data-oflet]'):null;if(!f||!box||!nb)return;
+ if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){nb.hidden=false;nb.innerHTML='<b>Si leggono PDF, JPG e PNG.</b> Per gli altri file inserisci i prezzi a mano.';inp.value='';return;}
+ nb.hidden=false;nb.innerHTML='Leggo l\'offerta con l\'intelligenza artificiale… può servire fino a un minuto.';inp.disabled=true;
+ fetch(CFG.u.replace(/\/api$/,'/of/leggi')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f})
+ .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};}).then(function(r){inp.disabled=false;inp.value='';
+  if(!r||r.esito!=='ok'){nb.innerHTML='<b>'+es(r&&r.messaggio||errore(r))+'</b>';return;}
+  var p=r.proposta||{},n=0,tot=box.querySelectorAll('[data-voce]').length;
+  (p.righe||[]).forEach(function(g){if(!g.voce_id||g.prezzo==null||g.prezzo==='')return;var i=box.querySelector('[data-voce="'+g.voce_id+'"]');if(!i)return;
+   i.value=String(g.prezzo).replace('.',',');n++;var no=box.querySelector('[data-nota="'+g.voce_id+'"]');if(no&&g.note&&!no.value)no.value=String(g.note).slice(0,500);});
+  var d=box.querySelector('[data-k="data"]');if(d&&p.data&&/^\d{4}-\d{2}-\d{2}$/.test(p.data))d.value=p.data;
+  var h='<b>Prezzi letti su '+n+' voci di '+tot+'.</b> Controllali e premi «Salva l\'offerta»: finché non salvi non cambia niente.';
+  if(p.iva==='inclusa')h+='<p style="color:#B3261E;font-weight:700;margin:6px 0 0">I prezzi sembrano IVA compresa: controllali e togli l\'IVA prima di salvare (il campo è sempre + IVA).</p>';
+  if(p.numero||p.valida_fino)h+='<p style="margin:6px 0 0">'+(p.numero?'Offerta n. '+es(p.numero):'')+(p.valida_fino?' · valida fino al '+es(dt(p.valida_fino)):'')+'</p>';
+  if((p.dubbi||[]).length)h+='<p style="margin:6px 0 0"><b>Dubbi:</b> '+p.dubbi.map(es).join(' · ')+'</p>';
+  if((p.mancano||[]).length)h+='<p style="margin:6px 0 0"><b>Non trovati:</b> '+p.mancano.map(es).join(' · ')+'</p>';
+  if(r.ricarica_eur)h+='<p style="margin:6px 0 0">Per questa lettura TIX ha usato 1 credito per l\'intelligenza artificiale.</p>';
+  if(r.salvato)h+='<p style="margin:6px 0 0">Il file dell\'offerta è salvato nella richiesta.</p>';
+  nb.innerHTML=h;});}
+document.addEventListener('change',function(e){var x=e.target;if(x&&x.getAttribute&&x.getAttribute('data-ofleggi'))leggiOfferta(x);});
 function voceSel(){return Array.prototype.slice.call(document.querySelectorAll('#of-voci input:checked')).map(function(x){return x.value;});}
 function campiRdo(box){var d={};box.querySelectorAll('[data-k]').forEach(function(x){d[x.dataset.k]=x.value;});return d;}
 function mOf(box,t,cl){var el=box?box.querySelector('[data-m]'):null;if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
@@ -2445,6 +2473,69 @@ export async function postaPreventivi(message, env, ctx) {
 }
 
 // allegato di un'email ricevuta: GET /preventivi/posta/file?t=…&id=<preventivo>&p=<email>&n=<numero>
+// 10/11/2026 (rdo-lettura-1, chat 02B): «Leggi l'offerta del fornitore» in una richiesta di offerta già mandata.
+// Prima accesso, interruttore (preventivi_rdo_ia_attiva) e contatore dell'IA leggera (preventivo_rdo_lettura «info», che può usare
+// 1 credito); poi il file resta nella richiesta (wa-media/preventivi/<impresa>/rdo/<richiesta>/), il lettore comune propone i prezzi
+// sulle voci e il costo si registra («fine»). Niente si salva nei prezzi: li conferma l'ufficio con «Salva l'offerta».
+async function leggiOffertaRdo(request, env, inUrl, h) {
+  if (request.method !== "POST") return json({ esito: "errore" }, 405);
+  const tok = gettone(inUrl.searchParams.get("t")), id = uuid(inUrl.searchParams.get("id")), rdo = uuid(inUrl.searchParams.get("rdo"));
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[^A-Za-z0-9 ._()\-àèéìòùÀÈÉÌÒÙ]+/g, " ").trim().slice(0, 160) || "offerta";
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!id || !rdo) return json({ esito: "errore" }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > LETTORE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  let est = "";
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+  else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+  else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+  if (!est) return json({ esito: "formato", messaggio: "Si leggono PDF, JPG e PNG: per gli altri file inserisci i prezzi a mano." }, 400);
+  if (bytes.length > (est === "pdf" ? LETTORE_MAX_PDF : LETTORE_MAX_FOTO)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  const info = await h.rpc(env, "preventivo_rdo_lettura", { p_token: tok, p_id: id, p_azione: "info", p_dati: { rdo_id: rdo } }, 15000).catch(() => null);
+  if (!info) return json({ esito: "incerto" }, 503);
+  if (info.esito !== "ok") return json({ esito: String(info.esito), messaggio: info.messaggio || "" });
+  let percorso = "", salvato = false;
+  if (/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/$/.test(String(info.cartella || ""))) {
+    percorso = String(info.cartella) + "offerta-" + Date.now() + "-" + casuale() + "." + est;
+    const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
+        "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : "image/jpeg", "x-upsert": "false" }, body: bytes }).catch(() => null);
+    salvato = !!(up && up.ok);
+  }
+  const l = await leggiOffertaFornitore(env, { bytes, nome, modello: info.modello, effort: info.effort,
+    fornitori: [String(info.destinatario || "")], righeAttese: Array.isArray(info.voci) ? info.voci : [] });
+  const p = l && l.proposta ? l.proposta : null;
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (x) => x.toString(16).padStart(2, "0")).join("");
+  await h.rpc(env, "preventivo_rdo_lettura", { p_token: tok, p_id: id, p_azione: "fine", p_dati: { rdo_id: rdo,
+    file_path: salvato ? percorso : "", file_nome: nome, sha256: sha, byte: String(bytes.length),
+    esito: ["ok", "vuota", "rifiutata"].indexOf(l && l.esito) >= 0 ? l.esito : "errore", modello: String(l && l.modello || ""),
+    token_in: String(l && l.token_in || 0), token_out: String(l && l.token_out || 0), ms: String(l && l.ms || 0),
+    righe_lette: String(p && Array.isArray(p.righe) ? p.righe.length : 0), iva: String(p && p.iva || "") } }, 15000).catch(() => null);
+  return json({ esito: String(l && l.esito || "errore"), messaggio: String(l && l.messaggio || ""), proposta: p, salvato,
+    ricarica_eur: info.ricarica_eur == null ? null : info.ricarica_eur });
+}
+
+async function scaricaOffertaRdo(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  const id = uuid(inUrl.searchParams.get("id")), rdo = uuid(inUrl.searchParams.get("rdo"));
+  if (!id || !rdo) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "preventivo_rdo_lettura", { p_token: tok, p_id: id, p_azione: "file", p_dati: { rdo_id: rdo } }, 10000).catch(() => null);
+  if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,120}$/.test(String(info.path || ""))) {
+    return h.risposta(h.foglio(base, "Preventivo", "", '<p class="err">File dell\u2019offerta non trovato.</p>'), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.path), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Preventivo", "", '<p class="err">Il file non si legge dall\u2019archivio: riprova tra un minuto.</p>'), 502);
+  const p = String(info.path), nome = String(info.nome || "offerta");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
+    "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
 async function scaricaPosta(request, env, base, inUrl, h) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const tok = gettone(inUrl.searchParams.get("t"));
