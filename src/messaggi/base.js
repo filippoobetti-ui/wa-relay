@@ -39,10 +39,12 @@ import { pezzoTesti } from "./testi.js";
 import { pezzoPosizione } from "./posizione.js";
 import { pezzoVocale } from "./vocale.js";
 import { pezzoPrimo } from "./primo.js";
+// B1 (10/11/2026): foto e documenti (src/messaggi/foto.js): mette il pacchetto nella coda CODA_MEDIA.
+import { pezzoFoto } from "./foto.js";
 // 10/11/2026: un pezzo che riconosce il messaggio ma lo lascia SENZA aver scritto niente (per esempio i testi
 // di chi non e' ancora registrato) lo passa al pezzo successivo dell'elenco; dopo l'ultimo va a Make.
 // Per questo «primo» sta in fondo: prende quello che gli altri lasciano.
-const PEZZI = [pezzoComandi, pezzoTesti, pezzoPosizione, pezzoVocale, pezzoPrimo];
+const PEZZI = [pezzoComandi, pezzoTesti, pezzoPosizione, pezzoVocale, pezzoFoto, pezzoPrimo];
 
 export const MESSAGGI_PEZZI_NOMI = ["comandi", "testi", "posizione", "vocale", "primo", "foto", "ddt", "eco"];
 

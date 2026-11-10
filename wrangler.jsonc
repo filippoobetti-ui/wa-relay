@@ -35,6 +35,12 @@
   // Buongiorno (09/10/2026): lun-ven 05:00 e 06:00 UTC (ora legale/solare), domanda del mattino alle 7:00 di Roma.
   // 10/10/2026: il piano gratuito ammette al massimo 5 cron per account: gli orari sono raggruppati
   // (stessi passaggi di prima, una riga per lavoro). Il codice riconosce le righe in BUONGIORNO_CRONS e CRONO_CRONS.
+  // Tappa B, pezzo B1 «foto» (10/11/2026): coda per foto e documenti. wa-relay ci mette il pacchetto (CODA_MEDIA)
+  // e lo lavora il gestore «queue» di src/index.js, un messaggio alla volta, con 3 tentativi (riprova src/messaggi/foto.js).
+  "queues": {
+    "producers": [{ "queue": "wa-relay-media", "binding": "CODA_MEDIA" }],
+    "consumers": [{ "queue": "wa-relay-media", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 3, "max_concurrency": 5 }]
+  },
   "triggers": {
     "crons": ["30 15,16 * * *", "0 14,15 * * FRI", "0 5,6 * * MON-FRI"]
   }
