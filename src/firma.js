@@ -502,16 +502,19 @@ if(!e){msg.textContent='Scegli l\'esito.';return null;}if((doc.nota_per||[]).ind
 var op=q('#tf-chi').selectedOptions[0];return {esito:e,nota:n,firmatario_id:op.value,firmatario:op.textContent,ha_firma:op.getAttribute('data-firma')==='1'};}
 function immagine(cosa,id){return fetch(o.base+'/firma/immagine?t='+o.t+'&c='+o.c+'&cosa='+cosa+(id?'&id='+id:''),{credentials:'same-origin'}).then(function(r){return r.ok?r.arrayBuffer():null;}).catch(function(){return null;});}
 function incolla(docPdf,buf){if(!buf)return Promise.resolve(null);var b=new Uint8Array(buf);return (b[0]===0x89?docPdf.embedPng(buf):docPdf.embedJpg(buf)).catch(function(){return null;});}
-function timbra(d){var L=window.PDFLib;return Promise.all([L.PDFDocument.load(stato.orig,{ignoreEncryption:true,updateMetadata:false}),L.PDFDocument.create(),immagine('timbro'),d.ha_firma?immagine('firma',d.firmatario_id):Promise.resolve(null)])
-.then(function(a){var out=a[0],st=a[1],bt=a[2],bf=a[3];return Promise.all([st.embedFont(L.StandardFonts.Helvetica),st.embedFont(L.StandardFonts.HelveticaBold),incolla(st,bt),incolla(st,bf)]).then(function(f){
-var fR=f[0],fB=f[1],it=f[2],ifi=f[3],pg=st.addPage([W,H]),blu=L.rgb(0.17,0.21,0.47),gr=L.rgb(0.36,0.4,0.45);
+/* logo-timbro-1 (10/11/2026, Filippo: il logo TIX su ogni file che si stampa): marchio TIX vero in basso a destra del riquadro; se non si carica resta la scritta TIX */
+function marchio(){return fetch(o.base+'/marchio-tix.png',{credentials:'same-origin'}).then(function(r){return r.ok?r.arrayBuffer():null;}).catch(function(){return null;});}
+function timbra(d){var L=window.PDFLib;return Promise.all([L.PDFDocument.load(stato.orig,{ignoreEncryption:true,updateMetadata:false}),L.PDFDocument.create(),immagine('timbro'),d.ha_firma?immagine('firma',d.firmatario_id):Promise.resolve(null),marchio()])
+.then(function(a){var out=a[0],st=a[1],bt=a[2],bf=a[3],bm=a[4];return Promise.all([st.embedFont(L.StandardFonts.Helvetica),st.embedFont(L.StandardFonts.HelveticaBold),incolla(st,bt),incolla(st,bf),incolla(st,bm)]).then(function(f){
+var fR=f[0],fB=f[1],it=f[2],ifi=f[3],im=f[4],pg=st.addPage([W,H]),blu=L.rgb(0.17,0.21,0.47),gr=L.rgb(0.36,0.4,0.45);
 pg.drawRectangle({x:0.5,y:0.5,width:W-1,height:H-1,color:L.rgb(1,1,1),opacity:0.9,borderColor:blu,borderWidth:1});
 var x0=8;if(it){var s=Math.min(66/it.width,66/it.height);pg.drawImage(it,{x:8+(66-it.width*s)/2,y:(H-it.height*s)/2,width:it.width*s,height:it.height*s});x0=82;}
 var larg=W-x0-6;pg.drawText(wa(doc.dicitura||'Firma'),{x:x0,y:H-11,size:6.5,font:fR,color:gr});pg.drawText(righe(fB,8.5,d.esito,larg,1)[0]||'',{x:x0,y:H-21,size:8.5,font:fB,color:blu});
 var y=H-30;if(d.nota){righe(fR,6.3,'Osservazioni: '+d.nota,larg,2).forEach(function(r){pg.drawText(r,{x:x0,y:y,size:6.3,font:fR,color:L.rgb(0.1,0.1,0.1)});y-=7.5;});}
 if(ifi){var s2=Math.min(larg/ifi.width,Math.max(14,y-24)/ifi.height,1);pg.drawImage(ifi,{x:x0,y:24,width:ifi.width*s2,height:ifi.height*s2});}
 pg.drawText(righe(fB,7.2,d.firmatario,larg,1)[0]||'',{x:x0,y:16,size:7.2,font:fB,color:L.rgb(0.1,0.1,0.1)});pg.drawText(wa(ora()),{x:x0,y:9,size:6.3,font:fR,color:gr});
-pg.drawText(wa('Impronta originale '+String(doc.sha256||'').slice(0,16)+'… · TIX'),{x:x0,y:3,size:5,font:fR,color:gr});
+if(im){var hm=9,lm=im.width*(hm/im.height);pg.drawImage(im,{x:W-6-lm,y:3,width:lm,height:hm});}
+pg.drawText(wa('Impronta originale '+String(doc.sha256||'').slice(0,16)+'…'+(im?'':' · TIX')),{x:x0,y:3,size:5,font:fR,color:gr});
 return st.save().then(function(sb){return out.embedPdf(sb);}).then(function(e){var p=out.getPage(stato.sel.pag-1);p.drawPage(e[0],{x:stato.sel.x,y:stato.sel.y,width:W,height:H,rotate:L.degrees(stato.sel.rot||0)});return out.save({useObjectStreams:false});});});});}
 function invia(bytes,d,qual,nome){return crypto.subtle.digest('SHA-256',bytes).then(function(h){
 var dd={t:o.t,c:o.c,tipo:o.tipo,rif_id:o.rif_id,firmatario_id:d.firmatario_id,esito:d.esito,nota:d.nota,qualificata:qual,sha256_originale:String(doc.sha256||'').toLowerCase(),sha256:esa(h),byte:bytes.byteLength,nome:nome,
