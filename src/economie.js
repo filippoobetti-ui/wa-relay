@@ -9,7 +9,7 @@
 // Ogni giorno è «firmato dall'ufficio» (c'è il rapportino del giorno registrato: valgono le sue righe) o «da confermare».
 //   GET  /economie?t=<gettone>&c=<cantiere>[&mese=AAAA-MM][&scheda=committente|sub|normali]  → pagina
 //   GET  /economie/foglio?t=…&c=…&mese=…&scheda=…    → foglio pulito da stampare o salvare in PDF
-//   GET  /economie/excel?t=…&c=…&mese=…&scheda=…     → file per Excel (.csv), come «Scarica in Excel»
+//   GET  /economie/excel?t=…&c=…&mese=…&scheda=…     → file Excel (.xlsx) con i loghi (11/11/2026)
 //   GET  /economie/stampa?t=…&c=…&mese=…&impresa=…   → lista del mese di un subappaltatore, da firmare (come prima)
 //   POST /economie/riporta  {t, c, id, si}          → riporta o togli una riga del subappaltatore dal committente
 // Il database decide tutto (RPC registro_economie_portale, economie_impresa_portale, economia_riporta): righe, totali,
@@ -20,6 +20,8 @@
 //   POST /economie/mezzo   {t, c, dati, togli}   → mezzo in economia: aggiungi, correggi o togli (solo l'ufficio)
 //   POST /economie/prezzo  {t, c, dati}          → prezzo concordato per questo cantiere (vuoto = torna al prezzo di base)
 // ============================================================================
+
+import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MESE = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
@@ -164,20 +166,11 @@ export async function portaleEconomie(request, env, base, inUrl, h) {
     if (!r) return h.risposta(h.foglio(base, "Scarica Excel", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
     if (r.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
     if (r.esito !== "ok" || typeof r.csv !== "string") return h.risposta(h.foglio(base, "Scarica Excel", "Non è stato possibile preparare il file per questo cantiere.", indietro), 400);
-    // stesso file di «Scarica in Excel» (src/esporta.js): testo con il BOM, che Excel apre direttamente
-    const nome = String(r.nome_file || "TIX registro delle economie.csv");
-    const ascii = nome.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || "TIX.csv";
-    return new Response(request.method === "HEAD" ? null : "\uFEFF" + r.csv, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/csv; charset=UTF-8",
-        "Content-Disposition": 'attachment; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
-        "Cache-Control": "no-store",
-        "Referrer-Policy": "no-referrer",
-        "X-Robots-Tag": "noindex, nofollow",
-        "X-Content-Type-Options": "nosniff"
-      }
-    });
+    // 11/11/2026 (loghi-02-1): vero file Excel con il logo dell'impresa in alto e il logo TIX in basso a destra
+    const lg = await h.rpc(env, "documento_logo_impresa", { p_token: p.tok, p_commessa: p.c, p_persona: null }, 8000).catch(() => null);
+    const xl = await xlsxDaCsv({ csv: r.csv, nomeFoglio: "Registro delle economie", titolo: String(r.nome_file || "Registro delle economie").replace(/\.csv$/i, ""),
+      logoUrl: lg && lg.esito === "ok" ? lg.logo_url : null, aziendaNome: lg && lg.esito === "ok" ? lg.nome : "" });
+    return rispostaXlsx(request, xl, String(r.nome_file || "TIX registro delle economie.csv"));
   }
 
   const d = await h.rpc(env, "registro_economie_euro", { p_token: p.tok, p_commessa: p.c, p_mese: p.mese, p_csv: "" }, 20000).catch(() => null);

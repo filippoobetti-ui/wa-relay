@@ -2,10 +2,12 @@
 // SCARICA IN EXCEL — area riservata (26/10/2026, richiesta di Filippo; NON pubblicato).
 // Nella pagina di un cantiere c'è il pulsante «Scarica in Excel»: si sceglie cosa (ore in economia, DDT e forniture,
 // presenze) e il periodo, e si scarica un file che Excel apre direttamente.
-//   GET /esporta?t=<gettone>&c=<cantiere>&tipo=ore|ddt|presenze&dal=AAAA-MM-GG&al=AAAA-MM-GG → file .csv
+//   GET /esporta?t=<gettone>&c=<cantiere>&tipo=ore|ddt|presenze&dal=AAAA-MM-GG&al=AAAA-MM-GG → file Excel .xlsx con i loghi (11/11/2026)
 // Il database decide tutto (RPC esporta_excel_cantiere): accesso, periodo (al massimo due anni), righe e nome del file.
 // Il relay non conserva nulla. Si spegne con la variabile ESPORTA_EXCEL = "off".
 // ============================================================================
+
+import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DATA = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -40,19 +42,12 @@ export async function portaleEsporta(request, env, base, inUrl, h) {
   if (r.esito === "periodo") return errore(h, base, tok, c, "Controlla le date: la prima non può essere dopo la seconda, e si scaricano al massimo due anni per volta.", 400);
   if (r.esito !== "ok" || typeof r.csv !== "string") return errore(h, base, tok, c, "Non è stato possibile preparare il file per questo cantiere.", 400);
 
-  const nome = String(r.nome_file || "TIX.csv");
-  const ascii = nome.normalize("NFD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "") || "TIX.csv";
-  return new Response(request.method === "HEAD" ? null : "\uFEFF" + r.csv, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/csv; charset=UTF-8",
-      "Content-Disposition": 'attachment; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
-      "Cache-Control": "no-store",
-      "Referrer-Policy": "no-referrer",
-      "X-Robots-Tag": "noindex, nofollow",
-      "X-Content-Type-Options": "nosniff"
-    }
-  });
+  // 11/11/2026 (loghi-02-1): vero file Excel con il logo dell'impresa in alto e il logo TIX in basso a destra
+  const lg = await h.rpc(env, "documento_logo_impresa", { p_token: tok, p_commessa: c, p_persona: null }, 8000).catch(() => null);
+  const fogli = { ore: "Ore in economia", ddt: "DDT e forniture", presenze: "Presenze" };
+  const xl = await xlsxDaCsv({ csv: r.csv, nomeFoglio: fogli[tipo], titolo: String(r.nome_file || fogli[tipo]).replace(/\.csv$/i, ""),
+    logoUrl: lg && lg.esito === "ok" ? lg.logo_url : null, aziendaNome: lg && lg.esito === "ok" ? lg.nome : "" });
+  return rispostaXlsx(request, xl, String(r.nome_file || "TIX.csv"));
 }
 
 // Pulsante e finestra nella pagina del cantiere (dopo le schede).
