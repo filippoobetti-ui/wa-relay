@@ -4,7 +4,9 @@
 // (consegne, fornitori, sopralluoghi…) e un avviso su WhatsApp a chi lavora in quel cantiere. «vai» alle 14:15.
 //   GET  /agenda?t=<gettone>&c=<cantiere>          → pagina: appuntamenti del cantiere, modulo «Nuovo appuntamento»
 //   POST /agenda/crea   {t, c, dati}                → RPC agenda_crea, poi gli avvisi partono subito da qui
-//   POST /agenda/azione {t, id, azione, dati}       → RPC agenda_modifica (sposta, annulla, avvenuto, riapri, cliente, aggiorna)
+//   POST /agenda/azione {t, id, azione, dati}       → RPC agenda_modifica (sposta, annulla, avvenuto, riapri, cliente, aggiorna;
+//                                                     accetta e scarta dall'11/11/2026, agenda-accetta-1 della chat 02A: l'ufficio
+//                                                     decide sugli appuntamenti «proposti» dall'IA; il database dice se è acceso)
 //                                                     azione «modifica» (29/10/2026) → RPC agenda_modifica_tutto: tutti i dati del modulo
 //   POST /agenda/contatto {t, c, dati, aggiungi_email} → nuovo contatto nella Rubrica dell'impresa con rubrica_salva (02/11/2026)
 //   GET  /agenda?t=…&c=…&vista=mese                 → la pagina si apre con il mese intero a tutto schermo (02/11/2026)
@@ -352,7 +354,7 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     }
     const id = Number(b.id);
     const az = String(b.azione || "");
-    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna", "crono_esito", "modifica"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
+    if (!Number.isInteger(id) || id <= 0 || ["sposta", "annulla", "avvenuto", "riapri", "cliente", "aggiorna", "crono_esito", "modifica", "accetta", "scarta"].indexOf(az) === -1) return json({ esito: "errore" }, 400);
     // «Modifica» (29/10/2026, Filippo): tutti i dati del modulo in un colpo solo. Gli avvisi si chiedono sempre: il database
     // li prepara solo per chi non ha ancora questa versione (giorno o ora cambiati = come «Sposta»; persone aggiunte in «Chi»)
     if (az === "modifica") {
@@ -377,7 +379,7 @@ export async function portaleAgenda(request, env, base, inUrl, h) {
     if (!r) return json({ esito: "incerto" });
     if (r.esito !== "ok") return json({ esito: String(r.esito), messaggio: r.messaggio || "" });
     let avvisi = null;
-    if (az === "sposta" || az === "annulla") { try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {} }
+    if (az === "sposta" || az === "annulla" || az === "accetta") { try { avvisi = await agendaAvvisa(env, id, false, h); } catch (e) {} }
     return json({ esito: "ok", id, inviati: avvisi ? avvisi.inviati : null });
   }
   // Spostare una fase del cronoprogramma dall'Agenda (05/11/2026, agenda-crono-1, scelta A di Filippo): il cronoprogramma
@@ -467,7 +469,7 @@ function rigaApp(x, e, oggi) {
   const gd = giorniDi(x), multi = !!x.fine_giorno && gd.length > 1;
   const passato = String(multi ? x.fine_giorno : x.giorno || "") < oggi;
   const pill = st === "spostato" ? '<span class="pl mov">spostato</span>' : st === "annullato" ? '<span class="pl ann">annullato</span>' :
-    st === "avvenuto" ? '<span class="pl ok">avvenuto</span>' : "";
+    st === "avvenuto" ? '<span class="pl ok">avvenuto</span>' : st === "proposto" && x.acc ? '<span class="pl prop">da confermare</span>' : "";
   const ora = x.tutto_il_giorno ? "giorno" : e(x.ora || "");
   const kOggi = multi ? gd.indexOf(oggi) + 1 : 0;
   const fine = (x.ora_fine ? '<small>fino ' + e(x.ora_fine) + "</small>" : "") +
@@ -486,6 +488,15 @@ function rigaApp(x, e, oggi) {
   const k = [TIPI[x.tipo] || "Altro", x.origine === "whatsapp_ai" ? "da WhatsApp" : "", x.autore && x.autore !== "ufficio" ? e(x.autore) : "",
     x.visibile_cliente ? "visibile al cliente" : "", avv].filter(Boolean).join(" · ");
   const attivo = st !== "annullato" && st !== "avvenuto";
+  // Appuntamento proposto dall'IA (11/11/2026, agenda-accetta-1, Filippo): l'ufficio lo accetta (parte l'avviso, come [Giusto] su
+  // WhatsApp) o lo scarta (senza avvisi, come [Correggi]). Se poi chi ha scritto tocca un pulsante, riceve «Già fatto».
+  if (st === "proposto" && x.acc) {
+    const prop = '<div class="az"><button type="button" class="verde" data-az="accetta" data-id="' + x.id + '">Accetta</button>' +
+      '<button type="button" class="rosso" data-az="scarta" data-id="' + x.id + '">Scarta</button></div>';
+    return '<div class="ag prop' + (passato ? " pass" : "") + '" data-id="' + x.id + '" data-giorno="' + e(x.giorno) + '" data-giorni="' + e(gd.join(" ")) + '" data-titolo="' + e(x.titolo) + '">' +
+      '<div class="o">' + ora + fine + '</div><div class="corpo"><div class="t">' + e(x.titolo) + pill + "</div>" + note +
+      '<div class="k">' + k + '</div><div class="n prop-n">L’ha letto l’IA da un messaggio WhatsApp: controlla giorno e ora, poi accetta o scarta.</div>' + prop + "</div></div>";
+  }
   const bott = '<div class="az">' +
     // «Modifica» (29/10/2026): riapre il modulo già compilato con tutti i dati dell'appuntamento
     (st !== "annullato" ? '<button type="button" data-az="modifica" data-id="' + x.id + '" data-app="' + e(JSON.stringify({ g: x.giorno, o: x.tutto_il_giorno ? "" : x.ora, f: x.ora_fine,
@@ -546,6 +557,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     : '<div class="dx"></div>';
   let futuri = "", passati = "", g = null, nf = 0, np = 0;
   for (const x of app) {
+    if (d.accetta === true) x.acc = true;   // 11/11/2026, agenda-accetta-1: «Accetta» e «Scarta» sui proposti dall'IA
     // lavorazioni di più giorni (05/11/2026, agenda-crono-1): passate solo dopo l'ultimo giorno; quelle in corso stanno sotto «Oggi»
     const ultimo = String(x.fine_giorno || x.giorno || "");
     if (ultimo < oggi) { np++; passati += rigaApp(x, e, oggi); continue; }
@@ -835,6 +847,8 @@ const STILE =
   ".pl.ok{background:#E3F3EA;color:#0B5E37}.pl.ann{background:#fdeaea;color:#8c1d18}.pl.mov{background:#FFF4DC;color:#7A5300}" +
   ".az{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.az button{min-height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--bordo);background:#fff;color:#23302A;font:inherit;font-size:.84rem;font-weight:600;cursor:pointer}" +
   ".az button.rosso{color:#8c1d18;border-color:#f0c9c6}.az button:disabled{opacity:.5}" +
+  // 11/11/2026, agenda-accetta-1: proposto dall'IA, da confermare (viola, come le cose da vistare dei professionisti)
+  ".pl.prop{background:#EFE8FB;color:#4B2A9A}.ag.prop{border-style:dashed;border-color:#B9A3E6}.ag .prop-n{color:#4B2A9A}.az button.verde{background:#0B5E37;border-color:#0B5E37;color:#fff}" +
   ".vuoto{background:#fff;border:1px dashed #B9C3BE;border-radius:12px;padding:16px;color:#4A524E;font-size:.92rem}" +
   "details.pass-box{margin-top:16px}details.pass-box summary{cursor:pointer;color:#4A524E;font-size:.9rem;margin-bottom:8px}" +
   ".nota{font-size:.82rem;color:#5b6560;margin:16px 2px 0;line-height:1.5}" +
@@ -1266,6 +1280,7 @@ function azione(b){var az=b.getAttribute('data-az'),id=Number(b.getAttribute('da
  if(az==='avvenuto'&&b.getAttribute('data-att')){apriEsito(b);return;}
  var dati={};
  if(az==='annulla'){if(!confirm('Annullare «'+titolo+'»? Chi lavora in cantiere riceve l’avviso su WhatsApp.'))return;}
+ if(az==='scarta'){if(!confirm('Scartare «'+titolo+'»? Non entra in agenda e non parte nessun avviso.'))return;}
  if(az==='cliente'){dati.valore=b.getAttribute('data-v')==='1';}
  var bs=r?r.querySelectorAll('.az button'):[];for(var i=0;i<bs.length;i++)bs[i].disabled=true;
  post('azione',{t:D.t,id:id,azione:az,dati:dati}).then(function(j){
