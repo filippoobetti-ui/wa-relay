@@ -32,6 +32,8 @@
 import { leggiOffertaFornitore, LETTORE_MAX_PDF, LETTORE_MAX_FOTO } from "./lettore-offerte.js";
 // 10/11/2026 (excel-logo-1): logo dell'impresa cliente nei file, preparato come nei file del SAL (src/sal.js, della chat SAL; qui solo usato)
 import { preparaLogo } from "./sal.js";
+// 10/11/2026 (noleggio-1): icone dei tipi di ditta (Fornitore, Subappaltatore, Noleggio), comuni con Rubrica e Persone del cantiere
+import { TIPI_DITTA_CSS, TIPI_DITTA_JS } from "./tipi-ditta.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_FILE = 18 * 1024 * 1024;
@@ -241,13 +243,13 @@ function pagina(base, h, tok, a, c, id, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Preventivi - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + STILE_IA + STILE_OF + "</style></head><body><main id=\"pv-main\">" +
+    "<style>" + STILE + STILE_IA + STILE_OF + TIPI_DITTA_CSS + "</style></head><body><main id=\"pv-main\">" +
     (id
       ? '<a class="pv-torna" href="' + e(base + "/preventivi?t=" + tok + (a ? "&a=" + a : "") + (c ? "&c=" + c : "")) + '">‹ Tutti i preventivi</a>'
       : '<a class="pv-torna" href="' + e(torna) + '">‹ ' + (c ? "Torna al cantiere" : "Torna ai cantieri") + "</a>") +
     '<div id="pv-app"><p class="pv-carica">Un momento…</p></div>' +
     "</main>" + MODALI +
-    "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
+    "<script>" + TIPI_DITTA_JS + "</script><script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) + "</script></body></html>";
 }
 
@@ -2257,7 +2259,7 @@ function elForm(){var b=document.getElementById('of-el-box');if(!b)return;b.inne
 function elRisultati(r){var box=document.getElementById('el-ris');if(!box)return;if(!r||r.esito!=='ok'){box.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}EL=r.righe||[];
  if(!EL.length){box.innerHTML='<p class="sotto">Nessuna azienda dell\'elenco con questi filtri.</p>';return;}
  box.innerHTML='<p class="sotto">'+EL.length+' aziende · prima quelle con la sede nella provincia, poi in ordine di nome. TIX non dà giudizi né classifiche.</p>'+EL.map(function(f,i){
-  return '<div class="pv-ofr"><div class="tt"><b>'+es(f.ragione_sociale)+'</b><span class="sotto">'+es(f.sede_comune)+' ('+es(f.sede_provincia)+')'+(f.stessa_provincia?' · sede nella provincia':'')+'</span></div>'+
+  return '<div class="pv-ofr"><div class="tt"><b>'+es(f.ragione_sociale)+' '+(f.tipi||[]).map(function(t){return tdChip(t);}).join(' ')+'</b><span class="sotto">'+es(f.sede_comune)+' ('+es(f.sede_provincia)+')'+(f.stessa_provincia?' · sede nella provincia':'')+'</span></div>'+
    (f.logo_path?'<img alt="" style="max-height:40px;max-width:140px;display:block;margin:4px 0" src="https://www.tixcantiere.it/elenco/logo?p='+encodeURIComponent(f.logo_path)+'">':'')+
    '<p class="sotto" style="margin:4px 0">'+es((f.voci||[]).slice(0,8).map(function(v){return v.nome;}).join(' · '))+((f.voci||[]).length>8?' · …':'')+(f.altro?' · '+es(f.altro):'')+'</p>'+
    '<p class="sotto" style="margin:4px 0">'+es(f.email)+(f.telefono?' · '+es(f.telefono):'')+(f.sito?' · <a href="'+es(f.sito)+'" target="_blank" rel="noopener noreferrer">sito</a>':'')+
@@ -2270,23 +2272,25 @@ function disegnaOf(){
  h+='<h3>Nuova richiesta</h3><div class="pv-ofl" id="of-voci">'+(r.voci||[]).map(function(v){var on=aperte[v.stato]||v.senza_prezzo;
   return '<label><input type="checkbox" value="'+v.id+'"'+(on?' checked':'')+'><span><b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.stato&&v.stato!=='ok'?' · '+es(v.stato.replace('_',' ')):'')+'</small></span></label>';}).join('')+'</div>';
  var rub=r.rubrica||[];
- h+='<label><span>Dalla Rubrica (fornitori e subappaltatori)</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
-  rub.map(function(k,i){return '<option value="'+i+'">'+es((k.tipo==='fornitore'?'Fornitore · ':'Subappaltatore · ')+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
-  (rub.length?'':'<p class="pv-ofnota">Nella Rubrica non ci sono ancora fornitori o subappaltatori: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Fornitore».</p>')+
+ h+='<label><span>Dalla Rubrica (fornitori, subappaltatori e noleggi)</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
+  rub.map(function(k,i){return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
+  (rub.length?'':'<p class="pv-ofnota">Nella Rubrica non ci sono ancora fornitori, subappaltatori o noleggi: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Fornitore», «Impresa subappaltatrice» o «Noleggio di mezzi e attrezzature».</p>')+
   (OF.elenco?'<div class="pv-ofnota"><button type="button" class="pv-b sm" data-ofx="el_apri">Cerca nell\'elenco TIX</button> <small>fornitori, subappaltatori e noleggi iscritti all\'elenco di TIX</small><div id="of-el-box"></div></div>':'')+
+  '<label><span>Cosa chiedi</span><select id="of-tipo" style="max-width:360px"><option value="altro">Lavorazioni e forniture</option><option value="fornitore">Fornitura di materiali, consegnati in cantiere</option>'+
+  '<option value="subappaltatore">Esecuzione di lavorazioni (subappalto)</option><option value="noleggio">Noleggio di mezzi e attrezzature</option></select></label>'+
   '<label><span>A chi va la richiesta</span><input type="text" id="of-dest" maxlength="200"></label>'+
   '<label><span>Email del fornitore (fino a 10, separate da virgola)</span><input type="text" id="of-ea"></label>'+
   '<label><span>Email dell\'impresa dove arrivano le risposte (fino a 5) · ricevono anche una copia della richiesta</span><input type="text" id="of-ei" value="'+es(ricorda('of_imp')||(r.impresa&&r.impresa.email)||'')+'"></label>'+
   '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="prepara">Prepara la richiesta</button></div><p class="pv-msg" id="of-msg" aria-live="polite"></p>';
  // confronto delle offerte per voce
- var per={};(r.richieste||[]).forEach(function(q){if(q.stato==='annullata')return;(q.righe||[]).forEach(function(g){if(g.prezzo==null)return;(per[g.voce_id]=per[g.voce_id]||{v:g,o:[]}).o.push({q:q,g:g});});});
- var ids=Object.keys(per);
+ var per={};(r.richieste||[]).forEach(function(q){if(q.stato==='annullata')return;(q.righe||[]).forEach(function(g){if(g.prezzo==null)return;var kk=g.voce_id+'|'+(q.tipo||'altro');(per[kk]=per[kk]||{v:g,t:q.tipo,o:[]}).o.push({q:q,g:g});});});
+ var ids=Object.keys(per).sort(function(a,b){return (per[a].v.ordine||0)-(per[b].v.ordine||0);});
  if(ids.length){h+='<h3>Confronto delle offerte</h3><table class="pv-ofg"><tr><th>Voce</th><th>Offerte (prezzo unitario + IVA)</th></tr>'+ids.map(function(k){var x=per[k],min=Math.min.apply(null,x.o.map(function(o){return Number(o.g.prezzo);}));
-  return '<tr><td><b>'+x.v.ordine+'.</b> '+es(x.v.descrizione)+'</td><td>'+x.o.map(function(o){return '<div class="'+(Number(o.g.prezzo)===min?'min':'')+'">'+es(o.q.destinatario)+': '+eur(o.g.prezzo)+(o.g.note?' <small>('+es(o.g.note)+')</small>':'')+
+  return '<tr><td><b>'+x.v.ordine+'.</b> '+es(x.v.descrizione)+(TD[x.t]?' '+tdChip(x.t):'')+'</td><td>'+x.o.map(function(o){return '<div class="'+(Number(o.g.prezzo)===min?'min':'')+'">'+es(o.q.destinatario)+': '+eur(o.g.prezzo)+(o.g.note?' <small>('+es(o.g.note)+')</small>':'')+
    (o.g.scelta?' ✓ <small>nel preventivo</small>':(bozza?' <button type="button" class="pv-b sm" data-ofx="scegli" data-riga="'+o.g.id+'">Usa questo prezzo</button>':''))+'</div>';}).join('')+'</td></tr>';}).join('')+'</table>';}
  h+='<h3>Richieste fatte</h3>'+((r.richieste||[]).length?'':'<p class="sotto">Nessuna richiesta ancora.</p>');
  (r.richieste||[]).forEach(function(q){
-  h+='<div class="pv-ofr" data-rdo="'+q.id+'"><div class="tt"><b>N. '+q.numero+' · '+es(q.destinatario)+'</b><span class="pv-ofs '+q.stato+'">'+es(STATI[q.stato]||q.stato)+(q.inviata_il?' il '+dt(q.inviata_il):'')+'</span></div>';
+  h+='<div class="pv-ofr" data-rdo="'+q.id+'"><div class="tt"><b>N. '+q.numero+' · '+es(q.destinatario)+(TD[q.tipo]?' '+tdChip(q.tipo):'')+'</b><span class="pv-ofs '+q.stato+'">'+es(STATI[q.stato]||q.stato)+(q.inviata_il?' il '+dt(q.inviata_il):'')+'</span></div>';
   if(q.stato==='bozza'){
    h+='<label><span>Email del fornitore</span><input type="text" data-k="email_a" value="'+es((q.email_a||[]).join(', '))+'"></label>'+
     '<label><span>Email dell\'impresa per le risposte</span><input type="text" data-k="email_impresa" value="'+es((q.email_impresa||[]).join(', '))+'"></label>'+
@@ -2310,7 +2314,7 @@ function disegnaOf(){
  h+=smistareHtml();
  finestra(h);
  var sel=document.getElementById('of-rub');
- if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;};
+ if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
 // 10/11/2026 (rdo-lettura-1): «Leggi l'offerta del fornitore» → i prezzi letti vanno nei campi, da controllare e salvare
 function leggiOfferta(inp){var f=inp.files&&inp.files[0],rid=inp.getAttribute('data-ofleggi'),box=document.querySelector('[data-rdo="'+rid+'"]'),nb=box?box.querySelector('[data-oflet]'):null;if(!f||!box||!nb)return;
@@ -2341,12 +2345,12 @@ function azioneOf(az,el){
   api('el_cerca',{tipo:document.getElementById('el-tipo').value,testo:document.getElementById('el-testo').value,provincia:document.getElementById('el-prov').value}).then(elRisultati);return;}
  if(az==='el_usa'){var f=EL[Number(el.dataset.i)];if(!f)return;var s0=document.getElementById('of-rub');if(s0){s0.value='';delete s0.dataset.cid;}
   document.getElementById('of-dest').value=f.ragione_sociale||'';document.getElementById('of-ea').value=f.email||'';
-  var tp=document.getElementById('el-tipo').value;EL_TIPO=tp==='subappaltatore'?'subappaltatore':tp==='fornitore'?'fornitore':((f.tipi||[]).length===1&&f.tipi[0]!=='noleggio'?f.tipi[0]:'altro');
+  var tp=document.getElementById('el-tipo').value;EL_TIPO=TD[tp]?tp:((f.tipi||[]).length===1&&TD[f.tipi[0]]?f.tipi[0]:'altro');var ot=document.getElementById('of-tipo');if(ot)ot.value=EL_TIPO;
   nota('of-msg','Destinatario preso dall\'elenco TIX: controlla e premi «Prepara la richiesta».','ok');document.getElementById('of-dest').scrollIntoView({block:'center'});return;}
  var box=el.closest('[data-rdo]'),rid=box?box.dataset.rdo:null;
  if(az==='prepara'){var sel=document.getElementById('of-rub'),ei=document.getElementById('of-ei').value;
   var d={voci:voceSel(),destinatario:document.getElementById('of-dest').value,email_a:document.getElementById('of-ea').value,email_impresa:ei,
-   contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro')};
+   contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:(document.getElementById('of-tipo')||{}).value||(sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro'))};
   if(!d.voci.length){nota('of-msg','Scegli almeno una voce.','err');return;}
   el.disabled=true;nota('of-msg','Preparo la richiesta…');
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';caricaOf();});return;}

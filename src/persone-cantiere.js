@@ -10,6 +10,9 @@
 // Interruttore: variabile del Worker PERSONE_CANTIERE = "off" (niente riconoscimento, niente pagina, niente pulsante).
 // ============================================================================
 
+// 10/11/2026 (noleggio-1, chat 02B): tipi di ditta con icona e colore (Fornitore, Subappaltatore, Noleggio)
+import { TIPI_DITTA_CSS, TIPI_DITTA_CSS_SCURO, TIPI_DITTA_JS } from "./tipi-ditta.js";
+
 const NUMERO_TIX = "393783107501";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -136,7 +139,7 @@ export async function portalePersone(request, env, base, inUrl, h) {
     const dati = b.dati && typeof b.dati === "object" ? b.dati : {};
     const pulito = {};
     for (const k of ["nome", "ruolo", "telefono", "email", "impresa", "tipo_rapporto"]) if (dati[k] !== undefined && dati[k] !== null) pulito[k] = String(dati[k]).slice(0, 160);
-    for (const k of ["scrive", "riceve_diario", "vede_area", "consenso_promemoria", "invito_inviato", "nuovo_codice"]) if (typeof dati[k] === "boolean") pulito[k] = dati[k];
+    for (const k of ["scrive", "riceve_diario", "vede_area", "consenso_promemoria", "invito_inviato", "nuovo_codice", "nolo_operatore"]) if (typeof dati[k] === "boolean") pulito[k] = dati[k];
     let r = null;
     if (az === "elenco" && UUID.test(c)) r = await h.rpc(env, "persone_cantiere_elenco", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     else if (az === "rubrica") r = await h.rpc(env, "persone_rubrica", { p_token: tok }, 15000).catch(() => null);
@@ -186,13 +189,13 @@ function pagina(base, tok, c, d, h) {
     .replace(/</g, "\\u003c").replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
-    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + PROF_CSS + "</style></head><body>" +
+    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + PROF_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok + "&c=" + c) + '">&larr; Torna al cantiere</a>' +
     '<h1>Persone del cantiere</h1><p id="sotto"></p><div class="riass" id="riass"></div></div></header>' +
     '<main class="corpo"><div class="in"><div class="barra"><h2>Chi lavora qui</h2><button class="btn pr" id="apri-scelta" type="button">&#128211; Scegli contatto da rubrica oppure nuovo contatto</button></div>' +
     '<div id="gruppi"></div><p class="nota">Entra in TIX solo chi aggiungi qui. Ogni persona riceve un link personale: lo apre, invia il messaggio già scritto e il cantiere si attiva. Il link vale 14 giorni.</p></div></main>' +
     SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + PROF_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
+    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
 }
 
 // Rubrica (26/10/2026, persone-cantiere-4): i contatti dell'impresa con i dati anagrafici (GET /rubrica?t=).
@@ -209,19 +212,19 @@ async function rubricaRoute(request, env, base, inUrl, h) {
     .replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   const html = '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Rubrica - TIX · Diario di cantiere</title>' +
-    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}" + IMPORTA_CSS + "</style></head><body>" +
+    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}" + IMPORTA_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok) + '">&larr; Torna ai cantieri</a>' +
     '<h1>Rubrica</h1><p id="sotto"></p></div></header><main class="corpo"><div class="in">' +
     '<div class="barra"><h2>Contatti</h2><div class="az-rub"><button class="btn" id="importa" type="button">&#128229; Importa da file</button><button class="btn pr" id="nuovo" type="button">+ Nuovo contatto</button></div></div>' +
     '<input class="campo cerca" id="cerca" type="search" placeholder="Cerca per nome, impresa, ruolo o numero" aria-label="Cerca nella rubrica" style="margin-top:12px">' +
-    '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
+    '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, noleggi di mezzi, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
     SCHEDA_HTML + IMPORTA_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
+    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
 }
 
 const RAPPORTI_OPZ = '<option value="titolare">Titolare</option><option value="dipendente">Dipendente</option><option value="subappaltatore">Impresa subappaltatrice</option>' +
-  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
+  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="noleggio">Noleggio di mezzi e attrezzature</option><option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
 
 const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio" id="form-sch" novalidate aria-labelledby="t-sch">' +
   '<h2 id="t-sch">Nuovo contatto</h2><p class="sotto">Serve solo il nome; gli altri dati sono facoltativi.</p>' +
@@ -485,13 +488,13 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 var toastT;function toast(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){el.hidden=true;},2800);}
 function chiama(az,extra){var b={t:CFG.t,azione:az};for(var k in extra)b[k]=extra[k];
   return fetch(CFG.api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){return r.json();});}
-var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",professionista:"Professionista",esterno:"Esterno"};
+var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",noleggio:"Noleggio",professionista:"Professionista",esterno:"Esterno"};
 function sotto(){$("sotto").textContent=(D.impresa||"")+" · "+P.length+(P.length===1?" contatto":" contatti");}
 function disegna(q){q=(q||"").toLowerCase().trim();var h="";sotto();
   P.filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email,p.azienda,p.partita_iva,p.codice_fiscale].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p){
-    h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc([p.impresa,RAPP[p.tipo_rapporto]].filter(Boolean).join(" · "))+(D.filippo&&p.azienda?' · cliente '+esc(p.azienda):'')+'</div></div>'+
+    h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc([p.impresa,TD[p.tipo_rapporto]?"":RAPP[p.tipo_rapporto]].filter(Boolean).join(" · "))+(D.filippo&&p.azienda?' · cliente '+esc(p.azienda):'')+'</div></div>'+
       '<button class="btn sm" type="button" data-mod="'+p.id+'">Modifica</button></div>'+
-      '<div class="chips">'+(p.ruolo_etichetta?'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>':'')+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+
+      '<div class="chips">'+tdChip(p.tipo_rapporto)+(p.ruolo_etichetta?'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>':'')+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+
       (p.partita_iva?'<span class="chip">P.IVA '+esc(p.partita_iva)+'</span>':'')+(p.codice_fiscale?'<span class="chip">CF '+esc(p.codice_fiscale)+'</span>':'')+'</div>'+
       (p.note?'<p class="p-sub" style="margin:6px 0 0">'+esc(p.note)+'</p>':'')+
       (p.cantieri&&p.cantieri.length?'<div class="azioni">'+p.cantieri.map(function(c){return '<a class="btn sm" href="'+esc(CFG.base+"/persone?t="+CFG.t+"&c="+c.id)+'">'+esc(c.nome)+'</a>';}).join("")+'</div>':'<p class="p-sub" style="margin:8px 0 0">Non è in nessun cantiere in corso.</p>')+'</article>';});
@@ -585,7 +588,7 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<label class="c" for="f-imp">Impresa della persona</label><input class="campo" id="f-imp" maxlength="120">' +
   '<label class="c" for="f-rapp">Rapporto con l\'impresa</label><select class="campo" id="f-rapp">' +
   '<option value="titolare">Titolare (si conta nel canone)</option><option value="dipendente">Dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
-  '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option>' +
+  '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option><option value="noleggio">Noleggio di mezzi e attrezzature (senza costi)</option>' +
   '<option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente (senza costi)</option><option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
   '<p class="errore" id="f-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="f-ok">Aggiungi e crea l\'invito</button></div></form></div>';
@@ -633,8 +636,8 @@ function disegna(){
     dentro.forEach(function(p){
       var area=(p.ruolo==="sub")?"Vede l'area riservata (solo i propri dati)":"Vede l'area riservata (sola lettura)";
       h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc(p.impresa||"")+' · '+esc(quando(p))+'</div></div>'+statoHtml(p)+'</div>'+
-        '<div class="chips"><span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
-        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
+        '<div class="chips">'+tdChip(p.tipo_rapporto,p.tipo_rapporto==="noleggio"?(p.nolo_operatore?"con operatore":p.nolo_operatore===false?"a freddo":""):"")+'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
+        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="noleggio"?tg(p,"nolo_operatore","Con operatore (nolo a caldo); spento = a freddo"):"")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
         '<div class="azioni">'+(p.stato!=="attivato"?'<button class="btn sm" type="button" data-inv="'+p.id+'">Invito</button>':'')+'<button class="btn sm rosso" type="button" data-togli="'+p.id+'">Togli dal cantiere</button></div></article>';
     });
     h+='</div></section>';
