@@ -149,18 +149,20 @@ export function subIniezione(base, token, commessa, daDecidere) {
 export async function portaleSub(request, env, base, inUrl, h, fn) {
   if (env.SUBAPPALTI === "off") return new Response("Not Found", { status: 404 });
   const sotto = inUrl.pathname.slice(base.length);
-  if (sotto === "/sal/sub/api") return apiImpresa(request, env, base, inUrl, h);
+  if (sotto === "/sal/sub/api") return apiImpresa(request, env, base, inUrl, h, fn);
   if (sotto === "/sal/sub/doc") return docImpresa(request, env, base, inUrl, h, fn);
   if (sotto === "/sal/sub/foto") return fotoImpresa(request, env, base, inUrl, h);
+  if (sotto === "/sal/sub/firma-file") return firmaFileImpresa(request, env, inUrl, h);
   if (sotto === "/sal/sub/porta") return porta(request, env, base, inUrl, h);
-  if (sotto === "/sal/sub/porta/api") return apiPorta(request, env, h);
+  if (sotto === "/sal/sub/porta/api") return apiPorta(request, env, h, fn);
+  if (sotto === "/sal/sub/porta/firma") return request.method === "POST" ? firmaPortaCarica(request, env, h) : firmaPortaFile(request, env, inUrl, h);
   if (sotto === "/sal/sub/porta/foto") return request.method === "POST" ? fotoPortaCarica(request, env, inUrl, h) : fotoPortaVedi(request, env, inUrl, h);
   if (sotto === "/sal/sub/porta/doc") return docPorta(request, env, base, inUrl, h, fn);
   return new Response("Not Found", { status: 404 });
 }
 
 // ---------------------------------------------------------------------------- lato impresa
-async function apiImpresa(request, env, base, inUrl, h) {
+async function apiImpresa(request, env, base, inUrl, h, fn) {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
   const b = await leggiCorpo(request);
   if (b.errore) return json({ esito: "errore" }, b.errore);
@@ -193,6 +195,15 @@ async function apiImpresa(request, env, base, inUrl, h) {
   } else if (az === "sal_stato") {
     if (!UUID.test(id) || ["pagato", "non_pagato", "annulla"].indexOf(dati.azione || "") === -1) return json({ esito: "errore" }, 400);
     r = await chiama("sub_sal_stato", { p_token: tok, p_commessa: c, p_id: id, p_azione: dati.azione, p_dati: dati });
+  } else if (az === "firma_prepara") {
+    // S3b (11/11/2026): PDF da firmare scritto una volta sola e registrato con l'impronta, poi firmatore comune (tipo 'sal')
+    const kid = String(b.k || "").toLowerCase();
+    if (!UUID.test(id) || !UUID.test(kid)) return json({ esito: "errore" }, 400);
+    r = await preparaPdfFirma(env, fn,
+      () => chiama("sub_firma_file", { p_token: tok, p_commessa: c, p_sal: id, p_cosa: "impresa" }),
+      () => chiama("sub_doc_dati", { p_token: tok, p_commessa: c, p_contratto: kid, p_sal: id }),
+      (d) => chiama("sub_sal_pdf_registra", { p_token: tok, p_commessa: c, p_sal: id, p_dati: d }));
+    if (r && r.esito === "ok") r = { esito: "ok", rif_id: "sub:" + id, pdf: base + "/sal/sub/firma-file?t=" + tok + "&c=" + c + "&id=" + id + "&cosa=impresa" };
   } else {
     return json({ esito: "errore" }, 400);
   }
@@ -300,7 +311,7 @@ function paginaErrore(base, h, esito, togliCookie) {
   return new Response(html, { status: esito === "nessuno" ? 401 : 403, headers: h.headers(togliCookie ? { "Set-Cookie": cookie(base, "", 0) } : undefined) });
 }
 
-async function apiPorta(request, env, h) {
+async function apiPorta(request, env, h, fn) {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
   const k = leggiK(request);
   if (!k) return json({ esito: "link" }, 403);
@@ -315,6 +326,20 @@ async function apiPorta(request, env, h) {
     const id = String(b.id || "").toLowerCase();
     if (!UUID.test(id)) return json({ esito: "errore" }, 400);
     r = await chiama("sub_porta_misura_annulla", { p_k: k, p_id: id });
+  } else if (az === "firma_prepara") {
+    // S3b: il sub firma la copia dell'impresa se c'è, altrimenti il PDF (scritto qui se non c'è ancora)
+    const id = String(b.id || "").toLowerCase();
+    if (!UUID.test(id)) return json({ esito: "errore" }, 400);
+    const info = () => chiama("sub_porta_firma_file", { p_k: k, p_sal: id, p_cosa: "sub" });
+    r = await preparaPdfFirma(env, fn, info,
+      () => chiama("sub_porta_doc", { p_k: k, p_sal: id }),
+      (d) => chiama("sub_porta_pdf_registra", { p_k: k, p_sal: id, p_dati: d }));
+    if (r && r.esito === "ok") {
+      const i = await info();
+      if (!i || i.esito !== "ok" || !i.doc) return json({ esito: "incerto" });
+      r = { esito: "ok", firma_attiva: i.firma_attiva === true, gia: i.gia === true,
+        doc: { sha256: i.doc.sha256, p7m: i.doc.p7m === true, nome: i.doc.nome, chi: i.doc.chi } };
+    }
   } else return json({ esito: "errore" }, 400);
   return r ? json(r) : json({ esito: "incerto" });
 }
@@ -378,6 +403,140 @@ async function docPorta(request, env, base, inUrl, h, fn) {
   return rispostaFile(r, inUrl.searchParams.get("f") === "pdf" ? "pdf" : "xlsx", fn, metodo, h, base, inUrl, base + "/sal/sub/porta");
 }
 
+// ---------------------------------------------------------------------------- firma (S3b, 11/11/2026)
+// Il PDF da firmare si scrive una volta sola, si salva in wa-media/documenti/<cantiere>/sub/<contratto>/firma/ e il database ne registra
+// l'impronta. L'impresa firma con il firmatore comune (firma.js, tipo 'sal', rif_id 'sub:<id>'); il sub firma dal suo link, con il dito
+// (il browser scrive la firma sul PDF con pdf-lib) oppure caricando il file firmato digitalmente. Chi firma per secondo firma la copia dell'altro.
+const MAX_FIRMATO = 20 * 1024 * 1024;
+const CARTELLA_FIRMA = /^documenti\/[0-9a-f-]{36}\/sub\/[0-9a-f-]{36}\/firma\/$/;
+function urlArchivio(env, percorso) {
+  return (env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co") + "/storage/v1/object/wa-media/" + String(percorso).split("/").map(encodeURIComponent).join("/");
+}
+async function salvaArchivio(env, percorso, bytes, mime) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const r = await fetch(urlArchivio(env, percorso), { method: "POST", signal: ctrl.signal,
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": mime, "x-upsert": "false" }, body: bytes });
+    return r.ok;
+  } catch (e) { return false; } finally { clearTimeout(timer); }
+}
+async function togliArchivio(env, percorso) {
+  if (!CARTELLA_FIRMA.test(String(percorso).replace(/[^/]+$/, ""))) return;
+  await fetch(urlArchivio(env, percorso), { method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+}
+function esadecimale(buf) { return Array.from(new Uint8Array(buf), (x) => x.toString(16).padStart(2, "0")).join(""); }
+function oggiCompatto() {
+  const o = new Date();
+  return o.getUTCFullYear() + String(o.getUTCMonth() + 1).padStart(2, "0") + String(o.getUTCDate()).padStart(2, "0");
+}
+async function preparaPdfFirma(env, fn, chiamaInfo, chiamaDati, chiamaRegistra) {
+  const i = await chiamaInfo();
+  if (!i || i.esito !== "ok") return i || { esito: "incerto" };
+  if (i.doc && i.doc.sha256) return { esito: "ok" };
+  const cart = String(i.cartella || "");
+  if (!CARTELLA_FIRMA.test(cart) || !fn || !fn.salPdf) return { esito: "errore", messaggio: "Il PDF non si prepara: riprova." };
+  const d = await chiamaDati();
+  if (!d || d.esito !== "ok") return d || { esito: "incerto" };
+  if (fn.preparaLogo) d.logo = await fn.preparaLogo(d.logo_impresa);
+  const file = fn.salPdf(d);
+  const bytes = file instanceof Uint8Array ? file : new Uint8Array(file);
+  const sha = esadecimale(await crypto.subtle.digest("SHA-256", bytes));
+  const perc = cart + oggiCompatto() + "-" + casuale().slice(0, 12) + ".pdf";
+  if (!(await salvaArchivio(env, perc, bytes, "application/pdf"))) return { esito: "archivio", messaggio: "Il PDF non si è salvato: riprova tra un minuto." };
+  const r = await chiamaRegistra({ percorso: perc, sha256: sha, byte: bytes.length });
+  if (!r || r.esito !== "ok") { await togliArchivio(env, perc); return r || { esito: "incerto" }; }
+  if (r.fisso) await togliArchivio(env, perc);          // qualcuno ha firmato nel frattempo: vale il PDF di prima
+  else if (r.vecchio) await togliArchivio(env, r.vecchio);
+  return { esito: "ok" };
+}
+async function mandaDoc(env, doc, metodo, scarica) {
+  const perc = String((doc && doc.percorso) || "");
+  if (!perc || perc.indexOf("..") !== -1 || !/^(documenti\/[0-9a-f-]{36}\/sub\/|firme\/[0-9a-f-]{36}\/documenti\/)/.test(perc)) return new Response("Not Found", { status: 404 });
+  const f = await fetch(urlArchivio(env, perc), { headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return new Response("File non disponibile in questo momento: riprova tra un minuto.", { status: 502, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
+  const p7m = doc.mime === "application/pkcs7-mime";
+  const nome = String(doc.nome || (p7m ? "contabilita.pdf.p7m" : "contabilita.pdf"));
+  return new Response(metodo === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p7m ? "application/pkcs7-mime" : "application/pdf",
+    "Content-Disposition": (scarica || p7m ? "attachment" : "inline") + '; filename="' + nomeScarico(nome, p7m ? "contabilita.pdf.p7m" : "contabilita.pdf") + '"; filename*=UTF-8\'\'' + encodeURIComponent(nome),
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+async function firmaFileImpresa(request, env, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = String(inUrl.searchParams.get("t") || "").toLowerCase();
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  const cosa = String(inUrl.searchParams.get("cosa") || "impresa");
+  if (!GETTONE.test(tok) || !UUID.test(c) || !UUID.test(id)) return new Response("Not Found", { status: 404 });
+  const r = await h.rpc(env, "sub_firma_file", { p_token: tok, p_commessa: c, p_sal: id, p_cosa: cosa }, 10000).catch(() => null);
+  if (!r || r.esito !== "ok" || !r.doc) return new Response("Not Found", { status: 404 });
+  return mandaDoc(env, r.doc, metodo, inUrl.searchParams.get("scarica") === "1");
+}
+async function firmaPortaFile(request, env, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+  const k = leggiK(request);
+  const id = String(inUrl.searchParams.get("id") || "").toLowerCase();
+  if (!k || !UUID.test(id)) return new Response("Not Found", { status: 404 });
+  const r = await h.rpc(env, "sub_porta_firma_file", { p_k: k, p_sal: id, p_cosa: String(inUrl.searchParams.get("cosa") || "sub") }, 10000).catch(() => null);
+  if (!r || r.esito !== "ok" || !r.doc) return new Response("Not Found", { status: 404 });
+  return mandaDoc(env, r.doc, metodo, inUrl.searchParams.get("scarica") === "1");
+}
+function daB64url(s) {
+  const b = atob(String(s).replace(/-/g, "+").replace(/_/g, "/") + "===".slice((String(s).length + 3) % 4));
+  const u = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+  return new TextDecoder().decode(u);
+}
+function contieneAscii(bytes, testo) {
+  const passo = 4 * 1024 * 1024, dec = new TextDecoder("latin1");
+  for (let i = 0; i < bytes.length; i += passo - testo.length) {
+    if (dec.decode(bytes.subarray(i, Math.min(bytes.length, i + passo))).indexOf(testo) !== -1) return true;
+  }
+  return false;
+}
+async function firmaPortaCarica(request, env, h) {
+  const k = leggiK(request);
+  if (!k) return json({ esito: "link" }, 403);
+  let d = null;
+  try { const g = String(request.headers.get("X-Firma-Dati") || ""); if (g.length < 4000 && /^[A-Za-z0-9_-]+$/.test(g)) d = JSON.parse(daB64url(g)); } catch (e) { d = null; }
+  if (!d || typeof d !== "object") return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 400);
+  const id = String(d.id || "").toLowerCase(), tipo = d.tipo === "digitale" ? "digitale" : d.tipo === "semplice" ? "semplice" : "";
+  if (!UUID.test(id) || !tipo) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_FIRMATO) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 20 MB)." }, 413);
+  const i = await h.rpc(env, "sub_porta_firma_file", { p_k: k, p_sal: id, p_cosa: "sub" }, 10000).catch(() => null);
+  if (!i) return json({ esito: "incerto" }, 503);
+  if (i.esito !== "ok") return json(i, 403);
+  if (i.firma_attiva !== true) return json({ esito: "spento", messaggio: "La firma non è ancora attiva." }, 403);
+  if (i.gia === true) return json({ esito: "errore", messaggio: "Hai già firmato questa contabilità." }, 409);
+  if (!i.doc || String(d.sha256_originale || "").toLowerCase() !== i.doc.sha256) return json({ esito: "errore", messaggio: "Il documento è cambiato mentre lo firmavi: ricarica la pagina e firma di nuovo." }, 409);
+  const cart = String(i.cartella || "");
+  if (!CARTELLA_FIRMA.test(cart)) return json({ esito: "errore" }, 400);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > MAX_FIRMATO) return json({ esito: "grande", messaggio: "Il file è troppo grande (massimo 20 MB)." }, 413);
+  const pdf = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) === "%PDF-";
+  const der = bytes[0] === 0x30 && (bytes[1] & 0x80) === 0x80;                       // .p7m binario
+  const b64 = String.fromCharCode(bytes[0], bytes[1], bytes[2]) === "MII";              // .p7m in base64
+  let est = "";
+  if (tipo === "semplice") { if (pdf) est = ".pdf"; }
+  else if (pdf && contieneAscii(bytes, "/ByteRange")) est = ".pdf";                     // PDF firmato digitalmente (PAdES)
+  else if (der || b64) est = ".p7m";
+  if (!est) return json({ esito: "formato", messaggio: tipo === "semplice" ? "Il file firmato non è un PDF: riprova." :
+    "Il file non risulta firmato digitalmente: carica il .p7m oppure il PDF firmato." }, 400);
+  const sha = esadecimale(await crypto.subtle.digest("SHA-256", bytes));
+  const perc = cart + oggiCompatto() + "-" + casuale().slice(0, 12) + est;
+  if (!(await salvaArchivio(env, perc, bytes, est === ".pdf" ? "application/pdf" : "application/pkcs7-mime"))) {
+    return json({ esito: "archivio", messaggio: "La copia firmata non si è salvata: riprova tra un minuto." }, 502);
+  }
+  const r = await h.rpc(env, "sub_porta_firma_registra", { p_k: k, p_sal: id, p_dati: { tipo, sha256_originale: i.doc.sha256, sha256: sha,
+    byte: bytes.length, percorso: perc, nome: String(d.nome || "").replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, 120) } }, 15000).catch(() => null);
+  if (!r || r.esito !== "ok") { await togliArchivio(env, perc); return json(r || { esito: "incerto" }, r ? 400 : 503); }
+  return json({ esito: "ok" });
+}
+
 // ---------------------------------------------------------------------------- pagina del sub
 function paginaPorta(base, d, h) {
   const e = h.esc;
@@ -430,6 +589,9 @@ const STILE_PORTA =
   ".msg{margin:0 16px;color:#b91c1c;font-weight:700;font-size:.9rem;min-height:1em}" +
   ".toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1b1f1d;color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;z-index:50}" +
   ".nota{font-size:.82rem;color:#5b6560;margin:12px 0}" +
+  // S3b: firma con il dito
+  "#fi-pad{display:block;width:100%;height:170px;border:2px dashed var(--sub-b);border-radius:12px;background:#fff;touch-action:none;cursor:crosshair}" +
+  ".tab{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.tab .b{min-height:40px;padding:0 12px}.tab .b.on{background:var(--sub);color:#fff}" +
   "@media (max-width:560px){.dims{grid-template-columns:repeat(2,1fr)}.tre{grid-template-columns:1fr}table.el .nas{display:none}}";
 
 const PORTA_APP = String.raw`(function(){"use strict";
@@ -479,7 +641,12 @@ function disegna(){
       ' Prezzo dell’ora: '+eur(co.economie_prezzo)+' € + IVA.'+(Number(co.economie_periodo)?' Nella prossima contabilità entrano '+qt(co.economie_ore_periodo)+' ore, '+eur(co.economie_periodo)+' € + IVA.':''))+'</p></div>';
   var S=K.sal||[];
   h+='<div class="pann"><h2>Le tue contabilità</h2>'+(S.length?'<ul class="ms">'+S.map(function(s){return '<li><b>'+(s.tipo==='finale'?'Contabilità finale n. ':s.tipo==='svincolo'?'Svincolo delle ritenute n. ':'n. ')+s.numero+'</b> · dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'<div><span class="q">'+eur(s.dovuto)+' € + IVA</span> <span class="sub">· approvata il '+es(s.emesso_il||'')+'</span> '+
-      (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st am">da pagare</span>')+'</div><div class="riga-b"><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=pdf')+'">PDF</a><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=xlsx')+'">Excel</a></div></li>';}).join('')+'</ul>':'<p class="nota" style="margin:0">Ancora nessuna.</p>')+
+      (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st am">da pagare</span>')+'</div>'+
+      // S3b (11/11/2026): firme
+      (s.firma_impresa?'<div class="sub">&#9997;&#65039; Firmata per l’impresa da '+es(s.firma_impresa.nome)+' il '+es(s.firma_impresa.il)+'</div>':'')+
+      (s.firma_sub?'<div class="sub">&#9997;&#65039; Firmata da te ('+es(s.firma_sub.nome)+') il '+es(s.firma_sub.il)+'</div>':'')+
+      '<div class="riga-b">'+(s.firma_impresa||s.firma_sub?'<a class="b" href="'+es(C.u+'/firma?id='+s.id+'&cosa=ultima')+'" target="_blank" rel="noopener">PDF firmato</a>':'<a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=pdf')+'">PDF</a>')+
+      '<a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=xlsx')+'">Excel</a>'+(D.firma_sub&&!s.firma_sub?'<button type="button" class="b pr" data-fi="'+s.id+'">Firma</button>':'')+'</div></li>';}).join('')+'</ul>':'<p class="nota" style="margin:0">Ancora nessuna.</p>')+
     (ins.length?'<details><summary>Misure già nelle contabilità ('+ins.length+')</summary><ul class="ms">'+ins.map(function(m){return rigaM(m,false);}).join('')+'</ul></details>':'')+'</div>';
   h+='<div class="pann"><h2>Il tuo elenco prezzi</h2><table class="el"><thead><tr><th class="t">N.</th><th class="t">Voce</th><th>U.M.</th><th>Prezzo €</th><th class="nas">Q. contratto</th><th>Misurato</th></tr></thead><tbody>'+
     (K.voci||[]).filter(function(v){return !v.tolta;}).map(function(v){return '<tr><td class="t">'+es(v.nr)+'</td><td class="t">'+es(v.descrizione)+(v.tariffa?' <small>('+es(v.tariffa)+')</small>':'')+'</td><td>'+es(v.unita||'')+'</td><td>'+eur(v.prezzo)+'</td><td class="nas">'+qt(v.quantita)+'</td><td>'+qt(v.misurato)+'</td></tr>';}).join('')+'</tbody></table>'+
@@ -524,11 +691,69 @@ function modulo(m){m=m||{};FOTO=(m.foto||[]).slice();INVIO=0;var voci=(K.voci||[
     ls('sp_chi',d.autore);ls('sp_lotto',d.lotto);var b=$('#sp-dlg-si');b.disabled=true;
     api('misura',{dati:d}).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();avviso('Misura salvata: '+qt(r.quantita));ricarica();}else $('#sp-dlg-m').textContent=errore(r);});});
   ['m-pu','m-l','m-w','m-h','m-v'].forEach(function(i){var x=$('#'+i);if(x)x.addEventListener('input',calcola);});calcola();fotoLista();}
+// ---- S3b (11/11/2026): firma del sub, con il dito (pdf-lib scrive la firma in fondo all'ultima pagina, a sinistra) o digitale (file caricato)
+var BASE=C.u.replace(/\/sal\/sub\/porta$/,''),PDFLIB='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',FI={};
+function esa(buf){return Array.prototype.map.call(new Uint8Array(buf),function(x){return ('0'+x.toString(16)).slice(-2);}).join('');}
+function b64url(s){var u=unescape(encodeURIComponent(s));return btoa(u).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function wa(s){return String(s==null?'':s).replace(/[\r\n\t]+/g,' ').replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…€]/g,'?');}
+function ora(){var d=new Date(),p=function(n){return ('0'+n).slice(-2);};return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' alle '+p(d.getHours())+':'+p(d.getMinutes());}
+function libPdf(){return window.PDFLib?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=PDFLIB;s.onload=ok;s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}
+function pad(cv){var x=cv.getContext('2d'),giu=false;FI.vuoto=true;x.lineWidth=4;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#1b2a6b';
+  function pt(e){var r=cv.getBoundingClientRect();return [(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height];}
+  cv.addEventListener('pointerdown',function(e){giu=true;FI.vuoto=false;var p=pt(e);x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(p[0]+0.1,p[1]+0.1);x.stroke();try{cv.setPointerCapture(e.pointerId);}catch(er){}e.preventDefault();});
+  cv.addEventListener('pointermove',function(e){if(!giu)return;var p=pt(e);x.lineTo(p[0],p[1]);x.stroke();e.preventDefault();});
+  ['pointerup','pointercancel'].forEach(function(n){cv.addEventListener(n,function(){giu=false;});});
+  FI.pulisci=function(){x.clearRect(0,0,cv.width,cv.height);FI.vuoto=true;};}
+function scriviFirma(doc,nome,cv){return Promise.all([libPdf(),fetch(C.u+'/firma?id='+FI.id+'&cosa=sub',{credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error('file');return r.arrayBuffer();})])
+  .then(function(a){var buf=a[1];return crypto.subtle.digest('SHA-256',buf).then(function(h){if(esa(h)!==String(doc.sha256||''))throw new Error('impronta');return buf;});})
+  .then(function(buf){var L=window.PDFLib;return Promise.all([L.PDFDocument.load(buf,{ignoreEncryption:true,updateMetadata:false}),new Promise(function(ok){cv.toBlob(function(b){b.arrayBuffer().then(ok);},'image/png');}),
+    fetch(BASE+'/marchio-tix.png',{credentials:'same-origin'}).then(function(r){return r.ok?r.arrayBuffer():null;}).catch(function(){return null;})])
+  .then(function(a){var out=a[0];return Promise.all([out.embedFont(L.StandardFonts.Helvetica),out.embedFont(L.StandardFonts.HelveticaBold),out.embedPng(a[1]),a[2]?out.embedPng(a[2]).catch(function(){return null;}):null]).then(function(f){
+    var pg=out.getPage(out.getPageCount()-1),W=230,H=96,x0=36,y0=62,terr=L.rgb(0.54,0.23,0.15),gr=L.rgb(0.36,0.4,0.45),nero=L.rgb(0.1,0.1,0.1),im=f[2],mk=f[3];
+    pg.drawRectangle({x:x0,y:y0,width:W,height:H,color:L.rgb(1,1,1),opacity:0.92,borderColor:terr,borderWidth:1});
+    pg.drawText(wa('Per il subappaltatore'),{x:x0+8,y:y0+H-11,size:6.5,font:f[0],color:gr});
+    pg.drawText(wa(String(K.impresa_nome||'')).slice(0,46),{x:x0+8,y:y0+H-21,size:8.2,font:f[1],color:terr});
+    var s=Math.min((W-16)/im.width,44/im.height);pg.drawImage(im,{x:x0+8,y:y0+26,width:im.width*s,height:im.height*s});
+    pg.drawText(wa(nome).slice(0,50),{x:x0+8,y:y0+16,size:7.2,font:f[1],color:nero});pg.drawText(wa(ora()),{x:x0+8,y:y0+9,size:6.3,font:f[0],color:gr});
+    pg.drawText(wa('Impronta del documento '+String(doc.sha256).slice(0,16)+'...'),{x:x0+8,y:y0+3,size:5,font:f[0],color:gr});
+    if(mk){var hm=9,lm=mk.width*(hm/mk.height);pg.drawImage(mk,{x:x0+W-6-lm,y:y0+3,width:lm,height:hm});}
+    return out.save({useObjectStreams:false});});});});}
+function mandaFirma(bytes,tipo,doc,nome){var dd={id:FI.id,tipo:tipo,sha256_originale:String(doc.sha256||''),nome:nome};
+  return fetch(C.u+'/firma',{method:'POST',credentials:'same-origin',headers:{'X-Firma-Dati':b64url(JSON.stringify(dd)),'Content-Type':'application/octet-stream'},body:bytes})
+    .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};});}
+function firma(id){var s=(K.sal||[]).filter(function(x){return x.id===id;})[0];if(!s)return;FI={id:id,modo:'f'};
+  var tit=(s.tipo==='finale'?'Contabilità finale n. ':s.tipo==='svincolo'?'Svincolo delle ritenute n. ':'Contabilità n. ')+s.numero;
+  dlg('Firma: '+tit,'Preparo il documento…','<p class="nota">Un momento…</p>','Firma e salva',function(){
+    var nome=($('#fi-nome')||{}).value||'',m=$('#sp-dlg-m'),b=$('#sp-dlg-si');nome=nome.trim();
+    if(!FI.doc){m.textContent='Il documento non è ancora pronto: aspetta un momento.';return;}
+    if(nome.length<3){m.textContent='Scrivi nome e cognome di chi firma.';return;}ls('sp_chi',nome);
+    var fine=function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();avviso('Contabilità firmata.');ricarica();}else m.textContent=errore(r);};
+    if(FI.modo==='d'){var f=$('#fi-file').files&&$('#fi-file').files[0];if(!f){m.textContent='Scegli il file firmato.';return;}b.disabled=true;m.textContent='Carico il file firmato…';
+      f.arrayBuffer().then(function(buf){return mandaFirma(buf,'digitale',FI.doc,nome);}).then(fine).catch(function(){fine(null);});return;}
+    if(FI.vuoto){m.textContent='Firma nel riquadro con il dito.';return;}b.disabled=true;m.textContent='Metto la firma sul PDF…';
+    scriviFirma(FI.doc,nome,$('#fi-pad')).then(function(bytes){m.textContent='Salvo la copia firmata…';return mandaFirma(bytes,'semplice',FI.doc,nome);}).then(fine)
+      .catch(function(e){b.disabled=false;m.textContent=e&&e.message==='impronta'?'Il documento è cambiato: ricarica la pagina.':'Non sono riuscito a scrivere la firma sul PDF: usa la firma digitale, oppure riprova.';});});
+  api('firma_prepara',{id:id}).then(function(r){if(!r||r.esito!=='ok'){$('#sp-dlg-s').textContent='';$('#sp-dlg-c').innerHTML='<p class="oss">'+es(errore(r))+'</p>';return;}
+    var doc=r.doc||{},p7m=!!doc.p7m;FI.doc=doc;FI.modo=p7m?'d':'f';
+    $('#sp-dlg-s').textContent=doc.chi==='impresa'?'L’impresa l’ha già firmata: firmi la sua copia, così il documento ha tutte e due le firme.':'Dopo la tua firma la firma anche l’impresa.';
+    $('#sp-dlg-c').innerHTML='<div class="tab">'+(p7m?'':'<button type="button" class="b on" data-tm="f">Firma con il dito</button>')+'<button type="button" class="b'+(p7m?' on':'')+'" data-tm="d">Firma digitale</button></div>'+
+      '<label>Nome e cognome di chi firma<input type="text" id="fi-nome" maxlength="120" autocomplete="name" value="'+es(ls('sp_chi'))+'"></label>'+
+      '<div data-f'+(p7m?' hidden':'')+'><p class="nota" style="margin:0 0 6px">Firma qui sotto con il dito. La firma va in fondo all’ultima pagina, a sinistra, con il tuo nome, la data e l’ora.</p>'+
+      '<canvas id="fi-pad" width="700" height="240"></canvas><div class="riga-b"><button type="button" class="b" id="fi-pulisci">Cancella la firma</button></div></div>'+
+      '<div data-d'+(p7m?'':' hidden')+'><p class="nota" style="margin:0 0 6px">'+(p7m?'Il documento è già firmato digitalmente (.p7m): si firma solo con la firma digitale. ':'')+
+      'Scarica il file, firmalo con la tua firma digitale (chiavetta o firma remota) e carica qui il file firmato: .p7m oppure PDF firmato.</p>'+
+      '<a class="b" href="'+es(C.u+'/firma?id='+id+'&cosa=sub&scarica=1')+'">Scarica il file da firmare</a><label style="margin-top:10px">File firmato<input type="file" id="fi-file" accept=".p7m,.pdf,application/pdf,application/pkcs7-mime"></label></div>';
+    if(!p7m)pad($('#fi-pad'));});}
 document.addEventListener('change',function(ev){if(ev.target.id==='m-file'||ev.target.id==='m-cam'){caricaFoto(ev.target.files);ev.target.value='';}});
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a'):null;if(!t)return;
   if(t.id==='sp-dlg-no'){chiudi();return;}
   if(t.id==='sp-dlg-si'){if(dlg.fn)dlg.fn();return;}
   if(t.id==='sp-nuova'){modulo(null);return;}
+  // S3b: firma
+  if(t.hasAttribute('data-fi')){firma(t.getAttribute('data-fi'));return;}
+  if(t.hasAttribute('data-tm')){FI.modo=t.getAttribute('data-tm');[].forEach.call(document.querySelectorAll('[data-tm]'),function(x){x.classList.toggle('on',x===t);});
+    var df=$('[data-f]'),dd=$('[data-d]');if(df)df.hidden=FI.modo!=='f';if(dd)dd.hidden=FI.modo!=='d';$('#sp-dlg-m').textContent='';return;}
+  if(t.id==='fi-pulisci'){if(FI.pulisci)FI.pulisci();return;}
   if(t.hasAttribute('data-fx')){FOTO.splice(Number(t.getAttribute('data-fx')),1);fotoLista();return;}
   if(t.hasAttribute('data-mod')){var id=t.getAttribute('data-mod'),m=(K.misure||[]).filter(function(x){return x.id===id;})[0];if(m)modulo(m);return;}
   if(t.hasAttribute('data-tg')){var id2=t.getAttribute('data-tg');dlg('Togliere la misura?','Non arriva più all’impresa.','','Togli',function(){
@@ -598,6 +823,14 @@ function avvisi(k){var c=ctl(k);if(!c)return [];var a=[],p=c.presenze||{},nm='«
   (c.sal||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+' (computo n. '+es(v.computo_nr)+'): il sub ha misurato '+qt(v.q_sub)+' '+es(v.unita||'')+', nel tuo SAL verso il committente ce ne sono '+qt(v.q_impresa)+'.');});
   (c.oltre||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+': misurati '+qt(v.q_misurata)+' '+es(v.unita||'')+', il contratto del sub ne prevede '+qt(v.q_contratto)+'.');});
   return a;}
+// S3b: firme (impresa con il firmatore comune, sub dal suo link)
+function firmaU(id,cosa){return C.u+'/sub/firma-file?t='+C.t+'&c='+C.c+'&id='+id+'&cosa='+cosa;}
+function notaFirme(s){var a=[],fi=s.firma_impresa,fs=s.firma_sub;
+  if(fi)a.push('Firmata per l’impresa da <b>'+es(fi.nome)+'</b> il '+es(fi.il)+(fi.qualificata?' (firma digitale)':''));
+  if(fs)a.push('Firmata dal sub: <b>'+es(fs.nome)+'</b> il '+es(fs.il)+(fs.tipo==='digitale'?' (firma digitale)':' (con il dito, dal telefono)')+' · <a href="'+es(firmaU(s.id,'copia_sub'))+'" target="_blank" rel="noopener">la sua copia</a>');
+  if(!a.length)return '';return '<p class="nota" style="margin:0 0 6px">&#9997;&#65039; '+a.join('<br>&#9997;&#65039; ')+'</p>';}
+function caricaFirmatore(base){return window.TIXFirma?Promise.resolve(window.TIXFirma):new Promise(function(ok,ko){var s=document.createElement('script');s.src=base+'/firma/firma-tix.js';
+  s.onload=function(){window.TIXFirma?ok(window.TIXFirma):ko(new Error('firma'));};s.onerror=function(){ko(new Error('firma'));};document.head.appendChild(s);});}
 // S3a: nomi delle contabilità e ritenute ancora da svincolare dopo la finale
 function nomeSal(s){return s.tipo==='finale'?'Contabilità finale n. '+s.numero:s.tipo==='svincolo'?'Svincolo delle ritenute n. '+s.numero:'Contabilità n. '+s.numero;}
 function daSvincolare(k){var f=k.finale;return !!(f&&!f.svincola&&!f.svincolo&&Number(f.ritenuta)>0);}
@@ -674,8 +907,10 @@ function dettagli(k){var M=k.misure||[],ch=k.stato!=='attivo',ro=SD.chiuso,co=k.
       (s.tipo==='finale'&&s.svincola&&Number(k.ritenuta_pct)?'<span class="st ok">ritenute svincolate</span>':s.tipo==='finale'&&Number(s.ritenuta)?'<span class="st fi">ritenute trattenute: '+eur(s.ritenuta)+' €</span>':'')+
       (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st fi">da pagare</span>')+
       (s.pagato_il&&s.pagato_durc_confermato?'<span class="st fi" title="Segnata pagata dopo l’avviso sul DURC">DURC non valido al pagamento</span>':'')+'<span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
-      '<p class="nota" style="margin:6px 0">Approvata il '+es(s.emesso_il||'')+' da '+es(s.emesso_da||'')+(s.pagato_nota?' · '+es(s.pagato_nota):'')+'</p><div class="riga-b">'+
-      '<a class="b" href="'+es(docU(k.id,s.id,'pdf'))+'">PDF da firmare</a><a class="b ex" href="'+es(docU(k.id,s.id,'xlsx'))+'">Excel</a>'+
+      '<p class="nota" style="margin:6px 0">Approvata il '+es(s.emesso_il||'')+' da '+es(s.emesso_da||'')+(s.pagato_nota?' · '+es(s.pagato_nota):'')+'</p>'+notaFirme(s)+'<div class="riga-b">'+
+      (s.firma_impresa||s.firma_sub?'<a class="b ok" href="'+es(firmaU(s.id,'ultima'))+'" target="_blank" rel="noopener">PDF firmato</a>':'<a class="b" href="'+es(docU(k.id,s.id,'pdf'))+'">PDF da firmare</a>')+
+      (!ro&&SD.firma_impresa&&!s.firma_impresa?'<button type="button" class="b sb-pr" data-sb="firma" data-id="'+s.id+'" data-k="'+k.id+'">Firma</button>':'')+
+      '<a class="b ex" href="'+es(docU(k.id,s.id,'xlsx'))+'">Excel</a>'+
       (ro?'':s.pagato_il?'<button type="button" class="b" data-sb="nonpagata" data-id="'+s.id+'">Togli «pagata»</button>':'<button type="button" class="b ok" data-sb="pagata" data-id="'+s.id+'">Segna pagata</button>')+
       (!ro&&i===0&&!s.pagato_il?'<button type="button" class="b ro" data-sb="annulla" data-id="'+s.id+'">Annulla</button>':'')+'</div></div>';}).join('')+'</div>';
   if(ins.length)h+='<details style="margin-top:10px"><summary>Righe già nelle contabilità ('+ins.length+')</summary><ul class="sb-ms">'+ins.map(function(m){return rigaM(k,m,'sal');}).join('')+'</ul></details>';
@@ -800,6 +1035,11 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e l’impronta SHA-256 e non cambia più.',
       '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){
       var nm=$('#se-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{periodo_a:$('#se-a').value,autore:nm}}),'Contabilità approvata.');});return;}
+  // S3b (11/11/2026): firma dell'impresa con il firmatore comune (tipo 'sal', rif_id 'sub:<id>')
+  if(a==='firma'){t.disabled=true;api('firma_prepara',{id:id,k:t.getAttribute('data-k')}).then(function(r){t.disabled=false;
+      if(!r||r.esito!=='ok'){avv(errore(r));return;}var base=C.u.replace(/\/sal$/,'');
+      caricaFirmatore(base).then(function(F){F.apri({base:base,t:C.t,c:C.c,tipo:'sal',rif_id:r.rif_id,pdf:r.pdf,impostazioni:base+'/firma/impostazioni?t='+C.t+'&c='+C.c,
+        onFatto:function(){avv('Contabilità firmata.');carica();}});}).catch(function(){avv('Il firmatore non si carica: riprova tra un minuto.');});});return;}
   // S3a (11/11/2026): contabilità finale e svincolo delle ritenute
   if(a==='finale'){var of=SD.oggi||'',cf=k.conto||{},rf=Number(cf.ritenuta)||0;
     dlg('Contabilità finale di '+k.impresa_nome+'?','Entrano tutte le righe accettate e le ore in economia fino al giorno che scegli. Poi il subappalto si chiude: il sub può solo guardare e scaricare. Finché non è segnata pagata si può annullare, e il subappalto si riapre.',
