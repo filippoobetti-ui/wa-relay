@@ -81,7 +81,9 @@ function pulisci(azione, d) {
     if (d.meno === true) o.meno = true;
     if (Array.isArray(d.foto)) {
       o.foto = d.foto.slice(0, 6).filter((f) => f && typeof f === "object").map((f) => {
-        const r = {}; s("path", 220, f, r); s("nome", 120, f, r); if (/^[0-9]{1,9}$/.test(String(f.byte || ""))) r.byte = String(f.byte); return r;
+        const r = {}; s("path", 220, f, r); s("nome", 120, f, r); if (/^[0-9]{1,9}$/.test(String(f.byte || ""))) r.byte = String(f.byte);
+        if (/^[A-Za-z0-9._:=+/-]{1,120}$/.test(String(f.wa || ""))) r.wa = String(f.wa); // S3d: message_id della foto WhatsApp d'origine
+        return r;
       });
     }
   }
@@ -156,6 +158,7 @@ export async function portaleSub(request, env, base, inUrl, h, fn) {
   if (sotto === "/sal/sub/porta") return porta(request, env, base, inUrl, h);
   if (sotto === "/sal/sub/porta/api") return apiPorta(request, env, h, fn);
   if (sotto === "/sal/sub/porta/firma") return request.method === "POST" ? firmaPortaCarica(request, env, h) : firmaPortaFile(request, env, inUrl, h);
+  if (sotto === "/sal/sub/porta/foto-wa") return fotoWaVedi(request, env, inUrl, h);
   if (sotto === "/sal/sub/porta/foto") return request.method === "POST" ? fotoPortaCarica(request, env, inUrl, h) : fotoPortaVedi(request, env, inUrl, h);
   if (sotto === "/sal/sub/porta/doc") return docPorta(request, env, base, inUrl, h, fn);
   return new Response("Not Found", { status: 404 });
@@ -326,6 +329,25 @@ async function apiPorta(request, env, h, fn) {
     const id = String(b.id || "").toLowerCase();
     if (!UUID.test(id)) return json({ esito: "errore" }, 400);
     r = await chiama("sub_porta_misura_annulla", { p_k: k, p_id: id });
+  } else if (az === "foto_wa") {
+    // S3d (11/11/2026): foto mandate su WhatsApp dalle persone della ditta del sub in questo cantiere (ultimi 30 giorni)
+    r = await chiama("sub_porta_foto_wa", { p_k: k });
+  } else if (az === "foto_wa_prendi") {
+    // copia della foto WhatsApp nella cartella del sub: la misura non dipende dall'archivio dei messaggi
+    const mid = String(b.mid || "");
+    if (!/^[A-Za-z0-9._:=+/-]{1,120}$/.test(mid)) return json({ esito: "errore" }, 400);
+    const i = await chiama("sub_porta_foto_wa_ok", { p_k: k, p_mid: mid });
+    if (!i || i.esito !== "ok") return json(i || { esito: "incerto" });
+    if (i.sola_lettura) return json({ esito: "errore", messaggio: "Il subappalto è chiuso: puoi solo guardare e scaricare." });
+    const cart = String(i.cartella || ""), src = String(i.path || "");
+    if (!/^documenti\/[0-9a-f-]{36}\/sub\/[0-9a-f-]{36}\/$/.test(cart) || !src || src.indexOf("..") !== -1) return json({ esito: "errore" }, 400);
+    const est = (src.match(/\.(jpe?g|png|webp)$/i) || [".jpg"])[0].toLowerCase().replace(".jpeg", ".jpg");
+    const dest = cart + oggiCompatto() + "-wa-" + casuale().slice(0, 12) + est;
+    const cp = await fetch((env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co") + "/storage/v1/object/copy", { method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ bucketId: "wa-media", sourceKey: src, destinationKey: dest }) }).catch(() => null);
+    if (!cp || !cp.ok) return json({ esito: "archivio", messaggio: "La foto non si è copiata: riprova tra un minuto." }, 502);
+    r = { esito: "ok", path: dest, nome: "WhatsApp " + mid.slice(-6), wa: mid };
   } else if (az === "importa") {
     // S3c (11/11/2026): misure dal file Excel del sub (letto nel browser); il database le salva tutte o nessuna
     const d = b.dati && typeof b.dati === "object" ? b.dati : {};
@@ -398,6 +420,18 @@ async function fotoPortaVedi(request, env, inUrl, h) {
   const r = await h.rpc(env, "sub_porta_foto_ok", { p_k: k, p_path: p }, 10000).catch(() => null);
   if (!r || r.esito !== "ok") return new Response("Not Found", { status: 404 });
   return streamFoto(env, p, metodo);
+}
+
+// S3d (11/11/2026): anteprima di una foto WhatsApp della ditta del sub (il database controlla che sia della sua ditta e del cantiere)
+async function fotoWaVedi(request, env, inUrl, h) {
+  const metodo = request.method;
+  if (metodo !== "GET" && metodo !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const k = leggiK(request);
+  const mid = String(inUrl.searchParams.get("mid") || "");
+  if (!k || !/^[A-Za-z0-9._:=+/-]{1,120}$/.test(mid)) return new Response("Not Found", { status: 404 });
+  const r = await h.rpc(env, "sub_porta_foto_wa_ok", { p_k: k, p_mid: mid }, 10000).catch(() => null);
+  if (!r || r.esito !== "ok" || !r.path || String(r.path).indexOf("..") !== -1) return new Response("Not Found", { status: 404 });
+  return streamFoto(env, String(r.path), metodo);
 }
 
 async function docPorta(request, env, base, inUrl, h, fn) {
@@ -582,6 +616,11 @@ const STILE_PORTA =
   ".fl{font-size:.88rem;font-weight:700;margin:0 0 4px}.fl small{font-weight:400;color:#6b7280}.foto-b{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px}" +
   ".foto-b label.fb{display:inline-flex;align-items:center;gap:6px;min-height:46px;margin:0;padding:0 14px;border:1.5px solid var(--sub);border-radius:10px;background:#FBF0EC;color:var(--sub-s);font-weight:700;cursor:pointer}" +
   ".foto-b input{display:none}" +
+  // S3d: foto da WhatsApp
+  ".foto-b button.fb{display:inline-flex;align-items:center;gap:6px;min-height:46px;margin:0;padding:0 14px;border:1.5px solid var(--sub);border-radius:10px;background:#FBF0EC;color:var(--sub-s);font:inherit;font-weight:700;cursor:pointer}" +
+  ".wag{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px;margin:6px 0}.wag button{position:relative;padding:0;border:3px solid transparent;border-radius:9px;overflow:hidden;background:#eee;aspect-ratio:1/1;cursor:pointer}" +
+  ".wag button.on{border-color:var(--sub)}.wag button.on::after{content:'\\2713';position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:var(--sub);color:#fff;font-weight:900;font-size:.8rem;line-height:20px}" +
+  ".wag img{width:100%;height:100%;object-fit:cover;display:block}.wag small{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:.64rem;padding:1px 3px;text-align:left}" +
   ".ft{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}.ft a,.ft span.th{position:relative;display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;background:#eee}.ft img{width:100%;height:100%;object-fit:cover}" +
   ".ft .x{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-weight:900;cursor:pointer}" +
   "table.el{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}table.el td,table.el th{padding:6px 4px;border-bottom:1px solid #eee;text-align:right;vertical-align:top}" +
@@ -693,7 +732,9 @@ function modulo(m){m=m||{};FOTO=(m.foto||[]).slice();INVIO=0;var voci=(K.voci||[
     // 10/11/2026 (Filippo): oltre alle foto già fatte, anche la fotocamera del telefono
     '<p class="fl">Foto <small>(fino a 6)</small></p><div class="foto-b">'+
     '<label class="fb">&#128247; Scatta una foto<input type="file" id="m-cam" accept="image/*" capture="environment"></label>'+
-    '<label class="fb">&#128444;&#65039; Scegli dalle foto<input type="file" id="m-file" accept="image/*" multiple></label></div><div class="ft" id="m-ft"></div>'+
+    '<label class="fb">&#128444;&#65039; Scegli dalle foto<input type="file" id="m-file" accept="image/*" multiple></label>'+
+    // S3d (11/11/2026): foto già mandate su WhatsApp dalle persone della ditta in questo cantiere
+    '<button type="button" class="fb" id="m-wa">&#128242; Foto mandate su WhatsApp</button></div><div class="wag" id="m-wag" hidden></div><div class="ft" id="m-ft"></div>'+
     '<label>Chi scrive <small>(nome e cognome)</small><input type="text" id="m-chi" maxlength="120" autocomplete="name" value="'+es(ls('sp_chi'))+'"></label>';
   dlg(m.id?(m.stato==='osservazione'?'Correggi la misura':'Modifica la misura'):'Nuova misura',m.osservazione&&m.stato==='osservazione'?'Osservazione: '+m.osservazione:'',c,'Salva',function(){
     if(INVIO){$('#sp-dlg-m').textContent='Aspetta la fine dell’invio delle foto.';return;}
@@ -823,6 +864,16 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(t.id==='sp-dlg-si'){if(dlg.fn)dlg.fn();return;}
   if(t.id==='sp-nuova'){modulo(null);return;}
   if(t.id==='sp-xls-b'){$('#sp-xls').click();return;}
+  // S3d: foto da WhatsApp nella misura
+  if(t.id==='m-wa'){var g=$('#m-wag');if(!g)return;if(!g.hidden){g.hidden=true;return;}g.hidden=false;g.innerHTML='<p class="nota" style="margin:0">Cerco le foto…</p>';
+    api('foto_wa').then(function(r){if(!r||r.esito!=='ok'){g.innerHTML='<p class="oss">'+es(errore(r))+'</p>';return;}var F=r.foto||[];
+      if(!F.length){g.innerHTML='<p class="nota" style="margin:0">Negli ultimi '+(r.giorni||30)+' giorni nessuna foto della tua ditta su WhatsApp per questo cantiere.</p>';return;}
+      g.innerHTML=F.map(function(f){var gia=FOTO.some(function(x){return x.wa===f.mid;});return '<button type="button" data-wa="'+es(f.mid)+'"'+(gia?' class="on"':'')+' title="'+es((f.testo||'')+(f.chi?' — '+f.chi:''))+'">'+
+        '<img src="'+es(C.u+'/foto-wa?mid='+encodeURIComponent(f.mid))+'" alt="foto" loading="lazy"><small>'+es(String(f.il||'').slice(0,10))+(f.chi?' · '+es(String(f.chi).split(' ')[0]):'')+'</small></button>';}).join('')+
+        '<p class="nota" style="grid-column:1/-1;margin:2px 0 0">Tocca una foto per aggiungerla alla misura. Sono le foto mandate su WhatsApp dalle persone della tua ditta negli ultimi '+(r.giorni||30)+' giorni.</p>';});return;}
+  if(t.hasAttribute('data-wa')){var mid=t.getAttribute('data-wa');if(FOTO.some(function(x){return x.wa===mid;})){avviso('Questa foto è già nella misura.');return;}
+    if(FOTO.length+INVIO>=6){avviso('Al massimo 6 foto per misura.');return;}INVIO++;fotoLista();t.disabled=true;
+    api('foto_wa_prendi',{mid:mid}).then(function(r){INVIO--;t.disabled=false;if(r&&r.esito==='ok'){FOTO.push({path:r.path,nome:r.nome,wa:r.wa});t.classList.add('on');}else avviso(errore(r));fotoLista();});return;}
   // S3b: firma
   if(t.hasAttribute('data-fi')){firma(t.getAttribute('data-fi'));return;}
   if(t.hasAttribute('data-tm')){FI.modo=t.getAttribute('data-tm');[].forEach.call(document.querySelectorAll('[data-tm]'),function(x){x.classList.toggle('on',x===t);});
