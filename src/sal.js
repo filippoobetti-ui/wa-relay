@@ -775,10 +775,10 @@ export function salPdf(d) {
   // ---- altre voci
   if (alt.length && tipo !== "svincolo") {
     serve(40);
-    testo(M, y - 10, "Altre voci di questo documento (economie e noli, prezzo già netto)", 10, true, "0.24 0.1 0.43 rg");
+    testo(M, y - 10, sub ? "Ore in economia di questa contabilità (dal Diario del cantiere)" : "Altre voci di questo documento (economie e noli, prezzo già netto)", 10, true, "0.24 0.1 0.43 rg");
     y -= 16;
     for (const a of alt) {
-      const righe = aCapo((a.tipo ? { economia: "Economia", nolo: "Nolo", altro: "Altro" }[a.tipo] + ": " : "") + (a.descrizione || ""), 430, 7.5, false, 2);
+      const righe = aCapo((a.tipo && !sub ? { economia: "Economia", nolo: "Nolo", altro: "Altro" }[a.tipo] + ": " : "") + (a.descrizione || ""), 430, 7.5, false, 2);
       serve(righe.length * 9 + 4);
       righe.forEach((r, i) => testo(M + 3, y - 8 - i * 9, r, 7.5));
       destra(M + 520, y - 8, qtIt(a.quantita) + " " + (a.unita || ""), 7.5);
@@ -796,6 +796,11 @@ export function salPdf(d) {
   const rc = [];
   if (sub) {
     rc.push(["Lavori a oggi", co.lavori, true, "di cui in questo periodo " + eurIt(lavPer) + " €"]);
+    // S2 (11/11/2026): ore in economia del sub; la ritenuta si calcola sul totale
+    if (num(co.altre_voci)) {
+      rc.push(["+ Economie a oggi", co.altre_voci, false, num(co.altre_voci_sal) ? "di cui in questa contabilità " + eurIt(co.altre_voci_sal) + " €" : ""]);
+      rc.push(["= Totale a oggi", co.netto, true]);
+    }
     if (num(co.ritenuta)) { rc.push(["− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta]); rc.push(["= Spettanza a oggi", co.spettanza, true]); }
     rc.push(["− Contabilità già approvate", co.precedenti]);
   } else if (tr) rc.push(["Traguardo «" + (tr.nome || "") + "»: " + pcIt(tr.percentuale) + " del contratto", (num(co.netto) || 0) - (num(co.altre_voci) || 0), false, "in tutto " + pcIt(tr.cumulata)]);
@@ -1210,10 +1215,10 @@ export function salXlsx(d) {
   const rRibI = riga("− Ribasso", trag ? "0" : "ROUND((B" + rLav + "-B" + rNr + ")*B" + rRib + "/100,2)", num(co.ribasso) || 0, num(co.ribasso) || 0);
   const rSic = riga("+ Oneri della sicurezza", trag || co.sicurezza_modo !== "proporzionale" ? "0" : "IF(B" + rImpC + ">0,ROUND(B" + rOneri + "*MIN(1,B" + rLav + "/B" + rImpC + "),2),0)",
     num(co.sicurezza) || 0, num(co.sicurezza) || 0);
-  const rAvp = riga("+ Altre voci dei SAL precedenti", sto.length ? "SUM(Storico!$L$5:$L$" + stoFine + ")" : "0", avPrec, avPrec);
+  const rAvp = riga(tipo === "sub" ? "+ Economie delle contabilità precedenti" : "+ Altre voci dei SAL precedenti", sto.length ? "SUM(Storico!$L$5:$L$" + stoFine + ")" : "0", avPrec, avPrec);
   const rAvsF = rr; // la formula delle altre voci di questo SAL punta alla tabella sotto: si scrive dopo
   rr++;
-  const rNet = riga("= Lavori netti a oggi", trag ? "ROUND(B" + rBase + "*B" + rCum + "/100,2)+B" + rAvp + "+B" + rAvsF
+  const rNet = riga(tipo === "sub" ? "= Totale a oggi (lavori ed economie)" : "= Lavori netti a oggi", trag ? "ROUND(B" + rBase + "*B" + rCum + "/100,2)+B" + rAvp + "+B" + rAvsF
     : "B" + rLav + "-B" + rRibI + "+B" + rSic + "+B" + rAvp + "+B" + rAvsF, num(co.netto) || 0, num(co.netto) || 0, S.EURB);
   // svincolo: la ritenuta non si trattiene più; conto finale e svincolo: l'anticipazione si recupera tutta
   const rRitI = riga(tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia",
@@ -1223,15 +1228,15 @@ export function salXlsx(d) {
     tipo === "sal" ? "IF(AND(B" + rAntI + ">0,B" + rBase + ">0),MAX(0,MIN(B" + rAntI + ",ROUND(B" + rAntI + "*B" + rNet + "/B" + rBase + ",2))),0)" : "B" + rAntI,
     num(co.recupero) || 0, num(co.recupero) || 0);
   const rSp = riga("= Spettanza a oggi", "B" + rNet + "-B" + rRitI + "-B" + rRec, num(co.spettanza) || 0, num(co.spettanza) || 0, S.EURB);
-  const rPrev = riga("− SAL già emessi", sto.length ? "SUM(Storico!$M$5:$M$" + stoFine + ")" : "0", num(co.precedenti) || 0, num(co.precedenti) || 0);
-  riga(tipo === "finale" ? "= SALDO DEL CONTO FINALE, RITENUTE ESCLUSE (+ IVA)" : tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTO SAL (+ IVA)",
+  const rPrev = riga(tipo === "sub" ? "− Contabilità già approvate" : "− SAL già emessi", sto.length ? "SUM(Storico!$M$5:$M$" + stoFine + ")" : "0", num(co.precedenti) || 0, num(co.precedenti) || 0);
+  riga(tipo === "sub" ? "= IMPORTO DI QUESTA CONTABILITÀ (+ IVA)" : tipo === "finale" ? "= SALDO DEL CONTO FINALE, RITENUTE ESCLUSE (+ IVA)" : tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTO SAL (+ IVA)",
     "B" + rSp + "-B" + rPrev, num(co.dovuto) || 0, num(co.dovuto) || 0, S.GRANDE);
   rr++;
   R.c(rr, 1, "Importi in euro, IVA esclusa: TIX non calcola l’IVA (10%, 22%, inversione contabile o scissione dei pagamenti dipendono dal caso). " +
     "Le celle della colonna B sono formule che leggono i fogli Avanzamento, Libretto e Storico; la colonna C riporta i numeri registrati da TIX e la differenza deve essere zero.", S.NOTA);
   R.unioni.push("A" + rr + ":D" + rr); R.alte.set(rr, 40); rr += 2;
   // altre voci di questo SAL
-  R.c(rr, 1, "Altre voci di questo SAL (economie e noli, prezzo già netto)", S.HDR);
+  R.c(rr, 1, tipo === "sub" ? "Ore in economia di questa contabilità (dal Diario del cantiere)" : "Altre voci di questo SAL (economie e noli, prezzo già netto)", S.HDR);
   ["Tipo", "U.M.", "Quantità", "", "Prezzo", "Importo"].forEach((t, i) => R.c(rr, 2 + i, t, i === 3 ? 0 : S.HDR));
   rr++;
   const avDa = rr;
@@ -1242,8 +1247,8 @@ export function salXlsx(d) {
     rr++;
   }
   const avA = rr - 1;
-  if (!alt.length) { R.c(rr, 1, "Nessuna altra voce in questo SAL.", S.NOTA); rr++; }
-  R.c(rAvsF, 1, "+ Altre voci di questo SAL", S.TXT);
+  if (!alt.length) { R.c(rr, 1, tipo === "sub" ? "Nessuna ora in economia in questa contabilità." : "Nessuna altra voce in questo SAL.", S.NOTA); rr++; }
+  R.c(rAvsF, 1, tipo === "sub" ? "+ Economie di questa contabilità" : "+ Altre voci di questo SAL", S.TXT);
   R.c(rAvsF, 2, avSal, S.EUR, alt.length ? "SUM(G" + avDa + ":G" + avA + ")" : "0");
   R.c(rAvsF, 3, avSal, S.EUR); R.c(rAvsF, 4, 0, S.EUR, "B" + rAvsF + "-C" + rAvsF);
   rr++;

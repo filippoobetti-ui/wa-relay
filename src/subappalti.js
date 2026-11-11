@@ -55,6 +55,7 @@ function pulisci(azione, d) {
     u("id"); u("rdo_id");
     s("impresa_nome", 160); s("referente_nome", 120); s("referente_email", 160); s("referente_telefono", 40); s("oggetto", 400);
     s("inizio", 10); s("fine_prevista", 10); s("regola", 12); s("soglia_importo", 20); s("ritenuta_pct", 10); s("autore", 120);
+    s("nome_cantiere", 160); s("prezzo_ora_economia", 20); // S2, 11/11/2026
     if (/^[0-9]{1,18}$/.test(String(d.rubrica_id || ""))) o.rubrica_id = String(d.rubrica_id);
     if (Array.isArray(d.voci)) {
       o.voci = d.voci.slice(0, 500).filter((v) => v && typeof v === "object").map((v) => {
@@ -69,6 +70,7 @@ function pulisci(azione, d) {
     s("periodo_a", 10); s("autore", 120);
   } else if (azione === "sal_stato") {
     s("azione", 12); s("data", 10); s("nota", 300); s("motivo", 300); s("autore", 120);
+    if (d.conferma_durc === "si") o.conferma_durc = "si"; // S2: pagata anche senza DURC valido, scelta scritta nel registro
   } else if (azione === "link" || azione === "allunga" || azione === "spegni" || azione === "chiudi" || azione === "riapri") {
     s("autore", 120);
   } else if (azione === "porta_misura") {
@@ -468,6 +470,11 @@ function disegna(){
   if(oss.length)h+='<div class="pann"><h2>Da correggere ('+oss.length+')</h2><ul class="ms">'+oss.map(function(m){return rigaM(m,true);}).join('')+'</ul></div>';
   h+='<div class="pann"><h2>In attesa dell’impresa ('+att.length+')</h2>'+(att.length?'<ul class="ms">'+att.map(function(m){return rigaM(m,true);}).join('')+'</ul>':'<p class="nota" style="margin:0">Nessuna misura in attesa.</p>')+'</div>';
   h+='<div class="pann"><h2>Accettate ('+acc.length+')</h2>'+(acc.length?'<ul class="ms">'+acc.map(function(m){return rigaM(m,false);}).join('')+'</ul>':'<p class="nota" style="margin:0">Le misure accettate entrano nella prossima contabilità.</p>')+'</div>';
+  // S2 (11/11/2026): ore in economia della ditta segnate nel Diario del cantiere
+  var co=K.conto||{};
+  if(Number(co.economie_ore_tot)||Number(co.economie))h+='<div class="pann"><h2>Ore in economia</h2><p style="margin:0">Il Diario del cantiere segna <b>'+qt(co.economie_ore_tot)+' ore</b> in economia della tua ditta'+(K.inizio?' dal '+di(K.inizio):'')+'.'+
+    (vuoto(co.economie_prezzo)?' L’impresa non ha ancora scritto il prezzo dell’ora: per ora non entrano nella contabilità.':
+      ' Prezzo dell’ora: '+eur(co.economie_prezzo)+' € + IVA.'+(Number(co.economie_periodo)?' Nella prossima contabilità entrano '+qt(co.economie_ore_periodo)+' ore, '+eur(co.economie_periodo)+' € + IVA.':''))+'</p></div>';
   var S=K.sal||[];
   h+='<div class="pann"><h2>Le tue contabilità</h2>'+(S.length?'<ul class="ms">'+S.map(function(s){return '<li><b>n. '+s.numero+'</b> · dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'<div><span class="q">'+eur(s.dovuto)+' € + IVA</span> <span class="sub">· approvata il '+es(s.emesso_il||'')+'</span> '+
       (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st am">da pagare</span>')+'</div><div class="riga-b"><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=pdf')+'">PDF</a><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=xlsx')+'">Excel</a></div></li>';}).join('')+'</ul>':'<p class="nota" style="margin:0">Ancora nessuna.</p>')+
@@ -540,6 +547,12 @@ export const SUB_STILE =
   ".sb-ms li .sp{flex:1 1 280px}.sb-ms .q{font-weight:800;font-variant-numeric:tabular-nums}.sb-oss{color:#7f1d1d;font-weight:700}" +
   ".sb-ft{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}.sb-ft img{width:52px;height:52px;object-fit:cover;border-radius:6px;display:block}" +
   ".sb-vr{display:grid;grid-template-columns:.9fr 3fr .8fr 1fr 1fr .9fr auto;gap:6px;align-items:end;margin:0 0 6px}" +
+  // S2 (11/11/2026): controlli in giallo, margine voce per voce, economie
+  ".sb-avv{background:#FFF8E1;border:1px solid #F2D27A;border-left:5px solid #D99A00;border-radius:12px;padding:10px 14px;margin:10px 0 12px;color:#4A3300}" +
+  ".sb-avv h4{margin:0 0 6px;font-size:.95rem;color:#7A4A00}.sb-avv ul{margin:0;padding-left:18px}.sb-avv li{margin:3px 0;font-size:.9rem}.sb-avv p{font-size:.88rem}" +
+  ".sb-avv.ok{background:#E6F6EC;border-color:#A7DAB9;border-left-color:#0B8A4E;color:#0B4A2C}" +
+  ".tag-g{display:inline-block;margin-top:4px;background:#FFF4DC;color:#7A4A00;font-size:.75rem;font-weight:800;border-radius:6px;padding:2px 8px}" +
+  "table.mg tr.neg td{background:#FEF2F2}table.mg tr.tot td{border-top:2px solid var(--sub);background:var(--sub-c)}table.mg td b{font-variant-numeric:tabular-nums}" +
   "@media (max-width:760px){.sb-vr{grid-template-columns:1fr 1fr}.sb-vr .x{grid-column:span 2}}";
 
 export const SUB_APP = String.raw`(function(){"use strict";
@@ -567,6 +580,29 @@ document.addEventListener('DOMContentLoaded',function(){var el=C.solo?document.g
 function regola(k){var r=k.regola;return r==='mensile'?'contabilità mensile':r==='soglia'?'ogni '+eur(k.soglia_importo)+' € di lavori':r==='traguardi'?'a traguardi':'unica a fine lavori';}
 function kk(id){var a=(SD&&SD.contratti)||[];for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
 function voceDi(k,id){var a=k.voci||[];for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
+// ---- S2 (11/11/2026): controlli che vede solo l'impresa (k.controlli, dal database)
+function ctl(k){return (k&&k.controlli)||null;}
+function nomeC(k){var c=ctl(k);return (c&&c.nome)||k.impresa_nome||'';}
+function giorni(a,b){if(!a||!b)return null;return Math.round((Date.parse(String(b).slice(0,10))-Date.parse(String(a).slice(0,10)))/864e5);}
+function durcInfo(k){var c=ctl(k),d=c&&c.durc;if(!d)return null;var s=d.stato,g=giorni(SD.oggi,d.scade_il),nm='«'+es(nomeC(k))+'»';
+  if(s==='valido')return g!==null&&g<=15?{cl:'am',chip:'DURC in scadenza il '+di(d.scade_il),t:'Il DURC di '+nm+' scade il '+di(d.scade_il)+'.'}:{cl:'ok',chip:'DURC valido fino al '+di(d.scade_il),t:''};
+  if(s==='scaduto')return {cl:'ro',chip:'DURC scaduto',t:'Il DURC di '+nm+' è scaduto il '+di(d.scade_il)+': carica quello nuovo nella Sicurezza del cantiere.'};
+  if(s==='senza_scadenza')return {cl:'am',chip:'DURC senza scadenza',t:'Il DURC di '+nm+' non ha la data di scadenza: scrivila nella Sicurezza del cantiere.'};
+  return {cl:'am',chip:'Manca il DURC',t:'Nella Sicurezza del cantiere manca il DURC di '+nm+'.'};}
+function avvisi(k){var c=ctl(k);if(!c)return [];var a=[],p=c.presenze||{},nm='«'+es(nomeC(k))+'»';
+  if((p.senza||[]).length){var gg=[];p.senza.forEach(function(x){var d=di(x.data);if(gg.indexOf(d)<0)gg.push(d);});
+    a.push((p.senza.length===1?'1 riga è':p.senza.length+' righe sono')+' in giorni in cui il Diario non segna la ditta '+nm+': '+gg.join(', ')+'.');}
+  else if(p.dal&&!p.controllate)a.push('Non è stato possibile confrontare le misure con il Diario: riprova più tardi.');
+  (c.sal||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+' (computo n. '+es(v.computo_nr)+'): il sub ha misurato '+qt(v.q_sub)+' '+es(v.unita||'')+', nel tuo SAL verso il committente ce ne sono '+qt(v.q_impresa)+'.');});
+  (c.oltre||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+': misurati '+qt(v.q_misurata)+' '+es(v.unita||'')+', il contratto del sub ne prevede '+qt(v.q_contratto)+'.');});
+  return a;}
+function senzaDiario(k,id){var c=ctl(k),s=(c&&c.presenze&&c.presenze.senza)||[];for(var i=0;i<s.length;i++)if(s[i].id===id)return true;return false;}
+function boxControlli(k){var c=ctl(k);if(!c)return '';var a=avvisi(k),du=durcInfo(k),dt=du&&du.t?[du.t]:[],tutti=a.concat(dt);
+  if(!tutti.length)return '<div class="sb-avv ok"><b>Controlli:</b> nessun avviso. Le misure del sub tornano con il Diario e con il tuo SAL verso il committente; il DURC è valido.</div>';
+  var p=c.presenze||{};
+  return '<div class="sb-avv"><h4>&#9888;&#65039; Controlli da guardare ('+tutti.length+')</h4><ul>'+tutti.map(function(x){return '<li>'+x+'</li>';}).join('')+'</ul>'+
+    ((p.senza||[]).length&&!k.nome_cantiere?'<p style="margin:8px 0 0">Se nel Diario e nelle Persone del cantiere la ditta ha un altro nome, scrivilo in «Modifica il contratto del sub», alla voce «Nome della ditta nel Diario».</p>':'')+
+    '<p style="margin:8px 0 0">Sono solo avvisi: decidi tu se accettare le righe. Il sub non li vede.</p></div>';}
 function fotoU(p){return C.u+'/sub/foto?t='+C.t+'&c='+C.c+'&p='+encodeURIComponent(p);}
 function docU(k,id,f){return C.u+'/sub/doc?t='+C.t+'&c='+C.c+'&k='+k+(id?'&id='+id:'')+'&f='+f;}
 function pagina(){
@@ -586,9 +622,14 @@ function carta(k){var a=k.attesa||{},co=k.conto||{},lk=k.link,ch=k.stato!=='atti
     (Number(a.inviate)?'<span class="sb-chip am">'+a.inviate+(Number(a.inviate)===1?' riga da decidere':' righe da decidere')+'</span>':'')+
     (Number(a.osservazione)?'<span class="sb-chip ro">'+a.osservazione+' in correzione dal sub</span>':'')+
     (Number(a.accettate)?'<span class="sb-chip ok">'+a.accettate+(Number(a.accettate)===1?' accettata, pronta':' accettate, pronte')+' per la contabilità</span>':'')+
+    (function(){var du=durcInfo(k),n=avvisi(k).length,mg=ctl(k)&&ctl(k).margine,neg=mg&&(mg.voci||[]).filter(function(v){return Number(v.margine_unitario)<0;}).length;
+      return (n&&!ch?'<span class="sb-chip am">&#9888;&#65039; '+(n===1?'1 avviso':n+' avvisi')+' sulle misure</span>':'')+(du&&!ch?'<span class="sb-chip '+du.cl+'">'+es(du.chip)+'</span>':'')+
+        (neg?'<span class="sb-chip ro">'+(neg===1?'1 voce':neg+' voci')+' in perdita</span>':'');})()+
     '<div class="s-cifre" style="margin-top:10px"><div class="s-cifra"><small>Contratto del sub</small><b>'+eur(co.importo_contratto)+' €</b><span>'+(function(n){return n===1?'1 voce':n+' voci';})((k.voci||[]).filter(function(v){return !v.tolta;}).length)+'</span></div>'+
-    '<div class="s-cifra"><small>Accettato a oggi</small><b>'+eur(co.lavori)+' €</b><span>già in contabilità '+eur(co.lavori_prec)+' €</span></div>'+
-    '<div class="s-cifra"><small>Prossima contabilità</small><b>'+eur(co.dovuto)+' €</b><span>+ IVA, con le righe accettate</span></div></div>';
+    '<div class="s-cifra"><small>Accettato a oggi</small><b>'+eur(co.totale!=null?co.totale:co.lavori)+' €</b><span>'+(Number(co.economie)?'lavori '+eur(co.lavori)+' € + economie '+eur(co.economie)+' €':'già in contabilità '+eur(co.lavori_prec)+' €')+'</span></div>'+
+    '<div class="s-cifra"><small>Prossima contabilità</small><b>'+eur(co.dovuto)+' €</b><span>+ IVA, con le righe accettate</span></div>'+
+    (function(){var mg=ctl(k)&&ctl(k).margine;if(!mg||!(mg.voci||[]).length)return '';var T=mg.totale||{};
+      return '<div class="s-cifra"><small>Tuo margine a oggi</small><b>'+eur(T.margine)+' €</b><span>sulle voci collegate al computo'+(Number(T.ricavo)?', '+(Number(T.margine)/Number(T.ricavo)*100).toFixed(1).replace('.',',')+'%':'')+'</span></div>';})()+'</div>';
   if(!ch&&!ro){
     if(!lk)h+='<p class="sb-link">Il sub non ha ancora il link.</p><div class="riga-b"><button type="button" class="b sb-pr" data-sb="link" data-id="'+k.id+'">Crea il link per il sub</button></div>';
     else h+='<p class="sb-link">Link attivo fino al <b>'+di(lk.scade_il)+'</b>'+(lk.scaduto?' <b class="ko-v">scaduto</b>':lk.in_scadenza?' <b class="ko-v">in scadenza</b>':'')+
@@ -600,27 +641,35 @@ function carta(k){var a=k.attesa||{},co=k.conto||{},lk=k.link,ch=k.stato!=='atti
 function rigaM(k,m,modo){var v=voceDi(k,m.voce_id)||{},dims=[m.pu,m.l,m.w,m.h].filter(function(x){return !vuoto(x);}).map(qt).join(' × '),dove=[m.lotto,m.piano,m.zona].filter(Boolean).join(' · '),ro=SD.chiuso;
   return '<li><span class="sp"><b>n. '+es(m.nr)+'</b> '+es(String(v.descrizione||'').slice(0,80))+'<br><small>'+di(m.data)+(dove?' · '+es(dove):'')+(dims?' · '+es(dims):'')+(m.creato_da?' · scritta da '+es(m.creato_da):'')+(m.modificata?' · corretta':'')+'</small>'+
     (m.descrizione?'<br><small>'+es(m.descrizione)+'</small>':'')+(m.osservazione&&m.stato==='osservazione'?'<br><span class="sb-oss">Osservazione: '+es(m.osservazione)+'</span>':'')+
+    (senzaDiario(k,m.id)?'<br><span class="tag-g">&#9888;&#65039; quel giorno il Diario non segna la ditta</span>':'')+
     ((m.foto||[]).length?'<span class="sb-ft">'+m.foto.map(function(f){return '<a href="'+es(fotoU(f.path))+'" target="_blank" rel="noopener"><img src="'+es(fotoU(f.path))+'" alt="foto" loading="lazy"></a>';}).join('')+'</span>':'')+'</span>'+
     '<span class="q">'+qt(m.quantita)+' '+es(m.unita||'')+'</span><span class="q">'+eur(Number(m.quantita)*Number(v.prezzo||0))+' €</span>'+
     (ro?'':modo==='dec'?'<button type="button" class="b ok" data-sb="accetta" data-id="'+m.id+'">Accetta</button><button type="button" class="b ro" data-sb="oss" data-id="'+m.id+'">Osservazione</button>'
       :modo==='acc'?'<button type="button" class="b" data-sb="riapri" data-id="'+m.id+'">Riapri</button>':'')+'</li>';}
 function dettagli(k){var M=k.misure||[],ch=k.stato!=='attivo',ro=SD.chiuso,co=k.conto||{};
   var da=M.filter(function(m){return m.stato==='inviata';}),oss=M.filter(function(m){return m.stato==='osservazione';}),acc=M.filter(function(m){return m.stato==='accettata'&&!m.sal_numero;}),ins=M.filter(function(m){return m.sal_numero;});
-  var h='<h3>Da decidere ('+da.length+')</h3>'+(da.length?'<ul class="sb-ms">'+da.map(function(m){return rigaM(k,m,'dec');}).join('')+'</ul>'+(ro?'':'<div class="riga-b"><button type="button" class="b ok" data-sb="tutte" data-id="'+k.id+'">Accetta tutte le righe da decidere</button></div>'):'<p class="nota" style="margin:0">Nessuna riga da decidere.</p>');
+  var h=boxControlli(k)+'<h3>Da decidere ('+da.length+')</h3>'+(da.length?'<ul class="sb-ms">'+da.map(function(m){return rigaM(k,m,'dec');}).join('')+'</ul>'+(ro?'':'<div class="riga-b"><button type="button" class="b ok" data-sb="tutte" data-id="'+k.id+'">Accetta tutte le righe da decidere</button></div>'):'<p class="nota" style="margin:0">Nessuna riga da decidere.</p>');
   if(oss.length)h+='<h3>In correzione dal sub ('+oss.length+')</h3><ul class="sb-ms">'+oss.map(function(m){return rigaM(k,m,'oss');}).join('')+'</ul>';
   h+='<h3>Accettate, non ancora in contabilità ('+acc.length+')</h3>'+(acc.length?'<ul class="sb-ms">'+acc.map(function(m){return rigaM(k,m,'acc');}).join('')+'</ul>':'<p class="nota" style="margin:0">Nessuna.</p>');
-  h+='<h3>Contabilità del sub</h3><table class="conto"><tr><td>Lavori accettati a oggi</td><td class="n">'+eur(co.lavori)+' €</td></tr>'+(Number(co.ritenuta)?'<tr><td>− Ritenuta a garanzia '+pc(co.ritenuta_pct)+'</td><td class="n">'+eur(co.ritenuta)+' €</td></tr>':'')+
+  var eco=Number(co.economie)||0,oreT=Number(co.economie_ore_tot)||0;
+  h+='<h3>Contabilità del sub</h3><table class="conto"><tr><td>Lavori accettati a oggi</td><td class="n">'+eur(co.lavori)+' €</td></tr>'+
+    (eco||oreT?'<tr><td>+ Economie a oggi <span class="sub">'+(vuoto(co.economie_prezzo)?qt(oreT)+' ore nel Diario, senza prezzo dell’ora: '+(Number(co.economie_prec)?'le nuove non entrano':'non entrano'):
+      Number(co.economie_prec)?qt(co.economie_ore)+' ore; le '+qt(co.economie_ore_periodo)+' nuove a '+eur(co.economie_prezzo)+' € l’ora':qt(co.economie_ore)+' ore a '+eur(co.economie_prezzo)+' € l’ora')+'</span></td><td class="n">'+eur(eco)+' €</td></tr>'+
+      '<tr><td><b>= Totale a oggi</b></td><td class="n"><b>'+eur(co.totale!=null?co.totale:co.lavori)+' €</b></td></tr>':'')+
+    (Number(co.ritenuta)?'<tr><td>− Ritenuta a garanzia '+pc(co.ritenuta_pct)+'</td><td class="n">'+eur(co.ritenuta)+' €</td></tr>':'')+
     '<tr><td>− Contabilità già approvate</td><td class="n">'+eur(co.precedenti)+' €</td></tr><tr class="fin" style="background:var(--sub-c)"><td>Prossima contabilità</td><td class="n">'+eur(co.dovuto)+' € + IVA</td></tr></table>'+
     '<div class="riga-b">'+(ro||ch?'':'<button type="button" class="b sb-pr" data-sb="emetti" data-id="'+k.id+'">Approva la contabilità n. '+((k.sal||[]).length?Math.max.apply(null,k.sal.map(function(s){return s.numero;}))+1:1)+'</button>')+
     '<a class="b" href="'+es(docU(k.id,'','pdf'))+'">Anteprima PDF</a><a class="b ex" href="'+es(docU(k.id,'','xlsx'))+'">Excel a oggi</a></div>';
   var S=k.sal||[];
   if(S.length)h+='<div class="sal-el" style="margin-top:10px">'+S.map(function(s,i){return '<div class="sal-c"><div class="r1"><b>Contabilità n. '+s.numero+'</b><span>dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'</span>'+
-      (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st fi">da pagare</span>')+'<span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
+      (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st fi">da pagare</span>')+
+      (s.pagato_il&&s.pagato_durc_confermato?'<span class="st fi" title="Segnata pagata dopo l’avviso sul DURC">DURC non valido al pagamento</span>':'')+'<span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
       '<p class="nota" style="margin:6px 0">Approvata il '+es(s.emesso_il||'')+' da '+es(s.emesso_da||'')+(s.pagato_nota?' · '+es(s.pagato_nota):'')+'</p><div class="riga-b">'+
       '<a class="b" href="'+es(docU(k.id,s.id,'pdf'))+'">PDF da firmare</a><a class="b ex" href="'+es(docU(k.id,s.id,'xlsx'))+'">Excel</a>'+
       (ro?'':s.pagato_il?'<button type="button" class="b" data-sb="nonpagata" data-id="'+s.id+'">Togli «pagata»</button>':'<button type="button" class="b ok" data-sb="pagata" data-id="'+s.id+'">Segna pagata</button>')+
       (!ro&&i===0&&!s.pagato_il?'<button type="button" class="b ro" data-sb="annulla" data-id="'+s.id+'">Annulla</button>':'')+'</div></div>';}).join('')+'</div>';
   if(ins.length)h+='<details style="margin-top:10px"><summary>Righe già nelle contabilità ('+ins.length+')</summary><ul class="sb-ms">'+ins.map(function(m){return rigaM(k,m,'sal');}).join('')+'</ul></details>';
+  h+=economie(k)+margine(k);
   h+='<h3>Elenco prezzi del sub</h3><table class="av"><thead><tr><th class="t">N.</th><th class="t">Voce</th><th class="t">U.M.</th><th>Prezzo</th><th>Q. contratto</th><th>Misurato</th><th>Accettato</th></tr></thead><tbody>'+
     (k.voci||[]).map(function(v){var oltre=!vuoto(v.quantita)&&Number(v.accettato)>Number(v.quantita);return '<tr class="kv'+(v.tolta?' alt':'')+(oltre?' oltre':'')+'"><td class="t" data-l="N.">'+es(v.nr)+'</td><td class="t"><span class="vd">'+es(v.descrizione)+'</span>'+(v.tariffa?'<span class="vs">'+es(v.tariffa)+'</span>':'')+
       (v.tolta?'<span class="vs">voce tolta dal contratto</span>':'')+(oltre?'<span class="tag-o">oltre la quantità del contratto</span>':'')+'</td><td class="t" data-l="U.M.">'+es(v.unita||'')+'</td><td data-l="Prezzo">'+eur(v.prezzo)+'</td><td data-l="Q. contratto">'+qt(v.quantita)+'</td>'+
@@ -628,6 +677,36 @@ function dettagli(k){var M=k.misure||[],ch=k.stato!=='attivo',ro=SD.chiuso,co=k.
   if(!ro)h+='<div class="riga-b">'+(ch?'<button type="button" class="b" data-sb="riapri_k" data-id="'+k.id+'">Riapri il subappalto</button>':
     '<button type="button" class="b sb" data-sb="modifica" data-id="'+k.id+'">Modifica il contratto del sub</button><button type="button" class="b ro" data-sb="chiudi" data-id="'+k.id+'">Chiudi il subappalto</button>')+'</div>';
   return h;}
+// ---- S2: ore in economia del sub (dal Diario) e margine voce per voce (solo l'impresa)
+function economie(k){var c=ctl(k),e=c&&c.economie;if(!e||(!Number(e.ore)&&vuoto(e.prezzo)))return '';var R=e.righe||[],nm='«'+es(nomeC(k))+'»';
+  var h='<h3>Ore in economia del sub</h3><p class="nota" style="margin-top:0">Le ore che il Diario segna in economia per la ditta '+nm+(k.inizio?' dal '+di(k.inizio):'')+'. '+
+    (vuoto(e.prezzo)?'<b>Scrivi il prezzo dell’ora nel contratto del sub</b> per metterle nella contabilità.':'Entrano nella contabilità a '+eur(e.prezzo)+' € l’ora + IVA.')+'</p>';
+  if(!R.length)return h+'<p class="nota">Nessuna ora in economia nel Diario finora.</p>';
+  // solo le ore: gli euro sono nel conto qui sopra (le ore già in contabilità restano al prezzo di allora)
+  return h+'<table class="av"><thead><tr><th class="t">Giorno</th><th class="t">Lavoro</th><th>Ore</th></tr></thead><tbody>'+
+    R.slice(0,80).map(function(r){return '<tr class="kv"><td class="t" data-l="Giorno">'+di(r.data)+'</td><td class="t"><span class="vd">'+es(r.descrizione||'')+'</span></td><td data-l="Ore">'+qt(r.ore)+'</td></tr>';}).join('')+
+    (R.length>80?'<tr><td class="t" colspan="3"><small>… e altri '+(R.length-80)+' giorni</small></td></tr>':'')+
+    '<tr class="kv"><td class="t"><b>Totale</b></td><td class="t"></td><td data-l="Ore"><b>'+qt(e.ore)+' h</b></td></tr></tbody></table>';}
+function margine(k){var c=ctl(k),mg=c&&c.margine;if(!mg)return '';var V=mg.voci||[],T=mg.totale||{},sc=Number(mg.scollegate)||0;
+  var h='<h3>Margine voce per voce <small>(lo vedi solo tu)</small></h3>';
+  if(!V.length)return h+'<p class="nota" style="margin-top:0">'+(sc?'Collega le voci del sub al tuo computo («Voce computo» in «Modifica il contratto del sub») per vedere il margine.':'Nessuna voce del sub collegata al computo.')+'</p>';
+  var pc1=function(x){return vuoto(x)?'':Number(x).toFixed(1).replace('.',',')+'%';};
+  return h+'<p class="nota" style="margin-top:0">Prezzo verso il committente'+(Number(mg.ribasso_pct)?' al netto del ribasso del '+pc(mg.ribasso_pct):'')+', sulle quantità del sub già accettate.'+
+    (sc?' '+(sc===1?'1 voce del sub non è collegata':sc+' voci del sub non sono collegate')+' al computo e non entra qui.':'')+'</p>'+
+    '<table class="av mg"><thead><tr><th class="t">N.</th><th class="t">Voce</th><th>Prezzo sub</th><th>Prezzo committente</th><th>Margine unitario</th><th>Margine %</th><th>Q. accettata</th><th>Costo sub</th><th>Ricavo</th><th>Margine €</th></tr></thead><tbody>'+
+    V.map(function(v){var neg=Number(v.margine_unitario)<0;return '<tr class="kv'+(neg?' neg':'')+'"><td class="t" data-l="N.">'+es(v.nr)+'</td><td class="t"><span class="vd">'+es(v.descrizione)+'</span>'+
+      '<span class="vs">computo n. '+es(v.computo_nr)+(v.computo_d?' · '+es(v.computo_d):'')+'</span>'+(v.unita_diverse?'<span class="tag-g">unità diverse: sub '+es(v.unita||'')+', computo '+es(v.unita_computo||'')+'</span>':'')+
+      (neg?'<span class="tag-o">il prezzo del sub supera quello verso il committente</span>':'')+'</td>'+
+      '<td data-l="Prezzo sub">'+eur(v.prezzo_sub)+'</td><td data-l="Prezzo committente">'+eur(v.prezzo_committente)+'</td><td data-l="Margine unitario">'+eur(v.margine_unitario)+'</td><td data-l="Margine %">'+pc1(v.margine_pct)+'</td>'+
+      '<td data-l="Q. accettata">'+qt(v.q_accettata)+' '+es(v.unita||'')+'</td><td data-l="Costo sub">'+eur(v.costo)+'</td><td data-l="Ricavo">'+eur(v.ricavo)+'</td><td data-l="Margine €"><b>'+eur(v.margine)+'</b></td></tr>';}).join('')+
+    '<tr class="kv tot"><td class="t"></td><td class="t"><b>Totale delle voci collegate</b></td><td></td><td></td><td></td><td data-l="Margine %"><b>'+(Number(T.ricavo)?pc1(Number(T.margine)/Number(T.ricavo)*100):'')+'</b></td><td></td>'+
+    '<td data-l="Costo sub"><b>'+eur(T.costo)+'</b></td><td data-l="Ricavo"><b>'+eur(T.ricavo)+'</b></td><td data-l="Margine €"><b>'+eur(T.margine)+'</b></td></tr></tbody></table>'+
+    '<p class="nota">Le economie del sub non sono nel margine: si vedono sopra. Costi e margine di tutto il cantiere sono nella pagina «Costi e margine».</p>';}
+// ---- S2: pagata senza DURC valido → chiede conferma (scelta 5 del 09/11)
+function chiediDurc(id,dd,r){var nm='«'+es(r.impresa||'')+'»',s=r.stato,t=s==='scaduto'?'Il DURC di '+nm+' è scaduto il '+di(r.scade_il)+'.':s==='senza_scadenza'?'Il DURC di '+nm+' non ha la data di scadenza.':'Nella Sicurezza del cantiere non c’è il DURC di '+nm+'.';
+  dlg('DURC del sub al '+di(r.data),'Controllo del DURC prima di segnare il pagamento.',
+    '<div class="sb-avv"><p style="margin:0"><b>'+t+'</b></p><p style="margin:6px 0 0">Prima di pagare un subappaltatore si controlla che il suo DURC sia valido. Puoi caricarlo nella Sicurezza del cantiere e poi segnare il pagamento, oppure segnarlo lo stesso: la scelta resta scritta nel registro del subappalto.</p></div>',
+    'Segna pagata lo stesso',function(){dd.conferma_durc='si';dopo(api('sal_stato',{id:id,dati:dd}),'Segnata pagata.');});}
 // ---- finestra propria (non tocca quella del SAL)
 function dlgEl(){var d=document.getElementById('sb-dlg');if(d)return d;d=document.createElement('dialog');d.id='sb-dlg';
   d.innerHTML='<form method="dialog" novalidate><div class="dl-t"><h2 id="sb-dlg-t"></h2><p id="sb-dlg-s"></p></div><div class="dl-c" id="sb-dlg-c"></div><p class="msg" id="sb-dlg-m" aria-live="polite"></p>'+
@@ -654,7 +733,11 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
     '<label>Telefono del referente<input type="tel" id="sk-tel" maxlength="40" value="'+es(k.referente_telefono||'')+'"></label>'+
     '<label>Lavori affidati<input type="text" id="sk-ogg" maxlength="400" placeholder="es. intonaci e rasature" value="'+es(k.oggetto||'')+'"></label>'+
     '<label>Inizio<input type="date" id="sk-ini" value="'+es(k.inizio||'')+'"></label><label>Fine prevista<input type="date" id="sk-fine" value="'+es(k.fine_prevista||'')+'"></label>'+
-    '<label>Ritenuta a garanzia <small>(%, di solito 0)</small><input type="text" id="sk-rit" inputmode="decimal" value="'+n(k.ritenuta_pct)+'"></label></div>'+
+    '<label>Ritenuta a garanzia <small>(%, di solito 0)</small><input type="text" id="sk-rit" inputmode="decimal" value="'+n(k.ritenuta_pct)+'"></label>'+
+    // S2 (11/11/2026): nome nel Diario (per i controlli e le economie) e prezzo dell'ora in economia
+    '<label>Nome della ditta nel Diario <small>(solo se nel Diario e nelle Persone del cantiere si chiama in un altro modo)</small><input type="text" id="sk-nc" maxlength="160" list="sb-impc" value="'+es(k.nome_cantiere||'')+'"></label>'+
+    '<label>Prezzo dell’ora in economia <small>(€ + IVA; vuoto = le ore in economia non entrano in contabilità)</small><input type="text" id="sk-peco" inputmode="decimal" value="'+n(k.prezzo_ora_economia)+'"></label></div>'+
+    '<datalist id="sb-impc">'+(SD.imprese_cantiere||[]).map(function(x){return '<option value="'+es(x)+'"></option>';}).join('')+'</datalist>'+
     '<h3>Quando si fa la contabilità del sub</h3><div class="scelte">'+[['mensile','Ogni mese'],['soglia','A soglia d’importo: ogni volta che i lavori accettati superano una cifra'],['traguardi','A traguardi'],['fine_lavori','Unica a fine lavori']]
       .map(function(o){return '<label><input type="radio" name="sk-reg" value="'+o[0]+'"'+(k.regola===o[0]?' checked':'')+'> '+o[1]+'</label>';}).join('')+'</div>'+
     '<label id="sk-l-soglia"'+(k.regola==='soglia'?'':' hidden')+'>Soglia <small>(€)</small><input type="text" id="sk-soglia" inputmode="decimal" value="'+n(k.soglia_importo)+'"></label>'+
@@ -665,7 +748,8 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
   dlg(nuovo?'Nuovo subappalto':'Contratto del sub: '+k.impresa_nome,'Prezzi senza IVA. Il sub non vede mai i prezzi verso il committente.',c,'Salva il contratto',function(){
     var d={id:k.id||'',impresa_nome:$('#sk-nome').value,referente_nome:$('#sk-ref').value,referente_email:$('#sk-em').value,referente_telefono:$('#sk-tel').value,
       oggetto:$('#sk-ogg').value,inizio:$('#sk-ini').value,fine_prevista:$('#sk-fine').value,ritenuta_pct:$('#sk-rit').value,
-      regola:(document.querySelector('input[name=sk-reg]:checked')||{}).value||'mensile',soglia_importo:$('#sk-soglia').value,autore:$('#sk-chi').value};
+      regola:(document.querySelector('input[name=sk-reg]:checked')||{}).value||'mensile',soglia_importo:$('#sk-soglia').value,autore:$('#sk-chi').value,
+      nome_cantiere:$('#sk-nc').value,prezzo_ora_economia:$('#sk-peco').value};
     var r1=imp.filter(function(x){return x.impresa.toLowerCase()===String(d.impresa_nome).trim().toLowerCase();})[0];if(r1)d.rubrica_id=r1.id;
     var of1=$('#sk-of')?$('#sk-of').value:'';
     if(of1)d.rdo_id=of1;else{d.voci=[];[].forEach.call(document.querySelectorAll('#sk-voci .sb-vr'),function(r){var v={id:r.getAttribute('data-id'),tariffa:$('.v-t',r).value,descrizione:$('.v-d',r).value,unita:$('.v-u',r).value,
@@ -676,7 +760,7 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
   var so=$('#sk-of');if(so)so.addEventListener('change',function(){$('#sk-voci').hidden=!!this.value;$('#sk-vagg').hidden=!!this.value;});
   var ni=$('#sk-nome');if(ni)ni.addEventListener('change',function(){var x=imp.filter(function(i){return i.impresa.toLowerCase()===ni.value.trim().toLowerCase();})[0];
     if(x){if(!$('#sk-ref').value)$('#sk-ref').value=x.nome||'';if(!$('#sk-em').value)$('#sk-em').value=x.email||'';if(!$('#sk-tel').value)$('#sk-tel').value=x.telefono||'';}});}
-function mostraLink(k,r,prima){var u=r.url,testo='Ciao, questo è il tuo link personale per scrivere le misure del cantiere «'+((window.SAL_D||{}).cantiere||{}).nome+'» in TIX: '+u;
+function mostraLink(k,r,prima){var u=r.url,cn=(SD&&SD.cantiere_nome)||(((window.SAL_D||{}).cantiere||{}).nome)||'',testo='Ciao, questo è il tuo link personale per scrivere le misure '+(cn?'del cantiere «'+cn+'» ':'')+'in TIX: '+u;
   dlg('Link per '+k.impresa_nome,'Valido fino al '+di(r.scade_il)+'. Mandalo solo al referente del sub: chi ha il link entra.'+(prima?' Il link di prima non vale più.':''),
     '<label>Link<input type="text" id="sl-u" readonly value="'+es(u)+'"></label><div class="riga-b"><button type="button" class="b sb-pr" id="sl-copia">Copia il link</button>'+
     '<a class="b" href="https://wa.me/?text='+encodeURIComponent(testo)+'" target="_blank" rel="noopener">Condividi su WhatsApp</a>'+
@@ -702,11 +786,12 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       dopo(api('misura',{id:id,dati:{azione:'osservazione',testo:$('#so-t').value,autore:chi}}),'Osservazione scritta.');});return;}
   if(a==='tutte'){var n=(k.misure||[]).filter(function(m){return m.stato==='inviata';}).length;dlg('Accettare tutte le righe da decidere?',n+(n===1?' riga':' righe')+' di '+k.impresa_nome+'.','','Accetta tutte',function(){
       dopo(api('misura',{id:id,dati:{azione:'accetta_tutte',autore:chi}}),'Righe accettate.');});return;}
-  if(a==='emetti'){var oggi=(window.SAL_D||{}).oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate fino al giorno che scegli. Con l’approvazione riceve il numero e l’impronta SHA-256 e non cambia più.',
+  if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e l’impronta SHA-256 e non cambia più.',
       '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){
       var nm=$('#se-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{periodo_a:$('#se-a').value,autore:nm}}),'Contabilità approvata.');});return;}
-  if(a==='pagata'){var o2=(window.SAL_D||{}).oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){
-      dopo(api('sal_stato',{id:id,dati:{azione:'pagato',data:$('#sp-d').value,nota:$('#sp-n').value,autore:chi}}),'Segnata pagata.');});return;}
+  if(a==='pagata'){var o2=SD.oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento. TIX controlla il DURC del sub alla data del pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){
+      var dd={azione:'pagato',data:$('#sp-d').value,nota:$('#sp-n').value,autore:chi},b=$('#sb-dlg-si');b.disabled=true;
+      api('sal_stato',{id:id,dati:dd}).then(function(r){b.disabled=false;if(r&&r.esito==='durc'){chiediDurc(id,dd,r);return;}if(r&&r.esito==='ok'){chiudi();avv('Segnata pagata.');carica();}else msg(errore(r));});});return;}
   if(a==='nonpagata'){t.disabled=true;api('sal_stato',{id:id,dati:{azione:'non_pagato',autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Tolto «pagata».');carica();}else avv(errore(r));});return;}
   if(a==='annulla'){dlg('Annullare la contabilità?','Le sue righe tornano accettate e libere per la prossima. Il numero non si riusa.','<label>Motivo<textarea id="sa-m" maxlength="300"></textarea></label>','Annulla la contabilità',function(){
       dopo(api('sal_stato',{id:id,dati:{azione:'annulla',motivo:$('#sa-m').value,autore:chi}}),'Contabilità annullata.');});return;}
