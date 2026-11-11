@@ -68,6 +68,8 @@ function pulisci(azione, d) {
     s("azione", 14); s("testo", 600); s("autore", 120); s("fino_al", 10);
   } else if (azione === "emetti") {
     s("periodo_a", 10); s("autore", 120);
+    if (["contabilita", "finale", "svincolo"].indexOf(String(d.tipo || "")) !== -1) o.tipo = String(d.tipo); // S3a, 11/11/2026
+    if (d.svincola === "si" || d.svincola === "no") o.svincola = d.svincola;
   } else if (azione === "sal_stato") {
     s("azione", 12); s("data", 10); s("nota", 300); s("motivo", 300); s("autore", 120);
     if (d.conferma_durc === "si") o.conferma_durc = "si"; // S2: pagata anche senza DURC valido, scelta scritta nel registro
@@ -476,7 +478,7 @@ function disegna(){
     (vuoto(co.economie_prezzo)?' L’impresa non ha ancora scritto il prezzo dell’ora: per ora non entrano nella contabilità.':
       ' Prezzo dell’ora: '+eur(co.economie_prezzo)+' € + IVA.'+(Number(co.economie_periodo)?' Nella prossima contabilità entrano '+qt(co.economie_ore_periodo)+' ore, '+eur(co.economie_periodo)+' € + IVA.':''))+'</p></div>';
   var S=K.sal||[];
-  h+='<div class="pann"><h2>Le tue contabilità</h2>'+(S.length?'<ul class="ms">'+S.map(function(s){return '<li><b>n. '+s.numero+'</b> · dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'<div><span class="q">'+eur(s.dovuto)+' € + IVA</span> <span class="sub">· approvata il '+es(s.emesso_il||'')+'</span> '+
+  h+='<div class="pann"><h2>Le tue contabilità</h2>'+(S.length?'<ul class="ms">'+S.map(function(s){return '<li><b>'+(s.tipo==='finale'?'Contabilità finale n. ':s.tipo==='svincolo'?'Svincolo delle ritenute n. ':'n. ')+s.numero+'</b> · dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'<div><span class="q">'+eur(s.dovuto)+' € + IVA</span> <span class="sub">· approvata il '+es(s.emesso_il||'')+'</span> '+
       (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st am">da pagare</span>')+'</div><div class="riga-b"><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=pdf')+'">PDF</a><a class="b" href="'+es(C.u+'/doc?id='+s.id+'&f=xlsx')+'">Excel</a></div></li>';}).join('')+'</ul>':'<p class="nota" style="margin:0">Ancora nessuna.</p>')+
     (ins.length?'<details><summary>Misure già nelle contabilità ('+ins.length+')</summary><ul class="ms">'+ins.map(function(m){return rigaM(m,false);}).join('')+'</ul></details>':'')+'</div>';
   h+='<div class="pann"><h2>Il tuo elenco prezzi</h2><table class="el"><thead><tr><th class="t">N.</th><th class="t">Voce</th><th>U.M.</th><th>Prezzo €</th><th class="nas">Q. contratto</th><th>Misurato</th></tr></thead><tbody>'+
@@ -596,6 +598,9 @@ function avvisi(k){var c=ctl(k);if(!c)return [];var a=[],p=c.presenze||{},nm='«
   (c.sal||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+' (computo n. '+es(v.computo_nr)+'): il sub ha misurato '+qt(v.q_sub)+' '+es(v.unita||'')+', nel tuo SAL verso il committente ce ne sono '+qt(v.q_impresa)+'.');});
   (c.oltre||[]).forEach(function(v){a.push('Voce n. '+es(v.nr)+': misurati '+qt(v.q_misurata)+' '+es(v.unita||'')+', il contratto del sub ne prevede '+qt(v.q_contratto)+'.');});
   return a;}
+// S3a: nomi delle contabilità e ritenute ancora da svincolare dopo la finale
+function nomeSal(s){return s.tipo==='finale'?'Contabilità finale n. '+s.numero:s.tipo==='svincolo'?'Svincolo delle ritenute n. '+s.numero:'Contabilità n. '+s.numero;}
+function daSvincolare(k){var f=k.finale;return !!(f&&!f.svincola&&!f.svincolo&&Number(f.ritenuta)>0);}
 function senzaDiario(k,id){var c=ctl(k),s=(c&&c.presenze&&c.presenze.senza)||[];for(var i=0;i<s.length;i++)if(s[i].id===id)return true;return false;}
 function boxControlli(k){var c=ctl(k);if(!c)return '';var a=avvisi(k),du=durcInfo(k),dt=du&&du.t?[du.t]:[],tutti=a.concat(dt);
   if(!tutti.length)return '<div class="sb-avv ok"><b>Controlli:</b> nessun avviso. Le misure del sub tornano con il Diario e con il tuo SAL verso il committente; il DURC è valido.</div>';
@@ -623,7 +628,8 @@ function carta(k){var a=k.attesa||{},co=k.conto||{},lk=k.link,ch=k.stato!=='atti
     (Number(a.osservazione)?'<span class="sb-chip ro">'+a.osservazione+' in correzione dal sub</span>':'')+
     (Number(a.accettate)?'<span class="sb-chip ok">'+a.accettate+(Number(a.accettate)===1?' accettata, pronta':' accettate, pronte')+' per la contabilità</span>':'')+
     (function(){var du=durcInfo(k),n=avvisi(k).length,mg=ctl(k)&&ctl(k).margine,neg=mg&&(mg.voci||[]).filter(function(v){return Number(v.margine_unitario)<0;}).length;
-      return (n&&!ch?'<span class="sb-chip am">&#9888;&#65039; '+(n===1?'1 avviso':n+' avvisi')+' sulle misure</span>':'')+(du&&!ch?'<span class="sb-chip '+du.cl+'">'+es(du.chip)+'</span>':'')+
+      return (k.finale?'<span class="sb-chip ok">Contabilità finale n. '+k.finale.numero+' approvata</span>':'')+(daSvincolare(k)?'<span class="sb-chip am">ritenute da svincolare: '+eur(k.finale.ritenuta)+' €</span>':'')+
+        (n&&!ch?'<span class="sb-chip am">&#9888;&#65039; '+(n===1?'1 avviso':n+' avvisi')+' sulle misure</span>':'')+(du&&!ch?'<span class="sb-chip '+du.cl+'">'+es(du.chip)+'</span>':'')+
         (neg?'<span class="sb-chip ro">'+(neg===1?'1 voce':neg+' voci')+' in perdita</span>':'');})()+
     '<div class="s-cifre" style="margin-top:10px"><div class="s-cifra"><small>Contratto del sub</small><b>'+eur(co.importo_contratto)+' €</b><span>'+(function(n){return n===1?'1 voce':n+' voci';})((k.voci||[]).filter(function(v){return !v.tolta;}).length)+'</span></div>'+
     '<div class="s-cifra"><small>Accettato a oggi</small><b>'+eur(co.totale!=null?co.totale:co.lavori)+' €</b><span>'+(Number(co.economie)?'lavori '+eur(co.lavori)+' € + economie '+eur(co.economie)+' €':'già in contabilità '+eur(co.lavori_prec)+' €')+'</span></div>'+
@@ -654,14 +660,18 @@ function dettagli(k){var M=k.misure||[],ch=k.stato!=='attivo',ro=SD.chiuso,co=k.
   var eco=Number(co.economie)||0,oreT=Number(co.economie_ore_tot)||0;
   h+='<h3>Contabilità del sub</h3><table class="conto"><tr><td>Lavori accettati a oggi</td><td class="n">'+eur(co.lavori)+' €</td></tr>'+
     (eco||oreT?'<tr><td>+ Economie a oggi <span class="sub">'+(vuoto(co.economie_prezzo)?qt(oreT)+' ore nel Diario, senza prezzo dell’ora: '+(Number(co.economie_prec)?'le nuove non entrano':'non entrano'):
-      Number(co.economie_prec)?qt(co.economie_ore)+' ore; le '+qt(co.economie_ore_periodo)+' nuove a '+eur(co.economie_prezzo)+' € l’ora':qt(co.economie_ore)+' ore a '+eur(co.economie_prezzo)+' € l’ora')+'</span></td><td class="n">'+eur(eco)+' €</td></tr>'+
+      Number(co.economie_prec)?(Number(co.economie_ore_periodo)?qt(co.economie_ore)+' ore; le '+qt(co.economie_ore_periodo)+' nuove a '+eur(co.economie_prezzo)+' € l’ora':qt(co.economie_ore)+' ore, già in contabilità'):qt(co.economie_ore)+' ore a '+eur(co.economie_prezzo)+' € l’ora')+'</span></td><td class="n">'+eur(eco)+' €</td></tr>'+
       '<tr><td><b>= Totale a oggi</b></td><td class="n"><b>'+eur(co.totale!=null?co.totale:co.lavori)+' €</b></td></tr>':'')+
     (Number(co.ritenuta)?'<tr><td>− Ritenuta a garanzia '+pc(co.ritenuta_pct)+'</td><td class="n">'+eur(co.ritenuta)+' €</td></tr>':'')+
     '<tr><td>− Contabilità già approvate</td><td class="n">'+eur(co.precedenti)+' €</td></tr><tr class="fin" style="background:var(--sub-c)"><td>Prossima contabilità</td><td class="n">'+eur(co.dovuto)+' € + IVA</td></tr></table>'+
-    '<div class="riga-b">'+(ro||ch?'':'<button type="button" class="b sb-pr" data-sb="emetti" data-id="'+k.id+'">Approva la contabilità n. '+((k.sal||[]).length?Math.max.apply(null,k.sal.map(function(s){return s.numero;}))+1:1)+'</button>')+
-    '<a class="b" href="'+es(docU(k.id,'','pdf'))+'">Anteprima PDF</a><a class="b ex" href="'+es(docU(k.id,'','xlsx'))+'">Excel a oggi</a></div>';
+    '<div class="riga-b">'+(ro||ch?'':'<button type="button" class="b sb-pr" data-sb="emetti" data-id="'+k.id+'">Approva la contabilità n. '+((k.sal||[]).length?Math.max.apply(null,k.sal.map(function(s){return s.numero;}))+1:1)+'</button>'+
+      // S3a (11/11/2026): contabilità finale (chiude il subappalto) e svincolo delle ritenute
+      '<button type="button" class="b sb" data-sb="finale" data-id="'+k.id+'">Contabilità finale</button>')+
+    (!ro&&daSvincolare(k)?'<button type="button" class="b sb-pr" data-sb="svincolo" data-id="'+k.id+'">Svincola le ritenute ('+eur(k.finale.ritenuta)+' €)</button>':'')+
+    (ch&&k.finale?'':'<a class="b" href="'+es(docU(k.id,'','pdf'))+'">Anteprima PDF</a><a class="b ex" href="'+es(docU(k.id,'','xlsx'))+'">Excel a oggi</a>')+'</div>';
   var S=k.sal||[];
-  if(S.length)h+='<div class="sal-el" style="margin-top:10px">'+S.map(function(s,i){return '<div class="sal-c"><div class="r1"><b>Contabilità n. '+s.numero+'</b><span>dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'</span>'+
+  if(S.length)h+='<div class="sal-el" style="margin-top:10px">'+S.map(function(s,i){return '<div class="sal-c"><div class="r1"><b>'+nomeSal(s)+'</b><span>dal '+di(s.periodo_da)+' al '+di(s.periodo_a)+'</span>'+
+      (s.tipo==='finale'&&s.svincola&&Number(k.ritenuta_pct)?'<span class="st ok">ritenute svincolate</span>':s.tipo==='finale'&&Number(s.ritenuta)?'<span class="st fi">ritenute trattenute: '+eur(s.ritenuta)+' €</span>':'')+
       (s.pagato_il?'<span class="st ok">pagata il '+di(s.pagato_il)+'</span>':'<span class="st fi">da pagare</span>')+
       (s.pagato_il&&s.pagato_durc_confermato?'<span class="st fi" title="Segnata pagata dopo l’avviso sul DURC">DURC non valido al pagamento</span>':'')+'<span class="imp" style="margin-left:auto">'+eur(s.dovuto)+' € + IVA</span></div>'+
       '<p class="nota" style="margin:6px 0">Approvata il '+es(s.emesso_il||'')+' da '+es(s.emesso_da||'')+(s.pagato_nota?' · '+es(s.pagato_nota):'')+'</p><div class="riga-b">'+
@@ -674,7 +684,8 @@ function dettagli(k){var M=k.misure||[],ch=k.stato!=='attivo',ro=SD.chiuso,co=k.
     (k.voci||[]).map(function(v){var oltre=!vuoto(v.quantita)&&Number(v.accettato)>Number(v.quantita);return '<tr class="kv'+(v.tolta?' alt':'')+(oltre?' oltre':'')+'"><td class="t" data-l="N.">'+es(v.nr)+'</td><td class="t"><span class="vd">'+es(v.descrizione)+'</span>'+(v.tariffa?'<span class="vs">'+es(v.tariffa)+'</span>':'')+
       (v.tolta?'<span class="vs">voce tolta dal contratto</span>':'')+(oltre?'<span class="tag-o">oltre la quantità del contratto</span>':'')+'</td><td class="t" data-l="U.M.">'+es(v.unita||'')+'</td><td data-l="Prezzo">'+eur(v.prezzo)+'</td><td data-l="Q. contratto">'+qt(v.quantita)+'</td>'+
       '<td data-l="Misurato">'+qt(v.misurato)+'</td><td data-l="Accettato">'+qt(v.accettato)+'</td></tr>';}).join('')+'</tbody></table>';
-  if(!ro)h+='<div class="riga-b">'+(ch?'<button type="button" class="b" data-sb="riapri_k" data-id="'+k.id+'">Riapri il subappalto</button>':
+  if(!ro&&ch&&k.finale)h+='<p class="nota">Subappalto chiuso con la contabilità finale n. '+k.finale.numero+': il sub può solo guardare e scaricare. Per riaprirlo annulla la finale'+(k.finale.svincolo?' (prima lo svincolo delle ritenute)':'')+'.</p>';
+  else if(!ro)h+='<div class="riga-b">'+(ch?'<button type="button" class="b" data-sb="riapri_k" data-id="'+k.id+'">Riapri il subappalto</button>':
     '<button type="button" class="b sb" data-sb="modifica" data-id="'+k.id+'">Modifica il contratto del sub</button><button type="button" class="b ro" data-sb="chiudi" data-id="'+k.id+'">Chiudi il subappalto</button>')+'</div>';
   return h;}
 // ---- S2: ore in economia del sub (dal Diario) e margine voce per voce (solo l'impresa)
@@ -789,11 +800,23 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e l’impronta SHA-256 e non cambia più.',
       '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){
       var nm=$('#se-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{periodo_a:$('#se-a').value,autore:nm}}),'Contabilità approvata.');});return;}
+  // S3a (11/11/2026): contabilità finale e svincolo delle ritenute
+  if(a==='finale'){var of=SD.oggi||'',cf=k.conto||{},rf=Number(cf.ritenuta)||0;
+    dlg('Contabilità finale di '+k.impresa_nome+'?','Entrano tutte le righe accettate e le ore in economia fino al giorno che scegli. Poi il subappalto si chiude: il sub può solo guardare e scaricare. Finché non è segnata pagata si può annullare, e il subappalto si riapre.',
+      '<label>Righe fino al<input type="date" id="sf-a" max="'+es(of)+'" value="'+es(of)+'"></label>'+
+      (rf||Number(k.ritenuta_pct)?'<h3>Ritenute a garanzia</h3><div class="scelte"><label><input type="radio" name="sf-sv" value="si" checked> Restituiscile con questa contabilità finale ('+eur(rf)+' € a oggi)</label>'+
+        '<label><input type="radio" name="sf-sv" value="no"> Trattienile ancora: le restituisci dopo con «Svincola le ritenute»</label></div>':'')+
+      '<label>Approvata da <small>(nome e cognome)</small><input type="text" id="sf-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva la contabilità finale',function(){
+      var nm=$('#sf-chi').value,sv=(document.querySelector('input[name=sf-sv]:checked')||{}).value||'si';ls('sal_autore',nm);
+      dopo(api('emetti',{id:id,dati:{tipo:'finale',svincola:sv,periodo_a:$('#sf-a').value,autore:nm}}),'Contabilità finale approvata: il subappalto è chiuso.');});return;}
+  if(a==='svincolo'){var fz=k.finale||{};dlg('Svincolare le ritenute di '+k.impresa_nome+'?','Le ritenute a garanzia trattenute fino alla contabilità finale n. '+fz.numero+' diventano da pagare. È un documento a sé, con numero e impronta.',
+      '<p style="margin:0 0 10px"><b>Ritenute da svincolare: '+eur(fz.ritenuta)+' € + IVA</b></p><label>Approvato da <small>(nome e cognome)</small><input type="text" id="sv-chi" maxlength="120" value="'+es(chi)+'"></label>','Svincola le ritenute',function(){
+      var nm=$('#sv-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{tipo:'svincolo',autore:nm}}),'Ritenute svincolate.');});return;}
   if(a==='pagata'){var o2=SD.oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento. TIX controlla il DURC del sub alla data del pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){
       var dd={azione:'pagato',data:$('#sp-d').value,nota:$('#sp-n').value,autore:chi},b=$('#sb-dlg-si');b.disabled=true;
       api('sal_stato',{id:id,dati:dd}).then(function(r){b.disabled=false;if(r&&r.esito==='durc'){chiediDurc(id,dd,r);return;}if(r&&r.esito==='ok'){chiudi();avv('Segnata pagata.');carica();}else msg(errore(r));});});return;}
   if(a==='nonpagata'){t.disabled=true;api('sal_stato',{id:id,dati:{azione:'non_pagato',autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Tolto «pagata».');carica();}else avv(errore(r));});return;}
-  if(a==='annulla'){dlg('Annullare la contabilità?','Le sue righe tornano accettate e libere per la prossima. Il numero non si riusa.','<label>Motivo<textarea id="sa-m" maxlength="300"></textarea></label>','Annulla la contabilità',function(){
+  if(a==='annulla'){dlg('Annullare la contabilità?','Le sue righe tornano accettate e libere per la prossima. Il numero non si riusa. Se è la contabilità finale, il subappalto si riapre.','<label>Motivo<textarea id="sa-m" maxlength="300"></textarea></label>','Annulla la contabilità',function(){
       dopo(api('sal_stato',{id:id,dati:{azione:'annulla',motivo:$('#sa-m').value,autore:chi}}),'Contabilità annullata.');});return;}
   if(a==='chiudi'){dlg('Chiudere il subappalto?','Il sub potrà solo guardare e scaricare le sue contabilità. Si può riaprire.','','Chiudi il subappalto',function(){dopo(api('chiudi',{id:id,dati:{autore:chi}}),'Subappalto chiuso.');});return;}
   if(a==='riapri_k'){t.disabled=true;api('riapri',{id:id,dati:{autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Subappalto riaperto.');carica();}else avv(errore(r));});return;}

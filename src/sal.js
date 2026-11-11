@@ -801,6 +801,11 @@ export function salPdf(d) {
       rc.push(["+ Economie a oggi", co.altre_voci, false, num(co.altre_voci_sal) ? "di cui in questa contabilità " + eurIt(co.altre_voci_sal) + " €" : ""]);
       rc.push(["= Totale a oggi", co.netto, true]);
     }
+    // S3a (11/11/2026): contabilità finale che restituisce le ritenute, oppure svincolo delle ritenute
+    if ((sal.svincola || co.svincolata) && num(co.ritenuta_prec)) {
+      rc.push([sal.sub_tipo === "svincolo" ? "Ritenute a garanzia: si svincolano con questo documento" : "Ritenute a garanzia: non si trattengono più (svincolate)", 0, false,
+        "trattenute fino alla contabilità precedente " + eurIt(co.ritenuta_prec) + " €"]);
+    }
     if (num(co.ritenuta)) { rc.push(["− Ritenuta a garanzia " + pcIt(co.ritenuta_pct || 0), co.ritenuta]); rc.push(["= Spettanza a oggi", co.spettanza, true]); }
     rc.push(["− Contabilità già approvate", co.precedenti]);
   } else if (tr) rc.push(["Traguardo «" + (tr.nome || "") + "»: " + pcIt(tr.percentuale) + " del contratto", (num(co.netto) || 0) - (num(co.altre_voci) || 0), false, "in tutto " + pcIt(tr.cumulata)]);
@@ -820,7 +825,8 @@ export function salPdf(d) {
     rc.push(["= Spettanza a oggi", co.spettanza, true]);
     rc.push(["− SAL già emessi", co.precedenti]);
   }
-  const fin = sub ? "IMPORTO DI QUESTA CONTABILITÀ" : tipo === "finale" ? "SALDO DEL CONTO FINALE, RITENUTE ESCLUSE" : tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTO SAL";
+  const fin = sub ? (sal.sub_tipo === "finale" ? "IMPORTO DELLA CONTABILITÀ FINALE" : sal.sub_tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTA CONTABILITÀ")
+    : tipo === "finale" ? "SALDO DEL CONTO FINALE, RITENUTE ESCLUSE" : tipo === "svincolo" ? "RITENUTE DA SVINCOLARE" : "IMPORTO DI QUESTO SAL";
   serve(rc.length * 14 + 60);
   testo(M, y - 10, "Conto", 10, true, "0.24 0.1 0.43 rg");
   y -= 16;
@@ -1221,15 +1227,17 @@ export function salXlsx(d) {
   const rNet = riga(tipo === "sub" ? "= Totale a oggi (lavori ed economie)" : "= Lavori netti a oggi", trag ? "ROUND(B" + rBase + "*B" + rCum + "/100,2)+B" + rAvp + "+B" + rAvsF
     : "B" + rLav + "-B" + rRibI + "+B" + rSic + "+B" + rAvp + "+B" + rAvsF, num(co.netto) || 0, num(co.netto) || 0, S.EURB);
   // svincolo: la ritenuta non si trattiene più; conto finale e svincolo: l'anticipazione si recupera tutta
-  const rRitI = riga(tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : "− Ritenuta a garanzia",
-    tipo === "svincolo" ? "0" : "ROUND(B" + rNet + "*B" + rRit + "/100,2)", num(co.ritenuta) || 0, num(co.ritenuta) || 0);
+  // S3a (11/11/2026): nella contabilità del sub che svincola (finale o svincolo) la ritenuta non si trattiene più
+  const subSv = tipo === "sub" && !!(sal.svincola || co.svincolata);
+  const rRitI = riga(tipo === "svincolo" ? "− Ritenuta a garanzia: non si trattiene più (svincolo)" : subSv ? "− Ritenuta a garanzia: non si trattiene più (svincolata)" : "− Ritenuta a garanzia",
+    tipo === "svincolo" || subSv ? "0" : "ROUND(B" + rNet + "*B" + rRit + "/100,2)", num(co.ritenuta) || 0, num(co.ritenuta) || 0);
   const rAntI = riga("   Anticipazione", "ROUND(B" + rBase + "*B" + rAnt + "/100,2)", antic, antic);
   const rRec = riga("− Recupero dell’anticipazione" + (tipo === "sal" ? "" : " (per intero)"),
     tipo === "sal" ? "IF(AND(B" + rAntI + ">0,B" + rBase + ">0),MAX(0,MIN(B" + rAntI + ",ROUND(B" + rAntI + "*B" + rNet + "/B" + rBase + ",2))),0)" : "B" + rAntI,
     num(co.recupero) || 0, num(co.recupero) || 0);
   const rSp = riga("= Spettanza a oggi", "B" + rNet + "-B" + rRitI + "-B" + rRec, num(co.spettanza) || 0, num(co.spettanza) || 0, S.EURB);
   const rPrev = riga(tipo === "sub" ? "− Contabilità già approvate" : "− SAL già emessi", sto.length ? "SUM(Storico!$M$5:$M$" + stoFine + ")" : "0", num(co.precedenti) || 0, num(co.precedenti) || 0);
-  riga(tipo === "sub" ? "= IMPORTO DI QUESTA CONTABILITÀ (+ IVA)" : tipo === "finale" ? "= SALDO DEL CONTO FINALE, RITENUTE ESCLUSE (+ IVA)" : tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTO SAL (+ IVA)",
+  riga(tipo === "sub" ? (sal.sub_tipo === "finale" ? "= IMPORTO DELLA CONTABILITÀ FINALE (+ IVA)" : sal.sub_tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTA CONTABILITÀ (+ IVA)") : tipo === "finale" ? "= SALDO DEL CONTO FINALE, RITENUTE ESCLUSE (+ IVA)" : tipo === "svincolo" ? "= RITENUTE DA SVINCOLARE (+ IVA)" : "= IMPORTO DI QUESTO SAL (+ IVA)",
     "B" + rSp + "-B" + rPrev, num(co.dovuto) || 0, num(co.dovuto) || 0, S.GRANDE);
   rr++;
   R.c(rr, 1, "Importi in euro, IVA esclusa: TIX non calcola l’IVA (10%, 22%, inversione contabile o scissione dei pagamenti dipendono dal caso). " +
