@@ -326,6 +326,15 @@ async function apiPorta(request, env, h, fn) {
     const id = String(b.id || "").toLowerCase();
     if (!UUID.test(id)) return json({ esito: "errore" }, 400);
     r = await chiama("sub_porta_misura_annulla", { p_k: k, p_id: id });
+  } else if (az === "importa") {
+    // S3c (11/11/2026): misure dal file Excel del sub (letto nel browser); il database le salva tutte o nessuna
+    const d = b.dati && typeof b.dati === "object" ? b.dati : {};
+    const righe = (Array.isArray(d.righe) ? d.righe : []).slice(0, 301).filter((x) => x && typeof x === "object").map((x) => {
+      const o = pulisci("porta_misura", x); delete o.id; delete o.foto; delete o.autore;
+      if (/^[0-9]{1,6}$/.test(String(x.riga || ""))) o.riga = Number(x.riga);
+      return o;
+    });
+    r = await chiama("sub_porta_misure_importa", { p_k: k, p_dati: { righe, autore: String(d.autore || "").slice(0, 120), file: String(d.file || "").slice(0, 160) } });
   } else if (az === "firma_prepara") {
     // S3b: il sub firma la copia dell'impresa se c'è, altrimenti il PDF (scritto qui se non c'è ancora)
     const id = String(b.id || "").toLowerCase();
@@ -629,7 +638,10 @@ function disegna(){
     (K.oggetto?'<br>Lavori: <b>'+es(K.oggetto)+'</b>':'')+'<br>'+es(regola())+(Number(K.ritenuta_pct)?' · ritenuta a garanzia '+String(K.ritenuta_pct).replace('.',',')+'%':'')+
     '<br><small>Link valido fino al '+di(D.scade_il)+'.</small></div></div>';
   if(D.sola_lettura)h+='<div class="avv">Il subappalto è chiuso: puoi guardare e scaricare le tue contabilità, ma non scrivere misure nuove.</div>';
-  else h+='<div class="pann"><button type="button" class="b pr gr" id="sp-nuova">+ Nuova misura</button><p class="nota" style="margin-bottom:0">Scegli la voce, scrivi dove e le misure, aggiungi una foto. L’impresa la controlla e la accetta, oppure ti scrive un’osservazione.</p></div>';
+  else h+='<div class="pann"><button type="button" class="b pr gr" id="sp-nuova">+ Nuova misura</button><p class="nota" style="margin-bottom:0">Scegli la voce, scrivi dove e le misure, aggiungi una foto. L’impresa la controlla e la accetta, oppure ti scrive un’osservazione.</p>'+
+    // S3c (11/11/2026): misure dal file Excel del sub
+    '<div class="riga-b"><button type="button" class="b" id="sp-xls-b">&#128196; Carica le misure da Excel</button></div><input type="file" id="sp-xls" accept=".xlsx,.xls,.xlsm,.csv,.ods" hidden>'+
+    '<p class="nota" style="margin-bottom:0">Va bene anche il file del tuo geometra: servono una colonna con il numero della voce (o la tariffa, o la descrizione) e una con la quantità (o le misure). Prima di mandarle vedi le righe trovate.</p></div>';
   var oss=M.filter(function(m){return m.stato==='osservazione';}),att=M.filter(function(m){return m.stato==='inviata';}),acc=M.filter(function(m){return m.stato==='accettata'&&!m.sal_numero;}),ins=M.filter(function(m){return m.sal_numero;});
   if(oss.length)h+='<div class="pann"><h2>Da correggere ('+oss.length+')</h2><ul class="ms">'+oss.map(function(m){return rigaM(m,true);}).join('')+'</ul></div>';
   h+='<div class="pann"><h2>In attesa dell’impresa ('+att.length+')</h2>'+(att.length?'<ul class="ms">'+att.map(function(m){return rigaM(m,true);}).join('')+'</ul>':'<p class="nota" style="margin:0">Nessuna misura in attesa.</p>')+'</div>';
@@ -744,11 +756,73 @@ function firma(id){var s=(K.sal||[]).filter(function(x){return x.id===id;})[0];i
       'Scarica il file, firmalo con la tua firma digitale (chiavetta o firma remota) e carica qui il file firmato: .p7m oppure PDF firmato.</p>'+
       '<a class="b" href="'+es(C.u+'/firma?id='+id+'&cosa=sub&scarica=1')+'">Scarica il file da firmare</a><label style="margin-top:10px">File firmato<input type="file" id="fi-file" accept=".p7m,.pdf,application/pdf,application/pkcs7-mime"></label></div>';
     if(!p7m)pad($('#fi-pad'));});}
+// ---- S3c (11/11/2026): misure dal file Excel del sub, lette qui nel browser (niente IA, niente costi), con anteprima; tutte o nessuna
+var XLSXURL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',IMP=null;
+function libXls(){return window.XLSX?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=XLSXURL;s.onload=ok;s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}
+var COLS=[['voce',/^(n\.?|nr\.?|n°|no\.?|num\.?|numero|n\.?\s*(voce|ord\.?|ordine|art\.?|articolo)|voce\s*n\.?|art\.?|articolo|pos\.?|posizione)$/i],
+  ['tariffa',/tariff|^cod(\.|ice)?$|^codice\b/i],['descrizione',/descri|lavoraz|designaz|^voce$|^oggetto/i],['data',/^(data|giorno)/i],
+  ['lotto',/lotto|fabbricat|edificio|corpo|blocco|palazzina/i],['piano',/^piano|^livello/i],['zona',/zona|locale|ambiente|vano|^dove|ubicaz/i],
+  ['pu',/parti\s*ug|par\.?\s*ug|n\.?\s*parti|^p\.?\s*u\.?$|^n\.?\s*elem/i],['l',/^lung|^l\.?$/i],['w',/^larg|^b\.?$/i],['h',/^alt|^h\.?$|^peso|^spess/i],
+  ['quantita',/quant|q\.?t[aà]|^q\.?$|^tot(ale)?\.?$/i],['note',/^note|annot|osserv/i]];
+function norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');}
+function testa(rows){var best=null;for(var r=0;r<Math.min(30,rows.length);r++){var m={},n=0;(rows[r]||[]).forEach(function(c,j){var s=String(c==null?'':c).trim();if(!s||s.length>40)return;
+    for(var i=0;i<COLS.length;i++){if(m[COLS[i][0]]==null&&COLS[i][1].test(s)){m[COLS[i][0]]=j;n++;break;}}});
+  var ok=(m.voce!=null||m.tariffa!=null||m.descrizione!=null)&&(m.quantita!=null||m.l!=null||m.pu!=null||m.w!=null||m.h!=null);if(ok&&(!best||n>best.n))best={r:r,m:m,n:n};}return best;}
+function trova(vv,vt,vd){var V=(K.voci||[]).filter(function(v){return !v.tolta;}),n=nu(vv);
+  if(n!==null&&!isNaN(n)){var a=V.filter(function(v){return Number(v.nr)===n;});if(a.length)return a[0];}
+  var t=norm(vt||((n===null||isNaN(n))?vv:''));if(t){var b=V.filter(function(v){return v.tariffa&&norm(v.tariffa)===t;});if(b.length)return b[0];}
+  var d=norm(vd);if(d.length>=4){var c=V.filter(function(v){return norm(v.descrizione)===d;});if(c.length)return c[0];
+    if(d.length>=15){c=V.filter(function(v){var x=norm(v.descrizione);return x.length>=15&&(x.indexOf(d)===0||d.indexOf(x)===0);});if(c.length===1)return c[0];}}
+  return null;}
+function iso(x){if(x==null||x==='')return '';var p=function(n){return ('0'+n).slice(-2);};
+  if(x instanceof Date&&!isNaN(x))return x.getFullYear()+'-'+p(x.getMonth()+1)+'-'+p(x.getDate());
+  if(typeof x==='number'&&x>20000&&x<80000){var d=new Date(Math.round((x-25569)*864e5));return d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate());}
+  var s=String(x).trim(),m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);if(m){var y=Number(m[3]);if(y<100)y+=2000;return y+'-'+p(Number(m[2]))+'-'+p(Number(m[1]));}
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[0]:'?';}
+function leggiXls(file){return libXls().then(function(){return file.arrayBuffer();}).then(function(buf){var wb=window.XLSX.read(buf,{type:'array',cellDates:true}),best=null;
+  wb.SheetNames.forEach(function(nm){var rows=window.XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}),t=testa(rows);if(t&&(!best||t.n>best.t.n))best={t:t,rows:rows,foglio:nm};});
+  if(!best)return {err:'Non trovo le colonne: servono il numero della voce (o la tariffa, o la descrizione) e la quantità (o le misure), con il titolo in cima alla colonna.'};
+  var m=best.t.m,out=[],oggi=D.oggi||'';var g=function(r,k){return m[k]!=null?r[m[k]]:'';};
+  for(var i=best.t.r+1;i<best.rows.length;i++){var r=best.rows[i]||[],dims={pu:nu(g(r,'pu')),l:nu(g(r,'l')),w:nu(g(r,'w')),h:nu(g(r,'h'))},q=nu(g(r,'quantita'));
+    var haDim=['pu','l','w','h'].some(function(k){return dims[k]!==null&&!isNaN(dims[k]);});if(!haDim&&(q===null||isNaN(q)||q===0))continue;
+    var v=trova(g(r,'voce'),g(r,'tariffa'),g(r,'descrizione')),d=iso(g(r,'data')),tot=haDim?['pu','l','w','h'].reduce(function(t,k){return dims[k]!==null&&!isNaN(dims[k])?t*dims[k]:t;},1):q;
+    var it={riga:i+1,voce:v,data:d,lotto:String(g(r,'lotto')||'').trim().slice(0,60),piano:String(g(r,'piano')||'').trim().slice(0,60),zona:String(g(r,'zona')||'').trim().slice(0,120),
+      dims:dims,haDim:haDim,q:q,tot:Math.round(tot*1000)/1000,note:String(g(r,'note')||'').trim().slice(0,600),motivo:''};
+    if(!v)it.motivo='voce non trovata';else if(['pu','l','w','h'].some(function(k){return isNaN(dims[k]);})||(!haDim&&isNaN(q)))it.motivo='misure non numeriche';
+    else if(!it.tot)it.motivo='quantità zero';else if(d==='?')it.motivo='giorno non leggibile';else if(d&&oggi&&d>oggi)it.motivo='giorno nel futuro';
+    else if(it.tot<0&&it.note.length<5)it.motivo='misura in meno: scrivi il motivo nelle note';
+    out.push(it);}
+  return {righe:out,foglio:best.foglio,colonne:Object.keys(m)};});}
+function anteprima(file,x){if(x.err){dlg('Misure da Excel',file.name,'<p class="oss">'+es(x.err)+'</p>','',null);return;}
+  var R=x.righe,ok=R.filter(function(r){return !r.motivo;}),ko=R.length-ok.length;IMP={righe:R,file:file.name};
+  if(!R.length){dlg('Misure da Excel',file.name,'<p class="oss">Nel file non ci sono righe con quantità o misure sotto i titoli delle colonne.</p>','',null);return;}
+  var c='<p style="margin:0 0 8px">Righe lette: <b>'+R.length+'</b> · pronte: <b>'+ok.length+'</b>'+(ko?' · <span style="color:#b91c1c;font-weight:800">da sistemare: '+ko+' (non vengono mandate)</span>':'')+'</p>'+
+    '<label>Giorno per le righe senza data<input type="date" id="xi-d" max="'+es(D.oggi||'')+'" value="'+es(D.oggi||'')+'"></label>'+
+    '<label>Chi carica <small>(nome e cognome)</small><input type="text" id="xi-chi" maxlength="120" value="'+es(ls('sp_chi'))+'"></label>'+
+    '<div style="overflow:auto;max-height:46vh"><table class="el"><thead><tr><th class="t">Riga</th><th class="t">Voce</th><th class="t">Giorno</th><th class="t nas">Dove</th><th>Quantità</th></tr></thead><tbody>'+
+    R.slice(0,200).map(function(r){var u=r.voce?r.voce.unita||'':'';return '<tr'+(r.motivo?' style="background:#FEF2F2"':'')+'><td class="t">'+r.riga+'</td><td class="t">'+(r.voce?'<b>n. '+es(r.voce.nr)+'</b> '+es(String(r.voce.descrizione).slice(0,50)):'')+
+      (r.motivo?'<br><b style="color:#b91c1c">'+es(r.motivo)+'</b>':'')+'</td><td class="t">'+(r.data&&r.data!=='?'?di(r.data):'<small>dal riquadro</small>')+'</td><td class="t nas">'+es([r.lotto,r.piano,r.zona].filter(Boolean).join(' · '))+'</td><td>'+qt(r.tot)+' '+es(u)+'</td></tr>';}).join('')+
+    (R.length>200?'<tr><td class="t" colspan="5"><small>… e altre '+(R.length-200)+' righe</small></td></tr>':'')+'</tbody></table></div>'+
+    '<p class="nota">Le righe vanno all’impresa come «in attesa», come quelle scritte a mano: puoi correggerle o toglierle finché non le accetta. Con le misure (parti uguali, lunghezza, larghezza, altezza) TIX calcola la quantità.</p>';
+  dlg('Misure da Excel',file.name+(x.foglio?' · foglio «'+x.foglio+'»':''),c,ok.length?'Manda '+ok.length+(ok.length===1?' riga':' righe')+' all’impresa':'',ok.length?mandaImport:null);}
+function mandaImport(){var dd=$('#xi-d').value,chi=$('#xi-chi').value.trim(),m=$('#sp-dlg-m'),b=$('#sp-dlg-si');if(chi.length<3){m.textContent='Scrivi chi carica (nome e cognome).';return;}
+  if(!dd){m.textContent='Scegli il giorno per le righe senza data.';return;}ls('sp_chi',chi);
+  var n=function(x){return x===null||isNaN(x)?'':String(x);};
+  var righe=IMP.righe.filter(function(r){return !r.motivo;}).map(function(r){var o={riga:r.riga,voce_id:r.voce.id,data:r.data||dd,lotto:r.lotto,piano:r.piano,zona:r.zona,descrizione:r.note};
+    if(r.haDim){o.pu=n(r.dims.pu);o.l=n(r.dims.l);o.w=n(r.dims.w);o.h=n(r.dims.h);}else o.quantita=String(Math.abs(r.q));if(r.tot<0)o.meno=true;return o;});
+  b.disabled=true;m.textContent='Mando '+righe.length+' righe…';
+  api('importa',{dati:{righe:righe,autore:chi,file:IMP.file}}).then(function(r){b.disabled=false;
+    if(r&&r.esito==='ok'){chiudi();avviso(r.n+(r.n===1?' misura mandata':' misure mandate')+' all’impresa.');ricarica();return;}
+    m.innerHTML=es(errore(r))+(r&&Array.isArray(r.righe)?'<br>'+r.righe.slice(0,12).map(function(x){return 'riga '+es(x.riga)+': '+es(x.messaggio);}).join('<br>'):'');});}
+document.addEventListener('change',function(ev){if(ev.target.id==='sp-xls'){var f=ev.target.files&&ev.target.files[0];ev.target.value='';if(!f)return;
+  if(f.size>15*1024*1024){avviso('Il file è troppo grande (massimo 15 MB).');return;}avviso('Leggo il file…');
+  leggiXls(f).then(function(x){anteprima(f,x);}).catch(function(){avviso('Il file non si legge: salvalo come .xlsx e riprova.');});}});
 document.addEventListener('change',function(ev){if(ev.target.id==='m-file'||ev.target.id==='m-cam'){caricaFoto(ev.target.files);ev.target.value='';}});
 document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target.closest('button,a'):null;if(!t)return;
   if(t.id==='sp-dlg-no'){chiudi();return;}
   if(t.id==='sp-dlg-si'){if(dlg.fn)dlg.fn();return;}
   if(t.id==='sp-nuova'){modulo(null);return;}
+  if(t.id==='sp-xls-b'){$('#sp-xls').click();return;}
   // S3b: firma
   if(t.hasAttribute('data-fi')){firma(t.getAttribute('data-fi'));return;}
   if(t.hasAttribute('data-tm')){FI.modo=t.getAttribute('data-tm');[].forEach.call(document.querySelectorAll('[data-tm]'),function(x){x.classList.toggle('on',x===t);});
