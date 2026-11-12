@@ -429,7 +429,7 @@ m.className='fi-msg ok';m.textContent='Preparo il timbro…';daFile(f).then(func
 // Il riquadro è una pagina PDF a parte (pdf-lib) incollata con drawPage nel punto scelto, ruotata come la pagina se ha /Rotate.
 const FIRMA_JS = String.raw`(function(){if(window.TIXFirma)return;
 var PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFJSW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',PDFLIB='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
-var W=230,H=96,MARGINE=24;
+var W=230,H=96,MARGINE=24,MARGINE_GIU=62;
 function carica(u){return new Promise(function(ok,ko){var s=document.createElement('script');s.src=u;s.onload=ok;s.onerror=function(){ko(new Error('script'));};document.head.appendChild(s);});}
 function librerie(){var p=[];if(!window.pdfjsLib)p.push(carica(PDFJS));if(!window.PDFLib)p.push(carica(PDFLIB));return Promise.all(p).then(function(){window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJSW;});}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -496,7 +496,7 @@ if(!solo){librerie().then(function(){return origP;}).then(function(buf){return w
 .catch(function(e){msg.textContent=e&&e.message==='impronta'?'Il file scaricato non è quello registrato: ricarica la pagina.':'Il PDF non si apre qui: usa «Firma digitale qualificata».';});}
 cv.addEventListener('click',function(ev){if(!stato.vp)return;var r=cv.getBoundingClientRect();scegli((ev.clientX-r.left)*cv.width/r.width,(ev.clientY-r.top)*cv.height/r.height);});
 q('[data-pr]').onclick=function(){if(stato.pdf&&stato.pag>1)pagina(stato.pag-1);};q('[data-ps]').onclick=function(){if(stato.pdf&&stato.pag<stato.n)pagina(stato.pag+1);};
-q('[data-fondo]').onclick=function(){if(!stato.pdf)return;pagina(stato.n).then(function(){var sc=stato.vp.scale;scegli(cv.width-(W/2+MARGINE)*sc,cv.height-(H/2+MARGINE)*sc);});};
+q('[data-fondo]').onclick=function(){if(!stato.pdf)return;pagina(stato.n).then(function(){var sc=stato.vp.scale;scegli(cv.width-(W/2+MARGINE)*sc,cv.height-(H/2+MARGINE_GIU)*sc);});};
 function dati(){var e=(w.querySelector('input[name=tf-es]:checked')||{}).value,n=(q('#tf-nota').value||'').trim();
 if(!e){msg.textContent='Scegli l\'esito.';return null;}if((doc.nota_per||[]).indexOf(e)!==-1&&!n){msg.textContent='Scrivi le osservazioni.';q('#tf-nota').focus();return null;}
 var op=q('#tf-chi').selectedOptions[0];return {esito:e,nota:n,firmatario_id:op.value,firmatario:op.textContent,ha_firma:op.getAttribute('data-firma')==='1'};}

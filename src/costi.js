@@ -681,10 +681,10 @@ function pagina(base, h, p, d, torna, elenco) {
 
   const subOra = ogg(cora.subappalti);
   const subDett = '<details class="cm-det" id="subappalti"><summary>Subappalti <span>' + euroTondo(subOra.euro) + '</span></summary><div class="cm-det-c">' +
-    (lista(subOra.contratti).length ? '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Subappaltatore</th><th class="n">Contratto</th><th class="n">Lavori contabilizzati</th></tr></thead><tbody>' +
-      lista(subOra.contratti).map((x) => '<tr><td>' + e(testo(x.impresa_nome, 120)) + '</td><td class="n">' + euroTondo(x.importo_contratto) + '</td><td class="n">' + euroTondo(x.lavori_ora ?? x.lavori_al) + '</td></tr>').join("") +
+    (lista(subOra.contratti).length ? '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Subappaltatore</th><th class="n">Contratto</th><th class="n">Lavori contabilizzati</th><th class="n">Economie</th></tr></thead><tbody>' +
+      lista(subOra.contratti).map((x) => '<tr><td>' + e(testo(x.impresa_nome, 120)) + '</td><td class="n">' + euroTondo(x.importo_contratto) + '</td><td class="n">' + euroTondo(x.lavori_ora ?? x.lavori_al) + '</td><td class="n">' + euroTondo(x.economie_ora ?? x.economie_al ?? 0) + '</td></tr>').join("") +
       '</tbody></table></div>' : '<p class="cm-vuoto">Nessun subappaltatore con la contabilità in TIX.</p>') +
-    '<p class="cm-nota">Conta l\'ultimo SAL approvato di ogni subappaltatore, ritenuta compresa. Il margine voce per voce è nella scheda Subappalti della ' +
+    '<p class="cm-nota">Conta l\'ultimo SAL approvato di ogni subappaltatore, ritenuta compresa, più le sue ore in economia segnate nel Diario al prezzo del contratto. Il margine voce per voce è nella scheda Subappalti della ' +
     '<a href="' + e(linkSal) + '">pagina SAL</a>.</p></div></details>';
 
   // 5. costi della tua impresa
