@@ -3,6 +3,7 @@
 // da Filippo l'08/11 (piano Strumenti/restyling-tix/preventivi-02b/tipi-ditta-02b/01-piano.md):
 //   Fornitore = pallet, grigio ardesia #4A5A6A · Subappaltatore = casco con cazzuola, terracotta #B5523B ·
 //   Noleggio = escavatore, petrolio dei Mezzi #0B6E79.
+// 13/11/2026 (prove-1): Laboratorio prove = provetta, viola #6B4FA0 (colore libero, non usato da altri servizi).
 // Usato nelle pagine Rubrica e Persone del cantiere (src/persone-cantiere.js) e Preventivi (src/preventivi.js).
 // Nel browser: tdChip(tipo, aggiunta) restituisce l'etichetta con l'icona, oppure '' per gli altri rapporti.
 // ============================================================================
@@ -17,7 +18,8 @@ export const TIPI_DITTA_CSS_SCURO = "@media (prefers-color-scheme:dark){.tdc{col
 export const TIPI_DITTA_JS = String.raw`
 var TD={fornitore:{n:'Fornitore',k:'#4A5A6A',i:'<path d="M3 19h18M4 19v-2h16v2M6 17v-2M12 17v-2M18 17v-2"/><rect x="5" y="9" width="6" height="6" rx=".6"/><rect x="13" y="9" width="6" height="6" rx=".6"/><rect x="9" y="3.5" width="6" height="5.5" rx=".6"/>'},
  subappaltatore:{n:'Subappaltatore',k:'#B5523B',i:'<path d="M4 13a8 8 0 0 1 16 0"/><path d="M3 13h18v2H3z"/><path d="M10 5.3V9M14 5.3V9"/><path d="M14.5 17.5l5 3.5M17 16l3.6-1.2-.7 3"/>'},
- noleggio:{n:'Noleggio',k:'#0B6E79',i:'<rect x="2.5" y="15" width="12" height="4" rx="2"/><circle cx="5" cy="17" r=".6"/><circle cx="12" cy="17" r=".6"/><path d="M4 15v-4h5l2 4"/><path d="M9 11l5-6 5 3-2 4"/><path d="M17 12l2.5 3H16"/>'}};
+ noleggio:{n:'Noleggio',k:'#0B6E79',i:'<rect x="2.5" y="15" width="12" height="4" rx="2"/><circle cx="5" cy="17" r=".6"/><circle cx="12" cy="17" r=".6"/><path d="M4 15v-4h5l2 4"/><path d="M9 11l5-6 5 3-2 4"/><path d="M17 12l2.5 3H16"/>'},
+ laboratorio:{n:'Laboratorio',k:'#6B4FA0',i:'<path d="M9 3h6M10 3v6.2L4.8 18.4A1.8 1.8 0 0 0 6.4 21h11.2a1.8 1.8 0 0 0 1.6-2.6L14 9.2V3"/><path d="M7.2 15h9.6"/><circle cx="10.5" cy="17.6" r=".7"/><circle cx="13.6" cy="18.4" r=".5"/>'}};
 function tdChip(t,agg){var x=TD[t];if(!x)return '';
  return '<span class="tdc" style="--tdk:'+x.k+'"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+x.i+'</svg>'+x.n+(agg?' · '+agg:'')+'</span>';}
 `;

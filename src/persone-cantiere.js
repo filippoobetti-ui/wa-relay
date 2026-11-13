@@ -153,6 +153,11 @@ export async function portalePersone(request, env, base, inUrl, h) {
       if (UUID.test(String(dati.azienda_id || "").toLowerCase())) rub.azienda_id = String(dati.azienda_id).toLowerCase();
       if (/^[0-9]{1,18}$/.test(String(dati.impresa_id || ""))) rub.impresa_id = String(dati.impresa_id);
       for (const k of ["nuova_impresa", "nuova_impresa_piva"]) if (dati[k] !== undefined && dati[k] !== null) rub[k] = String(dati[k]).slice(0, 160);
+      // 13/11/2026 (prove-1, chat 02B): dati del laboratorio (autorizzazione art. 59 DPR 380/2001 e settori)
+      if (dati.laboratorio && typeof dati.laboratorio === "object") {
+        rub.laboratorio = { aut: String(dati.laboratorio.aut || "").slice(0, 160),
+          settori: Array.isArray(dati.laboratorio.settori) ? dati.laboratorio.settori.map(String).filter((s) => /^[a-z_]{1,20}$/.test(s)).slice(0, 5) : [] };
+      }
       if (Number.isInteger(id) && id > 0) rub.id = String(id);
       r = await h.rpc(env, "rubrica_salva", { p_token: tok, p_dati: rub }, 15000).catch(() => null);
     }
@@ -217,14 +222,14 @@ async function rubricaRoute(request, env, base, inUrl, h) {
     '<h1>Rubrica</h1><p id="sotto"></p></div></header><main class="corpo"><div class="in">' +
     '<div class="barra"><h2>Contatti</h2><div class="az-rub"><button class="btn" id="importa" type="button">&#128229; Importa da file</button><button class="btn pr" id="nuovo" type="button">+ Nuovo contatto</button></div></div>' +
     '<input class="campo cerca" id="cerca" type="search" placeholder="Cerca per nome, impresa, ruolo o numero" aria-label="Cerca nella rubrica" style="margin-top:12px">' +
-    '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, noleggi di mezzi, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
+    '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, noleggi di mezzi, laboratori prove, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
     SCHEDA_HTML + IMPORTA_HTML + '<div class="toast" id="toast" hidden></div>' +
     "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
 }
 
 const RAPPORTI_OPZ = '<option value="titolare">Titolare</option><option value="dipendente">Dipendente</option><option value="subappaltatore">Impresa subappaltatrice</option>' +
-  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="noleggio">Noleggio di mezzi e attrezzature</option><option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
+  '<option value="autonomo">Artigiano autonomo</option><option value="fornitore">Fornitore</option><option value="noleggio">Noleggio di mezzi e attrezzature</option><option value="laboratorio">Laboratorio prove sui materiali</option><option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente</option><option value="esterno">Esterno: DL, CSE, RUP, committente</option>';
 
 const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio" id="form-sch" novalidate aria-labelledby="t-sch">' +
   '<h2 id="t-sch">Nuovo contatto</h2><p class="sotto">Serve solo il nome; gli altri dati sono facoltativi.</p>' +
@@ -242,6 +247,13 @@ const SCHEDA_HTML = '<div class="velo" id="velo-sch" hidden><form class="foglio"
   '<div><label class="c" for="s-cf">Codice fiscale</label><input class="campo" id="s-cf" maxlength="16" style="text-transform:uppercase"></div></div>' +
   '<div class="riga2"><div><label class="c" for="s-ruolo">Ruolo abituale</label><select class="campo" id="s-ruolo"><option value="">—</option></select></div>' +
   '<div><label class="c" for="s-rapp">Rapporto con l\'impresa</label><select class="campo" id="s-rapp"><option value="">—</option>' + RAPPORTI_OPZ + '</select></div></div>' +
+  // 13/11/2026 (prove-1): dati del laboratorio, solo con il rapporto «Laboratorio prove sui materiali»
+  '<div id="s-lab-box" hidden><label class="c" for="s-lab-aut">Autorizzazione del Ministero (art. 59 DPR 380/2001): numero e data del decreto</label>' +
+  '<input class="campo" id="s-lab-aut" maxlength="160" placeholder="per esempio: Decreto n. 123 del 15/03/2021">' +
+  '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">Per le prove su calcestruzzo e acciaio il laboratorio deve essere autorizzato.</p>' +
+  '<div class="c" style="margin-top:8px">Prove che fa</div><div style="display:flex;flex-wrap:wrap;gap:6px 16px">' +
+  '<label><input type="checkbox" data-lab-set="cls_acciaio"> Calcestruzzo e acciaio</label><label><input type="checkbox" data-lab-set="terre"> Terre e geotecnica</label>' +
+  '<label><input type="checkbox" data-lab-set="altro"> Altre prove (murature, bitumi…)</label></div></div>' +
   '<label class="c" for="s-note">Note</label><textarea class="campo" id="s-note" rows="3" maxlength="500" placeholder="Per esempio: gruista, disponibile da marzo"></textarea>' +
   '<p class="sotto" style="margin:4px 0 0;font-size:.82rem">Non scrivere qui dati sulla salute, sui sindacati o su condanne.</p>' +
   '<p class="errore" id="s-err" hidden></p><div class="fine"><button class="btn rosso" type="button" id="s-elim" hidden>Elimina dalla rubrica</button>' +
@@ -488,14 +500,20 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 var toastT;function toast(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){el.hidden=true;},2800);}
 function chiama(az,extra){var b={t:CFG.t,azione:az};for(var k in extra)b[k]=extra[k];
   return fetch(CFG.api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){return r.json();});}
-var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",noleggio:"Noleggio",professionista:"Professionista",esterno:"Esterno"};
+var RAPP={titolare:"Titolare",dipendente:"Dipendente",subappaltatore:"Subappaltatore",autonomo:"Artigiano autonomo",fornitore:"Fornitore",noleggio:"Noleggio",laboratorio:"Laboratorio prove",professionista:"Professionista",esterno:"Esterno"};
+// 13/11/2026 (prove-1): campi del laboratorio nella scheda
+var LAB_SET={cls_acciaio:"calcestruzzo e acciaio",terre:"terre",altro:"altre prove"};
+function labVedi(){var b=$("s-lab-box");if(b)b.hidden=$("s-rapp").value!=="laboratorio";}
+function labImposta(p){var l=(p&&p.laboratorio)||{};$("s-lab-aut").value=l.aut||"";document.querySelectorAll("[data-lab-set]").forEach(function(x){x.checked=(l.settori||[]).indexOf(x.getAttribute("data-lab-set"))>=0;});labVedi();}
+function labDati(){return {aut:$("s-lab-aut").value,settori:Array.prototype.slice.call(document.querySelectorAll("[data-lab-set]:checked")).map(function(x){return x.getAttribute("data-lab-set");})};}
 function sotto(){$("sotto").textContent=(D.impresa||"")+" · "+P.length+(P.length===1?" contatto":" contatti");}
 function disegna(q){q=(q||"").toLowerCase().trim();var h="";sotto();
   P.filter(function(p){return !q||[p.nome,p.impresa,p.ruolo_etichetta,p.telefono,p.email,p.azienda,p.partita_iva,p.codice_fiscale].join(" ").toLowerCase().indexOf(q)>=0;}).forEach(function(p){
     h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc([p.impresa,TD[p.tipo_rapporto]?"":RAPP[p.tipo_rapporto]].filter(Boolean).join(" · "))+(D.filippo&&p.azienda?' · cliente '+esc(p.azienda):'')+'</div></div>'+
       '<button class="btn sm" type="button" data-mod="'+p.id+'">Modifica</button></div>'+
       '<div class="chips">'+tdChip(p.tipo_rapporto)+(p.ruolo_etichetta?'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>':'')+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+
-      (p.partita_iva?'<span class="chip">P.IVA '+esc(p.partita_iva)+'</span>':'')+(p.codice_fiscale?'<span class="chip">CF '+esc(p.codice_fiscale)+'</span>':'')+'</div>'+
+      (p.partita_iva?'<span class="chip">P.IVA '+esc(p.partita_iva)+'</span>':'')+(p.codice_fiscale?'<span class="chip">CF '+esc(p.codice_fiscale)+'</span>':'')+
+      (p.tipo_rapporto==="laboratorio"&&p.laboratorio?(p.laboratorio.aut?'<span class="chip">Aut. '+esc(p.laboratorio.aut)+'</span>':'')+((p.laboratorio.settori||[]).length?'<span class="chip">'+esc(p.laboratorio.settori.map(function(s){return LAB_SET[s]||s;}).join(", "))+'</span>':''):'')+'</div>'+
       (p.note?'<p class="p-sub" style="margin:6px 0 0">'+esc(p.note)+'</p>':'')+
       (p.cantieri&&p.cantieri.length?'<div class="azioni">'+p.cantieri.map(function(c){return '<a class="btn sm" href="'+esc(CFG.base+"/persone?t="+CFG.t+"&c="+c.id)+'">'+esc(c.nome)+'</a>';}).join("")+'</div>':'<p class="p-sub" style="margin:8px 0 0">Non è in nessun cantiere in corso.</p>')+'</article>';});
   $("lista").innerHTML=h||'<p class="nota">'+(P.length?'Nessun contatto trovato.':'La rubrica è vuota: tocca «+ Nuovo contatto».')+'</p>';}
@@ -511,11 +529,11 @@ function riempiImp(){var v={};P.forEach(function(p){if(p.impresa)v[p.impresa]=1;
   $("s-imp-lista").innerHTML=Object.keys(v).sort().map(function(n){return '<option value="'+esc(n)+'">';}).join("");}
 riempiAz();riempiImp();
 sa.addEventListener("change",function(){var n=sa.value==="nuova";$("s-nuova-box").hidden=!n;if(n)$("s-nuova").focus();});
-$("s-rapp").addEventListener("change",function(){if(this.value==="professionista"&&D.impresa&&$("s-imp").value===D.impresa){$("s-imp").value="";$("s-imp").focus();}});
+$("s-rapp").addEventListener("change",function(){labVedi();if((this.value==="professionista"||this.value==="laboratorio")&&D.impresa&&$("s-imp").value===D.impresa){$("s-imp").value="";$("s-imp").focus();}});
 function apri(p){corr=p||null;$("t-sch").textContent=p?"Modifica contatto":"Nuovo contatto";$("s-err").hidden=true;
   $("s-az-box").hidden=!(D.filippo&&!p);if(D.filippo&&!p){sa.value="";$("s-nuova-box").hidden=true;$("s-nuova").value="";$("s-nuova-piva").value="";}
   $("s-nome").value=p?p.nome||"":"";telImposta("s-tel",p&&p.telefono?p.telefono:"");$("s-mail").value=p?p.email||"":"";$("s-imp").value=p?p.impresa||"":(D.filippo?"":D.impresa||"");
-  $("s-piva").value=p?p.partita_iva||"":"";$("s-cf").value=p?p.codice_fiscale||"":"";sr.value=p&&p.ruolo&&RUOLI[p.ruolo]?p.ruolo:"";$("s-rapp").value=p?p.tipo_rapporto||"":"";$("s-note").value=p?p.note||"":"";
+  $("s-piva").value=p?p.partita_iva||"":"";$("s-cf").value=p?p.codice_fiscale||"":"";sr.value=p&&p.ruolo&&RUOLI[p.ruolo]?p.ruolo:"";$("s-rapp").value=p?p.tipo_rapporto||"":"";$("s-note").value=p?p.note||"":"";labImposta(p);
   var el=$("s-elim");el.hidden=!p;el.textContent="Elimina dalla rubrica";delete el.dataset.conferma;el.disabled=false;
   $("velo-sch").hidden=false;$("s-nome").focus();}
 function ricarica(){return chiama("rubrica",{}).then(function(r){if(r&&r.esito==="ok"){D=r;P=r.persone||[];riempiAz();riempiImp();}disegna($("cerca").value);});}
@@ -526,6 +544,7 @@ document.querySelectorAll("[data-chiudi]").forEach(function(b){b.addEventListene
 document.querySelectorAll(".velo").forEach(function(v){v.addEventListener("click",function(e){if(e.target===v)v.hidden=true;});});
 $("form-sch").addEventListener("submit",function(e){e.preventDefault();var ok=$("s-ok");ok.disabled=true;$("s-err").hidden=true;
   var dati={nome:$("s-nome").value,telefono:telValore("s-tel"),email:$("s-mail").value,impresa:$("s-imp").value,partita_iva:$("s-piva").value,codice_fiscale:$("s-cf").value,ruolo:sr.value,tipo_rapporto:$("s-rapp").value,note:$("s-note").value};
+  if(dati.tipo_rapporto==="laboratorio")dati.laboratorio=labDati();
   if(D.filippo&&!corr){var z=sa.value;if(z==="nuova"){dati.nuova_impresa=$("s-nuova").value;dati.nuova_impresa_piva=$("s-nuova-piva").value;}
     else if(z.indexOf("r:")===0)dati.impresa_id=z.slice(2);else if(z.indexOf("a:")===0)dati.azienda_id=z.slice(2);}
   chiama("rubrica_salva",corr?{id:corr.id,dati:dati}:{dati:dati}).then(function(r){ok.disabled=false;

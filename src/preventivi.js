@@ -70,6 +70,8 @@ function pulisciOf(d) {
     descrizione: 6000, unita: 20, quantita: 20, voce_id: 20 }; // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 36)); // 13/11/2026: anche gli id (uuid) del computo del SAL
+  // 13/11/2026 (prove-1): prove scelte dall'elenco, con la quantità
+  if (Array.isArray(x.righe)) o.righe = x.righe.slice(0, 60).map((g) => ({ codice: testo(g && g.codice, 12), quantita: testo(g && g.quantita, 12) }));
   if (Array.isArray(x.prezzi)) o.prezzi = x.prezzi.slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo: testo(p && p.prezzo, 20), note: testo(p && p.note, 500) }));
   return o;
 }
@@ -127,6 +129,10 @@ export async function preventiviPulsante(env, token, commessa) {
 // va sotto le schede come «Sicurezza».
 export function preventiviIniezione(base, token, commessa) {
   const u = base + "/preventivi?t=" + token + "&c=" + encodeURIComponent(commessa);
+  // 13/11/2026 (prove-1, chat 02B): «Prove sui materiali» accanto a «Preventivi» (stessa accensione della sezione)
+  const up = base + "/preventivi/prove?t=" + token + "&c=" + encodeURIComponent(commessa);
+  const iconaP = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M9 3h6M10 3v6.2L4.8 18.4A1.8 1.8 0 0 0 6.4 21h11.2a1.8 1.8 0 0 0 1.6-2.6L14 9.2V3"/><path d="M7.2 15h9.6"/></svg>';
   const icona = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M14 2.8H7a2.2 2.2 0 0 0-2.2 2.2v14a2.2 2.2 0 0 0 2.2 2.2h10a2.2 2.2 0 0 0 2.2-2.2V8z"/><path d="M14 2.8V8h5.2"/>' +
     '<path d="M14.6 12.3a2.9 2.9 0 1 0 0 4.4"/><path d="M8.6 13.7h4.2M8.6 15.4h4.2"/></svg>';
@@ -135,8 +141,9 @@ export function preventiviIniezione(base, token, commessa) {
     ".gl-pv-b:hover,.gl-pv-b:focus-visible{background:#66741C;color:#fff;outline:none}" +
     "@media (prefers-color-scheme:dark){.gl-pv-b{background:#262b10;color:#e3e8bf;border-color:#8C9B33}}</style>" +
     "<script>(function(){try{var a=document.createElement('a');a.className='gl-pv-b';a.href=" + JSON.stringify(u) + ";a.innerHTML=" + JSON.stringify(icona + " Preventivi") + ";" +
-    "var r=document.querySelector('.gl-azioni');if(r){r.appendChild(a);var n=r.children.length;r.classList.toggle('gl-az4',n===4);r.classList.toggle('gl-az5',n>=5);return;}" +
-    "var b=document.createElement('div');b.className='gl-pv-barra';b.appendChild(a);var nav=document.querySelector('nav.schede');" +
+    "var ap=document.createElement('a');ap.className='gl-pv-b';ap.href=" + JSON.stringify(up) + ";ap.innerHTML=" + JSON.stringify(iconaP + " Prove sui materiali") + ";" +
+    "var r=document.querySelector('.gl-azioni');if(r){r.appendChild(a);r.appendChild(ap);var n=r.children.length;r.classList.toggle('gl-az4',n===4);r.classList.toggle('gl-az5',n>=5);return;}" +
+    "var b=document.createElement('div');b.className='gl-pv-barra';b.appendChild(a);b.appendChild(document.createTextNode(' '));b.appendChild(ap);var nav=document.querySelector('nav.schede');" +
     "if(nav&&nav.parentNode){nav.parentNode.insertBefore(b,nav.nextSibling);}else{document.body.insertBefore(b,document.body.firstChild);}}catch(e){}})();</script>";
 }
 
@@ -156,6 +163,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/of/leggi") return leggiOffertaRdo(request, env, inUrl, h);        // 10/11/2026 (rdo-lettura-1)
   if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
   if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
+  if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -179,7 +187,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
 
 // 13/11/2026 (rdo-cantiere-1, chat 02B): «Chiedi un preventivo a un fornitore» dalla pagina del cantiere.
 // Cantiere con un preventivo collegato → la sua pagina con le richieste di offerta aperte; senza → pagina delle sole richieste.
-async function richiediDalCantiere(request, env, base, inUrl, h) {
+async function richiediDalCantiere(request, env, base, inUrl, h, prove) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const tok = gettone(inUrl.searchParams.get("t"));
   if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
@@ -188,7 +196,7 @@ async function richiediDalCantiere(request, env, base, inUrl, h) {
   const torna = base + "/?t=" + tok + (c ? "&c=" + c : "");
   const indietro = '<p><a href="' + h.esc(torna) + '">Torna al cantiere</a></p>';
   if (!c) return h.risposta(h.foglio(base, "Richieste di offerta", "Manca il cantiere.", indietro), 404);
-  const d = await h.rpc(env, "preventivo_rdo_cantiere", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+  const d = await h.rpc(env, prove ? "preventivo_prove_cantiere" : "preventivo_rdo_cantiere", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
   if (!d) return h.risposta(h.foglio(base, "Richieste di offerta", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok" || !UUID.test(String(d.id || ""))) {
@@ -197,19 +205,23 @@ async function richiediDalCantiere(request, env, base, inUrl, h) {
   if (d.tipo === "preventivo") {
     return Response.redirect(inUrl.origin + base + "/preventivi?t=" + tok + (a ? "&a=" + a : "") + "&c=" + c + "&id=" + d.id + "&apri=rdo", 303);
   }
-  return h.risposta(paginaRichieste(base, h, tok, a, c, d.id, String(d.titolo || ""), torna));
+  return h.risposta(paginaRichieste(base, h, tok, a, c, d.id, String(d.titolo || ""), torna, d.tipo === "prove"));
 }
 
-function paginaRichieste(base, h, tok, a, c, id, titolo, torna) {
+function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
   const e = h.esc;
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>Richieste di offerta - TIX · Diario di cantiere</title>" + h.testa(base) +
+    "<title>" + (prove ? "Prove sui materiali" : "Richieste di offerta") + " - TIX · Diario di cantiere</title>" + h.testa(base) +
     "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + "</style></head><body><main id=\"pv-main\">" +
     '<a class="pv-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
-    '<section class="pv-card pv-of"><h2>Richieste di offerta · ' + e(titolo) + '</h2><p>Chiedi i prezzi a fornitori, subappaltatori e noleggi per questo cantiere: ' +
-    'scrivi le righe o prendile dal computo del SAL, poi confronta le offerte che arrivano.</p>' +
-    '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste di offerta</button></section>' +
+    (prove
+      ? '<section class="pv-card pv-of"><h2>Prove sui materiali · ' + e(titolo) + '</h2><p>Scegli le prove dall\'elenco (calcestruzzo, acciaio, terre, murature, bitumi), ' +
+        'chiedi il preventivo ai laboratori della Rubrica e confronta le offerte che arrivano.</p>' +
+        '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste ai laboratori</button></section>'
+      : '<section class="pv-card pv-of"><h2>Richieste di offerta · ' + e(titolo) + '</h2><p>Chiedi i prezzi a fornitori, subappaltatori e noleggi per questo cantiere: ' +
+        'scrivi le righe o prendile dal computo del SAL, poi confronta le offerte che arrivano.</p>' +
+        '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste di offerta</button></section>') +
     "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: "rdo" }).replace(/</g, "\\u003c")) +
     "</script></body></html>";
@@ -2339,17 +2351,18 @@ function elRisultati(r){var box=document.getElementById('el-ris');if(!box)return
 function disegnaOf(){
  var r=OF,bozza=r.stato==='bozza'&&!r.solo_richieste;
  var aperte={np:1,da_quotare:1,da_verificare:1};
- var h=testa('Richieste di offerta',(r.solo_richieste?'Cantiere «'+es(r.titolo)+'». Scrivi le righe da chiedere o prendile dal computo del SAL, poi scegli a chi chiedere il prezzo.':'Preventivo '+es(r.codice)+'. Scegli le voci e a chi chiedere il prezzo.')+' Al fornitore arrivano descrizione, unità e quantità: <b>mai i prezzi</b>.');
+ var h=testa(r.prove?'Prove sui materiali':'Richieste di offerta',(r.prove?'Cantiere «'+es(r.titolo)+'». Scegli le prove dall\'elenco o scrivile, poi chiedi il preventivo ai laboratori.':r.solo_richieste?'Cantiere «'+es(r.titolo)+'». Scrivi le righe da chiedere o prendile dal computo del SAL, poi scegli a chi chiedere il prezzo.':'Preventivo '+es(r.codice)+'. Scegli le voci e a chi chiedere il prezzo.')+' Al fornitore arrivano descrizione, unità e quantità: <b>mai i prezzi</b>.');
  h+='<h3>Nuova richiesta</h3><div class="pv-ofl" id="of-voci">'+(r.voci||[]).map(function(v){var on=aperte[v.stato]||v.senza_prezzo;
   return '<label><input type="checkbox" value="'+v.id+'"'+(on?' checked':'')+'><span><b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.stato&&v.stato!=='ok'?' · '+es(v.stato.replace('_',' ')):'')+'</small></span>'+(r.solo_richieste?'<button type="button" class="pv-b sm pv-togli" data-ofx="riga_togli" data-voce="'+v.id+'" title="Togli la riga" style="margin-left:auto">✕</button>':'')+'</label>';}).join('')+
-  (r.solo_richieste&&!(r.voci||[]).length?'<p class="sotto">Nessuna riga ancora: scrivila qui sotto'+(r.computo_n?' o prendila dal computo del SAL':'')+'.</p>':'')+'</div>'+(r.solo_richieste?righeBox(r):'');
- var rub=r.rubrica||[];
- h+='<label><span>Dalla Rubrica (fornitori, subappaltatori e noleggi)</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
-  rub.map(function(k,i){return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
-  (rub.length?'':'<p class="pv-ofnota">Nella Rubrica non ci sono ancora fornitori, subappaltatori o noleggi: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Fornitore», «Impresa subappaltatrice» o «Noleggio di mezzi e attrezzature».</p>')+
-  (OF.elenco?'<div class="pv-ofnota"><button type="button" class="pv-b sm" data-ofx="el_apri">Cerca nell\'elenco TIX</button> <small>fornitori, subappaltatori e noleggi iscritti all\'elenco di TIX</small><div id="of-el-box"></div></div>':'')+
+  (r.solo_richieste&&!(r.voci||[]).length?'<p class="sotto">Nessuna riga ancora: '+(r.prove?'sceglila dall\'elenco delle prove o scrivila qui sotto':'scrivila qui sotto'+(r.computo_n?' o prendila dal computo del SAL':''))+'.</p>':'')+'</div>'+(r.solo_richieste?righeBox(r):'');
+ var rub=(r.rubrica||[]).filter(function(k){return !r.prove||k.tipo==='laboratorio';});
+ var RUBI=(r.rubrica||[]);
+ h+='<label><span>'+(r.prove?'Dalla Rubrica (laboratori prove)':'Dalla Rubrica (fornitori, subappaltatori, noleggi e laboratori)')+'</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
+  rub.map(function(k){var i=RUBI.indexOf(k);return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio',laboratorio:'Laboratorio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
+  (rub.length?'':r.prove?'<p class="pv-ofnota">Nella Rubrica non ci sono ancora laboratori: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Laboratorio prove sui materiali».</p>':'<p class="pv-ofnota">Nella Rubrica non ci sono ancora fornitori, subappaltatori o noleggi: puoi scrivere qui sotto il nome e le email, oppure aggiungerli in Rubrica con il rapporto «Fornitore», «Impresa subappaltatrice» o «Noleggio di mezzi e attrezzature».</p>')+
+  (OF.elenco&&!r.prove?'<div class="pv-ofnota"><button type="button" class="pv-b sm" data-ofx="el_apri">Cerca nell\'elenco TIX</button> <small>fornitori, subappaltatori e noleggi iscritti all\'elenco di TIX</small><div id="of-el-box"></div></div>':'')+
   '<label><span>Cosa chiedi</span><select id="of-tipo" style="max-width:360px"><option value="altro">Lavorazioni e forniture</option><option value="fornitore">Fornitura di materiali, consegnati in cantiere</option>'+
-  '<option value="subappaltatore">Esecuzione di lavorazioni (subappalto)</option><option value="noleggio">Noleggio di mezzi e attrezzature</option></select></label>'+
+  '<option value="subappaltatore">Esecuzione di lavorazioni (subappalto)</option><option value="noleggio">Noleggio di mezzi e attrezzature</option><option value="laboratorio"'+(r.prove?' selected':'')+'>Prove di laboratorio</option></select></label>'+
   '<label><span>A chi va la richiesta</span><input type="text" id="of-dest" maxlength="200"></label>'+
   '<label><span>Email del fornitore (fino a 10, separate da virgola)</span><input type="text" id="of-ea"></label>'+
   emRiq('id="of-ei"',(r.impresa&&(r.impresa.emails||[]).length)?r.impresa.emails:lista(ricorda('of_imp')),true)+emSug()+
@@ -2415,9 +2428,24 @@ function righeBox(r){return '<div class="pv-emr"><div class="r"><b>Aggiungi una 
  '<div style="display:flex;gap:10px;flex-wrap:wrap"><label style="flex:0 0 130px"><span>Unità</span><input type="text" id="of-ru" maxlength="20" placeholder="m3, kg, ore…"></label>'+
  '<label style="flex:0 0 170px"><span>Quantità</span><input type="text" id="of-rq" inputmode="decimal"></label></div>'+
  '<div class="pv-ofbt"><button type="button" class="pv-b" data-ofx="riga_add">Aggiungi la riga</button>'+
+ (r.prove?'<button type="button" class="pv-b pv-pr" data-ofx="cat_apri">Scegli dall\'elenco delle prove</button>':'')+
  (r.computo_n?'<button type="button" class="pv-b" data-ofx="cp_apri">Prendi dal computo del SAL ('+r.computo_n+' voci)</button>':'')+'</div>'+
  '<div id="of-cp"></div><p class="pv-msg" id="of-rmsg" aria-live="polite"></p></div>';}
+// 13/11/2026 (prove-1): elenco delle prove per materiale, con la quantità
+var MAT={calcestruzzo:'Calcestruzzo',acciaio:'Acciaio',terre:'Terre e rilevati',murature:'Murature e malte',bitumi:'Bitumi e conglomerati',altro:'Altro'};
+function catBox(L){var g={},o=[];L.forEach(function(v){if(!g[v.materiale]){g[v.materiale]=[];o.push(v.materiale);}g[v.materiale].push(v);});
+ return '<p class="sotto" style="margin-top:10px">Spunta le prove e scrivi quante ne servono (provini, spezzoni, campioni…): entrano nell\'elenco qui sopra.</p>'+o.map(function(m){
+  return '<h3 style="margin:12px 0 4px">'+es(MAT[m]||m)+'</h3><div class="pv-ofl">'+g[m].map(function(v){
+   return '<label><input type="checkbox" data-cat="'+es(v.codice)+'"'+(v.presa?' disabled':'')+'><span>'+es(v.nome)+' <small>· '+es(v.norma||'')+(v.presa?' · già nell\'elenco':'')+'</small></span>'+
+    '<input type="text" inputmode="decimal" data-catq="'+es(v.codice)+'" value="1" style="width:70px;margin-left:auto" aria-label="Quantità"'+(v.presa?' disabled':'')+'> <small>'+es(v.unita||'')+'</small></label>';}).join('')+'</div>';}).join('')+
+ '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="cat_prendi">Prendi le prove spuntate</button></div>';}
 function azioneRighe(az,el){
+ if(az==='cat_apri'){var bc=document.getElementById('of-cp');bc.innerHTML='<p class="sotto">Carico l\'elenco delle prove…</p>';
+  api('of_catalogo').then(function(r){if(r.esito!=='ok'){bc.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}bc.innerHTML=catBox(r.voci||[]);});return;}
+ if(az==='cat_prendi'){var righe=Array.prototype.slice.call(document.querySelectorAll('#of-cp input[data-cat]:checked')).map(function(x){var c=x.getAttribute('data-cat'),q=document.querySelector('#of-cp [data-catq="'+c+'"]');return {codice:c,quantita:q?q.value.trim():'1'};});
+  if(!righe.length){nota('of-rmsg','Spunta almeno una prova.','err');return;}
+  if(righe.some(function(g){return !/^[0-9]{1,7}([.,][0-9]{1,3})?$/.test(g.quantita);})){nota('of-rmsg','Controlla le quantità: solo numeri.','err');return;}el.disabled=true;
+  api('of_catalogo_prendi',{righe:righe}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
  if(az==='riga_add'){var dd=document.getElementById('of-rd').value.trim();if(dd.length<2){nota('of-rmsg','Scrivi cosa chiedi.','err');return;}el.disabled=true;
   api('of_riga_aggiungi',{descrizione:dd,unita:document.getElementById('of-ru').value,quantita:document.getElementById('of-rq').value}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
  if(az==='riga_togli'){if(!confirm('Togliere questa riga?'))return;el.disabled=true;api('of_riga_togli',{voce_id:el.dataset.voce}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaOf();});return;}
@@ -2434,7 +2462,7 @@ function voceSel(){return Array.prototype.slice.call(document.querySelectorAll('
 function campiRdo(box){var d={};box.querySelectorAll('[data-k]').forEach(function(x){d[x.dataset.k]=x.value;});return d;}
 function mOf(box,t,cl){var el=box?box.querySelector('[data-m]'):null;if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
 function azioneOf(az,el){
- if(az==='riga_add'||az==='riga_togli'||az==='cp_apri'||az==='cp_prendi'){azioneRighe(az,el);return;}
+ if(az==='riga_add'||az==='riga_togli'||az==='cp_apri'||az==='cp_prendi'||az==='cat_apri'||az==='cat_prendi'){azioneRighe(az,el);return;}
  if(az==='el_apri'){elForm();return;}
  if(az==='el_cerca'){var r0=document.getElementById('el-ris');if(r0)r0.innerHTML='<p class="sotto">Cerco…</p>';
   api('el_cerca',{tipo:document.getElementById('el-tipo').value,testo:document.getElementById('el-testo').value,provincia:document.getElementById('el-prov').value}).then(elRisultati);return;}
