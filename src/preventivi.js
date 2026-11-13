@@ -165,6 +165,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
   if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
   if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
+  if (sotto === "/preventivi/prove/certificato") return certificatoProve(request, env, base, inUrl, h); // 13/11/2026 (prove-3)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -226,7 +227,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
     (prove ? '<div id="pr-app"><p class="pv-carica">Un momento…</p></div>' : "") +
     "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: prove ? "" : "rdo" }).replace(/</g, "\\u003c")) +
-    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
+    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
     "</script></body></html>";
 }
 
@@ -2628,7 +2629,8 @@ function pulisciPr(d) {
   const x = d && typeof d === "object" ? d : {};
   const o = {};
   const testi = { id: 36, rdo_id: 36, prelievo_id: 36, stato: 20, data: 10, materiale: 20, prova_codice: 12, opera: 300, quantita: 20, unita: 20,
-    classe: 120, ddt: 200, fornitore: 200, provini: 6, sigle: 500, dl_nome: 200, tecnico_nome: 200, note: 2000 };
+    classe: 120, ddt: 200, fornitore: 200, provini: 6, sigle: 500, dl_nome: 200, tecnico_nome: 200, note: 2000,
+    cert_numero: 80, cert_data: 10, esito: 20, valori: 2000 }; // 13/11/2026 (prove-3): certificato
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.prelievi)) o.prelievi = x.prelievi.slice(0, 60).map((v) => testo(v, 36)).filter((v) => UUID.test(v));
   return o;
@@ -2648,6 +2650,51 @@ async function stampaProve(request, env, base, inUrl, h) {
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Prove sui materiali", "Prelievi non trovati.", ""), 404);
   return h.risposta(foglioProve(h, d, tipo));
+}
+
+// 13/11/2026 (prove-3, chat 02B): certificato del laboratorio — carica (POST) e apri (GET), in wa-media/preventivi/<impresa>/prove/<prelievo>/
+async function certificatoProve(request, env, base, inUrl, h) {
+  const tok = gettone(inUrl.searchParams.get("t"));
+  const id = uuid(inUrl.searchParams.get("id")), pr = uuid(inUrl.searchParams.get("p"));
+  if (request.method === "POST") {
+    if (!tok) return json({ esito: "gettone" }, 400);
+    if (!id || !pr) return json({ esito: "errore" }, 400);
+    const nome = String(inUrl.searchParams.get("nome") || "certificato").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 160);
+    if (Number(request.headers.get("Content-Length") || 0) > LETTORE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+    let est = "";
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+    else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+    else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+    if (!est) return json({ esito: "formato", messaggio: "Si caricano PDF, JPG e PNG." }, 400);
+    if (bytes.length > (est === "pdf" ? LETTORE_MAX_PDF : LETTORE_MAX_FOTO)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+    const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "cert_info", p_dati: { prelievo_id: pr } }, 15000).catch(() => null);
+    if (!info) return json({ esito: "incerto" }, 503);
+    if (info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/prove\/[0-9a-f-]{36}\/$/.test(String(info.cartella || ""))) return json({ esito: String(info.esito || "errore"), messaggio: info.messaggio || "" });
+    const percorso = String(info.cartella) + "cert-" + Date.now() + "-" + casuale() + "." + est;
+    const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
+        "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : "image/jpeg", "x-upsert": "false" }, body: bytes }).catch(() => null);
+    if (!up || !up.ok) return json({ esito: "errore", messaggio: "Il file non si è salvato: riprova." }, 502);
+    const r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "cert_fine", p_dati: { prelievo_id: pr, path: percorso, nome } }, 15000).catch(() => null);
+    return json(r && r.esito === "ok" ? { esito: "ok" } : { esito: "errore", messaggio: (r && r.messaggio) || "Il certificato non si è registrato: riprova." });
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  if (!id || !pr) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "cert_file", p_dati: { prelievo_id: pr } }, 10000).catch(() => null);
+  if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/prove\/[0-9a-f-]{36}\/cert-[A-Za-z0-9._-]{1,80}$/.test(String(info.path || ""))) {
+    return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">Certificato non trovato.</p>'), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.path), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">Il file non si legge dall\u2019archivio: riprova tra un minuto.</p>'), 502);
+  const p = String(info.path), nome = String(info.nome || "certificato");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
+    "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
 }
 
 const MAT_NOME = { calcestruzzo: "calcestruzzo", acciaio: "acciaio", terre: "terre", murature: "murature e malte", bitumi: "conglomerati bituminosi", altro: "materiali" };
@@ -2743,14 +2790,28 @@ function disegna(){var h='';
  var P=S.prelievi||[];
  h+='<section class="pv-card pr-sez"><h2>Prelievi</h2><p class="sotto">Ogni prelievo fatto in cantiere alla presenza della DL: cubetti di calcestruzzo, spezzoni di acciaio, campioni di terra… Dal prelievo stampi il verbale da firmare; spuntando più prelievi stampi la richiesta di prove al laboratorio, firmata dalla DL.</p>'+
   '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="nuovo">+ Nuovo prelievo</button>'+(P.length?'<button type="button" class="pv-b" data-pr="richiesta">Richiesta di prove per i prelievi spuntati</button>':'')+'</div><div id="pr-form"></div>';
- if(P.length)h+='<table class="pr-tab" style="margin-top:10px"><tr><th></th><th>N.</th><th>Data</th><th>Prova</th><th class="nm">Opera</th><th class="nm">Quantità</th><th>Provini</th><th>Stato</th><th></th></tr>'+P.map(function(x){
+ if(P.length)h+='<table class="pr-tab" style="margin-top:10px"><tr><th></th><th>N.</th><th>Data</th><th>Prova</th><th class="nm">Opera</th><th class="nm">Quantità</th><th>Provini</th><th>Stato</th><th>Certificato</th><th></th></tr>'+P.map(function(x){
   return '<tr><td><input type="checkbox" data-sel="'+es(x.id)+'" aria-label="Spunta il prelievo n. '+x.numero+'"></td><td>'+x.numero+'</td><td>'+dt(x.data)+'</td><td>'+es(x.prova||MAT[x.materiale]||'')+(x.classe?' <small>· '+es(x.classe)+'</small>':'')+(x.prova_entro?'<br><small>da rompere il '+dt(x.prova_entro)+'</small>':'')+'</td>'+
    '<td class="nm">'+es(x.opera||'')+'</td><td class="nm">'+(x.quantita!=null?String(x.quantita).replace('.',',')+' '+es(x.unita||''):'')+'</td><td>'+(x.provini!=null?x.provini:'')+(x.sigle?'<br><small>'+es(x.sigle)+'</small>':'')+'</td>'+
    '<td><select data-stato="'+es(x.id)+'" aria-label="Stato del prelievo">'+Object.keys(STATO).map(function(k){return '<option value="'+k+'"'+(x.stato===k?' selected':'')+'>'+STATO[k]+'</option>';}).join('')+'</select></td>'+
+   '<td>'+certCella(x)+'</td>'+
    '<td><div class="pr-az" style="margin:0"><a class="pv-b sm" target="_blank" rel="noopener" href="'+es(stampa('verbale',[x.id]))+'">Verbale</a><button type="button" class="pv-b sm" data-pr="modifica" data-p="'+es(x.id)+'">Modifica</button><button type="button" class="pv-b sm pv-togli" data-pr="togli" data-p="'+es(x.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
  else h+='<p class="sotto" style="margin-top:10px">Nessun prelievo ancora.</p>';
  h+='<p class="pv-msg" id="pr-msg" aria-live="polite"></p></section>';
  box.innerHTML=h;}
+// 13/11/2026 (prove-3): certificato del laboratorio per ogni prelievo
+function certUrl(id){return CFG.cf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+id;}
+function certCella(x){var e=x.esito_prova==='conforme'?'<span class="pr-st certificato">Conforme</span>':x.esito_prova==='non_conforme'?'<span class="pr-st" style="background:#FDF1F0;color:#B3261E">Non conforme</span>':'';
+ return (x.cert?'<a class="pv-b sm" target="_blank" rel="noopener" href="'+es(certUrl(x.id))+'">Apri</a> ':'')+e+(x.cert_numero?'<br><small>n. '+es(x.cert_numero)+(x.cert_data?' del '+dt(x.cert_data):'')+'</small>':'')+(x.valori?'<br><small>'+es(x.valori)+'</small>':'')+
+  '<div class="pr-az" style="margin:4px 0 0"><label class="pv-b sm" style="cursor:pointer">'+(x.cert?'Sostituisci':'Carica certificato')+'<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-cert="'+es(x.id)+'" hidden></label>'+
+  '<button type="button" class="pv-b sm" data-pr="esito" data-p="'+es(x.id)+'">Esito</button></div>';}
+function esitoForma(x){var el=document.getElementById('pr-form');el.innerHTML='<h3 style="margin:10px 0 4px">Certificato del prelievo n. '+x.numero+'</h3><div class="pr-form" id="pr-e">'+
+ '<label>Numero del certificato<input data-e="cert_numero" maxlength="80" value="'+es(x.cert_numero||'')+'"></label>'+
+ '<label>Data del certificato<input type="date" data-e="cert_data" value="'+es(x.cert_data||'')+'"></label>'+
+ '<label>Esito<select data-e="esito"><option value="">— da decidere —</option><option value="conforme"'+(x.esito_prova==='conforme'?' selected':'')+'>Conforme</option><option value="non_conforme"'+(x.esito_prova==='non_conforme'?' selected':'')+'>Non conforme</option></select></label>'+
+ '<label class="l3">Valori principali (per esempio: Rcm 33,2 MPa; fy 512 MPa, ft 618 MPa, A 14 %)<textarea data-e="valori" maxlength="2000" rows="2">'+es(x.valori||'')+'</textarea></label></div>'+
+ '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="esito_salva" data-p="'+es(x.id)+'">Salva il certificato</button><button type="button" class="pv-b" data-pr="annulla">Annulla</button></div>';
+ el.scrollIntoView({block:'nearest'});}
 function forma(x){x=x||{};var cat=(S.catalogo||[]);
  function opz(m){return '<option value="">—</option>'+cat.filter(function(k){return !m||k.materiale===m;}).map(function(k){return '<option value="'+es(k.codice)+'"'+(x.prova_codice===k.codice?' selected':'')+'>'+es(k.nome)+'</option>';}).join('');}
  var m=x.materiale||'calcestruzzo';
@@ -2778,6 +2839,9 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]'
  if(az==='nuovo'){forma(null);return;}
  if(az==='annulla'){document.getElementById('pr-form').innerHTML='';MOD=null;return;}
  if(az==='modifica'){var x=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(x)forma(x);return;}
+ if(az==='esito'){var xe=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(xe)esitoForma(xe);return;}
+ if(az==='esito_salva'){var de={prelievo_id:b.getAttribute('data-p')};document.querySelectorAll('#pr-e [data-e]').forEach(function(i){de[i.getAttribute('data-e')]=i.value;});b.disabled=true;
+  api('pr_cert_salva',de).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}document.getElementById('pr-form').innerHTML='';carica();});return;}
  if(az==='salva'){var d={};document.querySelectorAll('#pr-f [data-f]').forEach(function(i){d[i.getAttribute('data-f')]=i.value;});if(MOD)d.prelievo_id=MOD;b.disabled=true;
   api('pr_prelievo_salva',d).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}MOD=null;carica();});return;}
  if(az==='togli'){if(!confirm('Togliere questo prelievo dal registro?'))return;b.disabled=true;api('pr_prelievo_togli',{prelievo_id:b.getAttribute('data-p')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}carica();});return;}
@@ -2787,6 +2851,10 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]'
   if(!ids.length){msg('Spunta i prelievi da mandare al laboratorio.','err');return;}if(!S.laboratorio&&!confirm('Non hai ancora accettato l\'offerta di un laboratorio: la richiesta uscirà senza il nome del laboratorio. Continuare?'))return;
   window.open(stampa('richiesta',ids),'_blank','noopener');return;}
 });
+document.addEventListener('change',function(e){var fi=e.target;if(!fi||!fi.getAttribute||!fi.getAttribute('data-cert'))return;var f=fi.files&&fi.files[0],pid=fi.getAttribute('data-cert');if(!f)return;
+ if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){msg('Si caricano PDF, JPG e PNG.','err');fi.value='';return;}msg('Carico il certificato…');fi.disabled=true;
+ fetch(CFG.cf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+pid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
+ .then(function(r){fi.disabled=false;fi.value='';if(r.esito!=='ok'){msg(errore(r),'err');return;}msg('Certificato caricato: scrivi numero, data ed esito.','ok');carica().then(function(){var x=(S.prelievi||[]).filter(function(p){return p.id===pid;})[0];if(x)esitoForma(x);});});});
 document.addEventListener('change',function(e){var s=e.target;if(!s||!s.getAttribute||!s.getAttribute('data-stato'))return;s.disabled=true;
  api('pr_prelievo_stato',{prelievo_id:s.getAttribute('data-stato'),stato:s.value}).then(function(r){s.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');}carica();});});
 document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('[data-ofx="chiudi"]'))setTimeout(carica,300);});
