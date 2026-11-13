@@ -139,7 +139,7 @@ export async function portalePersone(request, env, base, inUrl, h) {
     const dati = b.dati && typeof b.dati === "object" ? b.dati : {};
     const pulito = {};
     for (const k of ["nome", "ruolo", "telefono", "email", "impresa", "tipo_rapporto"]) if (dati[k] !== undefined && dati[k] !== null) pulito[k] = String(dati[k]).slice(0, 160);
-    for (const k of ["scrive", "riceve_diario", "vede_area", "consenso_promemoria", "invito_inviato", "nuovo_codice", "nolo_operatore"]) if (typeof dati[k] === "boolean") pulito[k] = dati[k];
+    for (const k of ["scrive", "riceve_diario", "vede_area", "consenso_promemoria", "invito_inviato", "nuovo_codice", "nolo_operatore", "entra_cantiere"]) if (typeof dati[k] === "boolean") pulito[k] = dati[k];
     let r = null;
     if (az === "elenco" && UUID.test(c)) r = await h.rpc(env, "persone_cantiere_elenco", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     else if (az === "rubrica") r = await h.rpc(env, "persone_rubrica", { p_token: tok }, 15000).catch(() => null);
@@ -607,7 +607,7 @@ const FORM = '<div class="velo" id="velo-agg" hidden><form class="foglio" id="fo
   '<label class="c" for="f-imp">Impresa della persona</label><input class="campo" id="f-imp" maxlength="120">' +
   '<label class="c" for="f-rapp">Rapporto con l\'impresa</label><select class="campo" id="f-rapp">' +
   '<option value="titolare">Titolare (si conta nel canone)</option><option value="dipendente">Dipendente (si conta nel canone)</option><option value="subappaltatore">Impresa subappaltatrice (senza costi)</option>' +
-  '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option><option value="noleggio">Noleggio di mezzi e attrezzature (senza costi)</option>' +
+  '<option value="autonomo">Artigiano autonomo incaricato (senza costi, solo WhatsApp)</option><option value="fornitore">Fornitore (senza costi)</option><option value="noleggio">Noleggio di mezzi e attrezzature (senza costi)</option><option value="laboratorio">Laboratorio prove sui materiali (senza costi)</option>' +
   '<option value="professionista">Professionista con partita IVA: PM, DL, CSE, consulente (senza costi)</option><option value="esterno">Esterno: DL, CSE, RUP, committente (non scrive)</option></select>' +
   '<label class="spunta"><input type="checkbox" id="f-consenso"> <span>Ho il consenso della persona a ricevere da TIX un promemoria su WhatsApp, se non attiva entro 48 ore.</span></label>' +
   '<p class="errore" id="f-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="f-ok">Aggiungi e crea l\'invito</button></div></form></div>';
@@ -655,8 +655,8 @@ function disegna(){
     dentro.forEach(function(p){
       var area=(p.ruolo==="sub")?"Vede l'area riservata (solo i propri dati)":"Vede l'area riservata (sola lettura)";
       h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc(p.impresa||"")+' · '+esc(quando(p))+'</div></div>'+statoHtml(p)+'</div>'+
-        '<div class="chips">'+tdChip(p.tipo_rapporto,p.tipo_rapporto==="noleggio"?(p.nolo_operatore?"con operatore":p.nolo_operatore===false?"a freddo":""):"")+'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
-        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="noleggio"?tg(p,"nolo_operatore","Con operatore (nolo a caldo); spento = a freddo"):"")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
+        '<div class="chips">'+tdChip(p.tipo_rapporto,p.tipo_rapporto==="noleggio"?(p.nolo_operatore?"con operatore":p.nolo_operatore===false?"a freddo":""):p.tipo_rapporto==="laboratorio"&&p.entra_cantiere?"entra in cantiere":"")+'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
+        '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="noleggio"?tg(p,"nolo_operatore","Con operatore (nolo a caldo); spento = a freddo"):"")+(p.tipo_rapporto==="laboratorio"?tg(p,"entra_cantiere","Entra in cantiere (prove in sito): servono i documenti della Sicurezza"):"")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
         '<div class="azioni">'+(p.stato!=="attivato"?'<button class="btn sm" type="button" data-inv="'+p.id+'">Invito</button>':'')+'<button class="btn sm rosso" type="button" data-togli="'+p.id+'">Togli dal cantiere</button></div></article>';
     });
     h+='</div></section>';

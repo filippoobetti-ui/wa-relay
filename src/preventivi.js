@@ -166,6 +166,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
   if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
   if (sotto === "/preventivi/prove/certificato") return certificatoProve(request, env, base, inUrl, h); // 13/11/2026 (prove-3)
+  if (sotto === "/preventivi/prove/fattura") return fatturaProve(request, env, base, inUrl, h);         // 13/11/2026 (prove-4)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -227,7 +228,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
     (prove ? '<div id="pr-app"><p class="pv-carica">Un momento…</p></div>' : "") +
     "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: prove ? "" : "rdo" }).replace(/</g, "\\u003c")) +
-    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
+    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", ff: base + "/preventivi/prove/fattura", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
     "</script></body></html>";
 }
 
@@ -2630,7 +2631,8 @@ function pulisciPr(d) {
   const o = {};
   const testi = { id: 36, rdo_id: 36, prelievo_id: 36, stato: 20, data: 10, materiale: 20, prova_codice: 12, opera: 300, quantita: 20, unita: 20,
     classe: 120, ddt: 200, fornitore: 200, provini: 6, sigle: 500, dl_nome: 200, tecnico_nome: 200, note: 2000,
-    cert_numero: 80, cert_data: 10, esito: 20, valori: 2000 }; // 13/11/2026 (prove-3): certificato
+    cert_numero: 80, cert_data: 10, esito: 20, valori: 2000, // 13/11/2026 (prove-3): certificato
+    fattura_id: 36, numero: 80, imponibile: 20, iva: 20, sconto_pct: 10 }; // 13/11/2026 (prove-4): fatture e sconto
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.prelievi)) o.prelievi = x.prelievi.slice(0, 60).map((v) => testo(v, 36)).filter((v) => UUID.test(v));
   return o;
@@ -2693,6 +2695,52 @@ async function certificatoProve(request, env, base, inUrl, h) {
   const p = String(info.path), nome = String(info.nome || "certificato");
   return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
     "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
+    "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// 13/11/2026 (prove-4, chat 02B): fattura del laboratorio — carica (POST) e apri (GET), in wa-media/preventivi/<impresa>/prove/fatture/<fattura>/
+async function fatturaProve(request, env, base, inUrl, h) {
+  const tok = gettone(inUrl.searchParams.get("t"));
+  const id = uuid(inUrl.searchParams.get("id")), fa = uuid(inUrl.searchParams.get("f"));
+  if (request.method === "POST") {
+    if (!tok) return json({ esito: "gettone" }, 400);
+    if (!id || !fa) return json({ esito: "errore" }, 400);
+    const nome = String(inUrl.searchParams.get("nome") || "fattura").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 160);
+    if (Number(request.headers.get("Content-Length") || 0) > LETTORE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+    let est = "";
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+    else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+    else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+    else if (bytes[0] === 0x3c) est = "xml";
+    if (!est) return json({ esito: "formato", messaggio: "Si caricano PDF, JPG, PNG e la fattura elettronica XML." }, 400);
+    if (bytes.length > (est === "jpg" || est === "png" ? LETTORE_MAX_FOTO : LETTORE_MAX_PDF)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+    const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "fattura_info", p_dati: { fattura_id: fa } }, 15000).catch(() => null);
+    if (!info) return json({ esito: "incerto" }, 503);
+    if (info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/prove\/fatture\/[0-9a-f-]{36}\/$/.test(String(info.cartella || ""))) return json({ esito: String(info.esito || "errore"), messaggio: info.messaggio || "" });
+    const percorso = String(info.cartella) + "fatt-" + Date.now() + "-" + casuale() + "." + est;
+    const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
+        "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : est === "xml" ? "application/xml" : "image/jpeg", "x-upsert": "false" }, body: bytes }).catch(() => null);
+    if (!up || !up.ok) return json({ esito: "errore", messaggio: "Il file non si è salvato: riprova." }, 502);
+    const r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "fattura_fine", p_dati: { fattura_id: fa, path: percorso, nome } }, 15000).catch(() => null);
+    return json(r && r.esito === "ok" ? { esito: "ok" } : { esito: "errore", messaggio: (r && r.messaggio) || "La fattura non si è registrata: riprova." });
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  if (!id || !fa) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "fattura_file", p_dati: { fattura_id: fa } }, 10000).catch(() => null);
+  if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/prove\/fatture\/[0-9a-f-]{36}\/fatt-[A-Za-z0-9._-]{1,80}$/.test(String(info.path || ""))) {
+    return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">Fattura non trovata.</p>'), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.path), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">Il file non si legge dall\u2019archivio: riprova tra un minuto.</p>'), 502);
+  const p = String(info.path), nome = String(info.nome || "fattura");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : p.endsWith(".xml") ? "text/plain; charset=UTF-8" : "image/jpeg",
     "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
     "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
 }
@@ -2779,7 +2827,8 @@ function disegna(){var h='';
  if(S.laboratorio){var L=S.laboratorio;
   h+='<p><b>'+es(L.nome)+'</b>'+(L.aut?' · autorizzazione '+es(L.aut):'')+' <small>· offerta accettata il '+dt(L.accettata_il)+'</small></p>'+
    '<table class="pr-tab"><tr><th>Prova</th><th>Quantità</th><th>Prezzo unitario + IVA</th></tr>'+(L.righe||[]).map(function(g){return '<tr><td>'+es(g.descrizione)+'</td><td>'+String(g.quantita==null?'':g.quantita).replace('.',',')+' '+es(g.unita||'')+'</td><td>'+eur(g.prezzo)+'</td></tr>';}).join('')+'</table>'+
-   '<div class="pr-az"><button type="button" class="pv-b sm" data-pr="non_accetta" data-rdo="'+es(L.id)+'">Cambia laboratorio</button></div>';
+   '<div class="pr-az"><label class="sotto" style="display:flex;align-items:center;gap:6px">Sconto sul totale <input data-sconto inputmode="decimal" style="width:70px;padding:5px 8px;border:1px solid #CBD2DA;border-radius:8px" value="'+es(L.sconto_pct==null?'':String(L.sconto_pct).replace('.',','))+'"> %</label>'+
+   '<button type="button" class="pv-b sm" data-pr="sconto">Salva lo sconto</button><button type="button" class="pv-b sm" data-pr="non_accetta" data-rdo="'+es(L.id)+'">Cambia laboratorio</button></div>';
  } else {
   var off=(S.offerte||[]).filter(function(o){return o.stato==='offerta';});
   h+=off.length?'<p>Offerte con i prezzi salvati: scegli quella da accettare. I suoi prezzi diventano il listino delle prove di questo cantiere.</p><div class="pr-az">'+off.map(function(o){return '<button type="button" class="pv-b sm pv-pr" data-pr="accetta" data-rdo="'+es(o.id)+'">Accetta l\'offerta di '+es(o.nome)+'</button>';}).join('')+'</div>'
@@ -2798,8 +2847,38 @@ function disegna(){var h='';
    '<td><div class="pr-az" style="margin:0"><a class="pv-b sm" target="_blank" rel="noopener" href="'+es(stampa('verbale',[x.id]))+'">Verbale</a><button type="button" class="pv-b sm" data-pr="modifica" data-p="'+es(x.id)+'">Modifica</button><button type="button" class="pv-b sm pv-togli" data-pr="togli" data-p="'+es(x.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
  else h+='<p class="sotto" style="margin-top:10px">Nessun prelievo ancora.</p>';
  h+='<p class="pv-msg" id="pr-msg" aria-live="polite"></p></section>';
+ h+=costiHtml();
  box.innerHTML=h;}
 // 13/11/2026 (prove-3): certificato del laboratorio per ogni prelievo
+
+// 13/11/2026 (prove-4): costi del laboratorio — offerta accettata (con lo sconto), fatture e confronto
+function fattUrl(fid){return CFG.ff+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&f='+fid;}
+function costiHtml(){var C=S.confronto,F=S.fatture||[],h='<section class="pv-card pr-sez"><h2>Costi del laboratorio</h2>';
+ if(C){var diff=Number(C.fatturato||0)-Number(C.offerta||0);
+  h+='<table class="pr-tab"><tr><td>Offerta accettata (quantità × prezzi)</td><td style="text-align:right">'+eur(C.offerta_lordo)+'</td></tr>'+
+   (C.sconto_pct?'<tr><td>Sconto del laboratorio '+String(C.sconto_pct).replace('.',',')+' %</td><td style="text-align:right">'+eur(C.offerta)+'</td></tr>':'')+
+   '<tr><td><b>Fatturato fino a oggi</b></td><td style="text-align:right"><b>'+eur(C.fatturato||0)+'</b></td></tr>'+
+   (C.fatturato!=null?'<tr><td>Differenza</td><td style="text-align:right;'+(diff>1?'color:#B3261E;font-weight:700':'')+'">'+eur(diff)+'</td></tr>':'')+'</table>'+
+   (diff>1?'<div class="pr-prom rosso">Le fatture superano l\'offerta accettata di '+eur(diff)+': controlla quantità e prezzi con il laboratorio.</div>':'')+
+   ((C.righe||[]).some(function(g){return g.registrate!=null;})?'<p class="sotto" style="margin-top:8px">Prove ordinate e prove registrate nei prelievi:</p><table class="pr-tab">'+(C.righe||[]).map(function(g){
+    var oltre=g.registrate!=null&&Number(g.registrate)>Number(g.ordinate||0);
+    return '<tr><td>'+es(g.descrizione)+'</td><td>ordinate '+String(g.ordinate==null?'':g.ordinate).replace('.',',')+' '+es(g.unita||'')+'</td><td'+(oltre?' style="color:#B3261E;font-weight:700"':'')+'>registrate '+(g.registrate==null?0:g.registrate)+'</td></tr>';}).join('')+'</table>':'');
+ } else h+='<p class="sotto">Quando accetti l\'offerta di un laboratorio, qui vedi l\'offerta e le fatture a confronto.</p>';
+ h+='<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="fatt_nuova">+ Fattura del laboratorio</button></div><div id="pr-fatt"></div>';
+ if(F.length)h+='<table class="pr-tab" style="margin-top:8px"><tr><th>Fattura</th><th>Data</th><th>Laboratorio</th><th style="text-align:right">Imponibile</th><th></th></tr>'+F.map(function(f){
+  return '<tr><td>'+es(f.numero||'—')+'</td><td>'+dt(f.data)+'</td><td>'+es(f.fornitore||'')+'</td><td style="text-align:right">'+eur(f.imponibile)+(f.iva!=null?'<br><small>IVA '+eur(f.iva)+'</small>':'')+'</td>'+
+   '<td><div class="pr-az" style="margin:0">'+(f.file?'<a class="pv-b sm" target="_blank" rel="noopener" href="'+es(fattUrl(f.id))+'">Apri</a>':'')+'<button type="button" class="pv-b sm pv-togli" data-pr="fatt_togli" data-f="'+es(f.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
+ h+='<p class="sotto" style="margin-top:8px">Le fatture del laboratorio sono costi del cantiere: tienile qui con l\'offerta e i certificati.</p></section>';
+ return h;}
+function fattForma(){var L=S.laboratorio||{};document.getElementById('pr-fatt').innerHTML='<div class="pr-form" id="pr-fa">'+
+ '<label class="l2">Laboratorio<input data-fa="fornitore" maxlength="200" value="'+es(L.nome||'')+'"></label>'+
+ '<label>Numero della fattura<input data-fa="numero" maxlength="80"></label>'+
+ '<label>Data<input type="date" data-fa="data"></label>'+
+ '<label>Imponibile (senza IVA) €<input data-fa="imponibile" inputmode="decimal"></label>'+
+ '<label>IVA €<input data-fa="iva" inputmode="decimal"></label>'+
+ '<label class="l2">File della fattura (PDF, foto o XML)<input type="file" data-fa-file accept=".pdf,.jpg,.jpeg,.png,.xml,application/pdf,image/jpeg,image/png,text/xml,application/xml"></label>'+
+ '<label class="l3">Note<textarea data-fa="note" maxlength="2000" rows="2"></textarea></label></div>'+
+ '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="fatt_salva">Salva la fattura</button><button type="button" class="pv-b" data-pr="fatt_annulla">Annulla</button></div>';}
 function certUrl(id){return CFG.cf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+id;}
 function certCella(x){var e=x.esito_prova==='conforme'?'<span class="pr-st certificato">Conforme</span>':x.esito_prova==='non_conforme'?'<span class="pr-st" style="background:#FDF1F0;color:#B3261E">Non conforme</span>':'';
  return (x.cert?'<a class="pv-b sm" target="_blank" rel="noopener" href="'+es(certUrl(x.id))+'">Apri</a> ':'')+e+(x.cert_numero?'<br><small>n. '+es(x.cert_numero)+(x.cert_data?' del '+dt(x.cert_data):'')+'</small>':'')+(x.valori?'<br><small>'+es(x.valori)+'</small>':'')+
@@ -2839,6 +2918,16 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]'
  if(az==='nuovo'){forma(null);return;}
  if(az==='annulla'){document.getElementById('pr-form').innerHTML='';MOD=null;return;}
  if(az==='modifica'){var x=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(x)forma(x);return;}
+ if(az==='sconto'){var sv=document.querySelector('[data-sconto]');b.disabled=true;api('pr_sconto',{sconto_pct:sv?sv.value:''}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}carica();});return;}
+ if(az==='fatt_nuova'){fattForma();return;}
+ if(az==='fatt_annulla'){document.getElementById('pr-fatt').innerHTML='';return;}
+ if(az==='fatt_togli'){if(!confirm('Togliere questa fattura?'))return;b.disabled=true;api('pr_fattura_togli',{fattura_id:b.getAttribute('data-f')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}carica();});return;}
+ if(az==='fatt_salva'){var df={};document.querySelectorAll('#pr-fa [data-fa]').forEach(function(i){df[i.getAttribute('data-fa')]=i.value;});var fl=document.querySelector('#pr-fa [data-fa-file]'),file=fl&&fl.files&&fl.files[0];
+  if(file&&!/\.(pdf|jpe?g|png|xml)$/i.test(file.name)){alert('Si caricano PDF, JPG, PNG e XML.');return;}b.disabled=true;
+  api('pr_fattura_salva',df).then(function(r){if(r.esito!=='ok'){b.disabled=false;alert(errore(r));return;}
+   var fine=function(){b.disabled=false;document.getElementById('pr-fatt').innerHTML='';carica();};if(!file){fine();return;}
+   fetch(CFG.ff+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&f='+r.fattura_id+'&nome='+encodeURIComponent(file.name),{method:'POST',body:file}).then(function(x){return x.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
+   .then(function(x){if(x.esito!=='ok')alert('La fattura è salvata, ma il file non si è caricato: '+errore(x));fine();});});return;}
  if(az==='esito'){var xe=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(xe)esitoForma(xe);return;}
  if(az==='esito_salva'){var de={prelievo_id:b.getAttribute('data-p')};document.querySelectorAll('#pr-e [data-e]').forEach(function(i){de[i.getAttribute('data-e')]=i.value;});b.disabled=true;
   api('pr_cert_salva',de).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}document.getElementById('pr-form').innerHTML='';carica();});return;}
