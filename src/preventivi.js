@@ -164,6 +164,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
   if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
   if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
+  if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -213,7 +214,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>" + (prove ? "Prove sui materiali" : "Richieste di offerta") + " - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + "</style></head><body><main id=\"pv-main\">" +
+    "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + (prove ? STILE_PR : "") + "</style></head><body><main id=\"pv-main\">" +
     '<a class="pv-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     (prove
       ? '<section class="pv-card pv-of"><h2>Prove sui materiali · ' + e(titolo) + '</h2><p>Scegli le prove dall\'elenco (calcestruzzo, acciaio, terre, murature, bitumi), ' +
@@ -222,8 +223,10 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
       : '<section class="pv-card pv-of"><h2>Richieste di offerta · ' + e(titolo) + '</h2><p>Chiedi i prezzi a fornitori, subappaltatori e noleggi per questo cantiere: ' +
         'scrivi le righe o prendile dal computo del SAL, poi confronta le offerte che arrivano.</p>' +
         '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste di offerta</button></section>') +
+    (prove ? '<div id="pr-app"><p class="pv-carica">Un momento…</p></div>' : "") +
     "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
-    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: "rdo" }).replace(/</g, "\\u003c")) +
+    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: prove ? "" : "rdo" }).replace(/</g, "\\u003c")) +
+    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
     "</script></body></html>";
 }
 
@@ -245,6 +248,10 @@ async function api(request, env, h) {
     r = await h.rpc(env, "preventivo_cerca", { p_token: tok, p_id: dati.id, p_testo: testo(b.dati && b.dati.testo, 120), p_fonte: fonte }, 15000).catch(() => null);
   } else if (az === "estesa" && UUID.test(dati.id || "")) {
     r = await h.rpc(env, "preventivo_estesa", { p_token: tok, p_id: dati.id, p_rif: dati.rif || "" }, 10000).catch(() => null);
+  } else if (az.startsWith("pr_") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+    // 13/11/2026 (prove-2, chat 02B): Prove sui materiali — prelievi, offerta accettata
+    const dpr = pulisciPr(b.dati);
+    r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: dpr.id, p_azione: az.slice(3), p_dati: dpr }, 15000).catch(() => null);
   } else if ((az.startsWith("of_") || az.startsWith("ch_") || az.startsWith("cp_") || az.startsWith("po_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al Direttore dei Lavori
     const dof = pulisciOf(b.dati);
@@ -2610,6 +2617,180 @@ document.addEventListener('click',function(e){
 });
 // 13/11/2026 (rdo-cantiere-1): dal cantiere la finestra delle richieste si apre da sola
 if(CFG.apri==='rdo'){finestra('<p>Un momento…</p>');caricaOf();}
+})();
+`;
+
+// ============================================================================ PROVE SUI MATERIALI, fase 2 (13/11/2026, prove-2, chat 02B)
+// Pagina /preventivi/prove: offerta del laboratorio accettata, registro dei prelievi, promemoria (NTC 2018), verbale di prelievo e
+// richiesta di prove al laboratorio da stampare e far firmare alla DL (/preventivi/prove/stampa). Dati da prove_azione (database).
+
+function pulisciPr(d) {
+  const x = d && typeof d === "object" ? d : {};
+  const o = {};
+  const testi = { id: 36, rdo_id: 36, prelievo_id: 36, stato: 20, data: 10, materiale: 20, prova_codice: 12, opera: 300, quantita: 20, unita: 20,
+    classe: 120, ddt: 200, fornitore: 200, provini: 6, sigle: 500, dl_nome: 200, tecnico_nome: 200, note: 2000 };
+  for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
+  if (Array.isArray(x.prelievi)) o.prelievi = x.prelievi.slice(0, 60).map((v) => testo(v, 36)).filter((v) => UUID.test(v));
+  return o;
+}
+
+async function stampaProve(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  const id = uuid(inUrl.searchParams.get("id"));
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  if (!id) return new Response("Not Found", { status: 404 });
+  const tipo = inUrl.searchParams.get("tipo") === "richiesta" ? "richiesta" : "verbale";
+  const ids = String(inUrl.searchParams.get("p") || "").split(",").map((s) => s.trim().toLowerCase()).filter((s) => UUID.test(s)).slice(0, 60);
+  if (!ids.length) return h.risposta(h.foglio(base, "Prove sui materiali", "Scegli almeno un prelievo.", ""), 400);
+  const d = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "stampa", p_dati: { prelievi: ids } }, 15000).catch(() => null);
+  if (!d) return h.risposta(h.foglio(base, "Prove sui materiali", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", ""), 503);
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito !== "ok") return h.risposta(h.foglio(base, "Prove sui materiali", "Prelievi non trovati.", ""), 404);
+  return h.risposta(foglioProve(h, d, tipo));
+}
+
+const MAT_NOME = { calcestruzzo: "calcestruzzo", acciaio: "acciaio", terre: "terre", murature: "murature e malte", bitumi: "conglomerati bituminosi", altro: "materiali" };
+
+function foglioProve(h, d, tipo) {
+  const e = h.esc;
+  const imp = d.impresa || {}, c = d.cantiere || {}, lab = d.laboratorio || null;
+  const P = Array.isArray(d.prelievi) ? d.prelievi : [];
+  const num = (n) => (n === null || n === undefined || n === "" ? "" : String(n).replace(".", ","));
+  const dataIt2 = (s) => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + "/" + m[2] + "/" + m[1] : ""; };
+  const logo = /^https:\/\/[^\s"'<>]+$/.test(String(imp.logo_url || "")) ? '<img class="logo" src="' + e(imp.logo_url) + '" alt="" onerror="this.remove()">' : "";
+  const riga = (k, v) => (v ? "<tr><th>" + e(k) + "</th><td>" + e(v) + "</td></tr>" : "");
+  const testa = '<header class="testa">' + logo + '<div><div class="imp">' + e(imp.nome || "") + "</div><div class=\"sotto\">" +
+    e([imp.indirizzo, imp.partita_iva ? "P.IVA " + imp.partita_iva : ""].filter(Boolean).join(" · ")) + "</div></div></header>";
+  const cant = '<table class="dati">' + riga("Cantiere", c.nome) + riga("Indirizzo", c.ubicazione) + riga("Committente", c.committente) +
+    riga("Direttore dei Lavori", c.dl) + riga("CUP", c.cup) + riga("CIG", c.cig) + riga("Impresa", imp.nome) + "</table>";
+  let corpo = "";
+  if (tipo === "verbale") {
+    const x = P[0] || {};
+    const mat = MAT_NOME[x.materiale] || "materiali";
+    corpo = "<h1>Verbale di prelievo di campioni di " + e(mat) + "</h1><p class=\"n\">Prelievo n. " + e(x.numero) + " del " + e(dataIt2(x.data)) + "</p>" + cant +
+      '<table class="dati">' + riga("Prova richiesta", x.prova) + riga("Opera o elemento", x.opera) +
+      riga("Quantità rappresentata", x.quantita != null ? num(x.quantita) + " " + (x.unita || "") : "") + riga("Classe, tipo o diametro", x.classe) +
+      riga("Documento di trasporto (DDT)", x.ddt) + riga("Fornitore o produttore", x.fornitore) +
+      riga("Numero di provini o campioni", x.provini != null ? String(x.provini) : "") + riga("Sigle sui provini", x.sigle) +
+      riga("Laboratorio", lab ? lab.nome + (lab.aut ? " — autorizzazione " + lab.aut : "") : "") + riga("Prelevati da", x.tecnico_nome) + riga("Note", x.note) + "</table>" +
+      "<p class=\"testo\">I campioni sono stati prelevati in cantiere alla presenza del Direttore dei Lavori" + (x.dl_nome ? " (" + e(x.dl_nome) + ")" : "") +
+      ", contrassegnati con le sigle indicate e conservati in cantiere fino alla consegna al laboratorio, secondo le Norme Tecniche per le Costruzioni (D.M. 17/01/2018, capitolo 11).</p>" +
+      '<div class="firme"><div><span>Il Direttore dei Lavori</span></div><div><span>Per l\'impresa</span></div><div><span>Il tecnico che ha prelevato</span></div></div>';
+  } else {
+    corpo = "<h1>Richiesta di prove di laboratorio</h1>" +
+      '<table class="dati">' + riga("Al laboratorio", lab ? lab.nome : "") + riga("Autorizzazione (art. 59 DPR 380/2001)", lab ? lab.aut : "") + riga("Email", lab ? lab.email : "") + "</table>" + cant +
+      "<p class=\"testo\">Il sottoscritto Direttore dei Lavori chiede l'esecuzione delle prove sui campioni elencati qui sotto, prelevati in sua presenza, " +
+      "secondo le Norme Tecniche per le Costruzioni (D.M. 17/01/2018, capitolo 11) e le norme indicate, e l'invio dei certificati all'impresa e al Direttore dei Lavori.</p>" +
+      '<table class="el"><thead><tr><th>N.</th><th>Data</th><th>Prova</th><th>Opera o elemento</th><th>Classe / Ø</th><th>Provini</th><th>Sigle</th></tr></thead><tbody>' +
+      P.map((x) => "<tr><td>" + e(x.numero) + "</td><td>" + e(dataIt2(x.data)) + "</td><td>" + e(x.prova || MAT_NOME[x.materiale] || "") + "</td><td>" + e(x.opera || "") +
+        "</td><td>" + e(x.classe || "") + "</td><td>" + e(x.provini != null ? String(x.provini) : "") + "</td><td>" + e(x.sigle || "") + "</td></tr>").join("") + "</tbody></table>" +
+      '<div class="firme"><div><span>Data</span></div><div><span>Il Direttore dei Lavori (firma e timbro)</span></div></div>';
+  }
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>' + (tipo === "verbale" ? "Verbale di prelievo" : "Richiesta di prove") + "</title><style>" +
+    "@page{size:A4;margin:16mm 14mm}body{font-family:Arial,Helvetica,sans-serif;color:#1B2F4A;margin:0;padding:24px;max-width:820px;margin:auto;font-size:13px}" +
+    ".testa{display:flex;gap:14px;align-items:center;border-bottom:2px solid #6B4FA0;padding-bottom:10px;margin-bottom:14px}.logo{max-height:60px;max-width:200px}" +
+    ".imp{font-weight:700;font-size:16px}.sotto{color:#5A6878;font-size:12px}h1{font-size:19px;margin:6px 0;color:#6B4FA0;text-transform:uppercase;letter-spacing:.3px}.n{margin:0 0 10px;font-weight:700}" +
+    "table.dati{width:100%;border-collapse:collapse;margin:8px 0}table.dati th{text-align:left;width:34%;color:#5A6878;font-weight:600;padding:5px 8px;border-bottom:1px solid #E1E6EC;vertical-align:top}" +
+    "table.dati td{padding:5px 8px;border-bottom:1px solid #E1E6EC}table.el{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}table.el th,table.el td{border:1px solid #CBD2DA;padding:5px;text-align:left;vertical-align:top}" +
+    "table.el th{background:#F2EEF8}.testo{line-height:1.5;margin:12px 0}.firme{display:flex;gap:18px;margin-top:40px}.firme div{flex:1;border-top:1px solid #1B2F4A;padding-top:6px;min-height:60px}" +
+    ".firme span{font-size:12px;color:#5A6878}.attrib{display:flex;align-items:center;gap:6px;margin-top:28px;font-size:10px;color:#5A6878}.attrib img{height:22px}" +
+    ".stampa{margin:0 0 16px;padding:10px 16px;border-radius:10px;border:0;background:#6B4FA0;color:#fff;font-weight:700;cursor:pointer}@media print{.stampa{display:none}body{padding:0}}" +
+    "</style></head><body><button class=\"stampa\" type=\"button\" onclick=\"window.print()\">Stampa o salva in PDF</button>" + testa + corpo + (d.attrib || "") + "</body></html>";
+}
+
+const STILE_PR =
+  ".pr-sez h2{margin:0 0 8px}.pr-prom{padding:10px 12px;border-radius:10px;margin:6px 0;font-size:.9rem;border-left:4px solid #C9A227;background:#FFF8E1}" +
+  ".pr-prom.rosso{border-left-color:#B3261E;background:#FDF1F0}.pr-tab{width:100%;border-collapse:collapse;font-size:.88rem}.pr-tab th,.pr-tab td{border-bottom:1px solid #E9EDF1;padding:7px 6px;text-align:left;vertical-align:top}" +
+  ".pr-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.75rem;font-weight:700;background:#EEF1F5}.pr-st.consegnato{background:#E8F0FE;color:#1A4FA0}.pr-st.certificato{background:#E6F4EA;color:#1E6B34}" +
+  ".pr-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin:10px 0}.pr-form label{display:flex;flex-direction:column;font-size:.8rem;color:var(--s,#5A6878);gap:3px}" +
+  ".pr-form input,.pr-form select,.pr-form textarea{font:inherit;font-size:.92rem;padding:7px 9px;border:1px solid #CBD2DA;border-radius:9px;color:#1B2F4A}.pr-form .l2{grid-column:span 2}.pr-form .l3{grid-column:1/-1}" +
+  ".pr-az{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}@media (max-width:760px){.pr-form{grid-template-columns:1fr}.pr-form .l2,.pr-form .l3{grid-column:auto}.pr-tab .nm{display:none}}";
+
+const SCRIPT_PR = String.raw`
+(function(){
+var CFG=__CFG__;
+var box=document.getElementById('pr-app');if(!box||!CFG.id)return;
+function es(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function api(az,d){d=d||{};d.id=CFG.id;return fetch(CFG.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,a:CFG.a,c:CFG.c,azione:az,dati:d})})
+ .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};});}
+function errore(r){return (r&&r.messaggio)||({spento:'Non è acceso per questo accesso.',rete:'Connessione assente: riprova.',gettone:'Accesso scaduto: rientra dall\'elenco dei cantieri.'})[r&&r.esito]||'Non è andato: riprova.';}
+function dt(d){var m=String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'/'+m[2]+'/'+m[1]:'';}
+function eur(v){var n=Number(v);if(v===null||v===undefined||v===''||!isFinite(n))return '';var s=n.toFixed(2).split('.');return s[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+s[1]+' €';}
+function oggi(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+var MAT={calcestruzzo:'Calcestruzzo',acciaio:'Acciaio',terre:'Terre e rilevati',murature:'Murature e malte',bitumi:'Bitumi e conglomerati',altro:'Altro'};
+var UNI={calcestruzzo:'m³',acciaio:'t',terre:'m³',murature:'m²',bitumi:'t',altro:''};
+var STATO={prelevato:'Prelevato',consegnato:'Consegnato al laboratorio',certificato:'Certificato arrivato'};
+var S=null,MOD=null;
+function carica(){return api('pr_stato').then(function(r){if(r.esito!=='ok'){box.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}S=r;disegna();});}
+function stampa(tipo,ids){return CFG.st+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&tipo='+tipo+'&p='+ids.join(',');}
+function disegna(){var h='';
+ if((S.promemoria||[]).length)h+='<section class="pv-card pr-sez"><h2>Promemoria</h2>'+S.promemoria.map(function(p){return '<div class="pr-prom '+es(p.livello)+'">'+es(p.testo)+'</div>';}).join('')+'</section>';
+ // laboratorio scelto
+ h+='<section class="pv-card pr-sez"><h2>Laboratorio scelto</h2>';
+ if(S.laboratorio){var L=S.laboratorio;
+  h+='<p><b>'+es(L.nome)+'</b>'+(L.aut?' · autorizzazione '+es(L.aut):'')+' <small>· offerta accettata il '+dt(L.accettata_il)+'</small></p>'+
+   '<table class="pr-tab"><tr><th>Prova</th><th>Quantità</th><th>Prezzo unitario + IVA</th></tr>'+(L.righe||[]).map(function(g){return '<tr><td>'+es(g.descrizione)+'</td><td>'+String(g.quantita==null?'':g.quantita).replace('.',',')+' '+es(g.unita||'')+'</td><td>'+eur(g.prezzo)+'</td></tr>';}).join('')+'</table>'+
+   '<div class="pr-az"><button type="button" class="pv-b sm" data-pr="non_accetta" data-rdo="'+es(L.id)+'">Cambia laboratorio</button></div>';
+ } else {
+  var off=(S.offerte||[]).filter(function(o){return o.stato==='offerta';});
+  h+=off.length?'<p>Offerte con i prezzi salvati: scegli quella da accettare. I suoi prezzi diventano il listino delle prove di questo cantiere.</p><div class="pr-az">'+off.map(function(o){return '<button type="button" class="pv-b sm pv-pr" data-pr="accetta" data-rdo="'+es(o.id)+'">Accetta l\'offerta di '+es(o.nome)+'</button>';}).join('')+'</div>'
+   :'<p>Nessuna offerta accettata. Chiedi il preventivo ai laboratori con «Apri le richieste ai laboratori» qui sopra; quando arriva l\'offerta salvane i prezzi e torna qui per accettarla.</p>';
+ }
+ h+='</section>';
+ // prelievi
+ var P=S.prelievi||[];
+ h+='<section class="pv-card pr-sez"><h2>Prelievi</h2><p class="sotto">Ogni prelievo fatto in cantiere alla presenza della DL: cubetti di calcestruzzo, spezzoni di acciaio, campioni di terra… Dal prelievo stampi il verbale da firmare; spuntando più prelievi stampi la richiesta di prove al laboratorio, firmata dalla DL.</p>'+
+  '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="nuovo">+ Nuovo prelievo</button>'+(P.length?'<button type="button" class="pv-b" data-pr="richiesta">Richiesta di prove per i prelievi spuntati</button>':'')+'</div><div id="pr-form"></div>';
+ if(P.length)h+='<table class="pr-tab" style="margin-top:10px"><tr><th></th><th>N.</th><th>Data</th><th>Prova</th><th class="nm">Opera</th><th class="nm">Quantità</th><th>Provini</th><th>Stato</th><th></th></tr>'+P.map(function(x){
+  return '<tr><td><input type="checkbox" data-sel="'+es(x.id)+'" aria-label="Spunta il prelievo n. '+x.numero+'"></td><td>'+x.numero+'</td><td>'+dt(x.data)+'</td><td>'+es(x.prova||MAT[x.materiale]||'')+(x.classe?' <small>· '+es(x.classe)+'</small>':'')+(x.prova_entro?'<br><small>da rompere il '+dt(x.prova_entro)+'</small>':'')+'</td>'+
+   '<td class="nm">'+es(x.opera||'')+'</td><td class="nm">'+(x.quantita!=null?String(x.quantita).replace('.',',')+' '+es(x.unita||''):'')+'</td><td>'+(x.provini!=null?x.provini:'')+(x.sigle?'<br><small>'+es(x.sigle)+'</small>':'')+'</td>'+
+   '<td><select data-stato="'+es(x.id)+'" aria-label="Stato del prelievo">'+Object.keys(STATO).map(function(k){return '<option value="'+k+'"'+(x.stato===k?' selected':'')+'>'+STATO[k]+'</option>';}).join('')+'</select></td>'+
+   '<td><div class="pr-az" style="margin:0"><a class="pv-b sm" target="_blank" rel="noopener" href="'+es(stampa('verbale',[x.id]))+'">Verbale</a><button type="button" class="pv-b sm" data-pr="modifica" data-p="'+es(x.id)+'">Modifica</button><button type="button" class="pv-b sm pv-togli" data-pr="togli" data-p="'+es(x.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
+ else h+='<p class="sotto" style="margin-top:10px">Nessun prelievo ancora.</p>';
+ h+='<p class="pv-msg" id="pr-msg" aria-live="polite"></p></section>';
+ box.innerHTML=h;}
+function forma(x){x=x||{};var cat=(S.catalogo||[]);
+ function opz(m){return '<option value="">—</option>'+cat.filter(function(k){return !m||k.materiale===m;}).map(function(k){return '<option value="'+es(k.codice)+'"'+(x.prova_codice===k.codice?' selected':'')+'>'+es(k.nome)+'</option>';}).join('');}
+ var m=x.materiale||'calcestruzzo';
+ document.getElementById('pr-form').innerHTML='<div class="pr-form" id="pr-f">'+
+  '<label>Data del prelievo<input type="date" data-f="data" value="'+es(x.data||oggi())+'"></label>'+
+  '<label>Materiale<select data-f="materiale">'+Object.keys(MAT).map(function(k){return '<option value="'+k+'"'+(m===k?' selected':'')+'>'+MAT[k]+'</option>';}).join('')+'</select></label>'+
+  '<label>Prova<select data-f="prova_codice">'+opz(m)+'</select></label>'+
+  '<label class="l2">Opera o elemento (dove)<input data-f="opera" maxlength="300" placeholder="per esempio: platea fabbricato 2, pilastri piano terra" value="'+es(x.opera||'')+'"></label>'+
+  '<label>Classe, tipo o diametro<input data-f="classe" maxlength="120" placeholder="C25/30 XC2 · B450C Ø16" value="'+es(x.classe||'')+'"></label>'+
+  '<label>Quantità rappresentata<input data-f="quantita" inputmode="decimal" value="'+es(x.quantita==null?'':String(x.quantita).replace('.',','))+'"></label>'+
+  '<label>Unità<input data-f="unita" maxlength="20" value="'+es(x.unita||UNI[m]||'')+'"></label>'+
+  '<label>Provini o campioni (n.)<input data-f="provini" inputmode="numeric" value="'+es(x.provini==null?(m==='calcestruzzo'?'2':m==='acciaio'?'3':''):x.provini)+'"></label>'+
+  '<label class="l2">Sigle sui provini<input data-f="sigle" maxlength="500" placeholder="per esempio: P1-A, P1-B" value="'+es(x.sigle||'')+'"></label>'+
+  '<label>DDT<input data-f="ddt" maxlength="200" value="'+es(x.ddt||'')+'"></label>'+
+  '<label class="l2">Fornitore o produttore<input data-f="fornitore" maxlength="200" value="'+es(x.fornitore||'')+'"></label>'+
+  '<label>Direttore dei Lavori presente<input data-f="dl_nome" maxlength="200" value="'+es(x.dl_nome||S.dl||'')+'"></label>'+
+  '<label class="l2">Prelevati da<input data-f="tecnico_nome" maxlength="200" placeholder="tecnico del laboratorio o capocantiere" value="'+es(x.tecnico_nome||'')+'"></label>'+
+  '<label class="l3">Note<textarea data-f="note" maxlength="2000" rows="2">'+es(x.note||'')+'</textarea></label></div>'+
+  '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="salva">'+(x.id?'Salva le modifiche':'Salva il prelievo')+'</button><button type="button" class="pv-b" data-pr="annulla">Annulla</button></div>';
+ MOD=x.id||null;
+ var sm=document.querySelector('#pr-f [data-f="materiale"]');sm.onchange=function(){document.querySelector('#pr-f [data-f="prova_codice"]').innerHTML=opz(sm.value);var u=document.querySelector('#pr-f [data-f="unita"]');u.value=UNI[sm.value]||'';};
+ document.getElementById('pr-form').scrollIntoView({block:'nearest'});}
+function msg(t,cl){var el=document.getElementById('pr-msg');if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]');if(!b||!S)return;var az=b.getAttribute('data-pr');
+ if(az==='nuovo'){forma(null);return;}
+ if(az==='annulla'){document.getElementById('pr-form').innerHTML='';MOD=null;return;}
+ if(az==='modifica'){var x=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(x)forma(x);return;}
+ if(az==='salva'){var d={};document.querySelectorAll('#pr-f [data-f]').forEach(function(i){d[i.getAttribute('data-f')]=i.value;});if(MOD)d.prelievo_id=MOD;b.disabled=true;
+  api('pr_prelievo_salva',d).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}MOD=null;carica();});return;}
+ if(az==='togli'){if(!confirm('Togliere questo prelievo dal registro?'))return;b.disabled=true;api('pr_prelievo_togli',{prelievo_id:b.getAttribute('data-p')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}carica();});return;}
+ if(az==='accetta'||az==='non_accetta'){if(az==='non_accetta'&&!confirm('Togliere l\'accettazione di questa offerta?'))return;b.disabled=true;
+  api('pr_'+az,{rdo_id:b.getAttribute('data-rdo')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}carica();});return;}
+ if(az==='richiesta'){var ids=Array.prototype.slice.call(document.querySelectorAll('[data-sel]:checked')).map(function(i){return i.getAttribute('data-sel');});
+  if(!ids.length){msg('Spunta i prelievi da mandare al laboratorio.','err');return;}if(!S.laboratorio&&!confirm('Non hai ancora accettato l\'offerta di un laboratorio: la richiesta uscirà senza il nome del laboratorio. Continuare?'))return;
+  window.open(stampa('richiesta',ids),'_blank','noopener');return;}
+});
+document.addEventListener('change',function(e){var s=e.target;if(!s||!s.getAttribute||!s.getAttribute('data-stato'))return;s.disabled=true;
+ api('pr_prelievo_stato',{prelievo_id:s.getAttribute('data-stato'),stato:s.value}).then(function(r){s.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');}carica();});});
+document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('[data-ofx="chiudi"]'))setTimeout(carica,300);});
+carica();
 })();
 `;
 
