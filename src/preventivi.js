@@ -66,9 +66,10 @@ function pulisciOf(d) {
   const x = d && typeof d === "object" ? d : {};
   const o = {};
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
-    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36 };
+    email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36,
+    descrizione: 6000, unita: 20, quantita: 20, voce_id: 20 }; // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
-  if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 20));
+  if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 36)); // 13/11/2026: anche gli id (uuid) del computo del SAL
   if (Array.isArray(x.prezzi)) o.prezzi = x.prezzi.slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo: testo(p && p.prezzo, 20), note: testo(p && p.note, 500) }));
   return o;
 }
@@ -154,6 +155,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/posta/file") return scaricaPosta(request, env, base, inUrl, h); // 08/11/2026 (preventivi-posta-1)
   if (sotto === "/preventivi/of/leggi") return leggiOffertaRdo(request, env, inUrl, h);        // 10/11/2026 (rdo-lettura-1)
   if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
+  if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -172,7 +174,45 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito === "non_trovato") return h.risposta(h.foglio(base, "Preventivi", "Preventivo non trovato.", indietro), 404);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Preventivi", "Questa pagina non è ancora disponibile.", indietro), 404);
-  return h.risposta(pagina(base, h, tok, a, c, id, d, torna));
+  return h.risposta(pagina(base, h, tok, a, c, id, d, torna, inUrl.searchParams.get("apri") === "rdo"));
+}
+
+// 13/11/2026 (rdo-cantiere-1, chat 02B): «Chiedi un preventivo a un fornitore» dalla pagina del cantiere.
+// Cantiere con un preventivo collegato → la sua pagina con le richieste di offerta aperte; senza → pagina delle sole richieste.
+async function richiediDalCantiere(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  const a = uuid(inUrl.searchParams.get("a"));
+  const c = uuid(inUrl.searchParams.get("c"));
+  const torna = base + "/?t=" + tok + (c ? "&c=" + c : "");
+  const indietro = '<p><a href="' + h.esc(torna) + '">Torna al cantiere</a></p>';
+  if (!c) return h.risposta(h.foglio(base, "Richieste di offerta", "Manca il cantiere.", indietro), 404);
+  const d = await h.rpc(env, "preventivo_rdo_cantiere", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+  if (!d) return h.risposta(h.foglio(base, "Richieste di offerta", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito !== "ok" || !UUID.test(String(d.id || ""))) {
+    return h.risposta(h.foglio(base, "Richieste di offerta", d.esito === "non_trovato" ? "Cantiere non trovato." : "Questa pagina non è ancora disponibile.", indietro), 404);
+  }
+  if (d.tipo === "preventivo") {
+    return Response.redirect(inUrl.origin + base + "/preventivi?t=" + tok + (a ? "&a=" + a : "") + "&c=" + c + "&id=" + d.id + "&apri=rdo", 303);
+  }
+  return h.risposta(paginaRichieste(base, h, tok, a, c, d.id, String(d.titolo || ""), torna));
+}
+
+function paginaRichieste(base, h, tok, a, c, id, titolo, torna) {
+  const e = h.esc;
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
+    "<title>Richieste di offerta - TIX · Diario di cantiere</title>" + h.testa(base) +
+    "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + "</style></head><body><main id=\"pv-main\">" +
+    '<a class="pv-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
+    '<section class="pv-card pv-of"><h2>Richieste di offerta · ' + e(titolo) + '</h2><p>Chiedi i prezzi a fornitori, subappaltatori e noleggi per questo cantiere: ' +
+    'scrivi le righe o prendile dal computo del SAL, poi confronta le offerte che arrivano.</p>' +
+    '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste di offerta</button></section>' +
+    "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
+    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: "rdo" }).replace(/</g, "\\u003c")) +
+    "</script></body></html>";
 }
 
 async function api(request, env, h) {
@@ -235,7 +275,7 @@ async function api(request, env, h) {
 }
 
 // ---------------------------------------------------------------------------- pagina
-function pagina(base, h, tok, a, c, id, d, torna) {
+function pagina(base, h, tok, a, c, id, d, torna, apri) {
   const e = h.esc;
   const cfg = JSON.stringify({ u: base + "/preventivi/api", pagina: base + "/preventivi", stampa: base + "/preventivi/stampa",
     excel: base + "/preventivi/excel", firmato: base + "/preventivi/firmato", ia: base + "/preventivi/ia/file", t: tok, a: a, c: c, id: id, d: d, torna: torna })
@@ -250,7 +290,7 @@ function pagina(base, h, tok, a, c, id, d, torna) {
     '<div id="pv-app"><p class="pv-carica">Un momento…</p></div>' +
     "</main>" + MODALI +
     "<script>" + TIPI_DITTA_JS + "</script><script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
-    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) + "</script></body></html>";
+    SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: apri ? "rdo" : "" }).replace(/</g, "\\u003c")) + "</script></body></html>";
 }
 
 const ICONA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -2297,11 +2337,12 @@ function elRisultati(r){var box=document.getElementById('el-ris');if(!box)return
    (f.referente_nome?' · '+es(f.referente_nome)+(f.referente_ruolo?' ('+es(f.referente_ruolo)+')':''):'')+'</p>'+(f.descrizione?'<p class="sotto" style="margin:4px 0">'+es(f.descrizione)+'</p>':'')+
    '<div class="pv-ofbt"><button type="button" class="pv-b sm pv-pr" data-ofx="el_usa" data-i="'+i+'">Chiedi l\'offerta a questa azienda</button></div></div>';}).join('');}
 function disegnaOf(){
- var r=OF,bozza=r.stato==='bozza';
+ var r=OF,bozza=r.stato==='bozza'&&!r.solo_richieste;
  var aperte={np:1,da_quotare:1,da_verificare:1};
- var h=testa('Richieste di offerta','Preventivo '+es(r.codice)+'. Scegli le voci e a chi chiedere il prezzo. Al fornitore arrivano descrizione, unità e quantità: <b>mai i prezzi</b>.');
+ var h=testa('Richieste di offerta',(r.solo_richieste?'Cantiere «'+es(r.titolo)+'». Scrivi le righe da chiedere o prendile dal computo del SAL, poi scegli a chi chiedere il prezzo.':'Preventivo '+es(r.codice)+'. Scegli le voci e a chi chiedere il prezzo.')+' Al fornitore arrivano descrizione, unità e quantità: <b>mai i prezzi</b>.');
  h+='<h3>Nuova richiesta</h3><div class="pv-ofl" id="of-voci">'+(r.voci||[]).map(function(v){var on=aperte[v.stato]||v.senza_prezzo;
-  return '<label><input type="checkbox" value="'+v.id+'"'+(on?' checked':'')+'><span><b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.stato&&v.stato!=='ok'?' · '+es(v.stato.replace('_',' ')):'')+'</small></span></label>';}).join('')+'</div>';
+  return '<label><input type="checkbox" value="'+v.id+'"'+(on?' checked':'')+'><span><b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.stato&&v.stato!=='ok'?' · '+es(v.stato.replace('_',' ')):'')+'</small></span>'+(r.solo_richieste?'<button type="button" class="pv-b sm pv-togli" data-ofx="riga_togli" data-voce="'+v.id+'" title="Togli la riga" style="margin-left:auto">✕</button>':'')+'</label>';}).join('')+
+  (r.solo_richieste&&!(r.voci||[]).length?'<p class="sotto">Nessuna riga ancora: scrivila qui sotto'+(r.computo_n?' o prendila dal computo del SAL':'')+'.</p>':'')+'</div>'+(r.solo_richieste?righeBox(r):'');
  var rub=r.rubrica||[];
  h+='<label><span>Dalla Rubrica (fornitori, subappaltatori e noleggi)</span><select id="of-rub"><option value="">— scegli, oppure scrivi qui sotto —</option>'+
   rub.map(function(k,i){return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
@@ -2340,7 +2381,7 @@ function disegnaOf(){
     (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
     '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>';
   }
-  h+=postaDi('rdo',q.id);
+  if(!r.solo_richieste)h+=postaDi('rdo',q.id);
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
  h+=smistareHtml();
  finestra(h);
@@ -2368,10 +2409,32 @@ function leggiOfferta(inp){var f=inp.files&&inp.files[0],rid=inp.getAttribute('d
   if(r.salvato)h+='<p style="margin:6px 0 0">Il file dell\'offerta è salvato nella richiesta.</p>';
   nb.innerHTML=h;});}
 document.addEventListener('change',function(e){var x=e.target;if(x&&x.getAttribute&&x.getAttribute('data-ofleggi'))leggiOfferta(x);});
+// 13/11/2026 (rdo-cantiere-1): righe del contenitore delle richieste del cantiere (a mano o dal computo del SAL)
+function righeBox(r){return '<div class="pv-emr"><div class="r"><b>Aggiungi una riga da chiedere</b></div>'+
+ '<label><span>Cosa chiedi (descrizione)</span><textarea id="of-rd" maxlength="6000" style="min-height:60px"></textarea></label>'+
+ '<div style="display:flex;gap:10px;flex-wrap:wrap"><label style="flex:0 0 130px"><span>Unità</span><input type="text" id="of-ru" maxlength="20" placeholder="m3, kg, ore…"></label>'+
+ '<label style="flex:0 0 170px"><span>Quantità</span><input type="text" id="of-rq" inputmode="decimal"></label></div>'+
+ '<div class="pv-ofbt"><button type="button" class="pv-b" data-ofx="riga_add">Aggiungi la riga</button>'+
+ (r.computo_n?'<button type="button" class="pv-b" data-ofx="cp_apri">Prendi dal computo del SAL ('+r.computo_n+' voci)</button>':'')+'</div>'+
+ '<div id="of-cp"></div><p class="pv-msg" id="of-rmsg" aria-live="polite"></p></div>';}
+function azioneRighe(az,el){
+ if(az==='riga_add'){var dd=document.getElementById('of-rd').value.trim();if(dd.length<2){nota('of-rmsg','Scrivi cosa chiedi.','err');return;}el.disabled=true;
+  api('of_riga_aggiungi',{descrizione:dd,unita:document.getElementById('of-ru').value,quantita:document.getElementById('of-rq').value}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
+ if(az==='riga_togli'){if(!confirm('Togliere questa riga?'))return;el.disabled=true;api('of_riga_togli',{voce_id:el.dataset.voce}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaOf();});return;}
+ if(az==='cp_apri'){var bx=document.getElementById('of-cp');bx.innerHTML='<p class="sotto">Carico il computo…</p>';
+  api('of_computo').then(function(r){if(r.esito!=='ok'){bx.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}
+   bx.innerHTML='<p class="sotto" style="margin-top:10px">Spunta le voci da chiedere: entrano nell\'elenco qui sopra con descrizione, unità e quantità del computo.</p><div class="pv-ofl">'+(r.voci||[]).map(function(v){
+    return '<label><input type="checkbox" value="'+es(v.id)+'"'+(v.presa?' disabled':'')+'><span><b>'+v.nr+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.presa?' · già presa':'')+'</small></span></label>';}).join('')+
+    '</div><div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="cp_prendi">Prendi le voci spuntate</button></div>';});return;}
+ if(az==='cp_prendi'){var ids=Array.prototype.slice.call(document.querySelectorAll('#of-cp input:checked')).map(function(x){return x.value;});if(!ids.length){nota('of-rmsg','Spunta almeno una voce.','err');return;}
+  if(ids.length>200){nota('of-rmsg','Al massimo 200 voci per volta.','err');return;}el.disabled=true;
+  api('of_computo_prendi',{voci:ids}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
+}
 function voceSel(){return Array.prototype.slice.call(document.querySelectorAll('#of-voci input:checked')).map(function(x){return x.value;});}
 function campiRdo(box){var d={};box.querySelectorAll('[data-k]').forEach(function(x){d[x.dataset.k]=x.value;});return d;}
 function mOf(box,t,cl){var el=box?box.querySelector('[data-m]'):null;if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
 function azioneOf(az,el){
+ if(az==='riga_add'||az==='riga_togli'||az==='cp_apri'||az==='cp_prendi'){azioneRighe(az,el);return;}
  if(az==='el_apri'){elForm();return;}
  if(az==='el_cerca'){var r0=document.getElementById('el-ris');if(r0)r0.innerHTML='<p class="sotto">Cerco…</p>';
   api('el_cerca',{tipo:document.getElementById('el-tipo').value,testo:document.getElementById('el-testo').value,provincia:document.getElementById('el-prov').value}).then(elRisultati);return;}
@@ -2517,6 +2580,8 @@ document.addEventListener('click',function(e){
  if(az==='chiudi'){var ric=(OF&&OF.cambiato)||CAMBIATO;chiudi();if(ric)location.reload();return;}
  if(b.hasAttribute('data-ofx'))azioneOf(az,b);else azioneCh(az,b);
 });
+// 13/11/2026 (rdo-cantiere-1): dal cantiere la finestra delle richieste si apre da sola
+if(CFG.apri==='rdo'){finestra('<p>Un momento…</p>');caricaOf();}
 })();
 `;
 
