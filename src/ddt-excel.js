@@ -83,6 +83,10 @@ export function ddtExcelIniezione(base, token, commessa) {
     "@media (prefers-color-scheme:dark){.gl-dx-b{background:#1a201d;color:#eef2f0;border-color:#5b6b80}.gl-dx-bx{background:#1a201d;color:#eef2f0}.gl-dx-bx h3,.gl-dx-bx h4{color:#cfe0ff}" +
     ".gl-dx-bx input[type=text],.gl-dx-bx select{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-dx-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-dx-seg{background:#232b27;color:#cfe0ff}}" +
     "</style>";
+  // 13/11/2026 (ddt-excel-2, dopo la prima prova di Filippo su Aqua Vera): i riepiloghi veri spesso non hanno la colonna del
+  // fornitore (il file è tutto di un fornitore) e scrivono il cantiere come indirizzo. Ora: più nomi di colonna riconosciuti; se
+  // numero e data si trovano, niente schermata delle colonne; se manca il fornitore lo si chiede una volta sola per tutto il file
+  // (proposto dal titolo del file o del foglio); i cantieri non riconosciuti vanno nel cantiere della pagina, cambiabile per gruppo.
   const script = "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
     "var XLSXURL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';\n" +
     "function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}\n" +
@@ -90,17 +94,23 @@ export function ddtExcelIniezione(base, token, commessa) {
     "function post(azione,dati){return fetch(CFG.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:azione,dati:dati||{}})}).then(function(r){return r.json();});}\n" +
     "function lib(){return window.XLSX?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=XLSXURL;s.onload=ok;s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}\n" +
     "function norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();}\n" +
-    "var CAMPI=[{k:'fornitore',n:'Fornitore',o:1,p:['fornitore','ditta fornitrice','ragione sociale','mittente','ditta','cedente']},\n" +
-    " {k:'numero',n:'Numero del DDT',o:1,p:['numero ddt','n ddt','nr ddt','ddt n','num ddt','numero documento','n documento','nr documento','numero bolla','n bolla','numero','num','nr','n']},\n" +
-    " {k:'data',n:'Data del DDT',o:1,p:['data ddt','data documento','data bolla','data consegna','data']},\n" +
-    " {k:'materiale',n:'Materiale',p:['materiale','descrizione','articolo','merce','prodotto','descrizione merce']},\n" +
-    " {k:'quantita',n:'Quantità',p:['quantita','qta','q ta','qt','quantitativo']},\n" +
-    " {k:'cantiere',n:'Cantiere',p:['cantiere','commessa','destinazione','luogo di destinazione','cantiere di destinazione']},\n" +
-    " {k:'riferimento',n:'Riferimento ordine',p:['ordine','rif ordine','riferimento ordine','n ordine','riferimento']}];\n" +
-    "function punteggio(h,c){var x=norm(h);if(!x)return 0;for(var i=0;i<c.p.length;i++){if(x===c.p[i])return 100-i;}for(var j=0;j<c.p.length;j++){if(c.p[j].length>2&&(' '+x+' ').indexOf(' '+c.p[j]+' ')!==-1)return 50-j;}return 0;}\n" +
-    "function testa(rows){var best=null;for(var r=0;r<Math.min(rows.length,20);r++){var h=rows[r]||[],tot=0,m={};CAMPI.forEach(function(c){var bi=-1,bp=0;h.forEach(function(v,i){var p=punteggio(v,c);if(p>bp){bp=p;bi=i;}});if(bi>=0){m[c.k]=bi;tot+=c.o?2:1;}});if(tot>=3&&(!best||tot>best.tot))best={r:r,m:m,tot:tot};}return best;}\n" +
-    "function giorno(v){if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+('0'+(v.getMonth()+1)).slice(-2)+'-'+('0'+v.getDate()).slice(-2);if(typeof v==='number'&&v>20000&&v<80000){var d=new Date(Math.round((v-25569)*86400000));return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2)+'-'+('0'+d.getUTCDate()).slice(-2);}return String(v==null?'':v).trim();}\n" +
+    "var CAMPI=[{k:'fornitore',n:'Fornitore',o:1,p:['fornitore','fornitori','ditta fornitrice','ragione sociale','mittente','emittente','cedente','ditta','azienda','societa','denominazione','nominativo','produttore']},\n" +
+    " {k:'numero',n:'Numero del DDT',o:1,p:['numero ddt','n ddt','nr ddt','ddt n','num ddt','n ro ddt','numero documento','n documento','nr documento','n doc','nr doc','doc n','num doc','numero doc','numero bolla','n bolla','nr bolla','bolla n','ddt','documento','doc','bolla','rif ddt','d d t','numero','num','nr','n ro','n']},\n" +
+    " {k:'data',n:'Data del DDT',o:1,p:['data ddt','data documento','data doc','data bolla','data consegna','data trasporto','data']},\n" +
+    " {k:'materiale',n:'Materiale',p:['materiale','materiali','descrizione','descrizione materiale','descrizione merce','descrizione articolo','articolo','merce','prodotto','tipo materiale','descr']},\n" +
+    " {k:'quantita',n:'Quantità',p:['quantita','qta','q ta','qt','quantitativo','peso','peso netto','tonnellate','metri cubi']},\n" +
+    " {k:'um',n:'Unità di misura',p:['u m','um','unita di misura','unita','misura']},\n" +
+    " {k:'cantiere',n:'Cantiere',p:['cantiere','commessa','cantiere di destinazione','destinazione','luogo di destinazione','luogo','indirizzo','destinazione merce']},\n" +
+    " {k:'riferimento',n:'Riferimento ordine',p:['ordine','rif ordine','riferimento ordine','n ordine','nr ordine','riferimento']}];\n" +
+    "function punteggio(h,c){var x=norm(h);if(!x)return 0;for(var i=0;i<c.p.length;i++){if(x===c.p[i])return 200-i;}for(var j=0;j<c.p.length;j++){if(c.p[j].length>2&&(' '+x+' ').indexOf(' '+c.p[j]+' ')!==-1)return 100-j;}return 0;}\n" +
+    // una colonna va a un solo campo: prima i campi con il punteggio più alto
+    "function testa(rows){var best=null;for(var r=0;r<Math.min(rows.length,25);r++){var h=rows[r]||[],cand=[];CAMPI.forEach(function(c){h.forEach(function(v,i){var p=punteggio(v,c);if(p>0)cand.push({k:c.k,i:i,p:p,o:c.o});});});cand.sort(function(a,b){return b.p-a.p;});\n" +
+    " var m={},usate={},tot=0;cand.forEach(function(x){if(m[x.k]!=null||usate[x.i])return;m[x.k]=x.i;usate[x.i]=1;tot+=x.o?2:1;});if(tot>=3&&(!best||tot>best.tot))best={r:r,m:m,tot:tot};}return best;}\n" +
+    "function giorno(v){if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+('0'+(v.getMonth()+1)).slice(-2)+'-'+('0'+v.getDate()).slice(-2);if(typeof v==='number'&&v>20000&&v<80000){var d=new Date(Math.round((v-25569)*86400000));return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2)+'-'+('0'+d.getUTCDate()).slice(-2);}var s=String(v==null?'':v).trim();if(/^\\d{5}$/.test(s)){return giorno(+s);}return s;}\n" +
+    "function testo(v){return v instanceof Date?giorno(v):String(v==null?'':v).trim();}\n" +
     "function hex(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){return Array.from(new Uint8Array(h)).map(function(b){return('0'+b.toString(16)).slice(-2);}).join('');});}\n" +
+    // il fornitore proposto: una scritta sopra le intestazioni, oppure il nome del foglio (mai «Foglio1»)
+    "function indovinaForn(rows,r,foglio){for(var i=0;i<r;i++){var c=(rows[i]||[]).map(testo).filter(function(x){return x&&!/riepilog|ddt|document|bolle|elenco|periodo|^\\d/i.test(x);});if(c.length)return c[0].slice(0,120);}return /^(foglio|sheet)\\s*\\d*$/i.test(foglio||'')?'':String(foglio||'').slice(0,120);}\n" +
     "var P=document.getElementById('p-d');if(!P)return;\n" +
     "P.querySelectorAll('.scheda[data-mid^=\"excel:\"] .r .t').forEach(function(t){if(!t.querySelector('.gl-dx-seg'))t.appendChild(el('span','gl-dx-seg','da Excel'));});\n" +
     "if(P.querySelector('.gl-dx-b'))return;\n" +
@@ -108,47 +118,66 @@ export function ddtExcelIniezione(base, token, commessa) {
     "function apri(){var ov=el('div','gl-dx-ov'),bx=el('div','gl-dx-bx');ov.appendChild(bx);document.body.appendChild(ov);var F=null;\n" +
     " function chiudi(ricarica){if(ov.parentNode)ov.parentNode.removeChild(ov);document.removeEventListener('keydown',tasto);if(ricarica)location.reload();}\n" +
     " function tasto(e){if(e.key==='Escape')chiudi(false);}document.addEventListener('keydown',tasto);\n" +
-    " function passo1(msg){bx.innerHTML='<h3>Importa DDT da Excel</h3><p>Carica il riepilogo dei DDT così come te l’ha mandato la segreteria: Excel (.xlsx, .xls), .csv o .ods. Il file si legge qui sul tuo dispositivo; prima di salvare vedi tutte le righe.</p>'+\n" +
+    " function attesa(t){bx.innerHTML='<h3>Importa DDT da Excel</h3><p class=\"gl-dx-nota\">'+esc(t)+'</p>';}\n" +
+    " function passo1(msg){bx.innerHTML='<h3>Importa DDT da Excel</h3><p>Carica il riepilogo dei DDT così com’è: Excel (.xlsx, .xls), .csv o .ods. TIX riconosce da solo le colonne; prima di salvare vedi tutte le righe.</p>'+\n" +
     "  '<input type=\"file\" id=\"gl-dx-f\" accept=\".xlsx,.xls,.csv,.ods\"><div id=\"gl-dx-es\">'+(msg?'<p class=\"gl-dx-err\">'+esc(msg)+'</p>':'')+'</div><h4>Importazioni recenti</h4><div id=\"gl-dx-el\"><p class=\"gl-dx-nota\">Carico…</p></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-no\">Chiudi</button></div>';\n" +
     "  bx.querySelector('#gl-dx-no').onclick=function(){chiudi(false);};elenco();\n" +
     "  bx.querySelector('#gl-dx-f').onchange=function(){var f=this.files&&this.files[0];if(!f)return;if(f.size>15*1024*1024){passo1('Il file è troppo grande: massimo 15 MB.');return;}\n" +
-    "   bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-nota\">Leggo il file…</p>';\n" +
+    "   attesa('Leggo il file…');\n" +
     "   Promise.all([lib(),f.arrayBuffer()]).then(function(x){var buf=x[1],wb=window.XLSX.read(buf,{type:'array',cellDates:true}),best=null;\n" +
     "    wb.SheetNames.forEach(function(nm){var rows=window.XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}),t=testa(rows);if(t&&(!best||t.tot>best.t.tot))best={t:t,rows:rows,foglio:nm};});\n" +
-    "    if(!best){passo1('Non trovo le intestazioni delle colonne (fornitore, numero, data): controlla che il file abbia una riga di titoli.');return;}\n" +
-    "    return hex(buf).then(function(sha){F={nome:f.name,sha:sha,rows:best.rows,t:best.t,foglio:best.foglio};passo2();});\n" +
+    "    if(!best){passo1('Non trovo le intestazioni delle colonne (numero e data del DDT): controlla che il file abbia una riga di titoli.');return;}\n" +
+    "    return hex(buf).then(function(sha){F={nome:f.name,sha:sha,rows:best.rows,t:best.t,m:best.t.m,foglio:best.foglio,forn:'',gruppi:{},auto:{},\n" +
+    "      prop:indovinaForn(best.rows,best.t.r,best.foglio)};avvia();});\n" +
     "   }).catch(function(){passo1('Non riesco a leggere il file: prova a salvarlo di nuovo in Excel (.xlsx).');});};}\n" +
+    " function avvia(){if(F.m.numero==null||F.m.data==null){passo2();return;}if(F.m.fornitore==null&&!F.forn){passoForn();return;}controlla();}\n" +
+    " function passoForn(){bx.innerHTML='<h3>Importa DDT da Excel</h3><p><b>'+esc(F.nome)+'</b></p><p>Nel file non c’è la colonna del fornitore: di solito vuol dire che tutti i DDT sono dello stesso fornitore. <b>Di quale fornitore sono?</b></p>'+\n" +
+    "   '<input type=\"text\" id=\"gl-dx-fo\" maxlength=\"160\" placeholder=\"Nome del fornitore\" value=\"'+esc(F.prop)+'\"><div id=\"gl-dx-es\"></div>'+\n" +
+    "   '<div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-col\">Scegli le colonne a mano</button><button type=\"button\" class=\"pr\" id=\"gl-dx-av\">Avanti</button></div>';\n" +
+    "  var i=bx.querySelector('#gl-dx-fo');i.focus();i.addEventListener('keydown',function(e){if(e.key==='Enter')bx.querySelector('#gl-dx-av').click();});\n" +
+    "  bx.querySelector('#gl-dx-col').onclick=passo2;\n" +
+    "  bx.querySelector('#gl-dx-av').onclick=function(){var v=i.value.trim();if(!v){bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-err\">Scrivi il nome del fornitore.</p>';return;}F.forn=v;controlla();};}\n" +
     " function elenco(){post('elenco').then(function(r){var c=bx.querySelector('#gl-dx-el');if(!c)return;var l=r&&r.importazioni||[];if(!l.length){c.innerHTML='<p class=\"gl-dx-nota\">Nessuna importazione per ora.</p>';return;}\n" +
-    "  c.innerHTML=l.map(function(z){return '<div class=\"gl-dx-st\"><span><b>'+esc(z.nome_file||'file')+'</b> &middot; '+z.nuovi+(z.nuovi===1?' DDT':' DDT')+' &middot; '+esc(z.il)+(z.autore?' &middot; '+esc(z.autore):'')+(z.annullata?' &middot; <i>annullata</i>':'')+'</span>'+(z.annullabile?'<button type=\"button\" data-a=\"'+z.id+'\">Annulla</button>':'')+'</div>';}).join('');\n" +
+    "  c.innerHTML=l.map(function(z){return '<div class=\"gl-dx-st\"><span><b>'+esc(z.nome_file||'file')+'</b> &middot; '+z.nuovi+' DDT &middot; '+esc(z.il)+(z.autore?' &middot; '+esc(z.autore):'')+(z.annullata?' &middot; <i>annullata</i>':'')+'</span>'+(z.annullabile?'<button type=\"button\" data-a=\"'+z.id+'\">Annulla</button>':'')+'</div>';}).join('');\n" +
     "  c.querySelectorAll('button[data-a]').forEach(function(b){b.onclick=function(){if(!confirm('Annullo questa importazione? I DDT ancora senza foto spariscono dal registro; le aggiunte al diario restano registrate.'))return;b.disabled=true;post('annulla',{id:b.getAttribute('data-a')}).then(function(r){if(r&&r.esito==='ok'){alert('Tolti '+r.tolti+' DDT.');chiudi(true);}else{b.disabled=false;alert(r&&r.messaggio?r.messaggio:'Non riuscito: riprova.');}});};});}).catch(function(){});}\n" +
-    " function passo2(){var h=F.rows[F.t.r]||[],opz='<option value=\"-1\">(nessuna colonna)</option>'+h.map(function(v,i){return '<option value=\"'+i+'\">'+esc(String(v||'colonna '+(i+1)))+'</option>';}).join('');\n" +
-    "  var dati=F.rows.slice(F.t.r+1).filter(function(r){return r&&r.some(function(v){return String(v).trim()!=='';});});\n" +
-    "  bx.innerHTML='<h3>Importa DDT da Excel</h3><p><b>'+esc(F.nome)+'</b> &middot; foglio «'+esc(F.foglio)+'» &middot; '+dati.length+' righe</p><h4>Le colonne</h4><p class=\"gl-dx-nota\">TIX le ha riconosciute dai titoli: controlla quelle segnate.</p><div class=\"gl-dx-map\">'+\n" +
-    "   CAMPI.map(function(c){var i=F.t.m[c.k];return '<div class=\"'+(i==null&&c.o?'inc':'')+'\"><label for=\"gl-dx-c-'+c.k+'\">'+c.n+(c.o?' *':'')+'</label><select id=\"gl-dx-c-'+c.k+'\">'+opz+'</select></div>';}).join('')+'</div>'+\n" +
+    " function passo2(){var h=F.rows[F.t.r]||[],opz='<option value=\"-1\">(nessuna colonna)</option>'+h.map(function(v,i){return '<option value=\"'+i+'\">'+esc(String(testo(v)||'colonna '+(i+1)))+'</option>';}).join('');\n" +
+    "  bx.innerHTML='<h3>Importa DDT da Excel</h3><p><b>'+esc(F.nome)+'</b> &middot; foglio «'+esc(F.foglio)+'»</p><h4>Le colonne</h4><p class=\"gl-dx-nota\">Servono almeno numero e data del DDT. Se il file non ha la colonna del fornitore, scrivilo qui sotto.</p><div class=\"gl-dx-map\">'+\n" +
+    "   CAMPI.map(function(c){var i=F.m[c.k];return '<div class=\"'+(i==null&&c.o?'inc':'')+'\"><label for=\"gl-dx-c-'+c.k+'\">'+c.n+(c.o&&c.k!=='fornitore'?' *':'')+'</label><select id=\"gl-dx-c-'+c.k+'\">'+opz+'</select></div>';}).join('')+'</div>'+\n" +
+    "   '<label class=\"gl-dx-nota\" for=\"gl-dx-fo2\" style=\"display:block;margin-top:10px\">Fornitore di tutte le righe (se non c’è la colonna)</label><input type=\"text\" id=\"gl-dx-fo2\" maxlength=\"160\" value=\"'+esc(F.forn||F.prop)+'\">'+\n" +
     "   '<div id=\"gl-dx-es\"></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-ind\">Cambia file</button><button type=\"button\" class=\"pr\" id=\"gl-dx-va\">Controlla le righe</button></div>';\n" +
-    "  CAMPI.forEach(function(c){var s=bx.querySelector('#gl-dx-c-'+c.k);s.value=String(F.t.m[c.k]==null?-1:F.t.m[c.k]);s.onchange=function(){s.parentNode.className='';};});\n" +
+    "  CAMPI.forEach(function(c){var s=bx.querySelector('#gl-dx-c-'+c.k);s.value=String(F.m[c.k]==null?-1:F.m[c.k]);s.onchange=function(){s.parentNode.className='';};});\n" +
     "  bx.querySelector('#gl-dx-ind').onclick=function(){passo1('');};\n" +
-    "  bx.querySelector('#gl-dx-va').onclick=function(){var m={};CAMPI.forEach(function(c){m[c.k]=+bx.querySelector('#gl-dx-c-'+c.k).value;});\n" +
-    "   if(m.fornitore<0||m.numero<0||m.data<0){bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-err\">Scegli almeno le colonne Fornitore, Numero e Data.</p>';return;}\n" +
-    "   var righe=[];F.rows.forEach(function(r,i){if(i<=F.t.r||!r||!r.some(function(v){return String(v).trim()!=='';}))return;var o={n:i+1};CAMPI.forEach(function(c){var v=m[c.k]>=0?r[m[c.k]]:'';o[c.k]=c.k==='data'?giorno(v):(v instanceof Date?giorno(v):String(v==null?'':v).trim());});righe.push(o);});\n" +
-    "   if(righe.length>500){bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-err\">Il file ha '+righe.length+' righe: al massimo 500 per volta. Dividilo.</p>';return;}\n" +
-    "   var bt=this;bt.disabled=true;bt.textContent='Controllo…';post('analizza',{righe:righe}).then(function(r){bt.disabled=false;bt.textContent='Controlla le righe';\n" +
-    "    if(!r||r.esito!=='ok'){bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-err\">'+esc(r&&r.messaggio?r.messaggio:'Il controllo non è riuscito: riprova tra un minuto.')+'</p>';return;}passo3(righe,r);}).catch(function(){bt.disabled=false;bt.textContent='Controlla le righe';});};}\n" +
-    " function passo3(righe,R){var per={};righe.forEach(function(x){per[x.n]=x;});var nu=[],pr=[],co=[];R.righe.forEach(function(e){(e.stato==='nuovo'?nu:e.stato==='presente'?pr:co).push(e);});\n" +
-    "  var opzC='<option value=\"\">Scegli il cantiere…</option>'+(R.cantieri||[]).map(function(c){return '<option value=\"'+esc(c.id)+'\">'+esc(c.nome)+'</option>';}).join('');\n" +
-    "  function rigaT(e,extra){var x=per[e.n]||{};return '<tr><td>'+e.n+'</td><td>'+esc(x.fornitore)+'</td><td>'+esc(x.numero)+'</td><td>'+esc(e.data?e.data.split('-').reverse().join('/'):x.data)+'</td><td>'+esc(x.materiale)+(x.quantita?' &middot; '+esc(x.quantita):'')+'</td><td>'+esc(e.cantiere||x.cantiere||'')+'</td>'+(extra||'')+'</tr>';}\n" +
+    "  bx.querySelector('#gl-dx-va').onclick=function(){var m={};CAMPI.forEach(function(c){var v=+bx.querySelector('#gl-dx-c-'+c.k).value;if(v>=0)m[c.k]=v;});var fo=bx.querySelector('#gl-dx-fo2').value.trim(),es=bx.querySelector('#gl-dx-es');\n" +
+    "   if(m.numero==null||m.data==null){es.innerHTML='<p class=\"gl-dx-err\">Scegli almeno le colonne del numero e della data del DDT.</p>';return;}\n" +
+    "   if(m.fornitore==null&&!fo){es.innerHTML='<p class=\"gl-dx-err\">Scegli la colonna del fornitore oppure scrivi il fornitore di tutte le righe.</p>';return;}\n" +
+    "   F.m=m;F.forn=m.fornitore==null?fo:'';F.gruppi={};F.auto={};controlla();};}\n" +
+    " function righe(){var m=F.m,out=[];F.rows.forEach(function(r,i){if(i<=F.t.r||!r||!r.some(function(v){return String(v).trim()!=='';}))return;var g=function(k){return m[k]!=null?r[m[k]]:'';};\n" +
+    "   var o={n:i+1,fornitore:m.fornitore!=null?testo(g('fornitore')):F.forn,numero:testo(g('numero')),data:giorno(g('data')),materiale:testo(g('materiale')),\n" +
+    "     quantita:(testo(g('quantita'))+(testo(g('um'))?' '+testo(g('um')):'')).trim(),cantiere:testo(g('cantiere')),riferimento:testo(g('riferimento'))};\n" +
+    "   if(!o.numero&&!o.data&&!o.materiale)return;if(F.gruppi[o.cantiere])o.commessa_id=F.gruppi[o.cantiere];out.push(o);});return out;}\n" +
+    " function controlla(){var rr=righe();if(!rr.length){passo1('Nel file non ci sono righe con numero o data del DDT.');return;}if(rr.length>500){passo1('Il file ha '+rr.length+' righe: al massimo 500 per volta. Dividilo.');return;}\n" +
+    "  attesa('Controllo '+rr.length+' righe…');\n" +
+    "  post('analizza',{righe:rr}).then(function(r){if(!r||r.esito!=='ok'){passo1(r&&r.messaggio?r.messaggio:'Il controllo non è riuscito: riprova tra un minuto.');return;}\n" +
+    // cantieri non riconosciuti: la prima volta vanno nel cantiere della pagina (si possono cambiare, per gruppo)
+    "   var per={};rr.forEach(function(x){per[x.n]=x;});var nuovi=0;r.righe.forEach(function(e){if(e.stato==='controllare'&&/cantiere/.test(e.motivo||'')){var t=(per[e.n]||{}).cantiere||'';if(t&&!F.gruppi[t]&&!F.auto[t]){F.gruppi[t]=CFG.c;F.auto[t]=1;nuovi++;}}});\n" +
+    "   if(nuovi){controlla();return;}passo3(rr,r);}).catch(function(){passo1('Connessione assente: riprova.');});}\n" +
+    " function passo3(rr,R){var per={};rr.forEach(function(x){per[x.n]=x;});var nu=[],pr=[],co=[];R.righe.forEach(function(e){(e.stato==='nuovo'?nu:e.stato==='presente'?pr:co).push(e);});\n" +
+    "  var cant=R.cantieri||[],opz=function(sel){return cant.map(function(c){return '<option value=\"'+esc(c.id)+'\"'+(c.id===sel?' selected':'')+'>'+esc(c.nome)+'</option>';}).join('');};\n" +
+    "  var gr=Object.keys(F.gruppi).map(function(t){var n=rr.filter(function(x){return x.cantiere===t;}).length;return '<div class=\"gl-dx-st\"><span>Nel file «'+esc(t)+'» ('+n+(n===1?' riga':' righe')+')</span><select data-g=\"'+esc(t)+'\" style=\"width:auto;max-width:100%\">'+opz(F.gruppi[t])+'</select></div>';}).join('');\n" +
+    "  function rigaT(e,extra){var x=per[e.n]||{};return '<tr><td>'+e.n+'</td><td>'+esc(x.fornitore)+'</td><td>'+esc(x.numero)+'</td><td>'+esc(e.data?e.data.split('-').reverse().join('/'):x.data)+'</td><td>'+esc(x.materiale)+(x.quantita?' &middot; '+esc(x.quantita):'')+'</td><td>'+esc(e.cantiere||'')+'</td>'+(extra||'')+'</tr>';}\n" +
     "  var th='<tr><th>Riga</th><th>Fornitore</th><th>N.</th><th>Data</th><th>Materiale</th><th>Cantiere</th>';\n" +
-    "  bx.innerHTML='<h3>Importa DDT da Excel</h3><div class=\"gl-dx-chips\"><span class=\"n\">'+nu.length+' nuovi</span><span class=\"p\">'+pr.length+' già presenti</span><span class=\"c\">'+co.length+' da controllare</span></div>'+\n" +
+    "  bx.innerHTML='<h3>Importa DDT da Excel</h3><p class=\"gl-dx-nota\" style=\"margin:0\">'+esc(F.nome)+(F.forn?' &middot; fornitore: <b>'+esc(F.forn)+'</b>':'')+'</p><div class=\"gl-dx-chips\"><span class=\"n\">'+nu.length+' nuovi</span><span class=\"p\">'+pr.length+' già presenti</span><span class=\"c\">'+co.length+' da controllare</span></div>'+\n" +
+    "   (gr?'<h4>Cantiere</h4><p class=\"gl-dx-nota\">Nel file il cantiere è scritto così: TIX l’ha messo nel cantiere qui sotto. Cambialo se serve.</p>'+gr:'')+\n" +
     "   (nu.length?'<h4>Nuovi: si caricano</h4><div class=\"gl-dx-wrap\"><table class=\"gl-dx-tab\">'+th+'<th></th></tr>'+nu.map(function(e){return rigaT(e,'<td><input type=\"checkbox\" data-n=\"'+e.n+'\" checked aria-label=\"Carica la riga '+e.n+'\"></td>');}).join('')+'</table></div>':'')+\n" +
-    "   (co.length?'<h4>Da controllare</h4><p class=\"gl-dx-nota\">Se manca solo il cantiere, sceglilo e la riga si carica. Le altre vanno corrette nel file.</p><div class=\"gl-dx-wrap\"><table class=\"gl-dx-tab\">'+th+'<th>Perché</th></tr>'+co.map(function(e){var sel=/cantiere/.test(e.motivo||'')?'<select data-c=\"'+e.n+'\">'+opzC+'</select>':'';return rigaT(e,'<td class=\"m\">'+esc(e.motivo||'')+sel+'</td>');}).join('')+'</table></div>':'')+\n" +
+    "   (co.length?'<h4>Da controllare: non si caricano</h4><p class=\"gl-dx-nota\">Vanno corrette nel file, poi si ricarica: le righe già caricate non si doppiano.</p><div class=\"gl-dx-wrap\"><table class=\"gl-dx-tab\">'+th+'<th>Perché</th></tr>'+co.map(function(e){return rigaT(e,'<td class=\"m\">'+esc(e.motivo||'')+'</td>');}).join('')+'</table></div>':'')+\n" +
     "   (pr.length?'<h4>Già presenti: non si caricano due volte</h4><div class=\"gl-dx-wrap\"><table class=\"gl-dx-tab\">'+th+'<th>Perché</th></tr>'+pr.map(function(e){return rigaT(e,'<td class=\"m\">'+esc(e.motivo||'')+'</td>');}).join('')+'</table></div>':'')+\n" +
     "   '<h4>Chi fa l’importazione</h4><input type=\"text\" id=\"gl-dx-aut\" placeholder=\"Nome e cognome\" maxlength=\"120\" autocomplete=\"name\">'+\n" +
     "   '<p class=\"gl-dx-nota\" style=\"margin-top:8px\">I DDT entrano nel registro del loro cantiere con il segno «da Excel», senza foto: se la foto della bolla arriva dopo da WhatsApp, si aggancia da sola. Nei giorni già chiusi il diario non cambia: il DDT va nell’«Integrazione al diario» di quel giorno.</p>'+\n" +
-    "   '<div id=\"gl-dx-es\"></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-ind\">Indietro</button><button type=\"button\" class=\"pr\" id=\"gl-dx-si\">Conferma e salva</button></div>';\n" +
-    "  bx.querySelector('#gl-dx-ind').onclick=passo2;\n" +
+    "   '<div id=\"gl-dx-es\"></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-col\">Cambia le colonne</button><button type=\"button\" class=\"pr\" id=\"gl-dx-si\">Conferma e salva</button></div>';\n" +
+    "  bx.querySelectorAll('select[data-g]').forEach(function(s){s.onchange=function(){F.gruppi[s.getAttribute('data-g')]=s.value;controlla();};});\n" +
+    "  bx.querySelector('#gl-dx-col').onclick=passo2;\n" +
     "  bx.querySelector('#gl-dx-si').onclick=function(){var es=bx.querySelector('#gl-dx-es'),aut=bx.querySelector('#gl-dx-aut').value.trim();if(!aut){es.innerHTML='<p class=\"gl-dx-err\">Scrivi chi fa l’importazione (nome e cognome).</p>';return;}\n" +
     "   var scelte=[];bx.querySelectorAll('input[data-n]:checked').forEach(function(i){var x=per[+i.getAttribute('data-n')];if(x)scelte.push(x);});\n" +
-    "   bx.querySelectorAll('select[data-c]').forEach(function(s){if(s.value){var x=per[+s.getAttribute('data-c')];if(x){var y={};for(var k in x)y[k]=x[k];y.commessa_id=s.value;scelte.push(y);}}});\n" +
     "   if(!scelte.length){es.innerHTML='<p class=\"gl-dx-err\">Non c’è nessuna riga da caricare.</p>';return;}\n" +
     "   var bt=this;bt.disabled=true;bt.textContent='Salvo…';post('salva',{righe:scelte,autore:aut,nome_file:F.nome,sha256:F.sha}).then(function(r){\n" +
     "    if(!r||r.esito!=='ok'){bt.disabled=false;bt.textContent='Conferma e salva';es.innerHTML='<p class=\"gl-dx-err\">'+esc(r&&r.messaggio?r.messaggio:'Il salvataggio non è riuscito: riprova tra un minuto.')+'</p>';return;}\n" +
