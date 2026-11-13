@@ -2198,6 +2198,12 @@ const STILE_OF =
   ".pv-ofg td.n{text-align:right;white-space:nowrap}.pv-ofg input{width:110px}.pv-ofg .min{background:#EEF1E2;font-weight:700}.pv-ofbt{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}" +
   ".pv-ofcc{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.88rem}.pv-ofcc label{display:flex;gap:6px;align-items:center;margin:2px 0}" +
   ".pv-ofnota{padding:10px 12px;border-radius:10px;background:#F5F6F8;font-size:.85rem;color:#3A4757}" +
+  // 13/11/2026 (rdo-email-1): riquadro «Parte da / Copia e risposte a» e email dell'impresa a pastiglie
+  ".pv-emr{border:1px solid #D9DFC0;background:#FAFBF4;border-radius:12px;padding:10px 12px;margin:10px 0;font-size:.88rem}.pv-emr .r{margin:2px 0 6px}.pv-emr small{color:var(--s)}" +
+  ".pv-emi{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.pv-emi-l{display:contents}.pv-emp{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;background:#EEF1E2;color:#3F4A10;font-size:.85rem}" +
+  ".pv-emp button{border:0;background:transparent;cursor:pointer;font-size:1rem;line-height:1;color:#66741C;padding:0 4px}.pv-emp button:hover{color:#B3261E}" +
+  ".pv-ofm input.pv-emi-n{flex:1 1 220px;width:auto;min-width:200px;padding:6px 10px;border:1px solid #CBD2DA;border-radius:10px;font:inherit}.pv-ofm input.pv-emi-n.err{border-color:#B3261E;background:#FDF1F0}" +
+  ".pv-emr .st{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.pv-emr .st small.ok{color:#2E7D32}.pv-emr .st small.err{color:#B3261E}" +
   "@media (max-width:700px){.pv-ofm{padding:16px 12px 22px}.pv-ofg input{width:80px}}";
 
 const SCRIPT_OF = String.raw`
@@ -2221,6 +2227,31 @@ function chiudi(){if(V){V.hidden=true;V.innerHTML='';}document.body.style.overfl
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&V&&!V.hidden)chiudi();});
 function testa(t,s){return '<button type="button" class="pv-b sm chiudi" data-ofx="chiudi">Chiudi</button><h2>'+es(t)+'</h2><p class="sotto">'+s+'</p>';}
 function nota(id,t,cl){var el=document.getElementById(id);if(el){el.textContent=t||'';el.className='pv-msg'+(cl?' '+cl:'');}}
+// 13/11/2026 (rdo-email-1): email dell'impresa a pastiglie. Il valore sta in un campo nascosto (id o data-k), separato da virgole.
+function okEm(e){return /^[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(String(e||''));}
+function emBox(attr,L){return '<div class="pv-emi"><input type="hidden" '+attr+' value="'+es((L||[]).slice(0,5).join(', '))+'"><span class="pv-emi-l"></span>'+
+ '<input type="text" class="pv-emi-n" inputmode="email" placeholder="+ Aggiungi un indirizzo (o scegli dall\'elenco)" list="pv-emi-sug" maxlength="200"><button type="button" class="pv-b sm" data-emix="add">Aggiungi</button></div>';}
+function emSug(){var S=(OF&&OF.impresa&&OF.impresa.suggerite)||[];return '<datalist id="pv-emi-sug">'+S.map(function(s){return '<option value="'+es(s.email)+'">'+es(s.nome||'')+'</option>';}).join('')+'</datalist>';}
+function emRiq(attr,L,salva){var im=(OF&&OF.impresa)||{};return '<div class="pv-emr"><div class="r"><b>Parte da:</b> '+es((im.nome||'Impresa')+' tramite TIX')+' <small>('+es(im.indirizzo||'info@tixcantiere.it')+')</small></div>'+
+ '<div class="r"><b>Copia e risposte a:</b> <small>ricevono la copia della richiesta e la risposta del fornitore (fino a 5)</small></div>'+emBox(attr,L)+
+ (salva?'<div class="st"><button type="button" class="pv-b sm" data-emix="salva">Salva come elenco di '+es(im.nome||'impresa')+'</button><small data-emst></small></div>':'')+'</div>';}
+function emVal(box){var h=box.querySelector('input[type=hidden]');return h?lista(h.value):[];}
+function emSet(box,L){var h=box.querySelector('input[type=hidden]');if(h)h.value=L.join(', ');emDisegna(box);}
+function emDisegna(box){var L=emVal(box),sp=box.querySelector('.pv-emi-l');if(!sp)return;
+ sp.innerHTML=L.length?L.map(function(e){return '<span class="pv-emp">'+es(e)+'<button type="button" data-emix="del" data-e="'+es(e)+'" title="Togli" aria-label="Togli '+es(e)+'">✕</button></span>';}).join(''):'<small style="color:#B3261E">Nessun indirizzo: aggiungine almeno uno.</small>';
+ var r=box.closest('.pv-emr'),st=r?r.querySelector('[data-emst]'):null;if(st&&OF&&OF.impresa){var S=(OF.impresa.emails||[]).join(', ');st.className=L.join(', ')===S&&S?'ok':'';st.textContent=L.join(', ')===S&&S?'✓ È l\'elenco salvato':(S?'Diverso dall\'elenco salvato: vale solo per questa richiesta, se non lo salvi.':'Nessun elenco salvato per l\'impresa.');}}
+function emTutti(){document.querySelectorAll('.pv-emi').forEach(emDisegna);}
+function emAggiungi(box){var n=box.querySelector('.pv-emi-n');if(!n)return;var v=n.value.trim().toLowerCase();if(!v)return;var L=emVal(box);
+ var nuovi=lista(v),male=nuovi.filter(function(x){return !okEm(x);});if(male.length){n.classList.add('err');n.title='Indirizzo scritto male: '+male.join(', ');n.focus();return;}
+ nuovi.forEach(function(x){if(L.indexOf(x)<0)L.push(x);});if(L.length>5){n.classList.add('err');n.title='Al massimo 5 indirizzi.';return;}
+ n.classList.remove('err');n.title='';n.value='';emSet(box,L);}
+function emAzione(az,b){var box=b.closest('.pv-emi')||(b.closest('.pv-emr')||document).querySelector('.pv-emi');if(!box)return;
+ if(az==='add'){emAggiungi(box);return;}
+ if(az==='del'){emSet(box,emVal(box).filter(function(x){return x!==b.getAttribute('data-e');}));return;}
+ if(az==='salva'){var n=box.querySelector('.pv-emi-n');if(n&&n.value.trim())emAggiungi(box);var L=emVal(box);if(!L.length){alert('Aggiungi almeno un indirizzo.');return;}b.disabled=true;
+  api('of_email_impresa',{email_impresa:L.join(', ')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}OF.impresa.emails=r.emails||L;ricorda('of_imp',L.join(', '));emTutti();});}}
+document.addEventListener('keydown',function(e){var x=e.target;if(e.key==='Enter'&&x&&x.classList&&x.classList.contains('pv-emi-n')){e.preventDefault();var bx=x.closest('.pv-emi');if(bx)emAggiungi(bx);}});
+document.addEventListener('change',function(e){var x=e.target;if(x&&x.classList&&x.classList.contains('pv-emi-n')&&okEm(x.value.trim().toLowerCase())){var bx=x.closest('.pv-emi');if(bx&&(OF&&OF.impresa&&(OF.impresa.suggerite||[]).some(function(s){return s.email===x.value.trim().toLowerCase();})))emAggiungi(bx);}});
 var STATI={bozza:'Da mandare',copiata:'Mandata dalla tua posta',inviata:'Mandata da TIX',offerta:'Offerta ricevuta',annullata:'Annullata',risposta:'Risposta ricevuta',chiusa:'Chiusa'};
 
 // ------------------------------------------------ richieste di offerta
@@ -2280,7 +2311,7 @@ function disegnaOf(){
   '<option value="subappaltatore">Esecuzione di lavorazioni (subappalto)</option><option value="noleggio">Noleggio di mezzi e attrezzature</option></select></label>'+
   '<label><span>A chi va la richiesta</span><input type="text" id="of-dest" maxlength="200"></label>'+
   '<label><span>Email del fornitore (fino a 10, separate da virgola)</span><input type="text" id="of-ea"></label>'+
-  '<label><span>Email dell\'impresa dove arrivano le risposte (fino a 5) · ricevono anche una copia della richiesta</span><input type="text" id="of-ei" value="'+es(ricorda('of_imp')||(r.impresa&&r.impresa.email)||'')+'"></label>'+
+  emRiq('id="of-ei"',(r.impresa&&(r.impresa.emails||[]).length)?r.impresa.emails:lista(ricorda('of_imp')),true)+emSug()+
   '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="prepara">Prepara la richiesta</button></div><p class="pv-msg" id="of-msg" aria-live="polite"></p>';
  // confronto delle offerte per voce
  var per={};(r.richieste||[]).forEach(function(q){if(q.stato==='annullata')return;(q.righe||[]).forEach(function(g){if(g.prezzo==null)return;var kk=g.voce_id+'|'+(q.tipo||'altro');(per[kk]=per[kk]||{v:g,t:q.tipo,o:[]}).o.push({q:q,g:g});});});
@@ -2293,12 +2324,12 @@ function disegnaOf(){
   h+='<div class="pv-ofr" data-rdo="'+q.id+'"><div class="tt"><b>N. '+q.numero+' · '+es(q.destinatario)+(TD[q.tipo]?' '+tdChip(q.tipo):'')+'</b><span class="pv-ofs '+q.stato+'">'+es(STATI[q.stato]||q.stato)+(q.inviata_il?' il '+dt(q.inviata_il):'')+'</span></div>';
   if(q.stato==='bozza'){
    h+='<label><span>Email del fornitore</span><input type="text" data-k="email_a" value="'+es((q.email_a||[]).join(', '))+'"></label>'+
-    '<label><span>Email dell\'impresa per le risposte</span><input type="text" data-k="email_impresa" value="'+es((q.email_impresa||[]).join(', '))+'"></label>'+
+    emRiq('data-k="email_impresa"',q.email_impresa||[],false)+
     '<label><span>Oggetto</span><input type="text" data-k="oggetto" maxlength="200" value="'+es(q.oggetto)+'"></label>'+
     '<label><span>Testo</span><textarea class="testo" data-k="testo">'+es(q.testo)+'</textarea></label>'+
     '<div class="pv-ofbt"><button type="button" class="pv-b" data-ofx="salva">Salva le modifiche</button><button type="button" class="pv-b" data-ofx="copia">Copia il testo</button>'+
     '<button type="button" class="pv-b pv-pr" data-ofx="invia"'+(OF.email_attive?'':' disabled title="L\'invio da TIX non è ancora acceso"')+'>Invia da TIX</button><button type="button" class="pv-b pv-togli" data-ofx="annulla">Annulla</button></div>'+
-    (OF.email_attive?'<p class="pv-ofnota">«Invia da TIX» la manda a nome di '+es(r.impresa.nome)+' («'+es(r.impresa.nome)+' tramite TIX»): quando il fornitore risponde, la risposta arriva alle email dell\'impresa.</p>':'<p class="pv-ofnota">L\'invio da TIX non è ancora acceso: con «Copia il testo» la incolli nella tua posta e la mandi tu.</p>');
+    (OF.email_attive?'<p class="pv-ofnota">«Invia da TIX» la manda a nome di '+es(r.impresa.nome)+' («'+es(r.impresa.nome)+' tramite TIX»). Gli indirizzi di «Copia e risposte a» ricevono subito una copia, e quando il fornitore preme «Rispondi» la risposta arriva a loro.</p>':'<p class="pv-ofnota">L\'invio da TIX non è ancora acceso: con «Copia il testo» la incolli nella tua posta e la mandi tu.</p>');
   } else if(q.stato!=='annullata'){
    h+='<table class="pv-ofg"><tr><th>Voce</th><th class="n">Quantità</th><th>Prezzo offerto + IVA</th><th>Note</th></tr>'+(q.righe||[]).map(function(g){
     return '<tr><td><b>'+g.ordine+'.</b> '+es(g.descrizione)+'</td><td class="n">'+String(g.quantita==null?'':g.quantita).replace('.',',')+' '+es(g.unita||'')+'</td>'+
@@ -2313,6 +2344,7 @@ function disegnaOf(){
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
  h+=smistareHtml();
  finestra(h);
+ emTutti();
  var sel=document.getElementById('of-rub');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
@@ -2348,12 +2380,15 @@ function azioneOf(az,el){
   var tp=document.getElementById('el-tipo').value;EL_TIPO=TD[tp]?tp:((f.tipi||[]).length===1&&TD[f.tipi[0]]?f.tipi[0]:'altro');var ot=document.getElementById('of-tipo');if(ot)ot.value=EL_TIPO;
   nota('of-msg','Destinatario preso dall\'elenco TIX: controlla e premi «Prepara la richiesta».','ok');document.getElementById('of-dest').scrollIntoView({block:'center'});return;}
  var box=el.closest('[data-rdo]'),rid=box?box.dataset.rdo:null;
- if(az==='prepara'){var sel=document.getElementById('of-rub'),ei=document.getElementById('of-ei').value;
+ if(az==='prepara'){var sel=document.getElementById('of-rub'),bx0=document.getElementById('of-ei').closest('.pv-emi'),nn=bx0.querySelector('.pv-emi-n');
+  if(nn&&nn.value.trim()){emAggiungi(bx0);if(nn.value.trim())return;}var ei=document.getElementById('of-ei').value;
+  if(!lista(ei).length){nota('of-msg','Aggiungi almeno un indirizzo dell\'impresa in «Copia e risposte a».','err');return;}
   var d={voci:voceSel(),destinatario:document.getElementById('of-dest').value,email_a:document.getElementById('of-ea').value,email_impresa:ei,
    contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:(document.getElementById('of-tipo')||{}).value||(sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro'))};
   if(!d.voci.length){nota('of-msg','Scegli almeno una voce.','err');return;}
   el.disabled=true;nota('of-msg','Preparo la richiesta…');
-  api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';caricaOf();});return;}
+  api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
+   (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){caricaOf();});});return;}
  if(az==='scegli'){el.disabled=true;api('of_scegli',{riga_id:el.dataset.riga}).then(function(r){if(r.esito!=='ok'){el.disabled=false;alert(errore(r));return;}caricaOf().then(function(){OF.cambiato=true;});});return;}
  if(az==='copia'){var q=(OF.richieste||[]).filter(function(x){return x.id===rid;})[0];var d2=campiRdo(box);
   var t=(d2.oggetto||q.oggetto)+'\n\n'+(d2.testo||q.testo);
@@ -2365,7 +2400,9 @@ function azioneOf(az,el){
    var n=box.querySelector('[data-nota="'+x.dataset.voce+'"]'),p=x.value.replace(/[€\s]/g,'');if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(p))p=p.replace(/\./g,'');
    return {voce_id:x.dataset.voce,prezzo:p,note:n?n.value:''};});}
  if(az==='annulla'&&!confirm('Annullare questa richiesta? Resta nell\'elenco come annullata.'))return;
- if(az==='invia'&&!confirm('Mandare la richiesta da TIX a: '+lista(dati.email_a).join(', ')+'?'))return;
+ if(az==='invia'){var bxi=box.querySelector('.pv-emi'),ni=bxi?bxi.querySelector('.pv-emi-n'):null;if(ni&&ni.value.trim()){emAggiungi(bxi);if(ni.value.trim())return;dati.email_impresa=campiRdo(box).email_impresa;}
+  if(!lista(dati.email_impresa).length){mOf(box,'Aggiungi almeno un indirizzo dell\'impresa in «Copia e risposte a».','err');return;}
+  if(!confirm('Mandare la richiesta da TIX a: '+lista(dati.email_a).join(', ')+'?\n\nCopia e risposte a: '+lista(dati.email_impresa).join(', ')))return;}
  el.disabled=true;mOf(box,'Un momento…');
  var prima=az==='invia'?api('of_testo',dati):Promise.resolve({esito:'ok'});
  prima.then(function(r0){if(r0.esito!=='ok'){el.disabled=false;mOf(box,errore(r0),'err');return;}
@@ -2470,7 +2507,8 @@ function azioneCh(az,el){
 }
 
 document.addEventListener('click',function(e){
- var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx],[data-cpx],[data-pox]');if(!b)return;
+ var b=e.target.closest('[data-ofapri],[data-chapri],[data-ofx],[data-chx],[data-cpx],[data-pox],[data-emix]');if(!b)return;
+ if(b.hasAttribute('data-emix')){emAzione(b.getAttribute('data-emix'),b);return;}
  if(b.hasAttribute('data-pox')){azionePo(b.getAttribute('data-pox'),b);return;}
  if(b.hasAttribute('data-cpx')){azioneCp(b.getAttribute('data-cpx'),b);return;}
  if(b.hasAttribute('data-ofapri')){finestra('<p>Un momento…</p>');caricaOf();return;}
