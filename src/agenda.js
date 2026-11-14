@@ -26,6 +26,9 @@
 // ============================================================================
 
 import { cestinoIniezione } from "./cestino.js";
+// Campi mancanti in rosso (14/11/2026, regola di Filippo per tutti i moduli; modulo comune della B3): in prova solo per l'accesso
+// «Tutte le aziende» (d.filippo); lo script si mette solo lì, le funzioni della pagina controllano che esista
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -628,7 +631,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Agenda - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1 title="Doppio clic: mese intero">Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + torna + '">&larr; Torna al cantiere</a>' +
@@ -720,7 +723,7 @@ export function paginaAgenda(base, tok, c, d, h) {
       '<p class="piccolo nc-nota">Lo ritrovi nella Rubrica, dove puoi completarlo o eliminarlo.</p><p class="msg" id="nc-msg" aria-live="polite"></p></div>' +
       '<div class="dl-b"><button type="button" class="no" id="nc-no">Annulla</button><button type="submit" class="si" id="nc-si">Salva e invita</button></div>' +
       "</form></dialog>" : "") +
-    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CALENDARIO + SCRIPT + "</script></body></html>";
+    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + (d.filippo === true ? CAMPI_ROSSI_JS : "") + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
 // Telefono con bandierina e prefisso del paese, Italia di base (30/10/2026, telefono-paese-1): copia del blocco TEL_JS di
@@ -1182,10 +1185,14 @@ if(nc&&ncB&&typeof nc.showModal==='function'&&window.GL_TEL){
   if(invQ)invQ.value='';invRender();invEsito(pieno?'✓ '+String(k.nome||'')+' è nella Rubrica, ma non tra gli invitati: al massimo 30 per appuntamento.':testo);nc.close();};
  ncF.addEventListener('submit',function(ev){ev.preventDefault();if(ncOcc)return;
   var nome=ncNome.value.trim(),mail=ncMail.value.trim(),tel=GL_TEL.valore('nc-tel'),td=ncTelDb(tel);
+  if(typeof crControlla==='function'){crPulisci(ncF);var rn=[{el:ncNome,ok:function(){return nome.length>=2;},testo:'Scrivi nome e cognome'},
+   {el:ncMail,ok:function(){return !mail||/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail);},testo:'L’email non sembra giusta'},
+   {el:ncTel,ok:function(){return !td||(td.length>=10&&td.length<=15);},testo:'Scrivi il cellulare con il prefisso, per esempio +39 333 123 4567'}];
+   if(!crControlla(rn)){ncM('ko','Completa i campi segnati in rosso.');return;}}
   if(nome.length<2){ncM('ko','Scrivi nome e cognome.');ncNome.focus();return;}
   if(mail&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ncM('ko','L’email non sembra giusta.');ncMail.focus();return;}
   if(td&&(td.length<10||td.length>15)){ncM('ko','Il numero di cellulare non sembra giusto: scrivilo con il prefisso, per esempio +39 333 123 4567.');ncTel.focus();return;}
-  if(!mail&&!ncSolo){ncSolo=true;ncTesto();ncM('ko','Per l’invito serve l’email: scrivila qui sopra. Senza email il contatto va solo nella Rubrica e non riceve l’invito.');ncMail.focus();return;}
+  if(!mail&&!ncSolo){if(typeof crSegna==='function')crSegna(ncMail,'Per l’invito serve l’email');ncSolo=true;ncTesto();ncM('ko','Per l’invito serve l’email: scrivila qui sopra. Senza email il contatto va solo nella Rubrica e non riceve l’invito.');ncMail.focus();return;}
   ncOcc=true;ncSi.disabled=true;ncNo.disabled=true;ncM('','Un momento…');
   var corpo={t:D.t,c:D.c,dati:{nome:nome,email:mail,telefono:tel,impresa:ncImp.value.trim(),ruolo:ncRuolo.value}};if(ncConf)corpo.aggiungi_email=ncConf;
   post('contatto',corpo).then(function(j){ncOcc=false;ncSi.disabled=false;ncNo.disabled=false;j=j||{};var k=j.contatto||{},nm=k.nome||nome;
@@ -1222,7 +1229,14 @@ function apriModifica(b){var x={};try{x=JSON.parse(b.getAttribute('data-app'))||
  crSel={};(x.att||[]).forEach(function(id){crSel[id]=1;});if(crQ)crQ.value='';crRender();
  invSel={};(x.inv||[]).forEach(function(id){invSel[id]=1;});if(invQ)invQ.value='';invRender();invEsito('');mostra('l-inv',true);
  ['l-tipo','l-titolo','l-note','l-opz'].forEach(function(k){mostra(k,true);});aggiornaTipo();ft.required=true;si.textContent='Salva le modifiche';si.disabled=false;no.disabled=false;m('','');dlg.showModal();}
+/* campi rossi (14/11/2026): i controlli del browser li fa crControlla, così si vedono tutti insieme e in rosso */
+if(typeof crControlla==='function')form.noValidate=true;
 form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)return;
+ if(typeof crControlla==='function'){crPulisci(form);var rr=[{el:fg,ok:function(){return fg.value!==''&&fg.checkValidity();},testo:fg.value?'Il giorno non può essere nel passato':'Indica il giorno'}];if(modo!=='sposta')rr.push({el:ft,testo:'Scrivi cosa succede'});
+  if(fo.value&&ff.value)rr.push({el:ff,ok:function(){return ff.value>fo.value;},testo:'L’ora di fine deve venire dopo l’inizio'});
+  var chiL=document.querySelector('#ag-form .chi-l');if(modo!=='sposta'&&lav()&&favv.checked&&chiL)rr.push({el:chiL,ok:function(){return scelte().length>0;},testo:'Scegli le persone da avvisare, oppure togli la spunta dell’avviso WhatsApp'});
+  if(modo!=='sposta'&&lav()&&fgg)rr.push({el:fgg,ok:function(){var n=ggNum();return n>=1&&n<=120&&fgg.checkValidity();},testo:'I giorni vanno da 1 a 120'});
+  if(!crControlla(rr)){m('ko','Completa i campi segnati in rosso.');return;}}
  if(!fg.value){m('ko','Indica il giorno.');return;}
  if(modo!=='sposta'&&!ft.value.trim()){m('ko','Scrivi cosa succede.');return;}
  if(fo.value&&ff.value&&ff.value<=fo.value){m('ko','L’ora di fine deve venire dopo l’inizio.');return;}
@@ -1249,7 +1263,7 @@ form.addEventListener('submit',function(ev){ev.preventDefault();if(occupato)retu
 });
 no.addEventListener('click',function(){if(occupato)return;dlg.close();});
 dlg.addEventListener('cancel',function(ev){if(occupato)ev.preventDefault();});
-dlg.addEventListener('close',function(){var f=fatto;fatto=false;si.hidden=false;no.textContent='Annulla';if(f)location.reload();});
+dlg.addEventListener('close',function(){if(typeof crPulisci==='function')crPulisci(form);var f=fatto;fatto=false;si.hidden=false;no.textContent='Annulla';if(f)location.reload();});
 var nb=document.getElementById('ag-nuovo');if(nb)nb.addEventListener('click',apriNuovo);
 /* dal calendario del mese: «+» su un giorno apre il modulo con quel giorno già scelto */
 window.glAgNuovo=function(g){if(D.chiuso)return;apriNuovo();if(g&&g>=D.oggi){fg.value=g;crAvvisa();}};
@@ -1263,9 +1277,12 @@ function apriEsito(b){var att=[];try{att=JSON.parse(b.getAttribute('data-att'))|
  esL.innerHTML=h;esMsg.className='msg';esMsg.textContent='';esSi.disabled=false;esNo.disabled=false;
  esL.querySelectorAll('.es-e').forEach(function(s){s.addEventListener('change',function(){var p=s.parentNode.querySelector('.es-p');p.style.display=(s.value==='finita'||s.value==='non_fatta')?'none':'';});});
  es.showModal();}
+if(typeof crControlla==='function')document.getElementById('es-form').noValidate=true;
 document.getElementById('es-form').addEventListener('submit',function(ev){ev.preventDefault();if(esOcc)return;var esiti=[];
  esL.querySelectorAll('.es-r').forEach(function(r){var e=r.querySelector('.es-e').value,p=r.querySelector('.es-p').value;
   if(e!=='non_fatta')esiti.push({attivita_id:r.getAttribute('data-att'),esito:e,pct:(e==='finita'?'':p)});});
+ if(typeof crControlla==='function'){crPulisci(esL);var rp=[];esL.querySelectorAll('.es-p').forEach(function(p){if(p.style.display==='none')return;rp.push({el:p,ok:function(){var v=p.value;return v===''||(!isNaN(Number(v))&&Number(v)>=0&&Number(v)<=100);},testo:'Da 0 a 100'});});
+  if(!crControlla(rp)){esMsg.className='msg ko';esMsg.textContent='Correggi i campi segnati in rosso.';return;}}
  for(var i=0;i<esiti.length;i++){var pv=esiti[i].pct;if(pv!==''&&(isNaN(Number(pv))||Number(pv)<0||Number(pv)>100)){esMsg.className='msg ko';esMsg.textContent='La percentuale va da 0 a 100.';return;}}
  esOcc=true;esSi.disabled=true;esNo.disabled=true;esMsg.className='msg';esMsg.textContent='Un momento…';
  post('azione',{t:D.t,id:esId,azione:'crono_esito',dati:{esiti:esiti}}).then(function(j){esOcc=false;
@@ -1335,8 +1352,12 @@ if(fa&&typeof fa.showModal==='function'){
    (f.sp?' (date già aggiornate dall’Agenda il '+f.sp+')':'')+'.';
   faMsg('','');faSi.hidden=false;faSi.disabled=false;faNo.disabled=false;faNo.textContent='Annulla';fa.showModal();};
  faI.addEventListener('change',function(){if(faT.checked&&faCur&&faI.value)faF.value=gPiu(faI.value,gDiff(faCur.ip,faCur.fp));});
+ if(typeof crControlla==='function')document.getElementById('fa-form').noValidate=true;
  document.getElementById('fa-form').addEventListener('submit',function(ev){ev.preventDefault();if(faOcc||!faCur)return;
   var car=faCur.tipo==='cardine',i=car?faF.value:faI.value,f=faF.value;
+  if(typeof crControlla==='function'){crPulisci(document.getElementById('fa-form'));var rf=[];if(!car)rf.push({el:faI,testo:'Indica l’inizio'});
+   rf.push({el:faF,ok:function(){return !!f&&(!i||f>=i);},testo:!f?(car?'Indica il giorno':'Indica la fine'):'La fine deve venire dopo l’inizio'});
+   if(!crControlla(rf)){faMsg('ko','Completa i campi segnati in rosso.');return;}}
   if(!i||!f){faMsg('ko','Indica le date.');return;}
   if(f<i){faMsg('ko','La fine deve venire dopo l’inizio.');return;}
   faOcc=true;faSi.disabled=true;faNo.disabled=true;faMsg('','Un momento…');
