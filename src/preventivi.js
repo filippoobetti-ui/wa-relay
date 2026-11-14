@@ -654,7 +654,12 @@ function riempiCant(){var id=$('pv-n-cant').value,c=(D.cantieri||[]).filter(func
 $('pv-n-cant').onchange=riempiCant;
 $('pv-n-cliente').onchange=function(){var r=(D.rubrica||[]).filter(function(x){return x.nome===$('pv-n-cliente').value;})[0];
  if(r){if(!$('pv-n-email').value)$('pv-n-email').value=r.email||'';if(!$('pv-n-piva').value)$('pv-n-piva').value=r.partita_iva||'';}};
-$('pv-n-crea').onclick=function(){var b=this;b.disabled=true;msg($('pv-n-msg'),'Un momento…');
+$('pv-n-crea').onclick=function(){var b=this;
+ // 14/11/2026 (campi-rossi-2): campi mancanti in rosso
+ if(!crControlla([{el:$('pv-n-titolo'),ok:function(x){return x.value.trim().length>=2;},testo:'Scrivi che lavoro è'},
+   {el:$('pv-n-email'),ok:function(x){var v=x.value.trim();return !v||/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v);},testo:'L\'email del cliente è scritta male'},
+   {el:$('pv-n-piva'),ok:function(x){var v=x.value.replace(/\s/g,'');return !v||/^(IT)?[0-9]{11}$/i.test(v)||/^[A-Z0-9]{16}$/i.test(v);},testo:'Partita IVA di 11 cifre (o codice fiscale)'}])){msg($('pv-n-msg'),'Completa i campi segnati in rosso.','ko');return;}
+ b.disabled=true;msg($('pv-n-msg'),'Un momento…');
  api('nuovo',{commessa_id:$('pv-n-cant').value,titolo:$('pv-n-titolo').value,cliente_nome:$('pv-n-cliente').value,indirizzo_lavoro:$('pv-n-dove').value,
   cliente_email:$('pv-n-email').value,cliente_piva:$('pv-n-piva').value}).then(function(r){b.disabled=false;
   if(r&&r.esito==='ok'){apri(r.id);return;}msg($('pv-n-msg'),msgErr(r),'ko');});};
@@ -850,7 +855,10 @@ $('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=m
  var d={id:F.id,descrizione:$('pv-vo-descr').value,prezzo:$('pv-vo-prezzo').value,quantita:M.length?'':$('pv-vo-q').value,misure:M};
  if(v.id)d.voce_id=String(v.id);else{d.fonte=v.fonte;if(v.rif)d.rif=v.rif;}
  if(lib){d.codice=$('pv-vo-cod').value;d.unita=$('pv-vo-um').value;}
- if(!M.length&&!String($('pv-vo-q').value).trim()){msg($('pv-vo-msg'),'Scrivi la quantità, oppure le righe di misura.','ko');return;}
+ if(!crControlla([{el:$('pv-vo-descr'),ok:function(x){return x.value.trim().length>=2;},testo:'Scrivi la descrizione della voce'},
+   {el:$('pv-vo-prezzo'),ok:function(x){var n=inNum(x.value);return n!==null&&!isNaN(n);},testo:'Scrivi il prezzo in euro, per esempio 25,50'},
+   {el:$('pv-vo-q'),ok:function(x){if(M.length)return true;var n=inNum(x.value);return n!==null&&!isNaN(n);},testo:'Scrivi la quantità, oppure le righe di misura'},
+   {el:$('pv-vo-um'),ok:function(x){return !lib||x.value.trim()!=='';},testo:'Scrivi l\'unità di misura (m², m³, kg, cad…)'}])){msg($('pv-vo-msg'),'Completa i campi segnati in rosso.','ko');return;}
  b.disabled=true;msg($('pv-vo-msg'),'Un momento…');
  api('voce',d).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){velo('pv-v-voce',false);
   // una voce di TIX corretta a mano è controllata
@@ -872,7 +880,9 @@ function azione(az,b){var m=$('pv-az-msg');
  if(b)b.disabled=true;if(m){m.textContent='Un momento…';m.className='pv-msg';}
  api(az,{id:F.id}).then(function(r){if(b)b.disabled=false;
   if(r&&r.esito==='ok'){if(az==='elimina'){location.href=link('');return;}carica();}else{if(m){m.textContent=msgErr(r);m.className='pv-msg ko';}else alert(msgErr(r));}});}
-$('pv-es-ok').onclick=function(){var b=this;b.disabled=true;msg($('pv-es-msg'),'Un momento…');
+$('pv-es-ok').onclick=function(){var b=this;
+ if(!crControlla([{el:$('pv-es-data'),testo:'Scrivi la data'},{el:$('pv-es-chi'),ok:function(x){return ESITO!=='accettato'||x.value.trim()!=='';},testo:'Scrivi chi l\'ha accettato'}])){msg($('pv-es-msg'),'Completa i campi segnati in rosso.','ko');return;}
+ b.disabled=true;msg($('pv-es-msg'),'Un momento…');
  api(ESITO,{id:F.id,data:$('pv-es-data').value,chi:$('pv-es-chi').value,nota:$('pv-es-nota').value}).then(function(r){b.disabled=false;
   if(r&&r.esito==='ok'){velo('pv-v-esito',false);carica();}else msg($('pv-es-msg'),msgErr(r),'ko');});};
 $('pv-file').onchange=function(){var f=this.files&&this.files[0],m=$('pv-az-msg');if(!f)return;

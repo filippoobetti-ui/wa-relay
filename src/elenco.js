@@ -1,3 +1,5 @@
+// 14/11/2026 (campi-rossi-2, chat B3): campi mancanti in rosso
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 // ============================================================================
 // ELENCO FORNITORI E SUBAPPALTATORI DI TIX (10/11/2026, elenco-1, chat 02B). Scelte di Filippo del 09/11: iscrizione solo con
 // il link d'invito, approvazione di Filippo, riquadro «Siamo nell'elenco fornitori di TIX» obbligatorio, referente visibile se
@@ -152,10 +154,10 @@ const ELENCO_CSS =
 function elPagina(titolo, corpo, script) {
   const html = '<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#1B2F4A">' +
-    '<title>' + elEsc(titolo) + ' — Elenco fornitori di TIX</title><style>' + ELENCO_CSS + '</style></head><body>' +
+    '<title>' + elEsc(titolo) + ' — Elenco fornitori di TIX</title><style>' + ELENCO_CSS + CAMPI_ROSSI_CSS + '</style></head><body>' +
     '<header><b>TIX</b><span>Elenco fornitori e subappaltatori</span></header><main>' + corpo + '</main>' +
     '<footer>TIX · Diario di cantiere™ · www.tixcantiere.it · info@tixcantiere.it</footer>' +
-    (script ? '<script>' + script + '</script>' : '') + '</body></html>';
+    (script ? '<script>' + CAMPI_ROSSI_JS + script + '</script>' : '') + '</body></html>';
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-store",
     "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY" } });
 }
@@ -207,9 +209,15 @@ function caricaLogo(){var el=$('logo'),f=el&&el.files&&el.files[0];if(!f)return 
  return fetch(D.base+'/elenco/logo?'+q+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f}).then(function(r){return r.json();}).then(function(r){
   if(!r||r.esito!=='ok')throw new Error(r&&r.messaggio||'Il logo non si è caricato: riprovate o toglietelo.');return r.percorso;});}
 function invia(){var b=$('invia');var d=campi();
- if(!MIA){if(!$('regole_ok').checked||!$('riquadro_ok').checked){msg('Per iscrivervi servono le due spunte: le regole dell\'elenco e il riquadro sul vostro sito.','err');return;}}
- if(!d.tipi.length){msg('Indicate cosa siete: fornitore, subappaltatore o noleggio.','err');return;}
- if(!d.province.length){msg('Indicate almeno una provincia in cui lavorate.','err');return;}
+ var R=[{el:$('ragione_sociale'),testo:'Scrivete la ragione sociale'},
+  {el:$('partita_iva'),ok:function(x){return /^(IT)?[0-9]{11}$/i.test(x.value.replace(/\s/g,''));},testo:'Partita IVA di 11 cifre'},
+  {el:document.querySelector('.spunte'),ok:function(){return d.tipi.length>0;},testo:'Indicate cosa siete: fornitore, subappaltatore o noleggio'},
+  {el:$('prov'),ok:function(){return d.province.length>0;},testo:'Indicate almeno una provincia in cui lavorate'},
+  {el:$('sede_comune'),testo:'Scrivete il comune della sede'},{el:$('sede_provincia'),testo:'Scegliete la provincia della sede'},
+  {el:$('email'),ok:function(x){return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(x.value.trim());},testo:'Scrivete l\'email per le richieste di offerta'}];
+ if(!MIA)R.push({el:$('regole_ok').closest('label'),ok:function(){return $('regole_ok').checked;},testo:'Serve la spunta sulle regole dell\'elenco'},
+  {el:$('riquadro_ok').closest('label'),ok:function(){return $('riquadro_ok').checked;},testo:'Serve la spunta sul riquadro per il vostro sito'});
+ if(!crControlla(R)){msg('Completate i campi segnati in rosso.','err');return;}
  b.disabled=true;
  caricaLogo().then(function(p){d.logo_path=p||'';if(MIA){d.togli_logo=togliLogo&&!p;}
   if(MIA)return fetch(D.base+'/elenco/mia/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:D.t,azione:'salva',dati:d})});
