@@ -118,7 +118,7 @@ export function offerteIniezione(base, token, commessa, daDecidere) {
   const n = Math.max(0, Math.min(999, Number(daDecidere) || 0));
   const icona = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>';
-  const etichetta = icona + " Offerte" + (n ? ' <span class="gl-of-n" title="Da decidere">' + n + "</span>" : "");
+  const etichetta = icona + " Offerte ricevute" + (n ? ' <span class="gl-of-n" title="Da decidere">' + n + "</span>" : "");
   return "<style>.gl-of-barra{max-width:960px;margin:10px auto 0;padding:0 12px;text-align:right}" +
     ".gl-of-b{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:0 16px;border:1.5px solid #66741C;border-radius:10px;background:#F3F5E6;color:#4E5915;font:inherit;font-size:.92rem;font-weight:700;text-decoration:none;box-shadow:0 0 0 3px rgba(102,116,28,.14)}" +
     ".gl-of-b:hover,.gl-of-b:focus-visible{background:#66741C;color:#fff;outline:none}" +
@@ -162,9 +162,13 @@ export async function portaleOfferte(request, env, base, inUrl, h) {
   const torna = base + "/?t=" + p.tok + "&c=" + p.c;
   const indietro = '<p><a href="' + h.esc(torna) + '">Torna al cantiere</a></p>';
   const d = await h.rpc(env, "offerte_contesto", { p_token: p.tok, p_commessa: p.c }, 20000).catch(() => null);
-  if (!d || typeof d !== "object") return h.risposta(h.foglio(base, "Offerte dei fornitori", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (!d || typeof d !== "object") return h.risposta(h.foglio(base, "Offerte ricevute dai fornitori", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
-  if (d.esito !== "ok") return h.risposta(h.foglio(base, "Offerte dei fornitori", "Questa pagina non è disponibile per questo cantiere.", indietro), 404);
+  if (d.esito !== "ok") return h.risposta(h.foglio(base, "Offerte ricevute dai fornitori", "Questa pagina non è disponibile per questo cantiere.", indietro), 404);
+  // offerte-3 (14/11/2026): «Chiedi un preventivo a un fornitore» porta alla rotta /preventivi/richiedi della B3; il pulsante c'è solo
+  // se i Preventivi sono accesi per questo accesso (preventivi_pulsante); qualsiasi errore = nessun pulsante, la pagina si apre lo stesso
+  const pv = await h.rpc(env, "preventivi_pulsante", { p_token: p.tok, p_commessa: p.c }, 8000).catch(() => null);
+  d.chiedi = !!(pv && typeof pv === "object" && pv.esito === "ok" && pv.attiva === true);
   return h.risposta(pagina(base, h, p, d, torna));
 }
 
@@ -302,7 +306,7 @@ async function apriFile(request, env, base, inUrl, h) {
   if (!p.tok) return Response.redirect(inUrl.origin + base + "/", 303);
   const e = h.esc;
   const torna = base + "/offerte?t=" + p.tok + "&c=" + p.c;
-  const indietro = '<a class="btn" href="' + e(torna) + '">Torna alle Offerte dei fornitori</a>';
+  const indietro = '<a class="btn" href="' + e(torna) + '">Torna alle Offerte ricevute</a>';
   if (!UUID.test(p.c) || !UUID.test(id)) return h.risposta(h.foglio(base, "Offerta non trovata", "", indietro), 404);
   const info = await h.rpc(env, "offerte_file_info", { p_token: p.tok, p_id: id }, 10000).catch(() => null);
   if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Offerta", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
@@ -396,6 +400,7 @@ async function leggi(request, env, h) {
 
 // ---------------------------------------------------------------------------- pagina
 const SVG = {
+  chiedi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
   tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
   piu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   su: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-3"/></svg>',
@@ -525,14 +530,16 @@ function pagina(base, h, p, d, torna) {
 
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>Offerte dei fornitori - TIX · Diario di cantiere</title>" + h.testa(base) +
+    "<title>Offerte ricevute dai fornitori - TIX · Diario di cantiere</title>" + h.testa(base) +
     "<style>" + STILE + "</style></head><body><main>" +
     '<a class="of-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="of-card">' +
     '<div class="of-testa"><div>' + (d.cantiere ? '<p class="of-cant">' + e(d.cantiere) + '</p>' : "") +
-    '<h1><span class="of-ic" aria-hidden="true">' + SVG.tag + '</span>Offerte dei fornitori</h1>' +
+    '<h1><span class="of-ic" aria-hidden="true">' + SVG.tag + '</span>Offerte ricevute dai fornitori</h1>' +
+    '<p class="of-sotto">Qui carichi le offerte che i fornitori ti hanno mandato.' + (d.chiedi && !chiuso ? ' Per chiedere tu un preventivo a un fornitore usa il pulsante «Chiedi un preventivo a un fornitore».' : '') + '</p>' +
     (d.modo === "prova" ? '<p class="of-prova">In prova: questa pagina la vede solo l\'accesso «Tutte le aziende»</p>' : "") + '</div>' +
-    (chiuso ? "" : '<div class="of-az-testa"><a class="btn pr" href="#carica">' + SVG.piu + 'Carica un\'offerta</a></div>') + '</div>' +
+    (chiuso ? "" : '<div class="of-az-testa">' + (d.chiedi ? '<a class="btn pr" id="of-chiedi" href="' + e(base + "/preventivi/richiedi?t=" + p.tok + "&c=" + p.c) + '">' + SVG.chiedi + 'Chiedi un preventivo a un fornitore</a>' : "") +
+      '<a class="btn ' + (d.chiedi ? "sec" : "pr") + '" href="#carica">' + SVG.piu + 'Carica un\'offerta</a></div>') + '</div>' +
     cifre + regole + scadenza + (voci.length ? filtri : "") + sezioni + '<p class="of-nessuno" id="of-nessuno" hidden>Nessuna offerta con questa ricerca.</p>' +
     listaFor + listaMat + listaUn + form +
     '<p class="of-fonti">TIX™ conserva le offerte dei fornitori e le tiene in ordine. I prezzi sono quelli scritti dall\'impresa: fa fede il documento del fornitore.</p>' +
