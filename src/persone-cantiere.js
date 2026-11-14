@@ -12,6 +12,8 @@
 
 // 10/11/2026 (noleggio-1, chat 02B): tipi di ditta con icona e colore (Fornitore, Subappaltatore, Noleggio)
 import { TIPI_DITTA_CSS, TIPI_DITTA_CSS_SCURO, TIPI_DITTA_JS } from "./tipi-ditta.js";
+// 14/11/2026 (campi-rossi-1, chat B3): campi mancanti in rosso, regola di Filippo per tutti i moduli
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const NUMERO_TIX = "393783107501";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -194,13 +196,13 @@ function pagina(base, tok, c, d, h) {
     .replace(/</g, "\\u003c").replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
-    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + PROF_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + "</style></head><body>" +
+    '<title>Persone del cantiere - TIX · Diario di cantiere</title>' + h.testa(base) + "<style>" + STILE + TEL_CSS + PROF_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + CAMPI_ROSSI_CSS + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok + "&c=" + c) + '">&larr; Torna al cantiere</a>' +
     '<h1>Persone del cantiere</h1><p id="sotto"></p><div class="riass" id="riass"></div></div></header>' +
     '<main class="corpo"><div class="in"><div class="barra"><h2>Chi lavora qui</h2><button class="btn pr" id="apri-scelta" type="button">&#128211; Scegli contatto da rubrica oppure nuovo contatto</button></div>' +
     '<div id="gruppi"></div><p class="nota">Entra in TIX solo chi aggiungi qui. Ogni persona riceve un link personale: lo apre, invia il messaggio già scritto e il cantiere si attiva. Il link vale 14 giorni.</p></div></main>' +
     SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + PROF_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
+    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + CAMPI_ROSSI_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
 }
 
 // Rubrica (26/10/2026, persone-cantiere-4): i contatti dell'impresa con i dati anagrafici (GET /rubrica?t=).
@@ -217,14 +219,14 @@ async function rubricaRoute(request, env, base, inUrl, h) {
     .replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
   const html = '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Rubrica - TIX · Diario di cantiere</title>' +
-    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}" + IMPORTA_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + "</style></head><body>" +
+    h.testa(base) + "<style>" + STILE + TEL_CSS + ".testa{background:linear-gradient(135deg,#C2540B,#F26A10)}.cerca{margin:4px 0 14px}" + IMPORTA_CSS + TIPI_DITTA_CSS + TIPI_DITTA_CSS_SCURO + CAMPI_ROSSI_CSS + "</style></head><body>" +
     '<header class="testa"><div class="in"><a class="torna" href="' + h.esc(base + "/?t=" + tok) + '">&larr; Torna ai cantieri</a>' +
     '<h1>Rubrica</h1><p id="sotto"></p></div></header><main class="corpo"><div class="in">' +
     '<div class="barra"><h2>Contatti</h2><div class="az-rub"><button class="btn" id="importa" type="button">&#128229; Importa da file</button><button class="btn pr" id="nuovo" type="button">+ Nuovo contatto</button></div></div>' +
     '<input class="campo cerca" id="cerca" type="search" placeholder="Cerca per nome, impresa, ruolo o numero" aria-label="Cerca nella rubrica" style="margin-top:12px">' +
     '<div class="lista" id="lista"></div><p class="nota">Qui tieni operai, subappaltatori, fornitori, noleggi di mezzi, laboratori prove, tecnici e committenti con i loro dati. Per mettere un contatto in un cantiere apri il cantiere, poi «Persone del cantiere» e «Scegli contatto da rubrica oppure nuovo contatto». Chi aggiungi a un cantiere entra in rubrica da solo. Eliminare un contatto dalla rubrica non lo toglie dai cantieri.</p></div></main>' +
     SCHEDA_HTML + IMPORTA_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
+    "<script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + CAMPI_ROSSI_JS + RUBRICA_JS + IMPORTA_JS + "})();</script></body></html>";
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: h.headers() });
 }
 
@@ -549,7 +551,7 @@ $("form-sch").addEventListener("submit",function(e){e.preventDefault();var ok=$(
     else if(z.indexOf("r:")===0)dati.impresa_id=z.slice(2);else if(z.indexOf("a:")===0)dati.azienda_id=z.slice(2);}
   chiama("rubrica_salva",corr?{id:corr.id,dati:dati}:{dati:dati}).then(function(r){ok.disabled=false;
     if(r.esito==="ok"){$("velo-sch").hidden=true;toast(corr?"Contatto aggiornato":"Contatto aggiunto alla rubrica");ricarica();}
-    else{$("s-err").textContent=r.messaggio||"Non salvato: riprova.";$("s-err").hidden=false;var f=r.campo&&$({nome:"s-nome",telefono:"s-tel",email:"s-mail",partita_iva:"s-piva",codice_fiscale:"s-cf",azienda:"s-az",nuova_impresa:"s-nuova",nuova_impresa_piva:"s-nuova-piva"}[r.campo]);if(f)f.focus();}})
+    else{$("s-err").textContent=r.messaggio||"Non salvato: riprova.";$("s-err").hidden=false;var f=r.campo&&$({nome:"s-nome",telefono:"s-tel",email:"s-mail",partita_iva:"s-piva",codice_fiscale:"s-cf",azienda:"s-az",nuova_impresa:"s-nuova",nuova_impresa_piva:"s-nuova-piva"}[r.campo]);if(f){crSegna(f,r.messaggio);f.focus();}}})
   .catch(function(){ok.disabled=false;$("s-err").textContent="Connessione assente: riprova.";$("s-err").hidden=false;});});
 $("s-elim").addEventListener("click",function(){var b=$("s-elim");if(!corr)return;
   if(!b.dataset.conferma){b.dataset.conferma="1";b.textContent="Tocca di nuovo per eliminare";return;}
@@ -707,7 +709,7 @@ $("form-agg").addEventListener("submit",function(e){
   chiama("aggiungi",{dati:{nome:$("f-nome").value,ruolo:sel.value,telefono:telValore("f-tel"),email:$("f-mail").value,impresa:$("f-imp").value,tipo_rapporto:$("f-rapp").value,consenso_promemoria:$("f-consenso").checked}})
   .then(function(r){ok.disabled=false;
     if(r.esito==="ok"){$("form-agg").reset();$("velo-agg").hidden=true;sostituisci(r.persona);mostraInvito(r.persona);}
-    else{$("f-err").textContent=r.messaggio||"Non riuscito: riprova.";$("f-err").hidden=false;var f=r.campo&&$({nome:"f-nome",ruolo:"f-ruolo",telefono:"f-tel",email:"f-mail"}[r.campo]);if(f)f.focus();}})
+    else{$("f-err").textContent=r.messaggio||"Non riuscito: riprova.";$("f-err").hidden=false;var f=r.campo&&$({nome:"f-nome",ruolo:"f-ruolo",telefono:"f-tel",email:"f-mail"}[r.campo]);if(f){crSegna(f,r.messaggio);f.focus();}}})
   .catch(function(){ok.disabled=false;$("f-err").textContent="Connessione assente: riprova.";$("f-err").hidden=false;});
 });
 var corrente=null;

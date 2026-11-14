@@ -34,6 +34,8 @@ import { leggiOffertaFornitore, LETTORE_MAX_PDF, LETTORE_MAX_FOTO } from "./lett
 import { preparaLogo } from "./sal.js";
 // 10/11/2026 (noleggio-1): icone dei tipi di ditta (Fornitore, Subappaltatore, Noleggio), comuni con Rubrica e Persone del cantiere
 import { TIPI_DITTA_CSS, TIPI_DITTA_JS } from "./tipi-ditta.js";
+// 14/11/2026 (campi-rossi-1, chat B3): campi mancanti in rosso, regola di Filippo per tutti i moduli
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_FILE = 18 * 1024 * 1024;
@@ -216,7 +218,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>" + (prove ? "Prove sui materiali" : "Richieste di offerta") + " - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + (prove ? STILE_PR : "") + "</style></head><body><main id=\"pv-main\">" +
+    "<style>" + STILE + STILE_OF + TIPI_DITTA_CSS + CAMPI_ROSSI_CSS + (prove ? STILE_PR : "") + "</style></head><body><main id=\"pv-main\">" +
     '<a class="pv-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     (prove
       ? '<section class="pv-card pv-of"><h2>Prove sui materiali · ' + e(titolo) + '</h2><p>Scegli le prove dall\'elenco (calcestruzzo, acciaio, terre, murature, bitumi), ' +
@@ -226,7 +228,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
         'scrivi le righe o prendile dal computo del SAL, poi confronta le offerte che arrivano.</p>' +
         '<button type="button" class="pv-b pv-pr" data-ofapri>Apri le richieste di offerta</button></section>') +
     (prove ? '<div id="pr-app"><p class="pv-carica">Un momento…</p></div>' : "") +
-    "</main><script>" + TIPI_DITTA_JS + "</script><script>" +
+    "</main><script>" + TIPI_DITTA_JS + CAMPI_ROSSI_JS + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: prove ? "" : "rdo" }).replace(/</g, "\\u003c")) +
     (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", ff: base + "/preventivi/prove/fattura", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
     "</script></body></html>";
@@ -304,13 +306,13 @@ function pagina(base, h, tok, a, c, id, d, torna, apri) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Preventivi - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + STILE_IA + STILE_OF + TIPI_DITTA_CSS + "</style></head><body><main id=\"pv-main\">" +
+    "<style>" + STILE + STILE_IA + STILE_OF + TIPI_DITTA_CSS + CAMPI_ROSSI_CSS + "</style></head><body><main id=\"pv-main\">" +
     (id
       ? '<a class="pv-torna" href="' + e(base + "/preventivi?t=" + tok + (a ? "&a=" + a : "") + (c ? "&c=" + c : "")) + '">‹ Tutti i preventivi</a>'
       : '<a class="pv-torna" href="' + e(torna) + '">‹ ' + (c ? "Torna al cantiere" : "Torna ai cantieri") + "</a>") +
     '<div id="pv-app"><p class="pv-carica">Un momento…</p></div>' +
     "</main>" + MODALI +
-    "<script>" + TIPI_DITTA_JS + "</script><script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
+    "<script>" + TIPI_DITTA_JS + CAMPI_ROSSI_JS + "</script><script>" + SCRIPT.replace("__CFG__", cfg) + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: apri ? "rdo" : "" }).replace(/</g, "\\u003c")) + "</script></body></html>";
 }
 
@@ -2452,10 +2454,11 @@ function azioneRighe(az,el){
  if(az==='cat_apri'){var bc=document.getElementById('of-cp');bc.innerHTML='<p class="sotto">Carico l\'elenco delle prove…</p>';
   api('of_catalogo').then(function(r){if(r.esito!=='ok'){bc.innerHTML='<p class="pv-msg err">'+es(errore(r))+'</p>';return;}bc.innerHTML=catBox(r.voci||[]);});return;}
  if(az==='cat_prendi'){var righe=Array.prototype.slice.call(document.querySelectorAll('#of-cp input[data-cat]:checked')).map(function(x){var c=x.getAttribute('data-cat'),q=document.querySelector('#of-cp [data-catq="'+c+'"]');return {codice:c,quantita:q?q.value.trim():'1'};});
-  if(!righe.length){nota('of-rmsg','Spunta almeno una prova.','err');return;}
-  if(righe.some(function(g){return !/^[0-9]{1,7}([.,][0-9]{1,3})?$/.test(g.quantita);})){nota('of-rmsg','Controlla le quantità: solo numeri.','err');return;}el.disabled=true;
+  var rq=[{el:document.getElementById('of-cp'),ok:function(){return righe.length>0;},testo:'Spunta almeno una prova'}];
+  righe.forEach(function(g){rq.push({el:document.querySelector('#of-cp [data-catq="'+g.codice+'"]'),ok:function(){return /^[0-9]{1,7}([.,][0-9]{1,3})?$/.test(g.quantita);},testo:'Solo numeri'});});
+  if(!crControlla(rq)){nota('of-rmsg','Completa i campi segnati in rosso.','err');return;}el.disabled=true;
   api('of_catalogo_prendi',{righe:righe}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
- if(az==='riga_add'){var dd=document.getElementById('of-rd').value.trim();if(dd.length<2){nota('of-rmsg','Scrivi cosa chiedi.','err');return;}el.disabled=true;
+ if(az==='riga_add'){var dd=document.getElementById('of-rd').value.trim();if(!crControlla([{el:document.getElementById('of-rd'),ok:function(){return dd.length>=2;},testo:'Scrivi cosa chiedi'}])){nota('of-rmsg','Completa i campi segnati in rosso.','err');return;}el.disabled=true;
   api('of_riga_aggiungi',{descrizione:dd,unita:document.getElementById('of-ru').value,quantita:document.getElementById('of-rq').value}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
  if(az==='riga_togli'){if(!confirm('Togliere questa riga?'))return;el.disabled=true;api('of_riga_togli',{voce_id:el.dataset.voce}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaOf();});return;}
  if(az==='cp_apri'){var bx=document.getElementById('of-cp');bx.innerHTML='<p class="sotto">Carico il computo…</p>';
@@ -2463,7 +2466,7 @@ function azioneRighe(az,el){
    bx.innerHTML='<p class="sotto" style="margin-top:10px">Spunta le voci da chiedere: entrano nell\'elenco qui sopra con descrizione, unità e quantità del computo.</p><div class="pv-ofl">'+(r.voci||[]).map(function(v){
     return '<label><input type="checkbox" value="'+es(v.id)+'"'+(v.presa?' disabled':'')+'><span><b>'+v.nr+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+(v.presa?' · già presa':'')+'</small></span></label>';}).join('')+
     '</div><div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="cp_prendi">Prendi le voci spuntate</button></div>';});return;}
- if(az==='cp_prendi'){var ids=Array.prototype.slice.call(document.querySelectorAll('#of-cp input:checked')).map(function(x){return x.value;});if(!ids.length){nota('of-rmsg','Spunta almeno una voce.','err');return;}
+ if(az==='cp_prendi'){var ids=Array.prototype.slice.call(document.querySelectorAll('#of-cp input:checked')).map(function(x){return x.value;});if(!crControlla([{el:document.getElementById('of-cp'),ok:function(){return ids.length>0;},testo:'Spunta almeno una voce del computo'}])){nota('of-rmsg','Completa i campi segnati in rosso.','err');return;}
   if(ids.length>200){nota('of-rmsg','Al massimo 200 voci per volta.','err');return;}el.disabled=true;
   api('of_computo_prendi',{voci:ids}).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-rmsg',errore(r),'err');return;}caricaOf();});return;}
 }
@@ -2482,10 +2485,12 @@ function azioneOf(az,el){
  var box=el.closest('[data-rdo]'),rid=box?box.dataset.rdo:null;
  if(az==='prepara'){var sel=document.getElementById('of-rub'),bx0=document.getElementById('of-ei').closest('.pv-emi'),nn=bx0.querySelector('.pv-emi-n');
   if(nn&&nn.value.trim()){emAggiungi(bx0);if(nn.value.trim())return;}var ei=document.getElementById('of-ei').value;
-  if(!lista(ei).length){nota('of-msg','Aggiungi almeno un indirizzo dell\'impresa in «Copia e risposte a».','err');return;}
   var d={voci:voceSel(),destinatario:document.getElementById('of-dest').value,email_a:document.getElementById('of-ea').value,email_impresa:ei,
    contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:(document.getElementById('of-tipo')||{}).value||(sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro'))};
-  if(!d.voci.length){nota('of-msg','Scegli almeno una voce.','err');return;}
+  if(!crControlla([{el:document.getElementById('of-voci'),ok:function(){return d.voci.length>0;},testo:(OF&&OF.prove?'Spunta almeno una prova da chiedere':'Spunta almeno una voce da chiedere')},
+    {el:document.getElementById('of-dest'),testo:'Scrivi a chi va la richiesta (nome della ditta o del laboratorio)'},
+    {el:document.getElementById('of-ea'),ok:function(x){return lista(x.value).every(function(e){return okEm(e.toLowerCase());});},testo:'Un indirizzo email è scritto male'},
+    {el:bx0,ok:function(){return lista(ei).length>0;},testo:'Aggiungi almeno un indirizzo dell\'impresa per la copia e le risposte'}])){nota('of-msg','Completa i campi segnati in rosso.','err');return;}
   el.disabled=true;nota('of-msg','Preparo la richiesta…');
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
    (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){caricaOf();});});return;}
@@ -2498,10 +2503,14 @@ function azioneOf(az,el){
  if(az==='salva'||az==='invia'){Object.assign(dati,campiRdo(box));}
  if(az==='offerta'){var d3=campiRdo(box);dati.data=d3.data;dati.prezzi=Array.prototype.slice.call(box.querySelectorAll('[data-voce]')).map(function(x){
    var n=box.querySelector('[data-nota="'+x.dataset.voce+'"]'),p=x.value.replace(/[€\s]/g,'');if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(p))p=p.replace(/\./g,'');
-   return {voce_id:x.dataset.voce,prezzo:p,note:n?n.value:''};});}
+   return {voce_id:x.dataset.voce,prezzo:p,note:n?n.value:''};});
+  if(!crControlla([{el:box.querySelector('[data-k="data"]'),testo:'Scrivi la data dell\'offerta'},
+    {el:box.querySelector('table.pv-ofg'),ok:function(){return dati.prezzi.some(function(p){return p.prezzo!=='';});},testo:'Scrivi almeno un prezzo dell\'offerta'}])){mOf(box,'Completa i campi segnati in rosso.','err');return;}}
  if(az==='annulla'&&!confirm('Annullare questa richiesta? Resta nell\'elenco come annullata.'))return;
  if(az==='invia'){var bxi=box.querySelector('.pv-emi'),ni=bxi?bxi.querySelector('.pv-emi-n'):null;if(ni&&ni.value.trim()){emAggiungi(bxi);if(ni.value.trim())return;dati.email_impresa=campiRdo(box).email_impresa;}
-  if(!lista(dati.email_impresa).length){mOf(box,'Aggiungi almeno un indirizzo dell\'impresa in «Copia e risposte a».','err');return;}
+  if(!crControlla([{el:box.querySelector('[data-k="email_a"]'),ok:function(x){var L=lista(x.value);return L.length>0&&L.every(function(e){return okEm(e.toLowerCase());});},testo:'Scrivi l\'email del destinatario (giusta)'},
+    {el:bxi||box,ok:function(){return lista(dati.email_impresa).length>0;},testo:'Aggiungi almeno un indirizzo dell\'impresa'},
+    {el:box.querySelector('[data-k="oggetto"]'),testo:'Scrivi l\'oggetto'},{el:box.querySelector('[data-k="testo"]'),testo:'Scrivi il testo'}])){mOf(box,'Completa i campi segnati in rosso.','err');return;}
   if(!confirm('Mandare la richiesta da TIX a: '+lista(dati.email_a).join(', ')+'?\n\nCopia e risposte a: '+lista(dati.email_impresa).join(', ')))return;}
  el.disabled=true;mOf(box,'Un momento…');
  var prima=az==='invia'?api('of_testo',dati):Promise.resolve({esito:'ok'});
@@ -2598,6 +2607,8 @@ function azioneCh(az,el){
  var dati={ch_id:cid};
  if(az==='risposta'){dati.testo=(box.querySelector('[data-k="risposta"]')||{}).value||'';}
  else Object.assign(dati,campiCh(box));
+ if(az==='invia'&&!crControlla([{el:box.querySelector('[data-k="email_a"]'),ok:function(x){return lista(x.value).length>0;},testo:'Scrivi l\'email del Direttore dei Lavori'},
+   {el:box.querySelector('[data-k="oggetto"]'),testo:'Scrivi l\'oggetto'},{el:box.querySelector('[data-k="testo"]'),testo:'Scrivi il testo'}])){mOf(box,'Completa i campi segnati in rosso.','err');return;}
  if(az==='invia'&&!confirm('Mandare l\'email da TIX a: '+lista(dati.email_a).concat(lista(dati.email_cc)).join(', ')+'?'))return;
  el.disabled=true;mOf(box,'Un momento…');
  var prima=az==='invia'?api('ch_testo',dati):Promise.resolve({esito:'ok'});
@@ -2923,21 +2934,32 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]'
  if(az==='fatt_annulla'){document.getElementById('pr-fatt').innerHTML='';return;}
  if(az==='fatt_togli'){if(!confirm('Togliere questa fattura?'))return;b.disabled=true;api('pr_fattura_togli',{fattura_id:b.getAttribute('data-f')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}carica();});return;}
  if(az==='fatt_salva'){var df={};document.querySelectorAll('#pr-fa [data-fa]').forEach(function(i){df[i.getAttribute('data-fa')]=i.value;});var fl=document.querySelector('#pr-fa [data-fa-file]'),file=fl&&fl.files&&fl.files[0];
+  var fq=function(k){return document.querySelector('#pr-fa [data-fa="'+k+'"]');};
+  if(!crControlla([{el:fq('numero'),testo:'Scrivi il numero della fattura'},{el:fq('data'),testo:'Scrivi la data della fattura'},
+    {el:fq('imponibile'),ok:function(x){return /^[0-9.]{1,12}(,[0-9]{1,2})?$/.test(x.value.trim());},testo:'Scrivi l\'imponibile in euro, senza IVA (per esempio 765,00)'},
+    {el:fl,ok:function(){return !file||/\.(pdf|jpe?g|png|xml)$/i.test(file.name);},testo:'Si caricano PDF, JPG, PNG e XML'}])){msg('Completa i campi segnati in rosso.','err');return;}
   if(file&&!/\.(pdf|jpe?g|png|xml)$/i.test(file.name)){alert('Si caricano PDF, JPG, PNG e XML.');return;}b.disabled=true;
   api('pr_fattura_salva',df).then(function(r){if(r.esito!=='ok'){b.disabled=false;alert(errore(r));return;}
    var fine=function(){b.disabled=false;document.getElementById('pr-fatt').innerHTML='';carica();};if(!file){fine();return;}
    fetch(CFG.ff+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&f='+r.fattura_id+'&nome='+encodeURIComponent(file.name),{method:'POST',body:file}).then(function(x){return x.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
    .then(function(x){if(x.esito!=='ok')alert('La fattura è salvata, ma il file non si è caricato: '+errore(x));fine();});});return;}
  if(az==='esito'){var xe=(S.prelievi||[]).filter(function(p){return p.id===b.getAttribute('data-p');})[0];if(xe)esitoForma(xe);return;}
- if(az==='esito_salva'){var de={prelievo_id:b.getAttribute('data-p')};document.querySelectorAll('#pr-e [data-e]').forEach(function(i){de[i.getAttribute('data-e')]=i.value;});b.disabled=true;
+ if(az==='esito_salva'){var de={prelievo_id:b.getAttribute('data-p')};document.querySelectorAll('#pr-e [data-e]').forEach(function(i){de[i.getAttribute('data-e')]=i.value;});
+  var eq=function(k){return document.querySelector('#pr-e [data-e="'+k+'"]');};
+  if(!crControlla([{el:eq('esito'),testo:'Scegli l\'esito: conforme o non conforme'},{el:eq('cert_numero'),testo:'Scrivi il numero del certificato'},{el:eq('cert_data'),testo:'Scrivi la data del certificato'}])){msg('Completa i campi segnati in rosso.','err');return;}b.disabled=true;
   api('pr_cert_salva',de).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}document.getElementById('pr-form').innerHTML='';carica();});return;}
- if(az==='salva'){var d={};document.querySelectorAll('#pr-f [data-f]').forEach(function(i){d[i.getAttribute('data-f')]=i.value;});if(MOD)d.prelievo_id=MOD;b.disabled=true;
+ if(az==='salva'){var d={};document.querySelectorAll('#pr-f [data-f]').forEach(function(i){d[i.getAttribute('data-f')]=i.value;});if(MOD)d.prelievo_id=MOD;
+  var pq=function(k){return document.querySelector('#pr-f [data-f="'+k+'"]');};
+  if(!crControlla([{el:pq('data'),testo:'Scrivi la data del prelievo'},{el:pq('prova_codice'),testo:'Scegli la prova da fare'},
+    {el:pq('opera'),testo:'Scrivi dove è stato fatto il prelievo (opera o elemento)'},
+    {el:pq('quantita'),ok:function(x){return x.value.trim()===''||/^[0-9]{1,7}([.,][0-9]{1,3})?$/.test(x.value.trim());},testo:'Solo numeri, per esempio 120 o 12,5'},
+    {el:pq('provini'),ok:function(x){return /^[0-9]{1,3}$/.test(x.value.trim());},testo:'Scrivi quanti provini o campioni'}])){msg('Completa i campi segnati in rosso.','err');return;}b.disabled=true;
   api('pr_prelievo_salva',d).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}MOD=null;carica();});return;}
  if(az==='togli'){if(!confirm('Togliere questo prelievo dal registro?'))return;b.disabled=true;api('pr_prelievo_togli',{prelievo_id:b.getAttribute('data-p')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){msg(errore(r),'err');return;}carica();});return;}
  if(az==='accetta'||az==='non_accetta'){if(az==='non_accetta'&&!confirm('Togliere l\'accettazione di questa offerta?'))return;b.disabled=true;
   api('pr_'+az,{rdo_id:b.getAttribute('data-rdo')}).then(function(r){b.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}carica();});return;}
  if(az==='richiesta'){var ids=Array.prototype.slice.call(document.querySelectorAll('[data-sel]:checked')).map(function(i){return i.getAttribute('data-sel');});
-  if(!ids.length){msg('Spunta i prelievi da mandare al laboratorio.','err');return;}if(!S.laboratorio&&!confirm('Non hai ancora accettato l\'offerta di un laboratorio: la richiesta uscirà senza il nome del laboratorio. Continuare?'))return;
+  if(!crControlla([{el:(document.querySelector('[data-sel]')||box).closest('table')||box,ok:function(){return ids.length>0;},testo:'Spunta i prelievi da mandare al laboratorio'}])){msg('Spunta i prelievi segnati in rosso.','err');return;}if(!S.laboratorio&&!confirm('Non hai ancora accettato l\'offerta di un laboratorio: la richiesta uscirà senza il nome del laboratorio. Continuare?'))return;
   window.open(stampa('richiesta',ids),'_blank','noopener');return;}
 });
 document.addEventListener('change',function(e){var fi=e.target;if(!fi||!fi.getAttribute||!fi.getAttribute('data-cert'))return;var f=fi.files&&fi.files[0],pid=fi.getAttribute('data-cert');if(!f)return;
