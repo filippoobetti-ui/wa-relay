@@ -62,7 +62,7 @@ const VOCI = [
   { k: "costruttivi", s: ".gl-cs-b", t: "Costruttivi", r: 0 },
   { k: "prove",       s: 'a.gl-pv-b[href*="/preventivi/prove?"]', t: "Prove materiali", r: 0 },
   { k: "preventivi",  s: 'a.gl-pv-b:not([href*="/preventivi/prove?"])', t: "Preventivi", r: 1 },
-  { k: "offerte",     s: ".gl-of-b", t: "Offerte", r: 1 },
+  { k: "offerte",     s: ".gl-of-b", t: "Offerte ricevute", r: 1 },
   { k: "sub",         s: ".gl-sb-b", t: "Subappaltatori", r: 1 },
   { k: "costi",       s: ".gl-cm-b", t: "Costi e margine", r: 1 },
   { k: "economie",    s: ".gl-ec-b", t: "Registro delle economie", r: 1 },
