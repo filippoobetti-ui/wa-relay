@@ -36,6 +36,8 @@ import { preparaLogo } from "./sal.js";
 import { TIPI_DITTA_CSS, TIPI_DITTA_JS } from "./tipi-ditta.js";
 // 14/11/2026 (campi-rossi-1, chat B3): campi mancanti in rosso, regola di Filippo per tutti i moduli
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 14/11/2026 (prove-5, chat B3): lettura con l'IA del verbale di prelievo o del DDT
+import { leggiVerbalePrelievo, PROVE_MAX_PDF, PROVE_MAX_FOTO } from "./lettore-prove.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_FILE = 18 * 1024 * 1024;
@@ -169,6 +171,8 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
   if (sotto === "/preventivi/prove/certificato") return certificatoProve(request, env, base, inUrl, h); // 13/11/2026 (prove-3)
   if (sotto === "/preventivi/prove/fattura") return fatturaProve(request, env, base, inUrl, h);         // 13/11/2026 (prove-4)
+  if (sotto === "/preventivi/prove/leggi") return leggiFileProve(request, env, inUrl, h);              // 14/11/2026 (prove-5)
+  if (sotto === "/preventivi/prove/allegato") return allegatoProve(request, env, base, inUrl, h);      // 14/11/2026 (prove-5)
   if (sotto !== "/preventivi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -230,7 +234,7 @@ function paginaRichieste(base, h, tok, a, c, id, titolo, torna, prove) {
     (prove ? '<div id="pr-app"><p class="pv-carica">Un momento…</p></div>' : "") +
     "</main><script>" + TIPI_DITTA_JS + CAMPI_ROSSI_JS + "</script><script>" +
     SCRIPT_OF.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", pf: base + "/preventivi/posta/file", t: tok, a: a, c: c, id: id, apri: prove ? "" : "rdo" }).replace(/</g, "\\u003c")) +
-    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", ff: base + "/preventivi/prove/fattura", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
+    (prove ? "</script><script>" + SCRIPT_PR.replace("__CFG__", JSON.stringify({ u: base + "/preventivi/api", st: base + "/preventivi/prove/stampa", cf: base + "/preventivi/prove/certificato", ff: base + "/preventivi/prove/fattura", lf: base + "/preventivi/prove/leggi", al: base + "/preventivi/prove/allegato", t: tok, a: a, c: c, id: id }).replace(/</g, "\\u003c")) : "") +
     "</script></body></html>";
 }
 
@@ -2653,7 +2657,8 @@ function pulisciPr(d) {
   const testi = { id: 36, rdo_id: 36, prelievo_id: 36, stato: 20, data: 10, materiale: 20, prova_codice: 12, opera: 300, quantita: 20, unita: 20,
     classe: 120, ddt: 200, fornitore: 200, provini: 6, sigle: 500, dl_nome: 200, tecnico_nome: 200, note: 2000,
     cert_numero: 80, cert_data: 10, esito: 20, valori: 2000, // 13/11/2026 (prove-3): certificato
-    fattura_id: 36, numero: 80, imponibile: 20, iva: 20, sconto_pct: 10 }; // 13/11/2026 (prove-4): fatture e sconto
+    fattura_id: 36, numero: 80, imponibile: 20, iva: 20, sconto_pct: 10, // 13/11/2026 (prove-4): fatture e sconto
+    file_path: 300, file_nome: 160 }; // 14/11/2026 (prove-5): verbale o DDT allegato
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.prelievi)) o.prelievi = x.prelievi.slice(0, 60).map((v) => testo(v, 36)).filter((v) => UUID.test(v));
   return o;
@@ -2766,6 +2771,62 @@ async function fatturaProve(request, env, base, inUrl, h) {
     "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
 }
 
+// 14/11/2026 (prove-5, chat B3): «Prelievo da un file» — il verbale (anche della centrale di betonaggio) o il DDT si carica,
+// si legge con l'IA leggera (crediti) e propone la scheda del prelievo; il file resta allegato (wa-media/preventivi/<impresa>/prove/file/)
+async function leggiFileProve(request, env, inUrl, h) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  const id = uuid(inUrl.searchParams.get("id"));
+  if (!tok) return json({ esito: "gettone" }, 400);
+  if (!id) return json({ esito: "errore" }, 400);
+  const nome = String(inUrl.searchParams.get("nome") || "verbale").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 160);
+  if (Number(request.headers.get("Content-Length") || 0) > PROVE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  let est = "";
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+  else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+  else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+  if (!est) return json({ esito: "formato", messaggio: "Si caricano PDF, JPG e PNG." }, 400);
+  if (bytes.length > (est === "pdf" ? PROVE_MAX_PDF : PROVE_MAX_FOTO)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "lettura_info", p_dati: {} }, 15000).catch(() => null);
+  if (!info) return json({ esito: "incerto" }, 503);
+  if ((info.esito !== "ok" && info.esito !== "ia") || !/^preventivi\/[0-9a-f-]{36}\/prove\/file\/$/.test(String(info.cartella || ""))) {
+    return json({ esito: String(info.esito || "errore"), messaggio: info.messaggio || "" });
+  }
+  const percorso = String(info.cartella) + "pre-" + Date.now() + "-" + casuale() + "." + est;
+  const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
+      "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : "image/jpeg", "x-upsert": "false" }, body: bytes }).catch(() => null);
+  if (!up || !up.ok) return json({ esito: "errore", messaggio: "Il file non si è salvato: riprova." }, 502);
+  if (info.esito !== "ok") return json({ esito: "ia", messaggio: info.messaggio || "", file_path: percorso, file_nome: nome, dl: "" });
+  const l = await leggiVerbalePrelievo(env, { bytes, nome, modello: info.modello, effort: info.effort, catalogo: Array.isArray(info.catalogo) ? info.catalogo : [] });
+  await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "lettura_fine", p_dati: { file_path: percorso, modello: String(l && l.modello || ""),
+    token_in: String(l && l.token_in || 0), token_out: String(l && l.token_out || 0), esito: String(l && l.esito || "errore") } }, 15000).catch(() => null);
+  return json({ esito: String(l && l.esito || "errore"), messaggio: String(l && l.messaggio || ""), proposta: l && l.proposta ? l.proposta : null,
+    file_path: percorso, file_nome: nome, dl: String(info.dl || ""), ricarica_eur: info.ricarica_eur == null ? null : info.ricarica_eur });
+}
+
+async function allegatoProve(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const tok = gettone(inUrl.searchParams.get("t"));
+  if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  const id = uuid(inUrl.searchParams.get("id")), pr = uuid(inUrl.searchParams.get("p"));
+  if (!id || !pr) return new Response("Not Found", { status: 404 });
+  const info = await h.rpc(env, "prove_azione", { p_token: tok, p_id: id, p_azione: "prelievo_file", p_dati: { prelievo_id: pr } }, 10000).catch(() => null);
+  if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/prove\/file\/pre-[A-Za-z0-9._-]{1,100}$/.test(String(info.path || ""))) {
+    return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">File non trovato.</p>'), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.path), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "Prove sui materiali", "", '<p class="err">Il file non si legge dall\u2019archivio: riprova tra un minuto.</p>'), 502);
+  const p = String(info.path), nome = String(info.nome || "verbale");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
+    "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
 const MAT_NOME = { calcestruzzo: "calcestruzzo", acciaio: "acciaio", terre: "terre", murature: "murature e malte", bitumi: "conglomerati bituminosi", altro: "materiali" };
 
 function foglioProve(h, d, tipo) {
@@ -2859,13 +2920,14 @@ function disegna(){var h='';
  // prelievi
  var P=S.prelievi||[];
  h+='<section class="pv-card pr-sez"><h2>Prelievi</h2><p class="sotto">Ogni prelievo fatto in cantiere alla presenza della DL: cubetti di calcestruzzo, spezzoni di acciaio, campioni di terra… Dal prelievo stampi il verbale da firmare; spuntando più prelievi stampi la richiesta di prove al laboratorio, firmata dalla DL.</p>'+
-  '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="nuovo">+ Nuovo prelievo</button>'+(P.length?'<button type="button" class="pv-b" data-pr="richiesta">Richiesta di prove per i prelievi spuntati</button>':'')+'</div><div id="pr-form"></div>';
+  '<div class="pr-az"><button type="button" class="pv-b pv-pr" data-pr="nuovo">+ Nuovo prelievo</button>'+
+  '<label class="pv-b" style="cursor:pointer" title="Il verbale della centrale di betonaggio o il DDT: TIX lo legge e compila la scheda">Prelievo da un file (verbale o DDT)<input type="file" data-prfile accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" hidden></label>'+(P.length?'<button type="button" class="pv-b" data-pr="richiesta">Richiesta di prove per i prelievi spuntati</button>':'')+'</div><div id="pr-form"></div>';
  if(P.length)h+='<table class="pr-tab" style="margin-top:10px"><tr><th></th><th>N.</th><th>Data</th><th>Prova</th><th class="nm">Opera</th><th class="nm">Quantità</th><th>Provini</th><th>Stato</th><th>Certificato</th><th></th></tr>'+P.map(function(x){
   return '<tr><td><input type="checkbox" data-sel="'+es(x.id)+'" aria-label="Spunta il prelievo n. '+x.numero+'"></td><td>'+x.numero+'</td><td>'+dt(x.data)+'</td><td>'+es(x.prova||MAT[x.materiale]||'')+(x.classe?' <small>· '+es(x.classe)+'</small>':'')+(x.prova_entro?'<br><small>da rompere il '+dt(x.prova_entro)+'</small>':'')+'</td>'+
    '<td class="nm">'+es(x.opera||'')+'</td><td class="nm">'+(x.quantita!=null?String(x.quantita).replace('.',',')+' '+es(x.unita||''):'')+'</td><td>'+(x.provini!=null?x.provini:'')+(x.sigle?'<br><small>'+es(x.sigle)+'</small>':'')+'</td>'+
    '<td><select data-stato="'+es(x.id)+'" aria-label="Stato del prelievo">'+Object.keys(STATO).map(function(k){return '<option value="'+k+'"'+(x.stato===k?' selected':'')+'>'+STATO[k]+'</option>';}).join('')+'</select></td>'+
    '<td>'+certCella(x)+'</td>'+
-   '<td><div class="pr-az" style="margin:0"><a class="pv-b sm" target="_blank" rel="noopener" href="'+es(stampa('verbale',[x.id]))+'">Verbale</a><button type="button" class="pv-b sm" data-pr="modifica" data-p="'+es(x.id)+'">Modifica</button><button type="button" class="pv-b sm pv-togli" data-pr="togli" data-p="'+es(x.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
+   '<td><div class="pr-az" style="margin:0"><a class="pv-b sm" target="_blank" rel="noopener" href="'+es(stampa('verbale',[x.id]))+'">Verbale</a>'+(x.file?'<a class="pv-b sm" target="_blank" rel="noopener" title="'+es(x.file_nome||'')+'" href="'+es(CFG.al+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+x.id)+'">File</a>':'')+'<button type="button" class="pv-b sm" data-pr="modifica" data-p="'+es(x.id)+'">Modifica</button><button type="button" class="pv-b sm pv-togli" data-pr="togli" data-p="'+es(x.id)+'">Togli</button></div></td></tr>';}).join('')+'</table>';
  else h+='<p class="sotto" style="margin-top:10px">Nessun prelievo ancora.</p>';
  h+='<p class="pv-msg" id="pr-msg" aria-live="polite"></p></section>';
  h+=costiHtml();
@@ -2915,7 +2977,8 @@ function esitoForma(x){var el=document.getElementById('pr-form');el.innerHTML='<
 function forma(x){x=x||{};var cat=(S.catalogo||[]);
  function opz(m){return '<option value="">—</option>'+cat.filter(function(k){return !m||k.materiale===m;}).map(function(k){return '<option value="'+es(k.codice)+'"'+(x.prova_codice===k.codice?' selected':'')+'>'+es(k.nome)+'</option>';}).join('');}
  var m=x.materiale||'calcestruzzo';
- document.getElementById('pr-form').innerHTML='<div class="pr-form" id="pr-f">'+
+ document.getElementById('pr-form').innerHTML=(x._nota||'')+'<div class="pr-form" id="pr-f">'+
+  (x.file_path?'<input type="hidden" data-f="file_path" value="'+es(x.file_path)+'"><input type="hidden" data-f="file_nome" value="'+es(x.file_nome||'')+'">':'')+
   '<label>Data del prelievo<input type="date" data-f="data" value="'+es(x.data||oggi())+'"></label>'+
   '<label>Materiale<select data-f="materiale">'+Object.keys(MAT).map(function(k){return '<option value="'+k+'"'+(m===k?' selected':'')+'>'+MAT[k]+'</option>';}).join('')+'</select></label>'+
   '<label>Prova<select data-f="prova_codice">'+opz(m)+'</select></label>'+
@@ -2972,6 +3035,18 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-pr]'
   if(!crControlla([{el:(document.querySelector('[data-sel]')||box).closest('table')||box,ok:function(){return ids.length>0;},testo:'Spunta i prelievi da mandare al laboratorio'}])){msg('Spunta i prelievi segnati in rosso.','err');return;}if(!S.laboratorio&&!confirm('Non hai ancora accettato l\'offerta di un laboratorio: la richiesta uscirà senza il nome del laboratorio. Continuare?'))return;
   window.open(stampa('richiesta',ids),'_blank','noopener');return;}
 });
+// 14/11/2026 (prove-5): «Prelievo da un file» — TIX legge il verbale o il DDT e compila la scheda, il file resta allegato
+document.addEventListener('change',function(e){var fp=e.target;if(!fp||!fp.hasAttribute||!fp.hasAttribute('data-prfile'))return;var f=fp.files&&fp.files[0];if(!f)return;
+ if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){msg('Si caricano PDF, JPG e PNG.','err');fp.value='';return;}
+ msg('Leggo il file con l\'intelligenza artificiale… può servire fino a un minuto.');fp.disabled=true;
+ fetch(CFG.lf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
+ .then(function(r){fp.disabled=false;fp.value='';if(!r||!r.file_path){msg(errore(r),'err');return;}msg('');
+  var p=r.proposta||{},x={};['data','materiale','prova_codice','opera','quantita','unita','classe','ddt','fornitore','provini','sigle','dl_nome','tecnico_nome','note'].forEach(function(k){if(p[k])x[k]=p[k];});
+  if(!x.dl_nome&&r.dl)x.dl_nome=r.dl;x.file_path=r.file_path;x.file_nome=r.file_nome;
+  var ok=r.esito==='ok';x._nota='<div class="pr-prom'+(ok?'':' rosso')+'" style="margin-top:10px"><b>'+(ok?'Scheda compilata dal file «'+es(r.file_nome)+'»: controlla i dati e premi «Salva il prelievo».':es(r.messaggio||'Il file non si è letto: compila i campi a mano.'))+'</b>'+
+   '<br><small>Il file resta allegato al prelievo.'+(r.ricarica_eur?' Per questa lettura TIX ha usato 1 credito per l\'intelligenza artificiale.':'')+'</small>'+
+   ((p.dubbi||[]).length?'<br><small><b>Da controllare:</b> '+p.dubbi.map(es).join(' · ')+'</small>':'')+'</div>';
+  forma(x);});});
 document.addEventListener('change',function(e){var fi=e.target;if(!fi||!fi.getAttribute||!fi.getAttribute('data-cert'))return;var f=fi.files&&fi.files[0],pid=fi.getAttribute('data-cert');if(!f)return;
  if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){msg('Si caricano PDF, JPG e PNG.','err');fi.value='';return;}msg('Carico il certificato…');fi.disabled=true;
  fetch(CFG.cf+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&p='+pid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};})
