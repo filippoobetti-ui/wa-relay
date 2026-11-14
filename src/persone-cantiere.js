@@ -26,6 +26,17 @@ export function invitoCodice(msg) {
   return m ? m[1].toUpperCase() : "";
 }
 
+// 14/11/2026 (privacy-benvenuto-1, B3 con la B6): informativa breve, ultimo blocco del benvenuto. Solo italiano,
+// come tutto il benvenuto: se un giorno il benvenuto viene tradotto, va tradotto anche questo blocco.
+function privacyBenvenuto(impresa) {
+  const n = impresa ? String(impresa) : "";
+  return "\n\n\u2139\ufe0f Privacy. I messaggi, le foto, i vocali e le presenze che mandi a TIX servono " +
+    (n ? "a " + n : "all'impresa che ti ha invitato") + " per il diario del cantiere. Il titolare dei dati è " +
+    (n || "l'impresa che ti ha invitato") + "; TIX · Diario di cantiere li tratta per suo conto, anche con l'intelligenza " +
+    "artificiale (trascrizione, traduzione e bozze dei documenti). L'informativa completa te la dà " +
+    (n || "l'impresa") + "; come funziona TIX: www.tixcantiere.it/privacy-policy";
+}
+
 function testoRisposta(r) {
   const nome = String(r.nome || "").trim().split(/\s+/)[0] || "";
   const imp = r.impresa ? String(r.impresa) : "l'impresa che ti ha invitato";
@@ -34,7 +45,7 @@ function testoRisposta(r) {
       (r.scrive
         ? " Da ora puoi mandare qui vocali, foto e messaggi: finiscono nel diario di cantiere. Per scegliere un altro cantiere scrivi *Cantiere*."
         : (r.riceve_diario ? " Ogni sera riceverai per email il diario di cantiere." : "")) +
-      " Salva il contatto qui sotto, così ritrovi TIX subito.";
+      " Salva il contatto qui sotto, così ritrovi TIX subito." + privacyBenvenuto(r.impresa);
   }
   if (r.esito === "gia_attivo") return "Sei già attivo nel cantiere *" + r.cantiere + "*" + (r.scrive ? ": puoi scrivere qui come sempre." : ".");
   if (r.esito === "troppi") return "Troppi tentativi con codici non validi. Riprova tra un'ora, oppure chiedi a " + imp + " un nuovo link d'invito.";
@@ -68,7 +79,7 @@ export async function invitoGestisci(msg, value, env, h) {
   try {
     await h.invia(phoneId, env.WHATSAPP_TOKEN, {
       messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
-      context: { message_id: msg.id }, text: { body: testoRisposta(r).slice(0, 1000), preview_url: false }
+      context: { message_id: msg.id }, text: { body: testoRisposta(r).slice(0, 1600), preview_url: false }
     });
     if (r.esito === "ok") await h.invia(phoneId, env.WHATSAPP_TOKEN, bigliettoTix(tel));
   } catch (e) {}
