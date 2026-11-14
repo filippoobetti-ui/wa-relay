@@ -25,9 +25,14 @@
 // e «Correggi» sulle voci di economia; i numeri li sistema il database (economia_diario), interruttore economie_diario_attivo.
 //   POST {base}/giornale/ufficio  { t, c, azione: "economia_contesto" | "economia_salva", dati }
 //   (03/11/2026 economie-foto-1: in dati.foto i message_id delle foto del giorno allegate; il contesto dà foto e voce.foto)
+//
+// 14/11/2026 (campi-rossi-b2, regola di Filippo): in «Correggi», «Aggiungi una voce di oggi», «Aggiungi a questo giorno» e nelle
+// economie, ciò che manca per salvare si segna in rosso con la riga che dice cosa scrivere (modulo comune src/campi-rossi.js);
+// se il database risponde con «campo», si segna quel campo.
 // ---------------------------------------------------------------------------
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AZIONI = ["stato", "leggi", "correggi", "aggiungi"];
 const GIORNO = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 const MAX_FILE = 10 * 1024 * 1024;
@@ -251,7 +256,7 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
 export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
   const cfg = JSON.stringify({ u: base + "/giornale/ufficio", f: base + "/giornale/ufficio/file", v: base + "/giornale/integrazione",
     t: token, c: commessa, ag: aggiunte !== false });
-  const stile = "<style>" +
+  const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-gu-b{display:inline-flex;align-items:center;gap:6px;margin:8px 8px 0 0;padding:0 14px;min-height:36px;border:1px solid #c62828;border-radius:8px;background:#fdecec;color:#c62828;font:inherit;font-size:.9rem;font-weight:700;cursor:pointer;vertical-align:middle}" +
     ".gl-gu-b:hover,.gl-gu-b:focus-visible{background:#c62828;color:#fff;outline:none}" +
     ".gl-gu-add{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;min-height:48px;margin:0 0 12px;border:0;border-radius:12px;background:#C27A12;color:#fff;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)}" +
@@ -315,8 +320,12 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-ag-pr{font-size:.86rem;color:#1B2F4A;font-weight:600;margin:10px 0 0}" +
     "@media (prefers-color-scheme:dark){.gl-ag-lista li{border-color:#3a4540}.gl-gu-bx label.gl-ag-sc{background:#3a2f12;color:#f3e2bd}.gl-gu-bx .gl-ag-lista button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ag-pr{color:#cfe0ff}.gl-gu-bx .gl-ag-fac{color:#a9b3ae}}" +
     "</style>";
-  const script = "<script>" + String.raw`(function(){try{
+  const script = "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS +
+    "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" +
+    "<script>" + String.raw`(function(){try{
 var CFG=` + cfg + String.raw`,STATO=null;
+var CR_RIGA='Completa i campi segnati in rosso.';
+function crServer(q,mappa){if(q&&q.campo&&mappa&&mappa[q.campo]){crSegna(mappa[q.campo],q.messaggio||'Da correggere');try{mappa[q.campo].scrollIntoView({block:'center'});}catch(e){}}}
 function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(x){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x];});}
 function chiama(azione,dati){return fetch(CFG.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:azione,dati:dati||{}})}).then(function(r){return r.json();});}
@@ -352,14 +361,15 @@ function correggi(mid){
   pr.onclick=function(){
    var tv=t.value.trim(),mv=m.value.trim(),av=a.value.trim();
    function no(x){err.textContent=x;err.style.display='block';}
-   if(!tv)return no('Scrivi il testo corretto.');
-   if(tv===String(ultimo||'').trim())return no('Il testo è uguale a quello di adesso: cambia qualcosa oppure annulla.');
-   if(mv.length<5)return no('Scrivi il motivo della correzione.');
-   if(!av)return no('Scrivi chi fa la correzione (nome e cognome).');
-   pr.disabled=true;err.style.display='none';ricorda(av);
+   err.style.display='none';
+   if(!crControlla([
+    {el:t,ok:function(){return !!tv&&tv!==String(ultimo||'').trim();},testo:tv?'Il testo è uguale a quello di adesso: cambia qualcosa oppure annulla.':'Scrivi il testo corretto.'},
+    {el:m,ok:function(){return mv.length>=5;},testo:'Scrivi il motivo della correzione (almeno 5 lettere).'},
+    {el:a,testo:'Scrivi chi fa la correzione (nome e cognome).'}]))return no(CR_RIGA);
+   pr.disabled=true;ricorda(av);
    chiama('correggi',{mid:mid,testo:tv,motivo:mv,autore:av}).then(function(q){
     if(q&&q.esito==='ok'){location.reload();return;}
-    pr.disabled=false;no(errore(q));
+    pr.disabled=false;no(errore(q));crServer(q,{testo:t,motivo:m,autore:a});
    }).catch(function(){pr.disabled=false;no('Connessione assente. Riprova.');});
   };
   setTimeout(function(){try{t.focus();}catch(x){}},50);
@@ -381,12 +391,12 @@ function aggiungi(){
  ag.onclick=function(){
   var tv=t.value.trim(),av=a.value.trim();
   function no(x){err.textContent=x;err.style.display='block';}
-  if(!tv)return no('Scrivi il testo della voce.');
-  if(!av)return no('Scrivi chi inserisce la voce (nome e cognome).');
-  ag.disabled=true;err.style.display='none';ricorda(av);
+  err.style.display='none';
+  if(!crControlla([{el:t,testo:'Scrivi il testo della voce.'},{el:a,testo:'Scrivi chi inserisce la voce (nome e cognome).'}]))return no(CR_RIGA);
+  ag.disabled=true;ricorda(av);
   chiama('aggiungi',{sezione:s.value,testo:tv,autore:av}).then(function(q){
    if(q&&q.esito==='ok'){location.reload();return;}
-   ag.disabled=false;no(errore(q));
+   ag.disabled=false;no(errore(q));crServer(q,{sezione:s,testo:t,autore:a});
   }).catch(function(){ag.disabled=false;no('Connessione assente. Riprova.');});
  };
  setTimeout(function(){try{t.focus();}catch(x){}},50);
@@ -448,21 +458,26 @@ function economia(g,mid){
   q('.an').onclick=function(){chiudi(w.ov);};
   pr.onclick=function(){
    function no(x){err.textContent=x;err.style.display='block';}
-   var mezzi=[],male='';
-   if(mz)mz.querySelectorAll('.gl-ec-r').forEach(function(d){var id=d.querySelector('select').value,qt=d.querySelector('input').value.trim();if(!id&&!qt)return;if(!id||!(Number(qt.replace(',','.'))>0))male='Per ogni mezzo o attrezzatura scegli dall’elenco e scrivi la quantità.';mezzi.push({id:id,quantita:qt});});
-   if(male)return no(male);
+   var mezzi=[],regole=[];
+   err.style.display='none';
+   if(mz)mz.querySelectorAll('.gl-ec-r').forEach(function(d){var se=d.querySelector('select'),qi=d.querySelector('input'),id=se.value,qt=qi.value.trim();if(!id&&!qt)return;
+    regole.push({el:se,testo:'Scegli il mezzo o l’attrezzatura dall’elenco.'});
+    regole.push({el:qi,ok:function(){return Number(qt.replace(',','.'))>0;},testo:'Scrivi la quantità.'});mezzi.push({id:id,quantita:qt});});
    var dati={data:r.data,mid:mid||'',per:per(),impresa:q('#gl-ec-i').value.trim(),squadra:q('#gl-ec-sq').value.trim(),qualifica:q('#gl-ec-q').value,
     operai:q('#gl-ec-o').value.trim(),ore:q('#gl-ec-h').value.trim(),descrizione:q('#gl-ec-d').value.trim(),motivo:q('#gl-ec-m').value.trim(),autore:q('#gl-ec-a').value.trim(),mezzi:mezzi,
     foto:Array.prototype.filter.call(fo,function(b){return b.getAttribute('aria-pressed')==='true';}).map(function(b){return r.foto[Number(b.getAttribute('data-i'))].mid;})};
-   if(dati.per==='impresa'&&!dati.impresa)return no('Scrivi l’impresa subappaltatrice.');
-   if(!(Number(dati.operai)>0)&&!mezzi.length&&!mid)return no('Scrivi la manodopera (operai e ore) o almeno un mezzo o un’attrezzatura.');
-   if((Number(dati.operai)>0)!==(Number(String(dati.ore).replace(',','.'))>0))return no('Scrivi sia il numero di operai sia le ore per operaio.');
-   if(mid&&dati.motivo.length<5)return no('Scrivi il motivo della correzione.');
-   if(!dati.autore)return no('Scrivi chi inserisce l’economia (nome e cognome).');
-   pr.disabled=true;err.style.display='none';ricorda(dati.autore);
+   var nOp=Number(dati.operai)>0,nOre=Number(String(dati.ore).replace(',','.'))>0,eO=q('#gl-ec-o'),eH=q('#gl-ec-h');
+   if(dati.per==='impresa')regole.unshift({el:q('#gl-ec-i'),testo:'Scrivi l’impresa subappaltatrice.'});
+   if(!nOp&&!nOre&&!mezzi.length&&!mid){regole.push({el:eO,ok:function(){return false;},testo:'Scrivi gli operai e le ore, oppure aggiungi un mezzo o un’attrezzatura.'});
+    if(mz)regole.push({el:mz,ok:function(){return false;},testo:'Oppure scegli qui un mezzo o un’attrezzatura con la quantità.'});}
+   else if(nOp!==nOre){regole.push(nOp?{el:eH,ok:function(){return false;},testo:'Scrivi le ore per operaio.'}:{el:eO,ok:function(){return false;},testo:'Scrivi il numero di operai.'});}
+   if(mid)regole.push({el:q('#gl-ec-m'),ok:function(){return dati.motivo.length>=5;},testo:'Scrivi il motivo della correzione (almeno 5 lettere).'});
+   regole.push({el:q('#gl-ec-a'),testo:'Scrivi chi inserisce l’economia (nome e cognome).'});
+   if(!crControlla(regole))return no(CR_RIGA);
+   pr.disabled=true;ricorda(dati.autore);
    chiama('economia_salva',dati).then(function(x){
     if(x&&x.esito==='ok'){if(!x.aperto)try{sessionStorage.setItem('gl_ag_giorno',r.data);}catch(e){}location.reload();return;}
-    pr.disabled=false;no(errore(x));
+    pr.disabled=false;no(errore(x));crServer(x,{impresa:q('#gl-ec-i'),operai:eO,ore:eH,mezzi:mz,motivo:q('#gl-ec-m'),autore:q('#gl-ec-a'),qualifica:q('#gl-ec-q')});
    }).catch(function(){pr.disabled=false;no('Connessione assente. Riprova.');});
   };
  }).catch(function(){bx.innerHTML='<h3>'+tit+'</h3><p class="gl-gu-err">Connessione assente. Riprova.</p>';});
@@ -522,7 +537,7 @@ function aggiungiGiorno(g){
    if(f.size>MAXB){msg='«'+f.name+'» è troppo grande: massimo 10 MB.';return;}
    lista.push({f:f,url:eFoto(f)?URL.createObjectURL(f):null,id:null,err:false});
   });
-  fi.value='';disegna();if(msg)no(msg);
+  fi.value='';disegna();if(msg){no(msg);crSegna(bx.querySelector('.gl-ag-sc'),msg);}else{var sc=bx.querySelector('.gl-ag-sc'),nx=sc.nextElementSibling;sc.classList.remove('cr-box');sc.removeAttribute('aria-invalid');if(nx&&nx.classList.contains('cr-msg'))nx.remove();}
  });
  function esci(){if(occupato)return;lista.forEach(function(x){togliCaricato(x.id);if(x.url)try{URL.revokeObjectURL(x.url);}catch(e){}});document.removeEventListener('keydown',tasto);chiudi(ov);}
  function tasto(e){if(e.key==='Escape')esci();}
@@ -533,9 +548,8 @@ function aggiungiGiorno(g){
   if(occupato)return;
   var tv=t.value.trim(),av=a.value.trim(),i=0;
   err.style.display='none';
-  if(!tv){no('Scrivi il testo.');t.focus();return;}
-  if(!av){no('Scrivi chi fa l’aggiunta (nome e cognome).');a.focus();return;}
-  if(lista.length>MAXF){no('Puoi allegare al massimo 5 file.');return;}
+  if(!crControlla([{el:t,testo:'Scrivi il testo.'},{el:a,testo:'Scrivi chi fa l’aggiunta (nome e cognome).'},
+   {el:ul,ok:function(){return lista.length<=MAXF;},testo:'Puoi allegare al massimo 5 file: togline qualcuno.'}])){no(CR_RIGA);return;}
   occupato=true;ag.disabled=true;an.disabled=true;ricorda(av);
   function fine(x){occupato=false;ag.disabled=false;an.disabled=false;pr.hidden=true;no(x);}
   function salva(){
@@ -544,7 +558,7 @@ function aggiungiGiorno(g){
    chiama('aggiungi_giorno',{data:g,sezione:s.value,testo:tv,motivo:m.value.trim(),autore:av,fornitore:ddt?fo.value.trim():'',numero:ddt?nu.value.trim():'',file:lista.map(function(x){return x.id;})}).then(function(q){
     if(q&&q.esito==='ok'){try{sessionStorage.setItem('gl_ag_giorno',g);}catch(e){}pr.textContent='Aggiunto all’Integrazione al diario (versione '+q.versione+').';occupato=false;location.reload();return;}
     if(q&&/allegato non è più disponibile/.test(q.messaggio||''))lista.forEach(function(x){x.id=null;});
-    fine(errore(q));
+    fine(errore(q));crServer(q,{testo:t,autore:a,sezione:s,fornitore:fo,numero:nu,motivo:m,file:ul});
    }).catch(function(){fine('Connessione assente. Riprova.');});
   }
   function avanti(){

@@ -22,6 +22,8 @@
 // ============================================================================
 
 import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";
+// 14/11/2026 (campi-rossi-b2, regola di Filippo): mezzi in economia e prezzi del contratto, ciò che manca o è scritto male in rosso
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MESE = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
@@ -258,7 +260,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Registro delle economie - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="rg-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="rg-card"><div class="rg-testa"><div><p>' + e(cant.nome || "") + (d.impresa ? " · " + e(d.impresa) : "") + "</p>" +
     "<h1>Registro delle economie</h1>" +
@@ -271,6 +273,7 @@ function pagina(base, h, p, d, torna) {
     radio + schede +
     SCHEDE.map((s) => pannello(base, h, p, d, s)).join("") +
     "</div></main>" +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" +
     "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script>" +
     "</body></html>";
 }
@@ -742,11 +745,16 @@ function torna(){metti('scheda','committente');location.reload();}
 var box=q('rg-mz-box'),ms=q('mz-msg'),sel=q('mz-mezzo');
 function unita(){if(!sel)return;var o=sel.options[sel.selectedIndex],u=o?o.getAttribute('data-u'):'';q('mz-un').textContent=u==='giorno'?'giornate':u==='mezza_giornata'?'mezze giornate':'ore';}
 if(sel)sel.addEventListener('change',unita);
-function pulisci(){q('mz-id').value='';q('mz-q').value='';q('mz-de').value='';sel.value='';unita();if(ms)ms.textContent='';q('mz-salva').textContent='Salva';}
+function pulisci(){q('mz-id').value='';q('mz-q').value='';q('mz-de').value='';sel.value='';unita();if(ms)ms.textContent='';if(box)crPulisci(box);q('mz-salva').textContent='Salva';}
 if(q('mz-annulla'))q('mz-annulla').onclick=function(){pulisci();if(box)box.open=false;};
-if(q('mz-salva'))q('mz-salva').onclick=function(){var b=this;b.disabled=true;if(ms)ms.textContent='';
+function prezzoOk(v){v=String(v||'').replace(/€|\s/g,'');return !v||/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+([.,]\d{1,2})?$/.test(v);}
+if(q('mz-salva'))q('mz-salva').onclick=function(){var b=this;if(ms)ms.textContent='';
+if(!crControlla([{el:q('mz-data'),testo:'Scegli il giorno.'},{el:sel,testo:'Scegli il mezzo o l\'attrezzatura.'},
+ {el:q('mz-q'),ok:function(){return Number(String(q('mz-q').value).replace(',','.'))>0;},testo:'Scrivi la quantità (ore o giornate).'}])){if(ms)ms.textContent='Completa i campi segnati in rosso.';return;}
+b.disabled=true;
 posta(CFG.um,{t:CFG.t,c:CFG.c,dati:{id:q('mz-id').value,data:q('mz-data').value,mezzo_id:sel.value,quantita:q('mz-q').value,descrizione:q('mz-de').value}}).then(function(j){
-b.disabled=false;if(j&&j.esito==='ok'){torna();return;}if(ms)ms.textContent=j&&j.messaggio?j.messaggio:'Non è stato possibile salvare. Riprova tra qualche minuto.';});};
+b.disabled=false;if(j&&j.esito==='ok'){torna();return;}if(ms)ms.textContent=j&&j.messaggio?j.messaggio:'Non è stato possibile salvare. Riprova tra qualche minuto.';
+var mp={data:q('mz-data'),mezzo_id:sel,mezzo:sel,quantita:q('mz-q'),descrizione:q('mz-de')};if(j&&j.campo&&mp[j.campo])crSegna(mp[j.campo],j.messaggio||'Da correggere');});};
 function dati(b){var tr=b.closest('tr'),v={};try{v=JSON.parse(tr.getAttribute('data-mz'))||{};}catch(e){}return v;}
 document.querySelectorAll('.rg-mz-mod').forEach(function(b){b.addEventListener('click',function(){var v=dati(b);if(!q('mz-id'))return;
 q('mz-id').value=v.id||'';q('mz-data').value=v.data||'';sel.value=v.mezzo_id||'';unita();q('mz-q').value=String(v.quantita||'');q('mz-de').value=v.descrizione||'';
@@ -758,16 +766,19 @@ b.disabled=true;posta(CFG.um,{t:CFG.t,c:CFG.c,togli:true,dati:{id:v.id}}).then(f
 // stesso prezzo su tutte le qualifiche; «Salva» manda il riferimento (se cambiato) e i prezzi cambiati
 var pzb=q('rg-pz-box');
 if(q('rg-apri-contratto'))q('rg-apri-contratto').onclick=function(){if(!pzb)return;pzb.open=true;pzb.scrollIntoView({behavior:'smooth',block:'start'});var r=q('pz-rif');if(r)setTimeout(function(){r.focus();},300);};
-if(q('pz-applica'))q('pz-applica').onclick=function(){var v=q('pz-tutti').value.trim();if(!v){q('pz-tutti').focus();return;}
+if(q('pz-applica'))q('pz-applica').onclick=function(){var v=q('pz-tutti').value.trim();
+if(!crControlla([{el:q('pz-tutti'),ok:function(){return !!v&&prezzoOk(v);},testo:v?'Scrivi il prezzo in euro, per esempio 28,00.':'Scrivi il prezzo da copiare su tutte le qualifiche.'}]))return;
 document.querySelectorAll('.rg-pz-in[data-voce=qualifica]').forEach(function(i){i.value=v;});var pm=q('pz-msg');if(pm){pm.className='rg-msg inf';}if(pm)pm.textContent='Prezzo copiato su tutte le qualifiche: ora premi «Salva i prezzi del contratto».';};
 if(q('pz-salva'))q('pz-salva').onclick=function(){var b=this,pm=q('pz-msg'),err=[],k=0,rif=q('pz-rif');
 var ins=[].slice.call(document.querySelectorAll('.rg-pz-in')).filter(function(i){return i.value.trim().replace(',','.')!==i.getAttribute('data-prima').replace(',','.');});
 var cambiaRif=rif&&rif.value.trim()!==rif.getAttribute('data-prima');
-if(pm)pm.className='rg-msg';if(!ins.length&&!cambiaRif){if(pm)pm.textContent='Nessun prezzo cambiato.';return;}b.disabled=true;if(pm)pm.textContent='';
+if(pm)pm.className='rg-msg';if(!ins.length&&!cambiaRif){if(pm)pm.textContent='Nessun prezzo cambiato.';return;}
+if(!crControlla(ins.map(function(i){return {el:i,ok:function(){return prezzoOk(i.value);},testo:'Scrivi il prezzo in euro, per esempio 28,00.'};}))){if(pm)pm.textContent='Correggi i prezzi segnati in rosso.';return;}
+b.disabled=true;if(pm)pm.textContent='';
 (cambiaRif?posta(CFG.up,{t:CFG.t,c:CFG.c,dati:{voce:'contratto',riferimento:rif.value.trim()}}).then(function(j){if(!j||j.esito!=='ok')err.push('Il riferimento del contratto non è stato salvato: riprova.');}):Promise.resolve()).then(function(){
 (function va(){if(k>=ins.length){b.disabled=false;if(err.length){if(pm)pm.textContent=err.join(' ');}else torna();return;}
 var i=ins[k++],vo=i.getAttribute('data-voce'),dd={voce:vo,prezzo:i.value.trim()};if(vo==='mezzo')dd.mezzo_id=i.getAttribute('data-k');else dd.qualifica=i.getAttribute('data-k');
-posta(CFG.up,{t:CFG.t,c:CFG.c,dati:dd}).then(function(j){if(!j||j.esito!=='ok')err.push((j&&j.messaggio)||'Un prezzo non è stato salvato: riprova.');va();});})();});};
+posta(CFG.up,{t:CFG.t,c:CFG.c,dati:dd}).then(function(j){if(!j||j.esito!=='ok'){err.push((j&&j.messaggio)||'Un prezzo non è stato salvato: riprova.');crSegna(i,(j&&j.messaggio)||'Non salvato: riprova.');}va();});})();});};
 }catch(e){}})();`;
 
 // Pulsante nella pagina del cantiere, accanto a «Persone del cantiere» e «Scarica in Excel».

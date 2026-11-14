@@ -11,6 +11,8 @@
 // Il relay non conserva niente. Interruttore nel database: impostazioni.diario_condividi_attivo (no / prova / si);
 // DIARIO_CONDIVIDI = "off" toglie pulsante e pagine.
 // ---------------------------------------------------------------------------
+// 14/11/2026 (campi-rossi, regola di Filippo per tutti i moduli): i campi che mancano si segnano in rosso (src/campi-rossi.js).
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GETTONE = /^[0-9a-f]{48}$/;
@@ -100,7 +102,7 @@ async function paginaEsterni(request, env, h, base, resto) {
 // Stile e script iniettati nella pagina del cantiere (area riservata), solo se la funzione è accesa per questo accesso.
 export function diarioCondividiIniezione(base, token, commessa, prova) {
   const cfg = JSON.stringify({ u: base + "/diario/condividi", t: token, c: commessa, prova: prova === true });
-  const stile = "<style>" +
+  const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-dc-b{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;min-height:46px;margin:0 0 12px;border:1px solid #1B2F4A;border-radius:12px;background:#fff;color:#1B2F4A;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;letter-spacing:normal;text-transform:none;box-shadow:none}" +
     ".gl-dc-b:hover,.gl-dc-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
     ".gl-dc-ov{position:fixed;inset:0;z-index:9999;background:rgba(10,18,28,.55);display:flex;align-items:center;justify-content:center;padding:12px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
@@ -130,7 +132,8 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     ".gl-dc-bx input[type=date],.gl-dc-bx input[type=email],.gl-dc-bx input[type=text],.gl-dc-bx textarea{background:#111513;color:#eef2f0;border-color:#3a4540}" +
     ".gl-dc-az button,.gl-dc-man button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-dc-ch span,.gl-dc-st .d span,.gl-dc-sc button{background:#232b27;color:#eef2f0}}" +
     "</style>";
-  const script = "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
+  const script = (CAMPI_ROSSI_JS ? "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" : "") +
+    "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
     "function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}\n" +
     "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}\n" +
     "function iso(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}\n" +
@@ -160,15 +163,18 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     "  function periodo(p){var a=oggi,d=p==='s'?lun:p==='m'?mese:new Date(K.inizio+'T12:00:00');q('#gl-dc-dal').value=iso(d);q('#gl-dc-al').value=iso(a);}\n" +
     "  periodo('s');bx.querySelectorAll('.gl-dc-sc button').forEach(function(b){b.onclick=function(){periodo(b.getAttribute('data-p'));};});\n" +
     "  function chips(){var c=q('#gl-dc-ch');c.innerHTML='';scelti.forEach(function(x,i){var s=el('span','',esc(x.email));var b=el('button','','&times;');b.type='button';b.title='Togli';b.onclick=function(){scelti.splice(i,1);chips();};s.appendChild(b);c.appendChild(s);});}\n" +
-    "  q('#gl-dc-piu').onclick=function(){var v=q('#gl-dc-em').value.trim();if(!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)){q('#gl-dc-es').innerHTML='<p class=\"gl-dc-err\">Questa email non sembra giusta.</p>';return;}q('#gl-dc-es').innerHTML='';if(!scelti.some(function(x){return x.email.toLowerCase()===v.toLowerCase();}))scelti.push({nome:'',email:v});q('#gl-dc-em').value='';chips();};\n" +
+    "  q('#gl-dc-piu').onclick=function(){var v=q('#gl-dc-em').value.trim();if(!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)){window.crSegna(q('#gl-dc-em'),'Questa email non sembra giusta');return;}q('#gl-dc-es').innerHTML='';if(!scelti.some(function(x){return x.email.toLowerCase()===v.toLowerCase();}))scelti.push({nome:'',email:v});q('#gl-dc-em').value='';chips();};\n" +
     "  q('#gl-dc-em').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();q('#gl-dc-piu').click();}});\n" +
     "  q('#gl-dc-no').onclick=chiudi;\n" +
     "  q('#gl-dc-si').onclick=function(){var dest=scelti.slice();bx.querySelectorAll('.gl-dc-el input:checked').forEach(function(i){var x=K.contatti[+i.getAttribute('data-i')];if(x&&!dest.some(function(y){return y.email.toLowerCase()===x.email.toLowerCase();}))dest.push({nome:x.nome||'',email:x.email});});\n" +
     "   var v=q('#gl-dc-em').value.trim();if(v&&/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)&&!dest.some(function(y){return y.email.toLowerCase()===v.toLowerCase();}))dest.push({nome:'',email:v});\n" +
-    "   var es=q('#gl-dc-es');if(!dest.length){es.innerHTML='<p class=\"gl-dc-err\">Scegli almeno un destinatario.</p>';return;}\n" +
+    "   var es=q('#gl-dc-es');es.innerHTML='';\n" +
+    "   if(!window.crControlla([{el:q('#gl-dc-dal'),testo:'Scegli il primo giorno'},{el:q('#gl-dc-al'),ok:function(e){return e.value&&e.value>=q('#gl-dc-dal').value;},testo:'Scegli l’ultimo giorno (dopo il primo)'},\n" +
+    "     {el:q('.gl-dc-el')||q('.gl-dc-man'),ok:function(){return dest.length>0;},testo:'Scegli almeno un destinatario o scrivi un’email'}]))return;\n" +
     "   var bt=this;bt.disabled=true;bt.textContent='Invio…';\n" +
     "   post('condividi',{dal:q('#gl-dc-dal').value,al:q('#gl-dc-al').value,foto:q('#gl-dc-f').checked,ore:q('#gl-dc-o').checked,ddt:q('#gl-dc-d').checked,messaggio:q('#gl-dc-msg').value,destinatari:dest}).then(function(r){bt.disabled=false;bt.textContent='Condividi';\n" +
     "    if(r&&r.esito==='ok'){es.innerHTML='<div class=\"gl-dc-ok\">Fatto: '+r.inviate+(r.inviate===1?' email partita':' email partite')+(r.prova?' (in prova, all’indirizzo di TIX)':'')+'.</div>';scelti=[];chips();bx.querySelectorAll('.gl-dc-el input:checked').forEach(function(i){i.checked=false;});q('#gl-dc-msg').value='';elenco();}\n" +
+    "    else if(r&&r.campo==='periodo')window.crSegna(q('#gl-dc-dal'),r.messaggio);else if(r&&r.campo==='destinatari')window.crSegna(q('.gl-dc-el')||q('.gl-dc-man'),r.messaggio);\n" +
     "    else es.innerHTML='<p class=\"gl-dc-err\">'+esc(r&&r.messaggio?r.messaggio:'Non è partito niente: riprova tra un minuto.')+'</p>';}).catch(function(){bt.disabled=false;bt.textContent='Condividi';es.innerHTML='<p class=\"gl-dc-err\">Connessione assente: riprova.</p>';});};\n" +
     "  function elenco(){post('contesto').then(function(r){if(r&&r.esito==='ok'){K.condivisioni=r.condivisioni;lista();}});}\n" +
     "  function lista(){var c=q('#gl-dc-el2');if(!K.condivisioni.length){c.innerHTML='<p class=\"gl-dc-nota\">Nessuna condivisione per ora.</p>';return;}\n" +

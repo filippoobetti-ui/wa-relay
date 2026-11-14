@@ -17,7 +17,10 @@
 // confronta poi con quella di Google Drive. Il file va in wa-media (documenti/<cantiere>/sicurezza/AAAAMMGG-<12 esadecimali>),
 // con un collegamento firmato di 30 giorni per Make. La sveglia di Make la manda il database (CONTRATTO.md, deviazione D4).
 // Interruttori: impostazioni.sicurezza_attiva (no / prova = solo Filippo / si) e SICUREZZA = "off" nel Worker (pagina e pulsante).
+// 14/11/2026 (campi-rossi-b2, regola di Filippo): nel modulo «Aggiungi documento» e nelle finestre (Visto, Modifica, Annulla,
+// Impresa) ciò che manca si segna in rosso con la riga che dice cosa fare (modulo comune src/campi-rossi.js).
 // ============================================================================
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GIORNO = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -560,7 +563,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Sicurezza del cantiere - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="sc-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="sc-card">' +
     (d.modo === "prova" ? '<p class="sc-prova">Sezione in prova: per ora la vedi solo tu.</p>' : "") +
@@ -575,6 +578,7 @@ function pagina(base, h, p, d, torna) {
     "TIX conserva i documenti, li tiene in ordine e ti ricorda le scadenze; il contenuto lo valuta chi li riceve. «Visto dal CSE» è un'etichetta che mette la tua impresa: non è la firma del CSE.</p>" +
     "</div></main>" + finestre(ctx) +
     '<div class="sc-toast" id="sc-toast" role="status" hidden></div>' +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" +
     "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script></body></html>";
 }
 
@@ -952,11 +956,12 @@ if(F){
  function misura(n){return n>=1048576?(Math.round(n/104857.6)/10).toString().replace('.',',')+' MB':Math.max(1,Math.round(n/1024))+' KB';}
  function esa(buf){return Array.prototype.map.call(new Uint8Array(buf),function(x){return ('0'+x.toString(16)).slice(-2);}).join('');}
  function mostra(f,est,riga){fScelto.innerHTML='<span class="sc-pdf">'+(est==='p7m'?'P7M':'PDF')+'</span><div class="sc-nm">'+esc(f.name)+'<span>'+esc(misura(f.size)+' · '+riga)+'</span></div>';fScelto.hidden=false;}
- function scegli(f){scelto=null;fMsg.className='sc-msg';fMsg.textContent='';fScelto.hidden=true;var mio=++lettura;if(!f)return;
+ function fileNo(x){crSegna(fDrop,x);}
+ function scegli(f){scelto=null;fMsg.className='sc-msg';fMsg.textContent='';fScelto.hidden=true;crControlla([{el:fDrop,ok:function(){return true;}}]);var mio=++lettura;if(!f)return;
   var m=/\.(pdf|p7m)$/i.exec(f.name||'');
-  if(!m){fMsg.textContent='Carica un PDF, anche firmato digitalmente (.p7m). Per le foto di un documento fai prima un PDF.';return;}
-  if(!f.size){fMsg.textContent='Il file è vuoto.';return;}
-  if(f.size>CFG.max*1048576){fMsg.textContent='Il file è troppo grande: il massimo è '+CFG.max+' MB. Comprimi il PDF o dividilo in più parti.';return;}
+  if(!m){fileNo('Carica un PDF, anche firmato digitalmente (.p7m). Per le foto di un documento fai prima un PDF.');return;}
+  if(!f.size){fileNo('Il file è vuoto.');return;}
+  if(f.size>CFG.max*1048576){fileNo('Il file è troppo grande: il massimo è '+CFG.max+' MB. Comprimi il PDF o dividilo in più parti.');return;}
   var est=m[1].toLowerCase();mostra(f,est,'calcolo l\'impronta SHA-256…');
   f.slice(0,1024).arrayBuffer().then(function(testa){var b=new Uint8Array(testa);
    if(est==='pdf'){var s='';for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);if(s.indexOf('%PDF-')===-1)throw new Error('Il file non sembra un PDF: controlla di aver scelto quello giusto.');}
@@ -964,22 +969,28 @@ if(F){
    if(!window.crypto||!crypto.subtle)throw new Error('Questo browser non calcola l\'impronta del file: usa Chrome, Edge, Safari o Firefox aggiornati.');
    return f.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf);});
   }).then(function(h){if(mio!==lettura)return;scelto={file:f,sha:esa(h),est:est};mostra(f,est,'impronta SHA-256 calcolata sul tuo dispositivo: '+scelto.sha.slice(0,12)+'…'+scelto.sha.slice(-8));})
-  .catch(function(e){if(mio!==lettura)return;scelto=null;fScelto.hidden=true;fMsg.textContent=(e&&e.message)||'Non riesco a leggere il file.';});}
+  .catch(function(e){if(mio!==lettura)return;scelto=null;fScelto.hidden=true;fileNo((e&&e.message)||'Non riesco a leggere il file.');});}
  fFile.addEventListener('change',function(){scegli(fFile.files&&fFile.files[0]);});
  ['dragenter','dragover'].forEach(function(n){fDrop.addEventListener(n,function(e){e.preventDefault();fDrop.classList.add('sc-sopra');});});
  ['dragleave','drop'].forEach(function(n){fDrop.addEventListener(n,function(e){e.preventDefault();fDrop.classList.remove('sc-sopra');});});
  fDrop.addEventListener('drop',function(e){var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)scegli(f);});
  function b64url(s){var b=new TextEncoder().encode(s),t='';for(var i=0;i<b.length;i++)t+=String.fromCharCode(b[i]);return btoa(t).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
  function barra(v){var i=fProg.querySelector('i');if(i)i.style.width=Math.round(v*100)+'%';}
- F.addEventListener('reset',function(){setTimeout(function(){scelto=null;lettura++;fScelto.hidden=true;fMsg.textContent='';fChi.value=leggiChi();scadAuto='';aggiornaTipo('');},0);});
+ F.addEventListener('reset',function(){setTimeout(function(){crPulisci(F);scelto=null;lettura++;fScelto.hidden=true;fMsg.textContent='';fChi.value=leggiChi();scadAuto='';aggiornaTipo('');},0);});
  F.addEventListener('submit',function(ev){ev.preventDefault();fMsg.className='sc-msg';fMsg.textContent='';
-  var t=TIPI[fTipo.value];if(!t){fMsg.textContent='Scegli il tipo di documento.';return;}
+  var t=TIPI[fTipo.value];
   var im=fImpBox.hidden?{n:'',r:''}:impresaScelta(fImp,fAltraN,fAltraR);
-  if(fImp.value==='+'&&!im.n&&!fImpBox.hidden){fMsg.textContent='Scrivi il nome dell\'impresa.';fAltraN.focus();return;}
-  if(t.pi&&!im.n){fMsg.textContent='Scegli l\'impresa a cui si riferisce il documento.';fImp.focus();return;}
-  if(!scelto){fMsg.textContent=fFile.files&&fFile.files.length&&!fScelto.hidden?'Aspetta un momento: sto calcolando l\'impronta del file.':'Scegli il file da caricare.';return;}
-  var chi=fChi.value.trim();if(!chi){fMsg.textContent='Scrivi il tuo nome: resta scritto chi ha caricato il documento.';fChi.focus();return;}
-  if(fScad.value&&fData.value&&fScad.value<fData.value){fMsg.textContent='La scadenza è prima della data del documento: ricontrollala.';return;}
+  var altra=fImp.value==='+'&&!fImpBox.hidden;
+  var chi=fChi.value.trim(),calcolo=!scelto&&fFile.files&&fFile.files.length&&!fScelto.hidden;
+  if(calcolo){fMsg.textContent='Aspetta un momento: sto calcolando l\'impronta del file.';return;}
+  var regole=[{el:fTipo,ok:function(){return !!t;},testo:'Scegli il tipo di documento.'}];
+  if(altra)regole.push({el:fAltraN,testo:'Scrivi il nome dell\'impresa.'});
+  else if(t&&t.pi&&!fImpBox.hidden)regole.push({el:fImp,ok:function(){return !!im.n;},testo:'Scegli l\'impresa a cui si riferisce il documento.'});
+  regole.push({el:fScad,ok:function(){return !(fScad.value&&fData.value&&fScad.value<fData.value);},testo:'La scadenza è prima della data del documento: ricontrollala.'});
+  regole.push({el:fDrop,ok:function(){return !!scelto;},testo:'Scegli il file da caricare.'});
+  regole.push({el:fChi,testo:'Scrivi il tuo nome: resta scritto chi ha caricato il documento.'});
+  if(!crControlla(regole)){fMsg.textContent='Completa i campi segnati in rosso.';return;}
+  if(t.pi&&!im.n){fMsg.textContent='Scegli l\'impresa a cui si riferisce il documento.';return;}
   scriviChi(chi);
   var dati={t:CFG.t,c:CFG.c,tipo:fTipo.value,impresa:im.n,impresa_ruolo:im.r,titolo:fTit.value.trim(),versione:fVer.value.trim(),data:fData.value,scadenza:fScad.value,
    nota:fNota.value.trim(),autore:chi,nome:scelto.file.name,byte:scelto.file.size,sha256:scelto.sha};
@@ -989,7 +1000,9 @@ if(F){
   x.onload=function(){var r=null;try{r=JSON.parse(x.responseText);}catch(e){}fProg.hidden=true;
    if(r&&r.esito==='ok'){fMsg.className='sc-msg sc-ok';fMsg.textContent='Caricato.'+(r.superati?' La versione di prima ora è tra le versioni precedenti.':'')+' Aggiorno la pagina…';
     try{sessionStorage.setItem('sc_vai',r.id||'');}catch(e){}setTimeout(function(){location.reload();},800);return;}
-   fInvia.disabled=false;fMsg.textContent=(r&&r.messaggio)||(r&&FRASI[r.esito])||(x.status===413?'Il file è troppo grande.':'Il documento non si è caricato: riprova tra un minuto.');};
+   fInvia.disabled=false;fMsg.textContent=(r&&r.messaggio)||(r&&FRASI[r.esito])||(x.status===413?'Il file è troppo grande.':'Il documento non si è caricato: riprova tra un minuto.');
+   var mp={tipo:fTipo,impresa:altra?fAltraN:fImp,scadenza:fScad,data:fData,file:fDrop,autore:fChi};if(r&&r.campo&&mp[r.campo])crSegna(mp[r.campo],r.messaggio||'Da correggere');
+   if(x.status===413)crSegna(fDrop,'Il file è troppo grande.');};
   x.onerror=function(){fInvia.disabled=false;fProg.hidden=true;fMsg.textContent='Connessione assente: il documento non si è caricato. Riprova.';};
   x.send(scelto.file);});
  prepara=function(tipo,chiave){if(tipo&&TIPI[tipo])fTipo.value=tipo;aggiornaTipo(chiave||'');if(chiave&&IMP[chiave]&&fImp.value!==chiave){fImp.value='+';fAltra.hidden=false;fAltraN.value=IMP[chiave].n;}
@@ -1019,16 +1032,19 @@ D.addEventListener('click',function(e){var b=e.target&&e.target.closest?e.target
  if(az==='togli-visto'||az==='ripristina'){if(!confirm(az==='ripristina'?'Rimetti in vigore questa versione? Torna con lo stato che aveva prima.':'Togli «Visto dal CSE» da questo documento? Torna «Da verificare».'))return;
   b.disabled=true;chiama(az==='ripristina'?'ripristina':'da_verificare',id,{chi:leggiChi()}).then(function(r){esito(r,b,null,id);});return;}
 });
-function salva(pre,azione,dati,rosso){var b=$(pre+'-si'),m=$(pre+'-msg');var chi=$(pre+'-chi')?$(pre+'-chi').value.trim():'';if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha fatto la modifica.';$(pre+'-chi').focus();return;}
+function salva(pre,azione,dati,rosso){var b=$(pre+'-si'),m=$(pre+'-msg');var chi=$(pre+'-chi')?$(pre+'-chi').value.trim():'';
+ if(!crControlla((rosso||[]).concat($(pre+'-chi')?[{el:$(pre+'-chi'),testo:'Scrivi il tuo nome: resta scritto chi ha fatto la modifica.'}]:[]))){m.textContent='Completa i campi segnati in rosso.';return;}
  scriviChi(chi);dati.chi=chi;b.disabled=true;m.textContent='';chiama(azione,azione.indexOf('impresa')===0?null:corr,dati).then(function(r){esito(r,b,m,azione.indexOf('impresa')===0?'':corr);});}
 if($('dv-si'))$('dv-si').addEventListener('click',function(){salva('dv','visto',{il:$('dv-il').value,da:$('dv-da').value.trim()});});
 if($('dm-si'))$('dm-si').addEventListener('click',function(){var t=TIPI[dmTipo.value]||{};var im=$('dm-imp-box').hidden?{n:'',r:''}:impresaScelta($('dm-imp'),$('dm-altra-nome'),$('dm-altra-ruolo'));
- if(t.pi&&!im.n){$('dm-msg').textContent='Scegli l\'impresa a cui si riferisce il documento.';return;}
- salva('dm','dati',{tipo:dmTipo.value,impresa:im.n,impresa_ruolo:im.r,titolo:$('dm-tit-in').value.trim(),versione:$('dm-ver').value.trim(),data:$('dm-data').value,scadenza:$('dm-scad').value,nota:$('dm-nota').value.trim()});});
-if($('da-si'))$('da-si').addEventListener('click',function(){var mot=$('da-mot').value.trim();if(mot.length<3){$('da-msg').textContent='Scrivi il motivo: resta scritto con il documento.';$('da-mot').focus();return;}salva('da','annulla',{motivo:mot});});
-if($('di-si'))$('di-si').addEventListener('click',function(){var n=$('di-nome').value.trim();if(!n){$('di-msg').textContent='Scrivi il nome dell\'impresa.';$('di-nome').focus();return;}
+ var rr=[];if(t.pi&&!$('dm-imp-box').hidden)rr.push($('dm-imp').value==='+'?{el:$('dm-altra-nome'),testo:'Scrivi il nome dell\'impresa.'}:{el:$('dm-imp'),ok:function(){return !!im.n;},testo:'Scegli l\'impresa a cui si riferisce il documento.'});
+ rr.push({el:$('dm-scad'),ok:function(){var a=$('dm-data').value,s=$('dm-scad').value;return !(a&&s&&s<a);},testo:'La scadenza è prima della data del documento: ricontrollala.'});
+ if(t.pi&&!im.n&&$('dm-imp-box').hidden){$('dm-msg').textContent='Scegli l\'impresa a cui si riferisce il documento.';return;}
+ salva('dm','dati',{tipo:dmTipo.value,impresa:im.n,impresa_ruolo:im.r,titolo:$('dm-tit-in').value.trim(),versione:$('dm-ver').value.trim(),data:$('dm-data').value,scadenza:$('dm-scad').value,nota:$('dm-nota').value.trim()},rr);});
+if($('da-si'))$('da-si').addEventListener('click',function(){var mot=$('da-mot').value.trim();salva('da','annulla',{motivo:mot},[{el:$('da-mot'),ok:function(){return mot.length>=3;},testo:'Scrivi il motivo: resta scritto con il documento.'}]);});
+if($('di-si'))$('di-si').addEventListener('click',function(){var n=$('di-nome').value.trim();
  var pos='';D.querySelectorAll('input[name=di-pos]').forEach(function(r){if(r.checked)pos=r.value;});
- salva('di','impresa_salva',{chiave:corr||'',nome:n,ruolo:$('di-ruolo').value,lavorazione:$('di-lav').value.trim(),pos:pos});});
+ salva('di','impresa_salva',{chiave:corr||'',nome:n,ruolo:$('di-ruolo').value,lavorazione:$('di-lav').value.trim(),pos:pos},[{el:$('di-nome'),testo:'Scrivi il nome dell\'impresa.'}]);});
 if($('di-togli'))$('di-togli').addEventListener('click',function(){var i=IMP[corr];if(!i||!confirm('Togli «'+i.n+'» dall\'elenco delle imprese del cantiere? I suoi documenti restano.'))return;
  var b=$('di-togli');b.disabled=true;chiama('impresa_togli',null,{chiave:corr}).then(function(r){esito(r,b,$('di-msg'),'');});});
 // ---- dopo un salvataggio: torna al documento

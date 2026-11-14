@@ -9,6 +9,9 @@
 // Interruttore nel database: impostazioni.ddt_excel_attivo (no / prova / si); DDT_EXCEL = "off" toglie tutto.
 // ---------------------------------------------------------------------------
 
+// 14/11/2026 (campi-rossi, regola di Filippo per tutti i moduli): i campi che mancano si segnano in rosso (src/campi-rossi.js).
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function jsonRisposta(oggetto, stato) {
@@ -58,7 +61,7 @@ export async function portaleDdtExcel(request, env, h) {
 
 export function ddtExcelIniezione(base, token, commessa) {
   const cfg = JSON.stringify({ u: base + "/ddt/excel", t: token, c: commessa });
-  const stile = "<style>" +
+  const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-dx-b{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;min-height:46px;margin:0 0 12px;border:1px solid #1B2F4A;border-radius:12px;background:#fff;color:#1B2F4A;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;letter-spacing:normal;text-transform:none;box-shadow:none}" +
     ".gl-dx-b:hover,.gl-dx-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
     ".gl-dx-seg{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#EEF3F9;color:#1B2F4A;font-size:.75rem;font-weight:700;vertical-align:middle}" +
@@ -87,7 +90,8 @@ export function ddtExcelIniezione(base, token, commessa) {
   // fornitore (il file è tutto di un fornitore) e scrivono il cantiere come indirizzo. Ora: più nomi di colonna riconosciuti; se
   // numero e data si trovano, niente schermata delle colonne; se manca il fornitore lo si chiede una volta sola per tutto il file
   // (proposto dal titolo del file o del foglio); i cantieri non riconosciuti vanno nel cantiere della pagina, cambiabile per gruppo.
-  const script = "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
+  const script = "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" +
+    "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
     "var XLSXURL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';\n" +
     "function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}\n" +
     "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}\n" +
@@ -136,7 +140,7 @@ export function ddtExcelIniezione(base, token, commessa) {
     "   '<div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-col\">Scegli le colonne a mano</button><button type=\"button\" class=\"pr\" id=\"gl-dx-av\">Avanti</button></div>';\n" +
     "  var i=bx.querySelector('#gl-dx-fo');i.focus();i.addEventListener('keydown',function(e){if(e.key==='Enter')bx.querySelector('#gl-dx-av').click();});\n" +
     "  bx.querySelector('#gl-dx-col').onclick=passo2;\n" +
-    "  bx.querySelector('#gl-dx-av').onclick=function(){var v=i.value.trim();if(!v){bx.querySelector('#gl-dx-es').innerHTML='<p class=\"gl-dx-err\">Scrivi il nome del fornitore.</p>';return;}F.forn=v;controlla();};}\n" +
+    "  bx.querySelector('#gl-dx-av').onclick=function(){var v=i.value.trim();if(!window.crControlla([{el:i,testo:'Scrivi il nome del fornitore'}]))return;F.forn=v;controlla();};}\n" +
     " function elenco(){post('elenco').then(function(r){var c=bx.querySelector('#gl-dx-el');if(!c)return;var l=r&&r.importazioni||[];if(!l.length){c.innerHTML='<p class=\"gl-dx-nota\">Nessuna importazione per ora.</p>';return;}\n" +
     "  c.innerHTML=l.map(function(z){return '<div class=\"gl-dx-st\"><span><b>'+esc(z.nome_file||'file')+'</b> &middot; '+z.nuovi+' DDT &middot; '+esc(z.il)+(z.autore?' &middot; '+esc(z.autore):'')+(z.annullata?' &middot; <i>annullata</i>':'')+'</span>'+(z.annullabile?'<button type=\"button\" data-a=\"'+z.id+'\">Annulla</button>':'')+'</div>';}).join('');\n" +
     "  c.querySelectorAll('button[data-a]').forEach(function(b){b.onclick=function(){if(!confirm('Annullo questa importazione? I DDT ancora senza foto spariscono dal registro; le aggiunte al diario restano registrate.'))return;b.disabled=true;post('annulla',{id:b.getAttribute('data-a')}).then(function(r){if(r&&r.esito==='ok'){alert('Tolti '+r.tolti+' DDT.');chiudi(true);}else{b.disabled=false;alert(r&&r.messaggio?r.messaggio:'Non riuscito: riprova.');}});};});}).catch(function(){});}\n" +
@@ -148,8 +152,9 @@ export function ddtExcelIniezione(base, token, commessa) {
     "  CAMPI.forEach(function(c){var s=bx.querySelector('#gl-dx-c-'+c.k);s.value=String(F.m[c.k]==null?-1:F.m[c.k]);s.onchange=function(){s.parentNode.className='';};});\n" +
     "  bx.querySelector('#gl-dx-ind').onclick=function(){passo1('');};\n" +
     "  bx.querySelector('#gl-dx-va').onclick=function(){var m={};CAMPI.forEach(function(c){var v=+bx.querySelector('#gl-dx-c-'+c.k).value;if(v>=0)m[c.k]=v;});var fo=bx.querySelector('#gl-dx-fo2').value.trim(),es=bx.querySelector('#gl-dx-es');\n" +
-    "   if(m.numero==null||m.data==null){es.innerHTML='<p class=\"gl-dx-err\">Scegli almeno le colonne del numero e della data del DDT.</p>';return;}\n" +
-    "   if(m.fornitore==null&&!fo){es.innerHTML='<p class=\"gl-dx-err\">Scegli la colonna del fornitore oppure scrivi il fornitore di tutte le righe.</p>';return;}\n" +
+    "   if(!window.crControlla([{el:bx.querySelector('#gl-dx-c-numero'),ok:function(){return m.numero!=null;},testo:'Scegli la colonna del numero del DDT'},\n" +
+    "     {el:bx.querySelector('#gl-dx-c-data'),ok:function(){return m.data!=null;},testo:'Scegli la colonna della data del DDT'},\n" +
+    "     {el:bx.querySelector('#gl-dx-fo2'),ok:function(){return m.fornitore!=null||!!fo;},testo:'Scegli la colonna del fornitore oppure scrivi qui il fornitore di tutte le righe'}]))return;\n" +
     "   F.m=m;F.forn=m.fornitore==null?fo:'';F.gruppi={};F.auto={};controlla();};}\n" +
     " function righe(){var m=F.m,out=[];F.rows.forEach(function(r,i){if(i<=F.t.r||!r||!r.some(function(v){return String(v).trim()!=='';}))return;var g=function(k){return m[k]!=null?r[m[k]]:'';};\n" +
     "   var o={n:i+1,fornitore:m.fornitore!=null?testo(g('fornitore')):F.forn,numero:testo(g('numero')),data:giorno(g('data')),materiale:testo(g('materiale')),\n" +
@@ -176,7 +181,10 @@ export function ddtExcelIniezione(base, token, commessa) {
     "   '<div id=\"gl-dx-es\"></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-col\">Cambia le colonne</button><button type=\"button\" class=\"pr\" id=\"gl-dx-si\">Conferma e salva</button></div>';\n" +
     "  bx.querySelectorAll('select[data-g]').forEach(function(s){s.onchange=function(){F.gruppi[s.getAttribute('data-g')]=s.value;controlla();};});\n" +
     "  bx.querySelector('#gl-dx-col').onclick=passo2;\n" +
-    "  bx.querySelector('#gl-dx-si').onclick=function(){var es=bx.querySelector('#gl-dx-es'),aut=bx.querySelector('#gl-dx-aut').value.trim();if(!aut){es.innerHTML='<p class=\"gl-dx-err\">Scrivi chi fa l’importazione (nome e cognome).</p>';return;}\n" +
+    "  bx.querySelector('#gl-dx-si').onclick=function(){var es=bx.querySelector('#gl-dx-es'),aut=bx.querySelector('#gl-dx-aut').value.trim();es.innerHTML='';\n" +
+    "   var nsel=bx.querySelectorAll('input[data-n]:checked').length;\n" +
+    "   if(!window.crControlla([{el:bx.querySelector('input[data-n]')?bx.querySelector('input[data-n]').closest('.gl-dx-wrap'):bx.querySelector('.gl-dx-chips'),ok:function(){return nsel>0;},testo:'Non c’è nessuna riga da caricare: spunta almeno un DDT nuovo'},\n" +
+    "     {el:bx.querySelector('#gl-dx-aut'),testo:'Scrivi chi fa l’importazione (nome e cognome)'}]))return;\n" +
     "   var scelte=[];bx.querySelectorAll('input[data-n]:checked').forEach(function(i){var x=per[+i.getAttribute('data-n')];if(x)scelte.push(x);});\n" +
     "   if(!scelte.length){es.innerHTML='<p class=\"gl-dx-err\">Non c’è nessuna riga da caricare.</p>';return;}\n" +
     "   var bt=this;bt.disabled=true;bt.textContent='Salvo…';post('salva',{righe:scelte,autore:aut,nome_file:F.nome,sha256:F.sha}).then(function(r){\n" +

@@ -8,7 +8,9 @@
 // Il database decide tutto: giorni ammessi, numero, testo del documento e impronta SHA-256 (livello L1), versioni.
 // Una correzione non riscrive niente: nasce una versione nuova con il motivo e la vecchia resta con la sua impronta.
 // Il diario di cantiere del giorno non si tocca mai. Il relay non conserva nulla.
+// 14/11/2026 (campi-rossi-b2, regola di Filippo): ciò che manca nel modulo e nell'annullamento si segna in rosso sul campo.
 // ============================================================================
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -190,7 +192,7 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Rapportini - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Rapportini</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -244,6 +246,7 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<p class="msg" id="an-msg" aria-live="polite"></p></div>' +
     '<div class="dl-b"><button type="button" class="no" id="an-no">Indietro</button><button type="submit" class="si rosso" id="an-si">Annulla il rapportino</button></div>' +
     "</form></dialog>" +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" +
     "<script>var GL_RP=" + dati + ";" + SCRIPT + "</script></body></html>";
 }
 
@@ -420,18 +423,26 @@ function riempi(x,g){fdata.value=x?x.data:g;flav.value=x?x.lavorazioni:'';fluogo
 function apriModulo(modo,x,g){stato.modo=modo;stato.id=x?x.id:null;stato.sporco=false;stato.salvato=false;
  riempi(x,g);q('#f-auto').hidden=!(x&&x.origine==='automatica'&&modo==='bozza');q('#l-motivo').hidden=modo!=='correggi';bBozza.hidden=modo==='correggi';bReg.hidden=false;bReg.disabled=false;bBozza.disabled=false;
  tit.textContent=modo==='correggi'?'Correzione del rapportino n. '+x.numero:(modo==='bozza'?'Bozza del rapportino':'Nuovo rapportino');
- bReg.textContent=modo==='correggi'?'Registra la correzione':'Firma e registra';bChiudi.textContent='Chiudi';m('','');
+ bReg.textContent=modo==='correggi'?'Registra la correzione':'Firma e registra';bChiudi.textContent='Chiudi';m('','');crPulisci(form);
  mod.hidden=false;mod.scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){try{flav.focus();}catch(e){}},300);}
 function chiudiModulo(silenzioso){if(stato.occupato)return false;mod.hidden=true;if(stato.ricarica&&!silenzioso){location.href=link(D.g);}return true;}
 bChiudi.addEventListener('click',function(){if(stato.sporco&&!confirm('Chiudere senza salvare le ultime modifiche?'))return;if(stato.ricarica){location.href=link(D.g);return;}chiudiModulo();});
 function datiModulo(){return {id:stato.id,data:fdata.value,lavorazioni:flav.value.trim(),luogo:fluogo.value.trim(),manodopera:righe(),mezzi:fmezzi.value.trim(),note:fnote.value.trim(),autore:fautore.value.trim(),motivo:fmot.value.trim(),crono:crDati()};}
-function controlla(reg){var d=datiModulo();
- if(!d.data){return 'Indica il giorno a cui si riferisce il rapportino.';}
- if(d.data<D.min||d.data>D.max){return 'Scegli un giorno tra il '+D.min.split('-').reverse().join('/')+' e il '+D.max.split('-').reverse().join('/')+'.';}
- for(var i=0;i<d.manodopera.length;i++){var r=d.manodopera[i];if(!r.squadra||!(num(r.operai)>=1)||!(num(r.ore)>0)||num(r.ore)>24)return 'Manodopera: in ogni riga servono squadra o impresa, numero di operai e ore per operaio (fino a 24).';}
- if(reg){if(!d.lavorazioni&&!d.manodopera.length)return 'Scrivi le lavorazioni eseguite o almeno una riga di manodopera.';
-  if(!d.autore)return 'Scrivi chi registra il rapportino (nome e cognome).';
-  if(stato.modo==='correggi'&&d.motivo.length<5)return 'Scrivi il motivo della correzione.';}
+/* 14/11/2026 (campi-rossi-b2, regola di Filippo): ciò che manca si segna anche in rosso sul campo, con la riga che dice cosa scrivere */
+function controlla(reg){var d=datiModulo(),primo='',regole=[];
+ function no(el,t){if(!primo)primo=t;regole.push({el:el,ok:function(){return false;},testo:t});}
+ if(!d.data)no(fdata,'Indica il giorno a cui si riferisce il rapportino.');
+ else if(d.data<D.min||d.data>D.max)no(fdata,'Scegli un giorno tra il '+D.min.split('-').reverse().join('/')+' e il '+D.max.split('-').reverse().join('/')+'.');
+ var rr=fmano.querySelectorAll('.riga-m');
+ for(var i=0;i<rr.length;i++){var x=rr[i],sq=x.querySelector('.m-sq'),op=x.querySelector('.m-op'),oo=x.querySelector('.m-ore');
+  if(!sq.value.trim()&&!op.value.trim()&&!oo.value.trim())continue;
+  if(!sq.value.trim())no(sq,'Scrivi la squadra o l’impresa.');
+  if(!(num(op.value.trim())>=1))no(op,'Scrivi quanti operai.');
+  var h=num(oo.value.trim());if(!(h>0)||h>24)no(oo,'Scrivi le ore per operaio (fino a 24).');}
+ if(reg){if(!d.lavorazioni&&!d.manodopera.length)no(flav,'Scrivi le lavorazioni eseguite o almeno una riga di manodopera.');
+  if(!d.autore)no(fautore,'Scrivi chi registra il rapportino (nome e cognome).');
+  if(stato.modo==='correggi'&&d.motivo.length<5)no(fmot,'Scrivi il motivo della correzione.');}
+ crPulisci(form);if(regole.length){crControlla(regole);return regole.length>1?'Completa i campi segnati in rosso.':primo;}
  return '';}
 function occupa(s){stato.occupato=s;bReg.disabled=s;bBozza.disabled=s;bChiudi.disabled=s;}
 function esitoComune(j){if(j.esito==='gettone'){location.href=D.base+'/';return true;}
@@ -470,7 +481,7 @@ pan.addEventListener('click',function(ev){var b=ev.target.closest?ev.target.clos
  if(az==='scarta'){if(!confirm('Scartare questa bozza? Non è ancora registrata e verrà eliminata.'))return;b.disabled=true;
   post('azione',{t:D.t,id:Number(x.id),azione:'scarta'}).then(function(j){if(j.esito==='ok'){location.href=link(D.g);return;}if(j.esito==='gettone'){location.href=D.base+'/';return;}
    alert(j.messaggio||'Non sono riuscito a scartare la bozza: riprova tra poco.');b.disabled=false;}).catch(function(){alert('Il servizio non risponde: riprova tra poco.');b.disabled=false;});return;}
- if(az==='annulla'){anId=x.id;q('#an-sub').textContent='Rapportino n. '+x.numero+' del '+x.data.split('-').reverse().join('/');q('#an-motivo').value='';q('#an-autore').value=autoreSalvato();anMsg.textContent='';anMsg.className='msg';
+ if(az==='annulla'){anId=x.id;q('#an-sub').textContent='Rapportino n. '+x.numero+' del '+x.data.split('-').reverse().join('/');q('#an-motivo').value='';q('#an-autore').value=autoreSalvato();anMsg.textContent='';if(dlg)crPulisci(dlg);anMsg.className='msg';
   if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else{var mo=prompt('Motivo dell’annullamento');if(!mo)return;var au=prompt('Annullato da (nome e cognome)',autoreSalvato());if(!au)return;annulla(mo,au);}}});
 function annulla(mo,au){anOcc=true;var bs=q('#an-si');if(bs)bs.disabled=true;
  post('azione',{t:D.t,id:Number(anId),azione:'annulla',dati:{motivo:mo,autore:au}}).then(function(j){anOcc=false;if(bs)bs.disabled=false;
@@ -478,8 +489,8 @@ function annulla(mo,au){anOcc=true;var bs=q('#an-si');if(bs)bs.disabled=true;
   var t=j.messaggio||(j.esito==='incerto'?'Non ho avuto risposta: ricarica la pagina tra un minuto.':'Non sono riuscito ad annullare: riprova tra poco.');if(dlg&&dlg.open){anMsg.className='msg ko';anMsg.textContent=t;}else alert(t);
  }).catch(function(){anOcc=false;if(bs)bs.disabled=false;var t='Il servizio non risponde: riprova tra poco.';if(dlg&&dlg.open){anMsg.className='msg ko';anMsg.textContent=t;}else alert(t);});}
 if(dlg){q('#an-form').addEventListener('submit',function(ev){ev.preventDefault();if(anOcc)return;var mo=q('#an-motivo').value.trim(),au=q('#an-autore').value.trim();
-  if(mo.length<5){anMsg.className='msg ko';anMsg.textContent='Scrivi il motivo dell’annullamento.';return;}
-  if(!au){anMsg.className='msg ko';anMsg.textContent='Scrivi chi annulla il rapportino (nome e cognome).';return;}annulla(mo,au);});
+  if(!crControlla([{el:q('#an-motivo'),ok:function(){return mo.length>=5;},testo:'Scrivi il motivo dell’annullamento.'},{el:q('#an-autore'),testo:'Scrivi chi annulla il rapportino (nome e cognome).'}])){anMsg.className='msg ko';anMsg.textContent='Completa i campi segnati in rosso.';return;}
+  anMsg.textContent='';annulla(mo,au);});
  q('#an-no').addEventListener('click',function(){if(!anOcc)dlg.close();});dlg.addEventListener('cancel',function(ev){if(anOcc)ev.preventDefault();});}
 window.addEventListener('pageshow',function(ev){if(ev.persisted)location.reload();});
 if(D.g)mostraGiorno(D.g);

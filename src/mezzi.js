@@ -8,7 +8,10 @@
 //   GET  /mezzi?t=<gettone>[&a=<impresa>]   → pagina (database: mezzi_portale; «a» solo con l'accesso «Tutte le aziende»)
 //   POST /mezzi/api  {t, a, azione, dati}    → salva | elimina | prezzo  (mezzi_salva, mezzi_elimina, prezzo_economia_salva)
 // Interruttori: impostazioni.mezzi_attiva (no / prova = solo Filippo / si) e MEZZI = "off" nel Worker.
+// 14/11/2026 (campi-rossi-b2, regola di Filippo): nella scheda del mezzo e nei prezzi della manodopera ciò che manca o è scritto
+// male si segna in rosso con la riga che dice cosa scrivere (modulo comune src/campi-rossi.js).
 // ============================================================================
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -88,7 +91,7 @@ function pagina(base, h, tok, a, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Mezzi e attrezzature - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="mz-torna" href="' + e(torna) + '">‹ Torna ai cantieri</a>' +
     '<section class="mz-card"><div class="mz-testa"><div><p class="mz-chi">' + e(az ? az.nome : "Tutte le aziende") + "</p>" +
     '<h1><span class="mz-ic">' + icona + "</span>Mezzi e attrezzature</h1></div>" +
@@ -107,6 +110,7 @@ function pagina(base, h, tok, a, d, torna) {
     '<p class="mz-piede">Su WhatsApp operai e capocantiere non vedono mai i prezzi. Le ore dei mezzi in economia si scrivono nel Registro delle economie di ogni cantiere.</p>' +
     "</main>" +
     MODULO + (az ? CARICA_HTML : "") +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" +
     "<script>" + SCRIPT.replace("__CFG__", cfg).replace("__CARICA__", az ? CARICA_JS : "") + "</script></body></html>";
 }
 
@@ -321,6 +325,7 @@ function es(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return
 function euro(n){if(n==null||n==='')return '';var x=Number(n);return isFinite(x)?x.toFixed(2).replace('.',','):'';}
 function data(iso){iso=String(iso||'');if(iso.slice(0,10)==='2000-01-01')return "dall'inizio";return /^\d{4}-\d{2}-\d{2}/.test(iso)?'dal '+iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'';}
 function chiama(az,dati){return fetch(C.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:C.t,a:C.a,azione:az,dati:dati})}).then(function(r){return r.json();}).catch(function(){return{esito:'rete'};});}
+function prezzoOk(v){v=String(v||'').replace(/€|\s/g,'');return !v||/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+([.,]\d{1,2})?$/.test(v);}
 function ricarica(){try{history.replaceState(null,'',location.pathname+location.search+'#'+S);}catch(e){}location.reload();}
 function carte(){var g=$('mz-griglia'),m=(D.mezzi||[]).filter(function(x){return x.scheda===S;});
  ['mezzo','attrezzatura'].forEach(function(k){$('mz-n-'+k).textContent=(D.mezzi||[]).filter(function(x){return x.scheda===k;}).length;});
@@ -337,11 +342,13 @@ function qual(){var q=$('mz-qual');q.innerHTML=(D.manodopera||[]).map(function(x
   return '<div class="mz-q"><span>'+es(x.etichetta)+'</span><div class="r"><input data-q="'+es(x.qualifica)+'" inputmode="decimal" maxlength="12" value="'+es(euro(x.prezzo))+'" placeholder="es. 32,00" aria-label="Prezzo orario '+es(x.etichetta)+'"><b>€/ora</b></div>'+
   '<small>'+(x.prezzo!=null?es(data(x.prezzo_dal))+(st[0]&&st[0].autore?' · '+es(st[0].autore):''):'Prezzo da scrivere')+'</small></div>';}).join('')+
   '<div class="mz-q" style="display:flex;align-items:flex-end"><button type="button" class="mz-b mz-pr" id="mz-salva-q">Salva i prezzi della manodopera</button></div>';
- $('mz-salva-q').onclick=function(){var b=this,ins=q.querySelectorAll('input[data-q]'),i=0,errori=[];b.disabled=true;$('mz-msg-q').className='mz-msg';$('mz-msg-q').textContent='Salvo…';
+ $('mz-salva-q').onclick=function(){var b=this,ins=q.querySelectorAll('input[data-q]'),i=0,errori=[];
+  if(!crControlla(Array.prototype.map.call(ins,function(x){return {el:x,ok:function(){return prezzoOk(x.value);},testo:'Scrivi il prezzo all\'ora in euro, per esempio 32,00.'};}))){$('mz-msg-q').className='mz-msg ko';$('mz-msg-q').textContent='Correggi i prezzi segnati in rosso.';return;}
+  b.disabled=true;$('mz-msg-q').className='mz-msg';$('mz-msg-q').textContent='Salvo…';
   (function prossimo(){if(i>=ins.length){b.disabled=false;if(errori.length){$('mz-msg-q').className='mz-msg ko';$('mz-msg-q').textContent=errori.join(' ');}else ricarica();return;}
    var el=ins[i++],v=el.value.trim(),k=el.getAttribute('data-q'),prima=(D.manodopera||[]).filter(function(x){return x.qualifica===k;})[0];
    if(!v||(prima&&euro(prima.prezzo)===euro(v.replace(',','.')))){prossimo();return;}
-   chiama('prezzo',{voce:'qualifica',qualifica:k,prezzo:v}).then(function(r){if(!r||r.esito!=='ok')errori.push((prima?prima.etichetta+': ':'')+(r&&r.messaggio||'non salvato, riprova.'));prossimo();});})();};}
+   chiama('prezzo',{voce:'qualifica',qualifica:k,prezzo:v}).then(function(r){if(!r||r.esito!=='ok'){errori.push((prima?prima.etichetta+': ':'')+(r&&r.messaggio||'non salvato, riprova.'));crSegna(el,r&&r.messaggio||'Non salvato: riprova.');}prossimo();});})();};}
 function scelta(campo,v){var w=document.querySelector('.mz-scelta[data-campo="'+campo+'"]');Array.prototype.forEach.call(w.querySelectorAll('button'),function(b){b.classList.toggle('on',b.getAttribute('data-v')===String(v));});}
 function valore(campo){var b=document.querySelector('.mz-scelta[data-campo="'+campo+'"] button.on');return b?b.getAttribute('data-v'):'';}
 function aggiorna(){var sch=valore('scheda');$('c-op').hidden=sch!=='mezzo';$('c-nol').hidden=valore('proprieta')!=='noleggio';$('mz-avv-op').hidden=!(sch==='mezzo'&&valore('con_operatore')==='true');
@@ -353,13 +360,17 @@ function apri(x){corr=x||null;$('mz-mod-t').textContent=x?'Modifica: '+x.nome:(S
  $('f-tipo').value=x?x.tipo||'':'';$('f-nome').value=x?x.nome:'';$('f-mm').value=x?x.marca_modello||'':'';$('f-targa').value=x?x.targa||'':'';$('f-nol').value=x?x.noleggiatore||'':'';
  $('f-prezzo').value=x&&x.prezzo!=null?euro(x.prezzo):'';$('f-note').value=x?x.note||'':'';$('mz-msg').textContent='';$('mz-msg').className='mz-msg';$('mz-togli').hidden=!x;
  var st=x&&x.storico||[];$('mz-storico').hidden=!st.length;$('mz-storico').innerHTML=st.length?'<b>Storico dei prezzi</b><ul>'+st.map(function(s){return '<li><b>'+euro(s.prezzo)+' € '+es(UN[x.unita]||'')+'</b> '+es(data(s.valido_dal))+' · scritto il '+es(s.il)+(s.autore?' da '+es(s.autore):'')+'</li>';}).join('')+'</ul>'+(x.prezzo!=null?'<p>Se cambi il prezzo, quello nuovo vale da oggi; i giorni passati restano con il prezzo di prima.</p>':''):'';
- aggiorna();$('mz-velo').hidden=false;$('f-nome').focus();}
+ crPulisci($('mz-velo'));aggiorna();$('mz-velo').hidden=false;$('f-nome').focus();}
 function chiudi(){$('mz-velo').hidden=true;}
 $('mz-annulla').onclick=chiudi;$('mz-velo').addEventListener('click',function(ev){if(ev.target===this)chiudi();});document.addEventListener('keydown',function(ev){if(ev.key==='Escape')chiudi();});
 $('mz-salva').onclick=function(){var b=this,dati={id:corr?corr.id:'',scheda:valore('scheda'),tipo:$('f-tipo').value,nome:$('f-nome').value,marca_modello:$('f-mm').value,targa:$('f-targa').value,
  proprieta:valore('proprieta'),noleggiatore:$('f-nol').value,con_operatore:valore('con_operatore')==='true',unita:valore('unita'),prezzo:$('f-prezzo').value,note:$('f-note').value};
+ var regole=[{el:$('f-nome'),testo:'Scrivi il nome per riconoscerlo (es. Escavatore Kubota 8 t).'},
+  {el:$('f-prezzo'),ok:function(){return prezzoOk($('f-prezzo').value);},testo:'Scrivi il prezzo in euro, per esempio 75,00.'}];
+ if(!crControlla(regole)){$('mz-msg').className='mz-msg ko';$('mz-msg').textContent='Completa i campi segnati in rosso.';return;}
  b.disabled=true;$('mz-msg').className='mz-msg';$('mz-msg').textContent='Salvo…';
- chiama('salva',dati).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){ricarica();return;}$('mz-msg').className='mz-msg ko';$('mz-msg').textContent=r&&r.messaggio?r.messaggio:'Non è stato possibile salvare. Riprova tra qualche minuto.';});};
+ chiama('salva',dati).then(function(r){b.disabled=false;if(r&&r.esito==='ok'){ricarica();return;}$('mz-msg').className='mz-msg ko';$('mz-msg').textContent=r&&r.messaggio?r.messaggio:'Non è stato possibile salvare. Riprova tra qualche minuto.';
+  var mp={nome:$('f-nome'),prezzo:$('f-prezzo'),tipo:$('f-tipo'),targa:$('f-targa'),noleggiatore:$('f-nol'),marca_modello:$('f-mm'),note:$('f-note')};if(r&&r.campo&&mp[r.campo])crSegna(mp[r.campo],r.messaggio||'Da correggere');});};
 $('mz-togli').onclick=function(){if(!corr)return;var b=this;if(b.getAttribute('data-ok')!=='1'){b.setAttribute('data-ok','1');b.textContent='Confermi? Premi ancora';return;}
  b.disabled=true;chiama('elimina',{id:corr.id}).then(function(r){b.disabled=false;b.removeAttribute('data-ok');b.textContent="Togli dall'elenco";if(r&&r.esito==='ok'){ricarica();return;}$('mz-msg').className='mz-msg ko';$('mz-msg').textContent='Non è stato possibile toglierlo. Riprova.';});};
 Array.prototype.forEach.call(document.querySelectorAll('.mz-tabs button'),function(b){b.onclick=function(){S=b.getAttribute('data-s');Array.prototype.forEach.call(document.querySelectorAll('.mz-tabs button'),function(x){x.classList.toggle('on',x===b);});carte();};});
