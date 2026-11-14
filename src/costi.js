@@ -491,6 +491,7 @@ function pagina(base, h, p, d, torna, elenco) {
   const dopo = ogg(q.dopo);
   const man = ogg(cal.manodopera), mez = ogg(cal.mezzi), mano = ogg(cal.manuali), sub = ogg(cal.subappalti);
   const fat = ogg(cal.fatture), bol = ogg(cal.bolle);   // costi-2
+  const lab = ogg(cal.laboratorio), labOra = ogg(cora.laboratorio);   // costi-5: fatture del laboratorio delle prove (B3)
   const manOra = ogg(cora.manodopera);
   const soglia = n(q.soglia) ?? 10;
   const sotto = q.stato === "sotto";
@@ -539,6 +540,7 @@ function pagina(base, h, p, d, torna, elenco) {
     rigaT("Manodopera", man.euro, dopo.manodopera) + rigaT("Mezzi propri", mez.euro, dopo.mezzi) +
     rigaT("Fatture dei fornitori", fat.euro, dopo.fatture) + rigaT("Bolle stimate con l'offerta (da controllare)", bol.euro, dopo.bolle) +
     rigaT("Costi a mano", mano.euro, dopo.manuali) + rigaT("Subappalti", sub.euro, dopo.subappalti) +
+    (n(labOra.n) > 0 ? rigaT("Fatture del laboratorio (prove sui materiali)", lab.euro, dopo.laboratorio) : "") +
     '</tbody><tfoot><tr><th scope="row">Totale</th><td class="n">' + euroTondo(cal.totale) + '</td>' + (ult ? '<td class="n">' + euroTondo(dopo.totale) + '</td>' : "") + '</tr></tfoot></table></div></section>';
 
   // 3. avvisi
@@ -687,6 +689,13 @@ function pagina(base, h, p, d, torna, elenco) {
     '<p class="cm-nota">Conta l\'ultimo SAL approvato di ogni subappaltatore, ritenuta compresa, più le sue ore in economia segnate nel Diario al prezzo del contratto. Il margine voce per voce è nella scheda Subappalti della ' +
     '<a href="' + e(linkSal) + '">pagina SAL</a>.</p></div></details>';
 
+  // costi-5: fatture del laboratorio delle prove sui materiali (si caricano in Preventivi → Prove sui materiali, tabella prove_fatture della B3)
+  const labDett = lista(labOra.fatture).length ? '<details class="cm-det" id="laboratorio"><summary>Fatture del laboratorio <span>' + euroTondo(labOra.euro) + '</span></summary><div class="cm-det-c">' +
+    '<div class="cm-tabw"><table class="cm-tab"><thead><tr><th>Data</th><th>Laboratorio</th><th>Numero</th><th class="n">Imponibile</th><th></th></tr></thead><tbody>' +
+    lista(labOra.fatture).map((x) => '<tr><td>' + e(dataIt(x.data)) + '</td><td>' + e(testo(x.fornitore, 120)) + '</td><td>' + e(testo(x.numero, 80)) + '</td><td class="n">' + euroTondo(x.imponibile) +
+      '</td><td><a href="' + e(base + "/preventivi/prove/fattura?t=" + encodeURIComponent(p.tok) + "&id=" + encodeURIComponent(x.preventivo_id || "") + "&f=" + encodeURIComponent(x.id || "")) + '" target="_blank" rel="noopener">Apri</a></td></tr>').join("") +
+    '</tbody></table></div><p class="cm-nota">Le fatture del laboratorio si caricano in Preventivi → Prove sui materiali e contano qui da sole, all\'imponibile + IVA. Se la stessa fattura è caricata anche in «Bolle e fatture dei fornitori», conta una volta sola.</p></div></details>' : "";
+
   // 5. costi della tua impresa
   const campoVoce = (v) => {
     const x = ogg(voci[v[0]]);
@@ -731,7 +740,7 @@ function pagina(base, h, p, d, torna, elenco) {
     '<div class="cm-card' + (sotto ? " cm-rosso" : "") + '"><header class="cm-band"><div><h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine</h1>' +
     (d.cantiere ? '<p class="cm-cant">' + e(d.cantiere) + '</p>' : "") + '</div>' +
     (d.modo === "prova" ? '<span class="cm-prova">In prova · la vede solo «Tutte le aziende»</span>' : "") + '</header>' +
-    quadro + tabella + avvisi + manDett + mezDett + fornDett + manoDett + subDett + impresa + fonti + '</div></main>' +
+    quadro + tabella + avvisi + manDett + mezDett + fornDett + labDett + manoDett + subDett + impresa + fonti + '</div></main>' +
     // costi-2: finestre per la stima di una bolla, la modifica di una fattura, togli fattura o stima
     '<dialog class="cm-dlg cm-dlg-l" id="cm-b-dlg"><form method="dialog"><h3 id="cm-b-tit">Prezza la bolla con l\'offerta</h3>' +
     '<p id="cm-b-txt"></p><label for="cm-b-off">Offerta accettata</label><select id="cm-b-off"></select>' +
