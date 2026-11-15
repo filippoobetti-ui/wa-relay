@@ -38,7 +38,7 @@ async function manda(c, payload, motivo) {
   return r;
 }
 
-const BENVENUTO = "Ciao, sono TIX, l'assistente digitale di cantiere (IA). Scrivi, fotografa o manda un vocale: lo registro nel diario di cantiere della tua impresa.\n\nCome posso aiutarti?";
+const BENVENUTO = "Ciao, sono TIX, l'assistente digitale di cantiere (IA). Scrivi, fotografa o manda un vocale: lo registro nel diario di cantiere della tua impresa.\n\nCome posso aiutarti?\n\n\u2139\uFE0F Privacy. Il tuo numero e questo messaggio li tratta Obetti Filippo (TIX \u00B7 Diario di cantiere) solo per risponderti e, se lavori con un'impresa che usa TIX, per farti invitare da lei. Li cancelliamo dopo 30 giorni se non entri in un cantiere. Informativa: www.tixcantiere.it/privacy-policy";
 const SOLO_INVITO = "Questo numero non è ancora collegato a un'impresa. Per usare TIX serve l'invito della tua impresa: chiedi al tuo referente di aggiungerti in «Persone del cantiere». Riceverai su WhatsApp un messaggio con il codice per attivarti.";
 const CHIEDE_AZIENDA = "Il tuo numero non è registrato. Scrivi il nome dell’azienda principale che stai cercando (come risulta in Camera di Commercio, in MAIUSCOLO — esempio: MARIO ROSSI SRL):";
 
