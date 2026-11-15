@@ -275,7 +275,7 @@ async function api(request, env, h) {
     // 09/11/2026 (crediti-1, chat 02B): Crediti TIX (saldo e movimenti, compra con carta, richiesta con bonifico)
     const pac = String(b && b.dati && b.dati.pacchetto || "");
     r = await h.rpc(env, "crediti_azione", { p_token: tok, p_azienda: a, p_azione: az.slice(3),
-      p_dati: { pacchetto: ["5", "20", "50"].indexOf(pac) >= 0 ? pac : "" } }, 15000).catch(() => null);
+      p_dati: { pacchetto: /^[0-9]{1,4}$/.test(pac) ? pac : "" } }, 15000).catch(() => null);
   } else if (AZIONI.has(az)) {
     r = await h.rpc(env, "preventivo_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 15000).catch(() => null);
   } else if (az === "ia_dati" && UUID.test(dati.id || "")) {
