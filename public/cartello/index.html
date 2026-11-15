@@ -1994,6 +1994,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     if ((M.pulisci(k.cup) || M.pulisci(k.cig)) && stato.tipo !== 'pubblico') { stato.tipo = 'pubblico'; document.querySelectorAll('input[name="tipo"]').forEach(function (r) { r.checked = r.value === 'pubblico'; }); }
     stato.cantiere = { id: k.id, nome: k.nome, oggetto: C.oggetto, ubicazione: M.pulisci(k.ubicazione) ? C.ubicazione : '' };
     salvaStato(); disegnaModulo(); ridisegna();
+    caricaCrediti();
   }
   function avviaCantiere() {
     var t = gettone(), k = stato.cantiere;
@@ -2049,7 +2050,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       return fetch(API + '/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessione: p.sessione, impronta: h, oggetto: M.pulisci(stato.campi.oggetto).slice(0, 300), ubicazione: M.pulisci(stato.campi.ubicazione).slice(0, 200) }) });
     }).then(function (r) { return r.json(); }).then(function (j) {
       if (j && j.esito === 'ok') {
-        p.usate = Number(j.usate || 0); p.max = Number(j.max || p.max || 10);
+        p.usate = Number(j.usate || 0); p.max = Number(j.max || p.max || 10); p.pdf_fatto = true;
         stato.ultimoPdf = { colore: stato.colore, testata: stato.testata, misura: stato.misura, formato: stato.formato, orientamento: stato.orientamento, tipo: stato.tipo, abbondanza: stato.abbondanza, campi: JSON.parse(JSON.stringify(stato.campi)) };
         salvaStato(); return h;
       }
@@ -2155,15 +2156,83 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       // conAttesa mostra già gli errori in alto: qui li ripetiamo vicino al pulsante
     });
   }
+  // ---------------------------------------------------------------- 15/11/2026 (cartello-crediti-1): pagamento con i Crediti TIX
+  // Con i Crediti accesi (dal cantiere aperto dall'app) il cartello costa CR.costo crediti invece di 9 € + IVA: prima i compresi del mese.
+  // «Usa 1 credito» registra il cartello pagato (stessa sessione di sempre: PDF, 10 modifiche e invii come prima).
+  var CR = null, CR_TESTI = null;
+  function crediti(azione, extra) {
+    var k = stato.cantiere || {};
+    var corpo = { azione: azione, t: gettone(), c: k.id || '' };
+    Object.keys(extra || {}).forEach(function (x) { corpo[x] = extra[x]; });
+    return fetch(API + '/crediti', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) })
+      .then(function (r) { return r.json(); });
+  }
+  function nCrediti(n) { return n + (n === 1 ? ' credito' : ' crediti'); }
+  function caricaCrediti() {
+    if (!gettone() || !(stato.cantiere && stato.cantiere.id)) { CR = null; mostraCrediti(); return Promise.resolve(null); }
+    return crediti('stato').then(function (j) {
+      CR = j && j.esito === 'ok' && j.modo === 'crediti' ? j : null;
+      mostraCrediti();
+      // cartello già preso con i crediti per questo cantiere: si sblocca senza pagare di nuovo
+      if (CR && CR.sessione && !(stato.pagamento && stato.pagamento.sessione === CR.sessione)) verificaSessione(CR.sessione);
+      return CR;
+    }).catch(function () { CR = null; mostraCrediti(); return null; });
+  }
+  function mostraCrediti() {
+    var tot = $('#tot-lordo'), btn = $('#btn-acquista'), nota = document.querySelector('#pagamento > p.nota'), pz = document.querySelector('header.testata .prezzo');
+    if (!CR_TESTI) CR_TESTI = { tot: tot.parentNode.innerHTML, btn: btn.innerHTML, nota: nota ? nota.innerHTML : '', pz: pz ? pz.innerHTML : '' };
+    if (!CR) {
+      tot.parentNode.innerHTML = CR_TESTI.tot; btn.innerHTML = CR_TESTI.btn; if (nota) nota.innerHTML = CR_TESTI.nota; if (pz) pz.innerHTML = CR_TESTI.pz;
+      return;
+    }
+    var resta = Number(CR.saldo || 0) - Number(CR.costo || 1);
+    tot.parentNode.innerHTML = '<b id="tot-lordo">' + nCrediti(Number(CR.costo || 1)) + ' TIX</b> <small>(hai ' + nCrediti(Number(CR.saldo || 0)) + ')</small>';
+    if (pz) pz.innerHTML = nCrediti(Number(CR.costo || 1)) + ' TIX a cartello';
+    if (nota) nota.innerHTML = 'Il cartello vale per questo cantiere: comprende il primo PDF e fino a 10 modifiche; riscaricare lo stesso cartello senza cambiare nulla è sempre gratis. Si usano prima i crediti compresi nel mese. Se non prepari nessun PDF, il credito si può restituire.';
+    btn.innerHTML = resta >= 0 ? 'Usa ' + nCrediti(Number(CR.costo || 1)) + ' (te ne ' + (resta === 1 ? 'resta 1' : 'restano ' + resta) + ') e scarica il PDF/X-1a' : 'Compra crediti: ' + (Number(CR.costo || 1) === 1 ? 'ne serve 1' : 'ne servono ' + Number(CR.costo)) + ', ne hai ' + Number(CR.saldo || 0);
+  }
+  function usaCrediti(btn) {
+    if (Number(CR.saldo || 0) < Number(CR.costo || 1)) { window.open(CR.compra_url, '_blank', 'noopener'); return; }
+    var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Uso il credito…';
+    salvaStato();
+    crediti('usa', { formato: M.codiceFormato(stato), orientamento: stato.formato === 'su_misura' ? 'verticale' : stato.orientamento, tipo: stato.tipo }).then(function (j) {
+      btn.disabled = false; btn.innerHTML = prima;
+      if (j && j.esito === 'ok' && j.sessione) {
+        CR.saldo = Number(j.saldo || 0); CR.sessione = j.sessione; mostraCrediti();
+        return verificaSessione(j.sessione).then(function (ok) { if (!ok) errore('Credito usato, ma il cartello non si è sbloccato: ricarica la pagina (il credito non viene scalato di nuovo).'); });
+      }
+      if (j && j.esito === 'crediti_mancano') { CR.saldo = Number(j.saldo || 0); mostraCrediti(); errore((j.messaggio || 'Crediti insufficienti.') + ' Comprali con il pulsante qui sotto, poi ricarica questa pagina.'); return; }
+      errore((j && (j.messaggio || j.errore)) || 'Credito non usato: riprova tra poco.');
+    }).catch(function () { btn.disabled = false; btn.innerHTML = prima; errore('Il servizio non risponde: ricarica la pagina prima di riprovare (il credito non viene scalato due volte).'); });
+  }
+  function restituisciCredito(p, b) {
+    if (!confirm('Restituisco il credito? Il cartello si annulla: per farlo di nuovo servirà un altro credito.')) return;
+    b.disabled = true;
+    crediti('restituisci', { sessione: p.sessione }).then(function (j) {
+      if (j && j.esito === 'ok') {
+        stato.pagamento = null; salvaStato();
+        mostraAvvisi([{ testo: 'Credito restituito: il cartello è annullato.', tipo: 'ok' }]);
+        caricaCrediti().then(function () { aggiornaPagamento(); });
+        return;
+      }
+      b.disabled = false;
+      if (j && j.esito === 'pdf_fatto') { p.pdf_fatto = true; salvaStato(); aggiornaPagamento(); }
+      errore((j && (j.messaggio || j.errore)) || 'Credito non restituito: riprova tra poco.');
+    }).catch(function () { b.disabled = false; errore('Il servizio non risponde: riprova tra poco.'); });
+  }
   function aggiornaPagamento() {
     var box = $('#pagato-box'), btn = $('#btn-acquista');
     var p = stato.pagamento;
     if (p && stessoCantiere(p)) {
       box.hidden = false;
-      box.innerHTML = '<div class="pagato"><div class="t">✓ Pagamento ricevuto' + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
+      var conCrediti = /^cs_live_TIXCRD/.test(p.sessione || '');
+      box.innerHTML = '<div class="pagato"><div class="t">' + (conCrediti ? '✓ Pagato con i Crediti TIX' : '✓ Pagamento ricevuto') + (p.pagato_il ? ' il ' + esc(p.pagato_il) : '') + '</div>' +
         '<div class="nota" style="margin:4px 0 10px">Cartello «' + esc(M.titoloLavori(p.oggetto || stato.campi.oggetto).slice(0, 80)) + '». Comprende il primo PDF e fino a ' + (p.max || 10) + ' modifiche: usate ' + (p.usate || 0) + ' di ' + (p.max || 10) + '. Riscaricare lo stesso cartello senza cambiare nulla è sempre gratis.</div>' +
-        '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button></div>';
+        '<button class="btn grande" type="button" id="btn-scarica">Scarica il PDF/X-1a per la stampa</button>' +
+        (conCrediti && !p.pdf_fatto && !Number(p.usate || 0) ? '<p class="nota" style="margin:10px 0 0">Non ti serve più? <button class="btn secondario" type="button" id="btn-restituisci">Restituisci il credito</button> (solo finché non prepari il PDF)</p>' : '') +
+        '</div>';
       btn.hidden = true;
+      if ($('#btn-restituisci')) $('#btn-restituisci').addEventListener('click', function () { restituisciCredito(p, this); });
       mostraInvio(p);
       $('#btn-scarica').addEventListener('click', function () {
         var b = this;
@@ -2184,6 +2253,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     var btn = this;
     ridisegna();
     if (motivoBlocco) { var mb = $('#motivo-blocco'); mb.hidden = false; mb.textContent = motivoBlocco; mb.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (CR) { usaCrediti(btn); return; }
     var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Apro il pagamento sicuro…';
     salvaStato();
     salvaImmagini().then(function () {
@@ -2209,8 +2279,9 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
         stato.pagamento = { sessione: id, oggetto: j.oggetto || stato.campi.oggetto, ubicazione: j.ubicazione || stato.campi.ubicazione, pagato_il: j.pagato_il || '', abbonato: !!j.abbonato, email: j.email || '', cliente: j.cliente || '', invii: Number(j.invii || 0), commessa: j.commessa || '', usate: Number(j.usate || 0), max: Number(j.max || 10) };
         if (stato.pagamento.commessa) { stato.campi.oggetto = stato.pagamento.oggetto; if (M.pulisci(stato.pagamento.ubicazione)) stato.campi.ubicazione = stato.pagamento.ubicazione; disegnaModulo(); }
         try { ridisegna(); } catch (e) { /* l'anteprima si aggiorna comunque al prossimo cambio */ }
+        if (/^cs_live_TIXCRD/.test(id)) stato.pagamento.pdf_fatto = !!(CR && CR.sessione === id && CR.pdf_fatto) || stato.pagamento.usate > 0;
         stato.sessione = null; salvaStato();
-        mostraAvvisi([{ testo: 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
+        mostraAvvisi([{ testo: /^cs_live_TIXCRD/.test(id) ? 'Credito usato: il PDF per la stampa è sbloccato qui sotto.' : 'Pagamento ricevuto: il PDF per la stampa è sbloccato qui sotto.', tipo: 'ok' }]);
         aggiornaPagamento();
         return true;
       }
@@ -2258,6 +2329,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       var q = new URLSearchParams(location.search);
       if (/^[0-9a-f]{64}$/.test(q.get('t') || '')) { try { sessionStorage.setItem('cartello.t', q.get('t')); } catch (e) {} }
       avviaCantiere();
+      caricaCrediti();
       var sess = q.get('sessione') || stato.sessione;
       if (q.get('esito') === 'annullato') mostraAvvisi([{ testo: 'Pagamento annullato: il cartello è rimasto com’era, puoi riprovare quando vuoi.' }]);
       if (sess) {
