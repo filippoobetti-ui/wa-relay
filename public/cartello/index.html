@@ -133,6 +133,12 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
 .testata .home-link{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border:1px solid rgba(255,255,255,.6);border-radius:10px;color:#fff;font-weight:700;font-size:.92rem;text-decoration:none;white-space:nowrap}.testata .home-link:hover,.testata .home-link:focus-visible{background:rgba(255,255,255,.16);outline:none}
 </style>
 <style>/* 30/10/2026 sera (Filippo): cornice sfumata blu TIX → arancione */@media screen{.pannello{position:relative;border-color:transparent!important}.pannello::before{content:"";position:absolute;inset:-1px;background:linear-gradient(135deg,#1B2F4A,#F26A10);padding:2px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;border-radius:inherit}@media (prefers-color-scheme:dark){.pannello::before{background:linear-gradient(135deg,#6F8FBF,#F26A10)}}}</style>
+<style>/* 15/11/2026: campi obbligatori mancanti contornati di rosso (regola di Filippo del 14/11, come in tutta l'app) */
+.cr-box{outline:2px solid #B3261E!important;outline-offset:4px;border-radius:10px;background:rgba(253,241,240,.7)!important}
+.cr-box input,.cr-box textarea,.cr-box select,.cr-box .data3{border-color:#B3261E!important;background:#FDF1F0!important}
+.cr-msg{display:block;color:#B3261E;font-size:.82rem;font-weight:700;line-height:1.3;margin:6px 0 2px;text-align:left}
+.cr-msg::before{content:'\26A0\FE0E  '}
+</style>
 </head>
 <body>
 <header class="testata">
@@ -1905,7 +1911,39 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     M.CAMPI.forEach(function (c) { if (visibile(c, tipo) && obbligatorio(c, tipo) && !M.pulisci(stato.campi[c.id])) out.push(M.perTipo(c.eti, tipo)); });
     return out;
   }
-  var motivoBlocco = '';
+  var motivoBlocco = '', rossiAttivi = false;
+  // 15/11/2026 (campi rossi nel cartello, regola di Filippo del 14/11): quando manca un dato obbligatorio, il riquadro del campo
+  // si contorna di rosso con la riga «Da scrivere: …» e la pagina porta al primo. Il rosso sparisce appena si scrive.
+  function segnaRosso(el, testo) {
+    if (!el) return;
+    el.classList.add('cr-box'); el.setAttribute('aria-invalid', 'true');
+    Array.prototype.forEach.call(el.querySelectorAll(':scope > .cr-msg'), function (x) { x.remove(); });
+    var m = document.createElement('span'); m.className = 'cr-msg'; m.setAttribute('role', 'alert'); m.textContent = testo;
+    el.appendChild(m);
+  }
+  function togliRosso(el) {
+    if (!el) return;
+    el.classList.remove('cr-box'); el.removeAttribute('aria-invalid');
+    Array.prototype.forEach.call(el.querySelectorAll(':scope > .cr-msg'), function (x) { x.remove(); });
+  }
+  function segnaMancanti() {
+    Array.prototype.forEach.call(document.querySelectorAll('.cr-box'), togliRosso);
+    var primo = null, tipo = stato.tipo;
+    if (gettone() && !(stato.cantiere && stato.cantiere.id) && $('#pannello-cantiere')) {
+      primo = $('#pannello-cantiere'); segnaRosso(primo, 'Da fare: scegli il cantiere e tocca «Carica i dati dal cantiere».');
+    }
+    M.CAMPI.forEach(function (c) {
+      if (!visibile(c, tipo) || !obbligatorio(c, tipo) || M.pulisci(stato.campi[c.id])) return;
+      var i = document.getElementById('c-' + c.id), lab = i && i.closest('label.campo');
+      if (!lab) return;
+      segnaRosso(lab, 'Manca: ' + M.perTipo(c.eti, tipo) + ' — è obbligatorio sul cartello.');
+      if (!primo) primo = lab;
+    });
+    return primo;
+  }
+  function suCambioRosso(e) { var b = e.target && e.target.closest && e.target.closest('.cr-box'); if (b) togliRosso(b); }
+  document.addEventListener('input', suCambioRosso, true);
+  document.addEventListener('change', suCambioRosso, true);
   function ridisegna() {
     if (!mis) return;
     var dati = datiCorrenti();
@@ -1923,6 +1961,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
     if (!motivoBlocco && gettone() && !(stato.cantiere && stato.cantiere.id)) motivoBlocco = 'Prima scegli il cantiere e tocca «Carica i dati dal cantiere» (riquadro 0, in alto).';
     $('#btn-acquista').classList.toggle('spento', !!motivoBlocco);
     $('#motivo-blocco').hidden = !motivoBlocco; $('#motivo-blocco').textContent = motivoBlocco;
+    if (rossiAttivi) { segnaMancanti(); if (motivoBlocco && document.querySelector('.cr-box')) $('#motivo-blocco').textContent = motivoBlocco + ' Li trovi segnati in rosso.'; }
     aggiornaPagamento();
   }
 
@@ -2252,7 +2291,15 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
   $('#btn-acquista').addEventListener('click', function () {
     var btn = this;
     ridisegna();
-    if (motivoBlocco) { var mb = $('#motivo-blocco'); mb.hidden = false; mb.textContent = motivoBlocco; mb.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (motivoBlocco) {
+      var mb = $('#motivo-blocco'); mb.hidden = false;
+      rossiAttivi = true;
+      var primo = segnaMancanti();
+      mb.textContent = motivoBlocco + (primo ? ' Li trovi segnati in rosso.' : '');
+      (primo || mb).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (primo) { var ic = primo.querySelector('input,textarea,select'); if (ic) try { ic.focus({ preventScroll: true }); } catch (e) {} }
+      return;
+    }
     if (CR) { usaCrediti(btn); return; }
     var prima = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Apro il pagamento sicuro…';
     salvaStato();
