@@ -40,7 +40,8 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
   const stato = h && h.stato ? h.stato.get(request) : null;
   const disp = accessiChiave(request);
   const fuori = () => new Response(h.foglio(base, "Pannello", "", '<p>Questa pagina si apre solo con l\'accesso personale dell\'amministratore di TIX, dal suo dispositivo registrato.</p>' +
-    '<p class="piede"><a href="' + base + '/">&larr; Torna all\'accesso</a></p>'), { status: 200, headers: intestazioni() });
+    '<p>Se sei l\'amministratore, entra con la tua email e la tua password (non con il collegamento condiviso) e riapri questo link.</p>' +
+    '<p class="piede"><a href="' + base + '/?esci">Entra con email e password</a> &nbsp;·&nbsp; <a href="' + base + '/">&larr; Torna ai cantieri</a></p>'), { status: 200, headers: intestazioni() });
 
   if (sotto === "/pannello/azione") {
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
@@ -61,7 +62,17 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
   }
 
   const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
-  if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
+  // pannello-2 (16/11, richiesta di Filippo: «a me serve il link da cliccare»): il link fisso /pannello, senza gettone,
+  // riprende la sessione ricordata dal browser (gl_portale_t, come la pagina iniziale) e la porta al pannello; altrimenti all'accesso.
+  if (!m) {
+    if (request.method !== "GET") return Response.redirect(inUrl.origin + base + "/", 303);
+    const vai = JSON.stringify(base + "/pannello?t=").replace(/</g, "\\u003c");
+    const casa = JSON.stringify(base + "/").replace(/</g, "\\u003c");
+    return new Response('<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<meta name="robots" content="noindex, nofollow"><title>Pannello - TIX</title></head><body style="font-family:system-ui,sans-serif;background:#f4f6f5;color:#1b1f1d">' +
+      '<p style="text-align:center;margin-top:20vh">Apro il pannello…</p><script>(function(){var t="";try{t=localStorage.getItem("gl_portale_t")||"";}catch(e){}' +
+      'location.replace(/^[0-9a-f]{64}$/i.test(t)?' + vai + '+t.toLowerCase():' + casa + ');})();</script></body></html>', { status: 200, headers: intestazioni() });
+  }
   const tok = m[0].toLowerCase();
   if (!stato || stato.esito !== "ok" || !ESA64.test(disp)) return fuori();
   const a = UUID.test(inUrl.searchParams.get("a") || "") ? inUrl.searchParams.get("a").toLowerCase() : null;
