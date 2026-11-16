@@ -1,7 +1,8 @@
 // ============================================================================
 // ABBONAMENTO E VOCI — area riservata (16/11/2026, listino-v5-1, chat B11). Listino 89 · 22 · 12 deciso da Filippo:
 // 89 € + IVA al mese fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª; 150 voci a persona (almeno 300);
-// oltre le voci comprese si compra in anticipo il pacchetto da 150 voci a 22 € + IVA; la persona aggiunta si paga subito
+// oltre le voci comprese si compra in anticipo il pacchetto da 150 voci a 18 € + IVA (dal 16/11 sera);
+// regola dei cantieri attivi (16/11): ogni persona comprende un cantiere con almeno 3 giorni di diario; si conta il più alto tra persone e cantieri; la persona aggiunta si paga subito
 // per i giorni che mancano alla fine del mese. Carta (scenario Make 8613656 → Stripe) oppure bonifico (richiesta + email a Filippo).
 //   GET  /listino?t=<gettone>[&a=<impresa>]   → pagina (database: listino_v5_portale; «a» solo con l'accesso «Tutte le aziende»)
 //   POST /listino/api  {t, a, azione, dati}    → carta | bonifico (listino_v5_azione)
@@ -109,12 +110,33 @@ function pagina(base, h, tok, d, torna) {
           '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per 12 mesi.</p>' +
           '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Chiedi i dati per il bonifico</button></div></section>'
         : "");
-    corpo = boxCanone +
+    const avc = d.avviso_cantieri || null;
+    const boxAvvisoCantieri = avc
+      ? '<section class="lv-box lv-evid"><h2>Cantieri in attività</h2><p>Hai <strong>' + e(String(avc.cantieri)) + ' cantieri in attività</strong> e <strong>' +
+        e(String(avc.persone_reali)) + (Number(avc.persone_reali) === 1 ? " persona" : " persone") + '</strong>: il prossimo canone sarà calcolato su ' +
+        e(String(avc.cantieri)) + ' persone (' + eur(avc.canone_eur) + ' € + IVA al mese).</p>' +
+        '<p>Se un cantiere è finito, <strong>chiudilo prima del ' + e(avc.data_conto) + '</strong>: così non si conta nel prossimo canone. L\'elenco è qui sotto, in «Il tuo abbonamento».</p></section>'
+      : "";
+    corpo = boxCanone + boxAvvisoCantieri +
       '<section class="lv-box"><h2>Il tuo abbonamento</h2>' +
       '<p class="lv-grande">' + eur(c.canone_eur) + ' € <small>+ IVA al mese</small></p>' +
-      '<p>' + e(String(c.persone || 0)) + (Number(c.persone) === 1 ? " persona" : " persone") + ' (chi ha usato TIX negli ultimi 30 giorni)' +
-      (Number(c.sospese) ? " · " + e(String(c.sospese)) + " sospese per 30 giorni senza uso" : "") + '.</p>' +
-      '<p class="lv-piccolo">89 € + IVA fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª.</p></section>' +
+      (c.per_cantieri
+        ? '<p>Contato come <strong>' + e(String(c.persone || 0)) + ' persone</strong>: ' + e(String(c.persone_reali || 0)) + (Number(c.persone_reali) === 1 ? " persona ha" : " persone hanno") +
+          ' usato TIX negli ultimi 30 giorni, ma i cantieri in attività sono ' + e(String(c.cantieri_attivi || 0)) + '.'
+        : '<p>' + e(String(c.persone || 0)) + (Number(c.persone) === 1 ? " persona" : " persone") + ' (chi ha usato TIX negli ultimi 30 giorni)' +
+          (Number(c.cantieri_attivi) ? " · " + e(String(c.cantieri_attivi)) + (Number(c.cantieri_attivi) === 1 ? " cantiere in attività" : " cantieri in attività") : "") + '.') +
+      (Number(c.sospese) ? " " + e(String(c.sospese)) + " sospese per 30 giorni senza uso." : "") + '</p>' +
+      '<p class="lv-piccolo">89 € + IVA fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª. Ogni persona comprende un cantiere in attività ' +
+      '(un cantiere con almeno ' + e(String(c.cantiere_attivo_giorni || 3)) + ' giorni di diario negli ultimi 30 giorni): se i cantieri in attività sono più delle persone, si conta un cantiere come una persona. ' +
+      'Il conto si fa quando si prepara il canone del mese.</p>' +
+      (Array.isArray(d.cantieri_elenco) && d.cantieri_elenco.length
+        ? '<details class="lv-cantieri"><summary>Cantieri in attività: <strong>' + e(String(c.cantieri_attivi || 0)) + '</strong> (servono ' + e(String(c.cantiere_attivo_giorni || 3)) +
+          ' giornate con almeno una voce negli ultimi 30 giorni)</summary><ul>' +
+          d.cantieri_elenco.map((x) => '<li>' + e(x.nome) + ' · ' + e(String(x.giorni)) + (Number(x.giorni) === 1 ? " giornata" : " giornate") +
+            (x.conta ? ' · <strong>conta</strong>' : ' · non conta') + '</li>').join("") +
+          '</ul><p class="lv-piccolo">Un cantiere chiuso non si conta dal canone successivo.</p></details>'
+        : '') +
+      '</section>' +
       '<section class="lv-box"><h2>Voci di questo mese</h2>' +
       '<div class="lv-barra"><span style="width:' + perc + '%"></span></div>' +
       '<p><strong>' + e(String(v.voci_usate || 0)) + '</strong> usate su <strong>' + e(String(v.voci_disponibili || 0)) + '</strong> (' + perc + '%)' +
@@ -150,7 +172,7 @@ function pagina(base, h, tok, d, torna) {
     '.lv-grande{font-size:28px;font-weight:700;margin:0 0 4px;color:#14213d}.lv-grande small{font-size:14px;font-weight:400;color:#555}' +
     '.lv-piccolo{font-size:13px;color:#666}.lv-barra{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin:6px 0}' +
     '.lv-barra span{display:block;height:100%;background:linear-gradient(90deg,#14213d,#f08a24)}' +
-    '.lv-evid{border-top-color:#f08a24}.lv-casella{display:flex;gap:8px;align-items:flex-start}.lv-casella input{width:auto;margin-top:4px}.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
+    '.lv-evid{border-top-color:#f08a24}.lv-cantieri{margin-top:8px}.lv-cantieri summary{cursor:pointer}.lv-cantieri ul{margin:6px 0 4px 18px;padding:0}.lv-casella{display:flex;gap:8px;align-items:flex-start}.lv-casella input{width:auto;margin-top:4px}.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
     'label{display:block;margin:8px 0}input{font:inherit;padding:8px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:320px;box-sizing:border-box}' +
     '.lv-pulsanti{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}button{font:inherit;font-weight:600;padding:10px 16px;border:0;border-radius:6px;background:#14213d;color:#fff;cursor:pointer}' +
     'button.lv-sec{background:#fff;color:#14213d;border:1px solid #14213d}#lv-esito{font-weight:600}.lv-scegli select{font:inherit;padding:6px}' +
