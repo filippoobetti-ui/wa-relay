@@ -318,6 +318,9 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-ag-lista .st{font-size:.78rem;white-space:nowrap;color:#5b6560}.gl-ag-lista .st.ok{color:#0A7D48}.gl-ag-lista .st.no{color:#a11}" +
     ".gl-gu-bx .gl-ag-lista button{flex:none;width:32px;height:32px;min-height:0;margin:0;padding:0;border:1px solid #c9d1cd;border-radius:8px;background:#fff;color:#1b1f1d;font-size:1.1rem;line-height:1;cursor:pointer}" +
     ".gl-ag-pr{font-size:.86rem;color:#1B2F4A;font-weight:600;margin:10px 0 0}" +
+    // 16/11/2026 (giorno-dimenticato-1): «+ Aggiungi un giorno senza voci» e la sua finestra
+    ".gl-gd-b{margin:4px 0 12px}.gl-gd-l{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}.gl-gd-l .gl-ag-b{margin:0;width:auto}" +
+    ".gl-gu-bx input[type=date]{display:block;width:100%;box-sizing:border-box;margin:4px 0 0;padding:9px 10px;border:1px solid #c9d1cd;border-radius:10px;font:inherit}" +
     "@media (prefers-color-scheme:dark){.gl-ag-lista li{border-color:#3a4540}.gl-gu-bx label.gl-ag-sc{background:#3a2f12;color:#f3e2bd}.gl-gu-bx .gl-ag-lista button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ag-pr{color:#cfe0ff}.gl-gu-bx .gl-ag-fac{color:#a9b3ae}}" +
     "</style>";
   const script = "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS +
@@ -585,6 +588,40 @@ function mettiAggiunte(){
   b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();aggiungiGiorno(g);});
   n.insertAdjacentElement('afterend',b);
  });
+ mettiDimenticati();
+}
+/* 16/11/2026 (giorno-dimenticato-1, Filippo): «+ Aggiungi un giorno senza voci» in cima al Diario, per i giorni in cui nessuno
+   ha scritto (es. «fermo pioggia»): propone i giorni feriali senza voci delle ultime 4 settimane, oppure una data a scelta, e apre
+   la stessa finestra di «Aggiungi a questo giorno» (Integrazione al diario di quel giorno). */
+function isoDi(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function mettiDimenticati(){
+ var pg=document.getElementById('p-g');if(!pg||pg.querySelector('.gl-gd-b'))return;
+ var b=el('button','gl-ag-b gl-gd-b','+ Aggiungi un giorno senza voci');b.type='button';b.title='Aggiungi al Diario un giorno dimenticato, per esempio «fermo pioggia»';
+ b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();sceltaGiorno();});
+ var tit=pg.querySelector('.gf-tit');if(tit)tit.insertAdjacentElement('afterend',b);else pg.insertBefore(b,pg.firstChild);
+}
+function sceltaGiorno(){
+ var ci={};document.querySelectorAll('#p-g details.gf[data-g]').forEach(function(x){ci[x.getAttribute('data-g')]=1;});
+ var gg=Object.keys(ci).sort(),primo=gg[0]||STATO.oggi,p=STATO.oggi.split('-'),d=new Date(+p[0],+p[1]-1,+p[2]),mancano=[];
+ var NOMI=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'];
+ for(var i=1;i<=28;i++){var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()-i),g=isoDi(x);if(g<primo)break;if(x.getDay()===0||x.getDay()===6||ci[g])continue;mancano.push({g:g,n:NOMI[x.getDay()]});}
+ var ieri=isoDi(new Date(d.getFullYear(),d.getMonth(),d.getDate()-1));
+ var ov=el('div','gl-gu-ov'),bx=el('div','gl-gu-bx gl-ag-bx');ov.appendChild(bx);document.body.appendChild(ov);
+ bx.setAttribute('role','dialog');bx.setAttribute('aria-modal','true');bx.setAttribute('aria-label','Aggiungi un giorno senza voci');
+ bx.innerHTML='<h3>Aggiungi un giorno senza voci</h3>'+
+  '<div class="gl-gu-nota">Per un giorno in cui nessuno ha scritto nel Diario, per esempio «fermo pioggia». Quello che scrivi va nell’<b>Integrazione al diario</b> di quel giorno, con il tuo nome e la data di oggi, e il giorno compare nel Diario.</div>'+
+  (mancano.length?'<label>Giorni feriali senza voci nelle ultime 4 settimane</label><div class="gl-gd-l">'+mancano.map(function(m){return '<button type="button" class="gl-ag-b" data-g="'+m.g+'">'+esc(m.n+' '+dIt(m.g))+'</button>';}).join('')+'</div>'
+   :'<div class="gl-ag-aiuto">Nelle ultime 4 settimane non mancano giorni feriali.</div>')+
+  '<label for="gl-gd-d">Oppure scegli il giorno</label><input type="date" id="gl-gd-d" max="'+ieri+'"'+(/^\d{4}-\d{2}-\d{2}$/.test(primo)&&primo<=ieri?' min="'+primo+'"':'')+'>'+
+  '<div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="ag gl-gd-ok">Continua</button></div>';
+ function vai(g){chiudi(ov);aggiungiGiorno(g);}
+ bx.querySelectorAll('.gl-gd-l [data-g]').forEach(function(x){x.addEventListener('click',function(){vai(x.getAttribute('data-g'));});});
+ bx.querySelector('.an').addEventListener('click',function(){chiudi(ov);});
+ ov.addEventListener('click',function(e){if(e.target===ov)chiudi(ov);});
+ bx.querySelector('.gl-gd-ok').addEventListener('click',function(){var i=bx.querySelector('#gl-gd-d'),g=i.value;
+  if(!crControlla([{el:i,ok:function(){return /^\d{4}-\d{2}-\d{2}$/.test(g)&&g<=ieri&&!(i.min&&g<i.min);},testo:!g?'Scegli il giorno da aggiungere.':(g>ieri?'Per oggi usa «+ Aggiungi una voce di oggi».':'Questo giorno è prima dell’inizio del cantiere.')}]))return;
+  vai(g);});
+ setTimeout(function(){try{(bx.querySelector('.gl-gd-l [data-g]')||bx.querySelector('#gl-gd-d')).focus();}catch(x){}},50);
 }
 function collegamenti(){
  document.querySelectorAll('.gl-int-apri[data-integrazione]').forEach(function(x){
