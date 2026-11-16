@@ -35,7 +35,8 @@ export async function portaleListinoV5(request, env, base, inUrl, h) {
     if (!tok) return json({ esito: "gettone" }, 400);
     if (az !== "carta" && az !== "bonifico") return json({ esito: "errore" }, 400);
     const d = b && b.dati && typeof b.dati === "object" ? b.dati : {};
-    const dati = { cosa: d.cosa === "persona" ? "persona" : "voci", quanti: testo(d.quanti, 3), persona: testo(d.persona, 200) };
+    const COSE = ["voci", "persona", "canone", "annuale", "mensile"];
+    const dati = { cosa: COSE.includes(d.cosa) ? d.cosa : "voci", quanti: testo(d.quanti, 3), persona: testo(d.persona, 200) };
     const r = await h.rpc(env, "listino_v5_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 20000).catch(() => null);
     return json(r || { esito: "errore" }, r ? 200 : 503);
   }
@@ -79,7 +80,28 @@ function pagina(base, h, tok, d, torna) {
           " Il diario e il PDF della sera continuano sempre.</p>"
         : (perc >= 80 ? '<p class="lv-nota">Hai usato l\'' + perc + "% delle voci di questo mese.</p>" : ""));
     const consigliati = Math.max(1, Number(f.pacchetti_da_comprare || 1));
-    corpo =
+    const cdp = d.canone_da_pagare || null, an = d.annuale || null, ap = d.annuale_proposta || {};
+    const boxCanone = cdp
+      ? '<section class="lv-box lv-evid"><h2>Canone da pagare</h2>' +
+        '<p>Dal ' + e(cdp.dal) + ' al ' + e(cdp.al) + ' (' + e(String(cdp.persone)) + (Number(cdp.persone) === 1 ? " persona" : " persone") + '): <strong>' + eur(cdp.importo_eur) + ' € + IVA</strong>, entro il ' + e(cdp.scadenza) + '.</p>' +
+        '<p class="lv-piccolo">Con il bonifico che arriva entro il ' + e(cdp.scadenza) + ' ricevi 1 credito TIX in regalo. Con la carta il prezzo è quello indicato.</p>' +
+        '<div class="lv-pulsanti"><button data-az="carta" data-cosa="canone">Paga con carta</button><button data-az="bonifico" data-cosa="canone" class="lv-sec">Paga con bonifico</button></div></section>'
+      : "";
+    const boxAnno = (an
+      ? '<section class="lv-box"><h2>Anno pagato</h2><p>Dal ' + e(an.dal) + ' al ' + e(an.al) + ' · ' + e(String(an.persone)) + (Number(an.persone) === 1 ? " persona" : " persone") + '.</p>' +
+        (an.passa_mensile
+          ? '<p class="lv-nota">Hai scelto di continuare mese per mese dopo la scadenza.</p>'
+          : '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="mensile" class="lv-sec" data-conferma="Dopo la scadenza dell\'anno continui pagando mese per mese. Confermi?">Dopo la scadenza continua mese per mese</button></div>') +
+        "</section>"
+      : "") +
+      (!an || an.rinnovabile
+        ? '<section class="lv-box"><h2>' + (an ? "Rinnova per un altro anno" : "Paga un anno con bonifico") + '</h2>' +
+          '<p>Paghi 12 mesi in anticipo con bonifico e ricevi <strong>' + e(String(ap.regalo || 20)) + ' crediti TIX in regalo</strong>. L\'anno parte quando arriva il bonifico.</p>' +
+          '<label>Persone da pagare <input id="lv-persone" type="number" min="1" max="500" value="' + e(String(ap.persone || 1)) + '"></label>' +
+          '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per 12 mesi.</p>' +
+          '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Chiedi i dati per il bonifico</button></div></section>'
+        : "");
+    corpo = boxCanone +
       '<section class="lv-box"><h2>Il tuo abbonamento</h2>' +
       '<p class="lv-grande">' + eur(c.canone_eur) + ' € <small>+ IVA al mese</small></p>' +
       '<p>' + e(String(c.persone || 0)) + (Number(c.persone) === 1 ? " persona" : " persone") + ' (chi ha usato TIX negli ultimi 30 giorni)' +
@@ -97,13 +119,16 @@ function pagina(base, h, tok, d, torna) {
       '<section class="lv-box"><h2>Aggiungi una persona</h2>' +
       (p.esito === "ok"
         ? (p.gratis ? "<p>Con 89 € + IVA sono già comprese 2 persone: la prossima non costa niente.</p>"
-                    : "<p>" + eur(p.prezzo_mese_eur) + " € + IVA al mese. Per questo mese paghi solo i " + e(String(p.giorni)) + " giorni che mancano: <strong>" + eur(p.importo_eur) + " € + IVA</strong>.</p>")
+                    : (p.annuale
+                      ? "<p>" + eur(p.prezzo_mese_eur) + " € + IVA al mese. Con l'anno pagato la paghi fino alla scadenza (" + e(String(p.giorni)) + " giorni): <strong>" + eur(p.importo_eur) + " € + IVA</strong>.</p>"
+                      : "<p>" + eur(p.prezzo_mese_eur) + " € + IVA al mese. Per questo mese paghi solo i " + e(String(p.giorni)) + " giorni che mancano: <strong>" + eur(p.importo_eur) + " € + IVA</strong>.</p>"))
         : "<p>Prezzo disponibile quando il listino nuovo è acceso.</p>") +
       '<label>Nome e cognome <input id="lv-persona" type="text" maxlength="200"></label>' +
       '<div class="lv-pulsanti"><button data-az="carta" data-cosa="persona">Paga con carta</button><button data-az="bonifico" data-cosa="persona" class="lv-sec">Paga con bonifico</button></div></section>' +
       (Array.isArray(d.bonifici) && d.bonifici.length
         ? '<section class="lv-box"><h2>Bonifici in attesa</h2><ul>' + d.bonifici.map((x) => "<li>" + e(x.cosa) + " · " + eur(x.importo_eur) + " € + IVA · rif. " + e(x.riferimento) + " · " + e(x.chiesto) + "</li>").join("") + "</ul></section>"
         : "") +
+      boxAnno +
       '<p id="lv-esito" role="status"></p>';
   } else if (d.filippo) {
     corpo = "<p>Scegli l'impresa per vedere abbonamento e voci.</p>";
@@ -117,7 +142,7 @@ function pagina(base, h, tok, d, torna) {
     '.lv-grande{font-size:28px;font-weight:700;margin:0 0 4px;color:#14213d}.lv-grande small{font-size:14px;font-weight:400;color:#555}' +
     '.lv-piccolo{font-size:13px;color:#666}.lv-barra{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin:6px 0}' +
     '.lv-barra span{display:block;height:100%;background:linear-gradient(90deg,#14213d,#f08a24)}' +
-    '.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
+    '.lv-evid{border-top-color:#f08a24}.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
     'label{display:block;margin:8px 0}input{font:inherit;padding:8px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:320px;box-sizing:border-box}' +
     '.lv-pulsanti{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}button{font:inherit;font-weight:600;padding:10px 16px;border:0;border-radius:6px;background:#14213d;color:#fff;cursor:pointer}' +
     'button.lv-sec{background:#fff;color:#14213d;border:1px solid #14213d}#lv-esito{font-weight:600}.lv-scegli select{font:inherit;padding:6px}' +
@@ -127,10 +152,16 @@ function pagina(base, h, tok, d, torna) {
     'document.querySelectorAll("button[data-az]").forEach(function(b){b.addEventListener("click",async function(){' +
     'var es=document.getElementById("lv-esito");var cosa=b.dataset.cosa;var pers=document.getElementById("lv-persona");' +
     'if(cosa==="persona"&&!crControlla([{el:pers,testo:"Scrivi il nome e cognome della persona da aggiungere."}]))return;' +
-    'var dati={cosa:cosa,quanti:(document.getElementById("lv-quanti")||{}).value||"1",persona:pers?pers.value:""};' +
+    'var pn=document.getElementById("lv-persone");' +
+    'if(cosa==="annuale"&&!crControlla([{el:pn,testo:"Indica quante persone vuoi pagare per l\'anno.",ok:function(x){return Number(x.value)>=1;}}]))return;' +
+    'if(b.dataset.conferma&&!confirm(b.dataset.conferma))return;' +
+    'var dati={cosa:cosa,quanti:cosa==="annuale"?(pn?pn.value:""):((document.getElementById("lv-quanti")||{}).value||"1"),persona:pers?pers.value:""};' +
     'b.disabled=true;es.textContent="Un momento…";try{var r=await fetch(LV.u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({t:LV.t,a:LV.a,azione:b.dataset.az,dati:dati})});' +
     'var j=await r.json();if(j.esito==="ok"&&j.url){location.href=j.url;return;}' +
     'if(j.campo){crSegna(document.getElementById("lv-"+j.campo),j.messaggio);}' +
     'es.textContent=j.messaggio||(j.esito==="ok"||j.esito==="gratis"?"Fatto.":"Non è stato possibile completare la richiesta.");}catch(x){es.textContent="Il servizio non risponde: riprova tra poco.";}b.disabled=false;});});' +
+    'var lvp=document.getElementById("lv-persone"),lve=document.getElementById("lv-anno-eur");' +
+    'if(lvp&&lve){lvp.addEventListener("input",function(){var n=Math.max(1,Math.floor(Number(lvp.value)||1));' +
+    'var c=89+22*Math.max(0,Math.min(n,15)-2)+12*Math.max(0,n-15);lve.textContent=(c*12).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});});}' +
     '</script></body></html>';
 }
