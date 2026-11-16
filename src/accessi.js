@@ -21,6 +21,7 @@ const COOKIE = "tix_disp";
 const ESA64 = /^[0-9a-f]{64}$/;
 const CACHE = new Map();            // gettone:chiave -> { r, fino }
 const CACHE_MS = 60000;
+let ULTIMO_ERRORE = 0;
 const SALTA = new Set(["/accedi", "/accedi/codice", "/password-dimenticata", "/imposta", "/manifest.webmanifest", "/sw.js", "/robots.txt"]);
 
 export function accessiAcceso(env) { return !(env && env.ACCESSI === "off"); }
@@ -114,7 +115,11 @@ export async function accessiPorta(request, env, base, sotto, inUrl, h) {
   if (c && c.fino > ora) r = c.r;
   else {
     r = await rpc(env, "accessi_controlla", { p_token: tok, p_disp: k, p_ip: ipBreve(request), p_percorso: sotto }, 5000);
-    if (!r) return null;                       // il database non risponde: si va avanti come prima
+    if (!r) {
+      // il database non risponde: si va avanti come prima, ma si annota (accessi-2, richiesta della B14; al massimo una volta l'ora)
+      if (ora - ULTIMO_ERRORE > 3600000) { ULTIMO_ERRORE = ora; await rpc(env, "accessi_porta_errore", { p_percorso: sotto, p_cosa: "accessi_controlla senza risposta" }, 3000); }
+      return null;
+    }
     if (r.esito !== "blocca") {
       if (CACHE.size > 5000) CACHE.clear();
       CACHE.set(chiave, { r, fino: ora + CACHE_MS });
@@ -136,10 +141,13 @@ export async function accessiPorta(request, env, base, sotto, inUrl, h) {
 }
 
 // Il link in fondo all'elenco dei cantieri: «Accessi e numeri» per chi è dentro le regole nuove e gestisce le persone.
+// accessi-2 (16/11, richiesta di Filippo: nell'app manca il logout): anche «Esci», per chi è dentro le regole nuove.
 export function accessiLink(h, request, base, tok) {
   const r = h && h.stato ? h.stato.get(request) : null;
-  if (!r || !r.gestisce) return null;
-  return '<a href="' + base + '/accessi?t=' + tok + '" style="color:#1B2F4A;font-weight:600">&#128101; Accessi e numeri</a>';
+  if (!r || (r.esito === "fuori" && !r.gestisce)) return null;
+  const st = ' style="color:#1B2F4A;font-weight:600"';
+  return (r.gestisce ? '<a href="' + base + '/accessi?t=' + tok + '"' + st + '>&#128101; Accessi e numeri</a> &nbsp;·&nbsp; ' : '') +
+    '<a href="' + base + '/accessi?t=' + tok + '&esci=1"' + st + '>&#x23CF; Esci</a>';
 }
 
 // Dopo email e password giuste: lega la sessione al dispositivo, oppure chiede il codice.
@@ -211,6 +219,12 @@ export async function portaleAccessi(request, env, base, sotto, inUrl, h) {
   const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
   if (!m) return Response.redirect(inUrl.origin + base + "/", 303);
   const tok = m[0].toLowerCase();
+  if (inUrl.searchParams.get("esci") === "1") {
+    // «Esci»: chiude la sessione personale (accessi_esci) e fa dimenticare al telefono il collegamento ricordato (/?esci)
+    await rpc(env, "accessi_esci", { p_token: tok }, 8000);
+    CACHE.forEach((v, k) => { if (k.indexOf(tok) === 0) CACHE.delete(k); });
+    return new Response(null, { status: 303, headers: { Location: base + "/?esci", "Cache-Control": "no-store" } });
+  }
   const a = /^[0-9a-f-]{36}$/i.test(inUrl.searchParams.get("a") || "") ? inUrl.searchParams.get("a").toLowerCase() : null;
   const p = await rpc(env, "accessi_pagina", { p_token: tok, p_azienda: a }, 15000);
   if (!p) return new Response(h.foglio(base, "Accessi e numeri", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), { status: 503, headers: h.headers() });
@@ -248,10 +262,11 @@ function paginaAccessi(base, tok, p, h) {
     const ut = p.utenti || [];
     corpo += '<section><h2>Persone con l\'accesso all\'app</h2>' +
       (ut.length ? ut.map((u) => {
-        const disp = (u.dispositivi || []).map((d) => '<li>' + e(d.nome || "Dispositivo") + ' · ' + quando(d.ultimo) + (d.verificato ? "" : ' <span class="tag">da confermare</span>') + '</li>').join("");
+        // accessi-2 (15/11, paletto della B12): degli altri si vedono solo i dispositivi attivi, mai gli orari (non è un registro presenze)
+        const disp = (u.dispositivi || []).map((d) => '<li>' + e(d.nome || "Dispositivo") + (d.verificato ? "" : ' <span class="tag">da confermare</span>') + '</li>').join("");
         return '<div class="pers' + (u.attivo ? "" : " tolta") + '"><div class="cap"><strong>' + e(u.nome || u.email) + '</strong>' +
           '<span class="tag">' + (u.attivo ? (u.in_attesa ? "invito mandato" : RUOLI[u.ruolo] || "Utente") : "tolto il " + quando(u.tolto_il)) + '</span></div>' +
-          '<div class="sub">' + e(u.email) + ' · ultimo accesso: ' + quando(u.ultimo) + '</div>' +
+          '<div class="sub">' + e(u.email) + '</div>' +
           (disp ? '<ul class="disp">' + disp + '</ul>' : '') +
           '<div class="az">' +
           (u.attivo ? '<select data-ruolo="' + u.id + '" aria-label="Ruolo">' + Object.keys(RUOLI).map((r) => '<option value="' + r + '"' + (u.ruolo === r ? " selected" : "") + '>' + RUOLI[r] + '</option>').join("") + '</select>' +
@@ -270,8 +285,8 @@ function paginaAccessi(base, tok, p, h) {
     if (c) {
       corpo += '<section><h2>Persone contate negli ultimi 30 giorni</h2>' +
         '<p class="tot"><strong>' + c.persone + '</strong> persone · ' + c.accessi + ' con l\'accesso all\'app · ' + c.numeri + ' con il numero WhatsApp</p>' +
-        '<p class="sub">' + e(c.regola) + '</p><table><thead><tr><th>Persona</th><th>Come</th><th>Ultimo uso</th><th>Conta</th></tr></thead><tbody>' +
-        (c.righe || []).map((r) => '<tr><td>' + e(r.nome || "") + '</td><td>' + (r.fonte === "accesso" ? "App" : "WhatsApp") + '</td><td>' + quando(r.ultimo) + '</td><td>' + (r.conta ? "sì" : "no") + '</td></tr>').join("") +
+        '<p class="sub">' + e(c.regola) + '</p><table><thead><tr><th>Persona</th><th>Come</th><th>Conta nel mese</th></tr></thead><tbody>' +
+        (c.righe || []).map((r) => '<tr><td>' + e(r.nome || "") + '</td><td>' + (r.fonte === "accesso" ? "App" : "WhatsApp") + '</td><td>' + (r.conta ? "sì" : (r.sospesa ? "no (sospesa)" : "no")) + '</td></tr>').join("") +
         '</tbody></table></section>';
     }
   } else if (p.chi && p.chi.admin) {
