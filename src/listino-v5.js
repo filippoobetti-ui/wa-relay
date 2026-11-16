@@ -36,7 +36,8 @@ export async function portaleListinoV5(request, env, base, inUrl, h) {
     if (az !== "carta" && az !== "bonifico") return json({ esito: "errore" }, 400);
     const d = b && b.dati && typeof b.dati === "object" ? b.dati : {};
     const COSE = ["voci", "persona", "canone", "annuale", "mensile"];
-    const dati = { cosa: COSE.includes(d.cosa) ? d.cosa : "voci", quanti: testo(d.quanti, 3), persona: testo(d.persona, 200) };
+    const dati = { cosa: COSE.includes(d.cosa) ? d.cosa : "voci", quanti: testo(d.quanti, 3), persona: testo(d.persona, 200),
+      termini: d.termini === true, art23: d.art23 === true };
     const r = await h.rpc(env, "listino_v5_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 20000).catch(() => null);
     return json(r || { esito: "errore" }, r ? 200 : 503);
   }
@@ -81,7 +82,14 @@ function pagina(base, h, tok, d, torna) {
         : (perc >= 80 ? '<p class="lv-nota">Hai usato l\'' + perc + "% delle voci di questo mese.</p>" : ""));
     const consigliati = Math.max(1, Number(f.pacchetti_da_comprare || 1));
     const cdp = d.canone_da_pagare || null, an = d.annuale || null, ap = d.annuale_proposta || {};
-    const boxCanone = cdp
+    const boxCanone = cdp && cdp.riattivazione
+      ? '<section class="lv-box lv-evid"><h2>Riparti con TIX</h2>' +
+        '<p>Il contratto è chiuso per mancato pagamento. Fino al ' + e(cdp.scadenza) + ' puoi ripartire con un contratto nuovo: tutti i tuoi dati sono conservati e non paghi arretrati.</p>' +
+        '<p>Paghi in anticipo dal ' + e(cdp.dal) + ' al ' + e(cdp.al) + ' (' + e(String(cdp.persone)) + (Number(cdp.persone) === 1 ? " persona" : " persone") + '): <strong>' + eur(cdp.importo_eur) + ' € + IVA</strong>.</p>' +
+        '<label class="lv-casella"><input type="checkbox" id="lv-termini"> Ho letto e accetto i <a href="' + e(cdp.termini_url || "https://www.tixcantiere.it/termini-condizioni-1.4.pdf") + '" target="_blank" rel="noopener">Termini e condizioni</a> in vigore' + (cdp.termini_versione ? ' (versione ' + e(cdp.termini_versione) + ')' : '') + '.</label>' +
+        '<label class="lv-casella"><input type="checkbox" id="lv-art23"> Approvo specificamente le clausole dell\'art. 23 dei Termini e condizioni.</label>' +
+        '<div class="lv-pulsanti"><button data-az="carta" data-cosa="canone">Paga con carta</button><button data-az="bonifico" data-cosa="canone" class="lv-sec">Paga con bonifico</button></div></section>'
+      : cdp
       ? '<section class="lv-box lv-evid"><h2>Canone da pagare</h2>' +
         '<p>Dal ' + e(cdp.dal) + ' al ' + e(cdp.al) + ' (' + e(String(cdp.persone)) + (Number(cdp.persone) === 1 ? " persona" : " persone") + '): <strong>' + eur(cdp.importo_eur) + ' € + IVA</strong>, entro il ' + e(cdp.scadenza) + '.</p>' +
         '<p class="lv-piccolo">Con il bonifico che arriva entro il ' + e(cdp.scadenza) + ' ricevi 1 credito TIX in regalo. Con la carta il prezzo è quello indicato.</p>' +
@@ -142,7 +150,7 @@ function pagina(base, h, tok, d, torna) {
     '.lv-grande{font-size:28px;font-weight:700;margin:0 0 4px;color:#14213d}.lv-grande small{font-size:14px;font-weight:400;color:#555}' +
     '.lv-piccolo{font-size:13px;color:#666}.lv-barra{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin:6px 0}' +
     '.lv-barra span{display:block;height:100%;background:linear-gradient(90deg,#14213d,#f08a24)}' +
-    '.lv-evid{border-top-color:#f08a24}.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
+    '.lv-evid{border-top-color:#f08a24}.lv-casella{display:flex;gap:8px;align-items:flex-start}.lv-casella input{width:auto;margin-top:4px}.lv-nota{background:#fff8e1;border:1px solid #f0d27a;border-radius:6px;padding:8px 10px}.lv-fermo{background:#fdecea;border:1px solid #f5b5ad;border-radius:6px;padding:8px 10px}' +
     'label{display:block;margin:8px 0}input{font:inherit;padding:8px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:320px;box-sizing:border-box}' +
     '.lv-pulsanti{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}button{font:inherit;font-weight:600;padding:10px 16px;border:0;border-radius:6px;background:#14213d;color:#fff;cursor:pointer}' +
     'button.lv-sec{background:#fff;color:#14213d;border:1px solid #14213d}#lv-esito{font-weight:600}.lv-scegli select{font:inherit;padding:6px}' +
@@ -154,8 +162,10 @@ function pagina(base, h, tok, d, torna) {
     'if(cosa==="persona"&&!crControlla([{el:pers,testo:"Scrivi il nome e cognome della persona da aggiungere."}]))return;' +
     'var pn=document.getElementById("lv-persone");' +
     'if(cosa==="annuale"&&!crControlla([{el:pn,testo:"Indica quante persone vuoi pagare per l\'anno.",ok:function(x){return Number(x.value)>=1;}}]))return;' +
+    'var lt=document.getElementById("lv-termini"),l23=document.getElementById("lv-art23");' +
+    'if(cosa==="canone"&&lt&&!crControlla([{el:lt.closest("label"),testo:"Per ripartire devi accettare i Termini e condizioni.",ok:function(){return lt.checked;}},{el:l23.closest("label"),testo:"Per ripartire devi approvare le clausole dell\'art. 23.",ok:function(){return l23.checked;}}]))return;' +
     'if(b.dataset.conferma&&!confirm(b.dataset.conferma))return;' +
-    'var dati={cosa:cosa,quanti:cosa==="annuale"?(pn?pn.value:""):((document.getElementById("lv-quanti")||{}).value||"1"),persona:pers?pers.value:""};' +
+    'var dati={cosa:cosa,quanti:cosa==="annuale"?(pn?pn.value:""):((document.getElementById("lv-quanti")||{}).value||"1"),persona:pers?pers.value:"",termini:!!(lt&&lt.checked),art23:!!(l23&&l23.checked)};' +
     'b.disabled=true;es.textContent="Un momento…";try{var r=await fetch(LV.u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({t:LV.t,a:LV.a,azione:b.dataset.az,dati:dati})});' +
     'var j=await r.json();if(j.esito==="ok"&&j.url){location.href=j.url;return;}' +
     'if(j.campo){crSegna(document.getElementById("lv-"+j.campo),j.messaggio);}' +
