@@ -231,10 +231,17 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
   if (!/^[0-9a-f]{64}$/.test(t)) return jsonRisposta({ esito: "gettone" }, 403);
   const giorno = azione === "aggiungi_giorno" ? "aggiungi" : azione === "file_togli" ? "file_togli" : "";
   const eco = azione === "economia_contesto" ? "contesto" : azione === "economia_salva" ? "salva" : "";
-  if (!UUID.test(c) || (AZIONI.indexOf(azione) === -1 && !giorno && !eco)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
+  const ria = azione === "riassunto_stato" ? "stato" : azione === "riassunto_chiedi" ? "chiedi" : "";
+  if (!UUID.test(c) || (AZIONI.indexOf(azione) === -1 && !giorno && !eco && !ria)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
   const d = b.dati && typeof b.dati === "object" ? b.dati : {};
   const s = (v, n) => String(v == null ? "" : v).slice(0, n);
   if (giorno) return azioneGiorno(env, h, t, c, giorno, d, s);
+  // 16/11/2026 (riassunto-a-richiesta-1, Filippo): «Mandami il riassunto» degli ultimi 7 giorni (database: diario_riassunto_richiedi)
+  if (ria) {
+    const r = await h.rpc(env, "diario_riassunto_richiedi", { p_token: t, p_commessa: c, p_azione: ria, p_dati: { email: s(d.email, 200), chi: s(d.chi, 120), conferma: d.conferma === "si" ? "si" : "" } }, 15000).catch(() => null);
+    if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
+    return jsonRisposta(r);
+  }
   // 03/11/2026 economie-diario-1: economie extracontrattuali dal Diario (database: economia_diario)
   if (eco) {
     const mezzi = Array.isArray(d.mezzi) ? d.mezzi.slice(0, 11).map((x) => ({ id: s(x && x.id, 40), quantita: s(x && x.quantita, 12) })) : [];
@@ -319,6 +326,7 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-gu-bx .gl-ag-lista button{flex:none;width:32px;height:32px;min-height:0;margin:0;padding:0;border:1px solid #c9d1cd;border-radius:8px;background:#fff;color:#1b1f1d;font-size:1.1rem;line-height:1;cursor:pointer}" +
     ".gl-ag-pr{font-size:.86rem;color:#1B2F4A;font-weight:600;margin:10px 0 0}" +
     // 16/11/2026 (giorno-dimenticato-1): «+ Aggiungi un giorno senza voci» e la sua finestra
+    ".gl-ri-b{margin:4px 0 12px 8px}@media (max-width:640px){.gl-ri-b{margin-left:0}}.gl-ri-msg{min-height:1.2em;margin:10px 0 0;font-size:.88rem;color:#5b6560}.gl-ri-msg.ok{color:#0A7D48;font-weight:700}.gl-ri-msg.ko{color:#a11;font-weight:700}.gl-ri-cf{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#EEF4FB;border:1px solid #B9CCE4;font-size:.9rem;color:#1B2F4A;overflow-wrap:anywhere}.gl-ri-est{display:block;margin-top:6px;color:#a11;font-weight:700}.gl-gu-bx select#gl-ri-s{display:block;width:100%;box-sizing:border-box;margin:4px 0 0;padding:9px 10px;border:1px solid #c9d1cd;border-radius:10px;font:inherit}.gl-gu-bx input[type=email]{display:block;width:100%;box-sizing:border-box;margin:4px 0 0;padding:9px 10px;border:1px solid #c9d1cd;border-radius:10px;font:inherit}" +
     ".gl-gd-b{margin:4px 0 12px}.gl-gd-l{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}.gl-gd-l .gl-ag-b{margin:0;width:auto}" +
     ".gl-gu-bx input[type=date]{display:block;width:100%;box-sizing:border-box;margin:4px 0 0;padding:9px 10px;border:1px solid #c9d1cd;border-radius:10px;font:inherit}" +
     "@media (prefers-color-scheme:dark){.gl-ag-lista li{border-color:#3a4540}.gl-gu-bx label.gl-ag-sc{background:#3a2f12;color:#f3e2bd}.gl-gu-bx .gl-ag-lista button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ag-pr{color:#cfe0ff}.gl-gu-bx .gl-ag-fac{color:#a9b3ae}}" +
@@ -593,7 +601,56 @@ function mettiAggiunte(){
 /* 16/11/2026 (giorno-dimenticato-1, Filippo): «+ Aggiungi un giorno senza voci» in cima al Diario, per i giorni in cui nessuno
    ha scritto (es. «fermo pioggia»): propone i giorni feriali senza voci delle ultime 4 settimane, oppure una data a scelta, e apre
    la stessa finestra di «Aggiungi a questo giorno» (Integrazione al diario di quel giorno). */
-function isoDi(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+/* 16/11/2026 (riassunto-a-richiesta-1, Filippo): «✉ Mandami il riassunto della settimana» in cima al Diario. L'impresa lo chiede
+   quando vuole: riassunto degli ultimi 7 giorni scritto dall'IA, per email a chi lo chiede (proposta l'email dell'accesso o del
+   referente, si può cambiare). Il riassunto automatico del sabato è spento. */
+function mettiRiassunto(){
+ var pg=document.getElementById('p-g');if(!pg||pg.querySelector('.gl-ri-b'))return;
+ chiama('riassunto_stato').then(function(r){
+  if(!r||r.esito!=='ok'||!r.attivo||pg.querySelector('.gl-ri-b'))return;
+  var b=el('button','gl-ag-b gl-ri-b','&#9993; Mandami il riassunto della settimana');b.type='button';b.title='Ricevi per email il riassunto degli ultimi 7 giorni, scritto dall’IA';
+  b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();finestraRiassunto(r);});
+  var dopo=pg.querySelector('.gl-gd-b')||pg.querySelector('.gf-tit');if(dopo)dopo.insertAdjacentElement('afterend',b);else pg.insertBefore(b,pg.firstChild);
+ }).catch(function(){});
+}
+function finestraRiassunto(r){
+ var ind=(r.indirizzi||[]).filter(function(x){return x&&x.email;}),noti={};ind.forEach(function(x){noti[String(x.email).toLowerCase()]=1;});
+ var ov=el('div','gl-gu-ov'),bx=el('div','gl-gu-bx gl-ag-bx');ov.appendChild(bx);document.body.appendChild(ov);
+ bx.setAttribute('role','dialog');bx.setAttribute('aria-modal','true');bx.setAttribute('aria-label','Mandami il riassunto della settimana');
+ var pre=String(r.email||'').toLowerCase();if(!noti[pre]&&ind.length)pre=String(ind[0].email).toLowerCase();
+ bx.innerHTML='<h3>Mandami il riassunto della settimana</h3>'+
+  '<div class="gl-gu-nota">TIX prepara con l’IA il riassunto del Diario di questo cantiere dal '+esc(dIt(r.dal))+' al '+esc(dIt(r.al))+' e lo manda per email. Contiene i nomi di chi ha scritto nel Diario: mandalo solo a chi deve riceverlo. È una proposta da controllare prima di girarla: il documento ufficiale resta il Diario della sera.</div>'+
+  '<label for="gl-ri-n">Il tuo nome e cognome</label><input type="text" id="gl-ri-n" maxlength="120" autocomplete="name" value="'+esc(r.nome||'')+'">'+
+  (ind.length?'<label for="gl-ri-s">Mandalo a</label><select id="gl-ri-s">'+ind.map(function(x){var e=String(x.email).toLowerCase();return '<option value="'+esc(e)+'"'+(e===pre?' selected':'')+'>'+esc(x.nome+' — '+e)+'</option>';}).join('')+'<option value="+">Un altro indirizzo…</option></select>':'<label for="gl-ri-e">Mandalo a</label>')+
+  '<input type="email" id="gl-ri-e" maxlength="200" autocomplete="email" placeholder="nome@impresa.it"'+(ind.length?' hidden':' value="'+esc(r.email||'')+'"')+'>'+
+  (r.ultimo&&r.ultimo.il?'<div class="gl-ag-aiuto">Ultimo riassunto: dal '+esc(dIt(r.ultimo.dal))+' al '+esc(dIt(r.ultimo.al))+', preparato il '+esc(r.ultimo.il)+'.</div>':'')+
+  '<div class="gl-ri-cf" hidden></div><p class="gl-ri-msg" aria-live="polite"></p>'+
+  '<div class="gl-gu-az"><button type="button" class="an">Chiudi</button><button type="button" class="ag gl-ri-ok">Mandamelo</button></div>';
+ var s=bx.querySelector('#gl-ri-s'),i=bx.querySelector('#gl-ri-e'),n=bx.querySelector('#gl-ri-n'),cf=bx.querySelector('.gl-ri-cf'),msg=bx.querySelector('.gl-ri-msg'),ok=bx.querySelector('.gl-ri-ok');
+ var fase='',conferma='';
+ function dest(){return (s&&s.value!=='+'?s.value:i.value).trim().toLowerCase();}
+ function riparti(){fase='';conferma='';cf.hidden=true;cf.innerHTML='';msg.textContent='';ok.textContent='Mandamelo';ok.hidden=false;}
+ if(s)s.addEventListener('change',function(){i.hidden=s.value!=='+';if(!i.hidden)i.focus();riparti();});
+ i.addEventListener('input',riparti);n.addEventListener('input',function(){if(fase)riparti();});
+ bx.querySelector('.an').addEventListener('click',function(){chiudi(ov);});
+ ov.addEventListener('click',function(e){if(e.target===ov)chiudi(ov);});
+ ok.addEventListener('click',function(){var v=dest();
+  if(!crControlla([{el:n,ok:function(){return n.value.trim().length>=3;},testo:'Scrivi il tuo nome e cognome: compare nell’email del riassunto.'},
+   {el:(s&&s.value!=='+')?s:i,ok:function(){return /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(v);},testo:'Scrivi l’email a cui mandare il riassunto.'}]))return;
+  // prima dell'invio: indirizzo per intero da confermare, con l'avviso se non è dell'impresa (B12: un indirizzo sbagliato è una violazione dei dati)
+  if(fase!=='indirizzo'&&fase!=='credito'){fase='indirizzo';cf.hidden=false;
+   cf.innerHTML='Il riassunto andrà a: <b>'+esc(v)+'</b>'+(noti[v]?'':'<span class="gl-ri-est">Stai mandando il riassunto a una persona esterna all’impresa: controlla l’indirizzo.</span>');
+   ok.textContent='Sì, mandalo a questo indirizzo';return;}
+  ok.disabled=true;msg.className='gl-ri-msg';msg.textContent='Invio la richiesta…';
+  chiama('riassunto_chiedi',{email:v,chi:n.value.trim(),conferma:conferma}).then(function(q){ok.disabled=false;
+   // IA compresa del mese finita: prima di usare 1 credito TIX si chiede la conferma (Termini, art. 17-bis.1)
+   if(q&&q.esito==='conferma'){fase='credito';conferma='si';msg.className='gl-ri-msg ko';msg.textContent=q.messaggio;ok.textContent='Sì, usa 1 credito';return;}
+   if(q&&q.esito==='ok'){msg.className='gl-ri-msg ok';msg.textContent=q.messaggio||'Fatto: il riassunto arriva per email tra pochi minuti.';ok.hidden=true;return;}
+   msg.className='gl-ri-msg ko';msg.textContent=(q&&q.messaggio)||'Richiesta non riuscita: riprova tra poco.';
+   if(q&&q.campo==='email')crSegna((s&&s.value!=='+')?s:i,q.messaggio);if(q&&q.campo==='chi')crSegna(n,q.messaggio);
+  }).catch(function(){ok.disabled=false;msg.className='gl-ri-msg ko';msg.textContent='Il servizio non risponde: riprova tra poco.';});});
+ setTimeout(function(){try{(n.value?ok:n).focus();}catch(x){}},50);
+}function isoDi(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
 function mettiDimenticati(){
  var pg=document.getElementById('p-g');if(!pg||pg.querySelector('.gl-gd-b'))return;
  var b=el('button','gl-ag-b gl-gd-b','+ Aggiungi un giorno senza voci');b.type='button';b.title='Aggiungi al Diario un giorno dimenticato, per esempio «fermo pioggia»';
@@ -697,7 +754,7 @@ function giornataVuota(tit){
 }
 function avvio(){collegamenti();riapri();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',avvio);else setTimeout(avvio,0);
-chiama('stato').then(function(r){if(!r||r.esito!=='ok'||r.chiuso)return;STATO=r;mettiTasti();mettiAggiunte();collegamenti();}).catch(function(){});
+chiama('stato').then(function(r){if(!r||r.esito!=='ok'||r.chiuso)return;STATO=r;mettiTasti();mettiAggiunte();mettiRiassunto();collegamenti();}).catch(function(){});
 }catch(x){}})();
 ` + "</script>";
   return stile + script;
