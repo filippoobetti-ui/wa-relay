@@ -66,6 +66,11 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   }
   if (!tok) return vai(base + "/");
   if (sotto === "/studio" || sotto === "/studio/") return elenco(request, env, base, h, tok);
+  // 16/11/2026 (B1, per la B16): impresa con il canone non pagato (sospesa o chiusa) → niente file dei suoi cantieri
+  if (sotto === "/studio/file" || sotto === "/studio/ddt" || sotto === "/studio/tavola" || sotto === "/studio/costruttivo") {
+    const fermo = await pagamentoFermo(env, h, tok, String(inUrl.searchParams.get("c") || "").toLowerCase());
+    if (fermo) return pagina(request, base, h, fermo.ca.nome, fermo.utente, "", '<a class="torna" href="' + h.esc(base + "/studio") + '">&larr; I tuoi cantieri</a>' + pagamentoFrase(fermo.ca, h.esc));
+  }
   if (sotto === "/studio/cantiere") return cantiere(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/file") return file(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/ddt") return fileDdt(request, env, base, inUrl, h, tok);
@@ -91,7 +96,8 @@ async function elenco(request, env, base, h, tok) {
       '<span class="avv">' + (c.da_vistare > 0 ? '<span class="nuovi vis">' + c.da_vistare + (c.da_vistare === 1 ? " costruttivo da vistare" : " costruttivi da vistare") + '</span>' : "") +
       (c.documenti_nuovi > 0 ? '<span class="nuovi">' + c.documenti_nuovi + (c.documenti_nuovi === 1 ? " documento nuovo" : " documenti nuovi") + '</span>' : "") + '</span></div>' +
       '<div class="sub">' + e(c.impresa || "") + (c.ubicazione ? " · " + e(c.ubicazione) : "") + '</div>' +
-      '<div class="chips"><span class="chip">' + e(c.ruolo || "") + '</span>' + sez + (c.chiuso ? '<span class="chip">Cantiere chiuso</span>' : "") + '</div></a>';
+      '<div class="chips"><span class="chip">' + e(c.ruolo || "") + '</span>' + sez + (c.chiuso ? '<span class="chip">Cantiere chiuso</span>' : "") +
+      (PAGAMENTO_FERMO[c.pagamento] ? '<span class="chip">Servizio sospeso</span>' : "") + '</div></a>';
   }
   corpo += '<p class="nota">Vedi e scarichi i documenti che l\'impresa ti ha aperto, ma non puoi cambiarli. L\'unica cosa che scrivi è il visto sui costruttivi, ' +
     'quando l\'impresa te lo chiede. TIX annota quando apri e scarichi un documento e quando rispondi.</p>';
@@ -113,6 +119,11 @@ async function cantiere(request, env, base, inUrl, h, tok) {
       torna + '<p class="nota">Questo cantiere non è più tra quelli che puoi vedere: l\'impresa può aver tolto l\'accesso, oppure il cantiere è chiuso da più di 90 giorni.</p>', 404);
   }
   let corpo = torna;
+  // 16/11/2026 (B1, per la B16): canone dell'impresa non pagato → al posto dei documenti una frase (niente link di pagamento)
+  if (PAGAMENTO_FERMO[ca.pagamento]) {
+    return pagina(request, base, h, ca.nome, el.utente, e(ca.impresa || "") + (ca.ubicazione ? " · " + e(ca.ubicazione) : "") + " · " + e(ca.ruolo || ""),
+      corpo + pagamentoFrase(ca, e));
+  }
   // 09/11/2026: costruttivi da vistare (solo strutturista e DL con una richiesta dell'impresa), sopra le sezioni
   const cv = await h.rpc(env, "prof_costruttivi", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
   const conVisto = !!(cv && cv.esito === "ok" && (cv.costruttivi || []).length);
@@ -142,6 +153,21 @@ async function cantiere(request, env, base, inUrl, h, tok) {
   }
   const sotto = e(ca.impresa || "") + (ca.ubicazione ? " · " + e(ca.ubicazione) : "") + " · " + e(ca.ruolo || "");
   return pagina(request, base, h, ca.nome, el.utente, sotto, corpo);
+}
+
+// 16/11/2026 (B1, per la B16): stato del canone dell'impresa del cantiere, dal campo «pagamento» di prof_cantieri
+// (accessi_pagamento_impresa). Solo «sospesa» e «chiusa» fermano i documenti; se il database non risponde si lascia passare.
+const PAGAMENTO_FERMO = { sospesa: "è sospeso", chiusa: "non è attivo" };
+async function pagamentoFermo(env, h, tok, c) {
+  if (!UUID.test(c)) return null;
+  const el = await h.rpc(env, "prof_cantieri", { p_token: tok }, 15000).catch(() => null);
+  if (!el || el.esito !== "ok") return null;
+  const ca = (el.cantieri || []).find((x) => x.id === c);
+  return ca && PAGAMENTO_FERMO[ca.pagamento] ? { ca, utente: el.utente } : null;
+}
+function pagamentoFrase(ca, e) {
+  return '<section class="scheda"><p class="nota">Il servizio TIX di <strong>' + e(ca.impresa || "questa impresa") + '</strong> ' + PAGAMENTO_FERMO[ca.pagamento] +
+    ': i documenti di questo cantiere non sono visibili per ora. Per informazioni rivolgiti all\'impresa.</p></section>';
 }
 
 // le sezioni che le pagine conoscono: nome della scheda e classe del bollino nell'elenco dei cantieri
@@ -432,6 +458,7 @@ async function visto(request, env, base, h, tok) {
   if (!UUID.test(id) || (esito !== "visto" && esito !== "osservazioni")) return torna("errore");
   const nota = String(f.get("nota") || "").slice(0, 2000);
   if (esito === "osservazioni" && !nota.trim()) return torna("nota");
+  if (await pagamentoFermo(env, h, tok, c)) return vai(base + "/studio/cantiere?c=" + c);
   const r = await h.rpc(env, "prof_costruttivo_visto", { p_token: tok, p_commessa: c, p_id: id, p_dati: { esito, nota } }, 15000).catch(() => null);
   if (!r || typeof r !== "object") return torna("errore");
   if (r.esito === "gettone" || r.esito === "spento") return vai(base + "/", cookieTogli(base));
