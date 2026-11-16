@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { leggiFatturaFornitore } from "./lettore-offerte.js";
+import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";   // costi-6: «Scarica in Excel» con i due loghi (file della 02)
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AZIONI = ["costo_impresa", "costo_mezzo", "manuale_salva", "manuale_togli", "bolla_stima", "bolla_togli", "fattura_modifica", "fattura_togli"];
@@ -211,6 +212,8 @@ async function chiama(env, nome, corpo) {
     clearTimeout(timer);
   }
 }
+const ICONA_XL = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
 // Chiamate fatte da index.js insieme a dashboard_html: qualsiasi errore o attesa oltre 8 secondi = nessun pulsante.
 export function costiPulsante(env, token, commessa) { return chiama(env, "costi_pulsante", { p_token: token, p_commessa: commessa }); }
 export function costiImpresaPulsante(env, token) { return chiama(env, "costi_impresa_pulsante", { p_token: token }); }
@@ -268,6 +271,7 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (sotto === "/costi/carica-fattura") return caricaFattura(request, env, h);
   if (sotto === "/costi/leggi-fattura") return leggiFattura(request, env, h);
   if (sotto === "/costi/file") return apriFattura(request, env, base, inUrl, h);
+  if (sotto === "/costi/excel") return excelCosti(request, env, base, inUrl, h);
   if (sotto !== "/costi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const p = parametri(inUrl);
@@ -289,6 +293,86 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Costi e margine", "Questa pagina non è disponibile per questo cantiere.", indietro), 404);
   return h.risposta(pagina(base, h, p, d, torna, elenco));
+}
+
+// ---------------------------------------------------------------------------- costi-6: Scarica in Excel
+// 16/11/2026 (B13, MG3): l'Excel della pagina del cantiere. Stessi numeri della pagina (costi_contesto, stesso accesso), un solo foglio,
+// logo dell'impresa in testata e logo TIX in basso a destra (xlsxDaCsv di src/xlsx-loghi.js, regola di Filippo del 10/11). Importi + IVA.
+//   GET /costi/excel?t=<gettone>&c=<cantiere>  → file .xlsx «Costi e margine - <cantiere> - <data>.xlsx»
+function campoCsv(v) { const s = String(v == null ? "" : v).replace(/[\r\n]+/g, " "); return /[;"]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function numCsv(x) { const v = n(x); return v === null ? "" : String(Math.round(v * 100) / 100).replace(".", ","); }
+export function costiCsv(d) {
+  const q = ogg(d.quadro);
+  const ult = q.ultimo && typeof q.ultimo === "object" ? q.ultimo : null;
+  const cal = ogg(ult ? q.costi_al : q.costi_ora), cora = ogg(q.costi_ora), dopo = ogg(q.dopo);
+  const soglia = n(q.soglia) ?? 10;
+  const pc = (x) => (n(x) === null ? "" : cifre(n(x), 1) + "%");
+  const nomeVoce = (v) => (VOCI.find((x) => x[0] === v) || [v, "Senza qualifica"])[1];
+  const nomeCat = (k) => (CATEGORIE.find((x) => x[0] === k) || [k, k || ""])[1];
+  const unisci = (a) => a.filter((x) => x !== "" && x !== null && x !== undefined).join(" · ");
+  const R = [["Sezione", "Voce", "Data", "Dettaglio", "Quantità", "Importo € + IVA", "Dopo il SAL € + IVA"]];
+  const r = (...a) => R.push(a);
+  // 1. il quadro
+  r("Quadro", "Cantiere", "", testo(d.cantiere, 200), "", "", "");
+  if (ult) {
+    r("Quadro", "Ricavo al SAL n. " + String(ult.numero ?? ""), dataIt(q.al), n(q.avanzamento) !== null ? "lavori al " + pc(q.avanzamento) : "", "", numCsv(q.ricavo), "");
+    r("Quadro", "Costi fino al SAL", dataIt(q.al), "manodopera, mezzi, fatture, bolle stimate, costi a mano, subappalti", "", numCsv(q.costi), numCsv(dopo.totale));
+    r("Quadro", "Margine al SAL", dataIt(q.al), unisci([pc(q.margine_pct), q.stato === "sotto" ? "SOTTO la soglia del " + pc(soglia) : "soglia " + pc(soglia)]), "", numCsv(q.margine), "");
+    if (n(q.spese_generali_pct) !== null) r("Quadro", "Margine dopo le spese generali", "", "spese generali " + pc(q.spese_generali_pct) + " dei costi", "", numCsv(q.margine_dopo_sg), "");
+    r("Quadro", "Previsto a fine lavori", "", n(q.previsto_pct) !== null ? unisci([pc(q.previsto_pct), n(q.contratto) !== null ? "su " + euroTondo(q.contratto) + " di contratto" : ""]) :
+      "si calcola quando i lavori superano il " + pc(n(q.previsto_da) ?? 10), "", numCsv(q.previsto), "");
+  } else {
+    r("Quadro", "Contratto", "", "dal computo della sezione SAL, varianti comprese", "", numCsv(q.contratto), "");
+    r("Quadro", "Speso finora", testo(dataIt(cora.al), 10), n(q.speso_pct_contratto) !== null ? pc(q.speso_pct_contratto) + " del contratto" : "", "", numCsv(cora.totale), "");
+    r("Quadro", "Margine", "", "si calcola con il primo SAL", "", "", "");
+  }
+  // 2. dove vanno i costi (come la tabella della pagina)
+  const sez = ult ? "Dove vanno i costi (fino al " + dataIt(q.al) + ")" : "Dove vanno i costi";
+  const t = (et, a, b) => r(sez, et, "", "", "", numCsv(n(a) ?? 0), ult ? numCsv(n(b) ?? 0) : "");
+  t("Manodopera", ogg(cal.manodopera).euro, dopo.manodopera);
+  t("Mezzi propri", ogg(cal.mezzi).euro, dopo.mezzi);
+  t("Fatture dei fornitori", ogg(cal.fatture).euro, dopo.fatture);
+  t("Bolle stimate con l'offerta (da controllare)", ogg(cal.bolle).euro, dopo.bolle);
+  t("Costi a mano", ogg(cal.manuali).euro, dopo.manuali);
+  t("Subappalti", ogg(cal.subappalti).euro, dopo.subappalti);
+  if (n(ogg(cora.laboratorio).n) > 0) t("Fatture del laboratorio (prove sui materiali)", ogg(cal.laboratorio).euro, dopo.laboratorio);
+  t("Totale", cal.totale, dopo.totale);
+  // 3. il dettaglio: tutti i costi fino a oggi
+  const manOra = ogg(cora.manodopera);
+  lista(manOra.voci).forEach((x) => r("Manodopera per qualifica", nomeVoce(x.voce), "", x.mancano ? "costo mancante" : "", numCsv(x.ore), numCsv(x.euro), ""));
+  lista(manOra.righe).slice(0, 3000).forEach((x) => r("Manodopera giorno per giorno", testo(x.chi, 80), dataIt(x.giorno),
+    unisci([nomeVoce(x.voce), x.fonte === "presenze" ? "ENTRO/ESCO" : x.fonte === "rapportino" ? "rapportino (solo economia)" : "WhatsApp (solo economia)",
+      n(x.costo_ora) !== null ? euro(x.costo_ora) + "/ora" : "costo mancante"]), numCsv(x.ore), numCsv(x.euro), ""));
+  lista(ogg(cora.mezzi).mezzi).forEach((x) => r("Mezzi propri", testo(x.nome, 80), "", unisci(["uso in " + ({ ora: "ore", giorno: "giorni", mezza_giornata: "mezze giornate" }[x.unita] || x.unita || ""),(Number(x.giorni) || 0) + " giorni", x.senza_costo ? "costo mancante" : ""]),
+    numCsv(x.quantita), numCsv(x.euro), ""));
+  lista(d.fatture).forEach((f) => { const nc = f.tipo === "nota_credito"; const v = n(f.importo_cantiere);
+    r("Fatture dei fornitori", testo(f.fornitore, 160), dataIt(f.data), unisci(["n. " + testo(f.numero, 60), nomeCat(f.categoria), nc ? "nota di credito" : "",
+      n(f.importo_cantiere) !== n(f.imponibile) ? "quota di " + euro(f.imponibile) : "", f.competenza ? "conta dal " + dataIt(f.competenza) : ""]), "", v === null ? "" : numCsv(nc ? -v : v), ""); });
+  lista(d.bolle).forEach((b) => { if (!b.stima || lista(b.fatture).length) return;
+    r("Bolle stimate con l'offerta", testo(b.fornitore, 120), dataIt(b.data), unisci(["n. " + testo(b.numero, 60), testo(b.materiale, 200), "stima da controllare"]), "", numCsv(ogg(b.stima).importo), ""); });
+  lista(d.manuali).forEach((x) => r("Costi a mano", testo(x.descrizione, 300), dataIt(x.data), unisci([nomeCat(x.categoria), testo(x.fornitore, 120), x.numero ? "n. " + testo(x.numero, 60) : ""]), "", numCsv(x.importo), ""));
+  lista(ogg(cora.subappalti).contratti).forEach((x) => { const lav = n(x.lavori_ora ?? x.lavori_al) || 0, eco = n(x.economie_ora ?? x.economie_al) || 0;
+    r("Subappalti", testo(x.impresa_nome, 120), "", unisci([n(x.importo_contratto) !== null ? "contratto " + euroTondo(x.importo_contratto) : "", "lavori " + euroTondo(lav), eco ? "economie " + euroTondo(eco) : ""]), "", numCsv(lav + eco), ""); });
+  lista(ogg(cora.laboratorio).fatture).forEach((x) => r("Fatture del laboratorio", testo(x.fornitore, 120), dataIt(x.data), x.numero ? "n. " + testo(x.numero, 80) : "", "", numCsv(x.imponibile), ""));
+  r("Nota", "Tutti gli importi sono + IVA", testo(dataIt(d.oggi), 10), "Documento riservato alle persone dell'impresa. Numeri caricati in TIX dall'impresa.", "", "", "");
+  return R.map((x) => x.map(campoCsv).join(";")).join("\r\n");
+}
+async function excelCosti(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const p = parametri(inUrl);
+  if (!p.tok) return Response.redirect(inUrl.origin + base + "/", 303);
+  if (!UUID.test(p.c)) return Response.redirect(inUrl.origin + base + "/?t=" + p.tok, 303);
+  const indietro = '<p><a href="' + h.esc(base + "/costi?t=" + p.tok + "&c=" + p.c) + '">Torna a Costi e margine</a></p>';
+  const d = await h.rpc(env, "costi_contesto", { p_token: p.tok, p_commessa: p.c }, 25000).catch(() => null);
+  if (!d || typeof d !== "object") return h.risposta(h.foglio(base, "Scarica in Excel", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
+  if (d.esito !== "ok") return h.risposta(h.foglio(base, "Scarica in Excel", "Questo file non è disponibile per questo cantiere.", indietro), 404);
+  const lg = await h.rpc(env, "documento_logo_impresa", { p_token: p.tok, p_commessa: p.c, p_persona: null }, 8000).catch(() => null);
+  const nomeC = testo(d.cantiere, 80).replace(/[\\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "cantiere";
+  const oggi = dataIso(d.oggi) || new Date().toISOString().slice(0, 10);
+  const xl = await xlsxDaCsv({ csv: costiCsv(d), nomeFoglio: "Costi e margine", titolo: "Costi e margine - " + nomeC,
+    logoUrl: lg && lg.esito === "ok" ? lg.logo_url : null, aziendaNome: lg && lg.esito === "ok" ? lg.nome : "" });
+  return rispostaXlsx(request, xl, "Costi e margine - " + nomeC + " - " + dataIt(oggi).replace(/\//g, "-") + ".csv");
 }
 
 async function azione(request, env, h) {
@@ -739,7 +823,9 @@ function pagina(base, h, p, d, torna, elenco) {
     '<nav class="cm-nav"><a class="cm-torna" href="' + e(torna) + '">‹ Torna al cantiere</a><a class="cm-torna" href="' + e(base + "/costi?t=" + p.tok) + '">Tutti i cantieri</a></nav>' +
     '<div class="cm-card' + (sotto ? " cm-rosso" : "") + '"><header class="cm-band"><div><h1><span class="cm-ic" aria-hidden="true">' + ICONA + '</span>Costi e margine</h1>' +
     (d.cantiere ? '<p class="cm-cant">' + e(d.cantiere) + '</p>' : "") + '</div>' +
-    (d.modo === "prova" ? '<span class="cm-prova">In prova · la vede solo «Tutte le aziende»</span>' : "") + '</header>' +
+    (d.modo === "prova" ? '<span class="cm-prova">In prova · la vede solo «Tutte le aziende»</span>' : "") +
+    // costi-6: «Scarica in Excel» (file con il logo dell'impresa in alto e il logo TIX in basso a destra)
+    '<a class="cm-xl" href="' + e(base + "/costi/excel?t=" + p.tok + "&c=" + p.c) + '" download>' + ICONA_XL + 'Scarica in Excel</a></header>' +
     quadro + tabella + avvisi + manDett + mezDett + fornDett + labDett + manoDett + subDett + impresa + fonti + '</div></main>' +
     // costi-2: finestre per la stima di una bolla, la modifica di una fattura, togli fattura o stima
     '<dialog class="cm-dlg cm-dlg-l" id="cm-b-dlg"><form method="dialog"><h3 id="cm-b-tit">Prezza la bolla con l\'offerta</h3>' +
@@ -1058,7 +1144,12 @@ const STILE_MODERNO =
   CM + ".cm-band{position:relative;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin:10px 0 18px;padding:22px 24px;border-radius:20px;color:#fff;" +
   "background:radial-gradient(600px 220px at 85% -40%,rgba(255,255,255,.18),transparent 60%),linear-gradient(135deg,#0F766E 0%,#0C5F59 55%,#14263D 100%);box-shadow:0 18px 40px -26px rgba(12,95,89,.75)}" +
   CM + ".cm-band::after{content:'';position:absolute;right:-60px;bottom:-80px;width:260px;height:260px;border-radius:50%;border:1px solid rgba(255,255,255,.12);box-shadow:0 0 0 40px rgba(255,255,255,.03),0 0 0 80px rgba(255,255,255,.02);pointer-events:none}" +
-  CM + ".cm-band>*{position:relative;z-index:1}" + CM + ".cm-band h1{margin:0;gap:14px;font-size:1.55rem;font-weight:700;color:#fff}" +
+  CM + ".cm-band>*{position:relative;z-index:1}" +
+  // costi-6: pulsante «Scarica in Excel» nella fascia
+  CM + ".cm-xl{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border:1px solid rgba(255,255,255,.55);border-radius:12px;background:rgba(255,255,255,.14);color:#fff;font-size:.92rem;font-weight:700;text-decoration:none;white-space:nowrap}" +
+  CM + ".cm-xl:hover," + CM + ".cm-xl:focus-visible{background:#fff;color:#0B4F4A;outline:none}" +
+  "@media (max-width:640px){" + CM + ".cm-xl{width:100%;justify-content:center}}" +
+  CM + ".cm-band h1{margin:0;gap:14px;font-size:1.55rem;font-weight:700;color:#fff}" +
   CM + ".cm-band .cm-ic{width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);box-shadow:none}" +
   CM + ".cm-band .cm-cant{margin:8px 0 0 60px;color:rgba(255,255,255,.82);font-size:.98rem;font-weight:600}" +
   CM + ".cm-band .cm-prova{display:inline-flex;align-items:center;gap:7px;margin:0;padding:6px 12px;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:.8rem;font-weight:600}" +
