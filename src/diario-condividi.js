@@ -12,6 +12,10 @@
 // DIARIO_CONDIVIDI = "off" toglie pulsante e pagine.
 // ---------------------------------------------------------------------------
 // 14/11/2026 (campi-rossi, regola di Filippo per tutti i moduli): i campi che mancano si segnano in rosso (src/campi-rossi.js).
+// 16/11/2026 (diario-condividi-ritocchi-1, parere della B12 prima del lancio): prima dell'invio riepilogo con gli indirizzi per intero
+// e conferma, con avviso rosso per chi non è dell'impresa (dominio diverso da quelli dell'impresa); «Ore» spenta all'inizio, con
+// avviso quando si accende (anche per le foto); in fondo alla pagina condivisa «non inoltrare il link», titolare e informativa;
+// nell'elenco «dati di apertura cancellati» dopo 12 mesi (cron nel database).
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,7 +58,7 @@ export async function portaleDiarioCondividi(request, env, h, base, inUrl) {
   if (azione === "ritira") dati = { id: s(d.id, 15) };
   if (azione === "condividi") {
     const dest = Array.isArray(d.destinatari) ? d.destinatari.slice(0, 10).map((x) => ({ nome: s(x && x.nome, 120), email: s(x && x.email, 200) })) : [];
-    dati = { dal: s(d.dal, 10), al: s(d.al, 10), foto: d.foto !== false, ore: d.ore !== false, ddt: d.ddt !== false,
+    dati = { dal: s(d.dal, 10), al: s(d.al, 10), foto: d.foto !== false, ore: d.ore === true, ddt: d.ddt !== false,
              messaggio: s(d.messaggio, 1500), autore: s(d.autore, 120), destinatari: dest };
   }
   const r = await h.rpc(env, "diario_condividi", { p_token: t, p_commessa: c, p_azione: azione, p_dati: dati }, 20000).catch(() => null);
@@ -89,11 +93,16 @@ async function paginaEsterni(request, env, h, base, resto) {
     ".dv-barra{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;background:#FFF7EA;border:1px solid #F1D7AE;border-radius:12px;padding:10px 12px;margin:0 0 14px;font-size:.9rem}" +
     ".dv-barra button{font:inherit;font-weight:700;border:0;background:#F26A10;color:#1B2F4A;border-radius:999px;padding:9px 18px;cursor:pointer}" +
     ".dv-barra span{color:#5A3D00}@media print{.dv-barra{display:none}body{max-width:none;padding:0!important}@page{margin:12mm}}" +
+    ".dv-pie{margin:26px 0 0;padding:12px 0 0;border-top:1px solid #D9DEE5;font-size:.8rem;line-height:1.5;color:#5A6573}.dv-pie p{margin:0 0 4px}.dv-pie a{color:#5A6573}" +
     "</style></head><body>" +
     '<div class="dv-barra"><span>Diario di <b>' + e(r.impresa) + "</b> &middot; dal " + e(r.dal) + " al " + e(r.al) +
     " &middot; collegamento valido fino al " + e(r.scade_il) + "</span>" +
     '<button type="button" onclick="window.print()" title="Nella finestra di stampa scegli «Salva come PDF»">Scarica il PDF</button></div>' +
     r.html +
+    '<div class="dv-pie"><p><b>Pagina riservata al destinatario: non inoltrare il link.</b></p>' +
+    "<p>Diario condiviso da " + e(r.impresa || "l’impresa") + " con TIX · Diario di cantiere. I dati li tratta " + e(r.impresa || "l’impresa") +
+    ", che ne è titolare; l’impresa vede se e quando hai aperto questa pagina. Informativa: " +
+    '<a href="https://www.tixcantiere.it/privacy-policy" rel="noopener">www.tixcantiere.it/privacy-policy</a></p></div>' +
     "<script>(function(){try{fetch(location.pathname.replace(/\\/$/,'')+'/letto',{method:'POST',keepalive:true,credentials:'omit'}).catch(function(){});}catch(e){}})();</script>" +
     "</body></html>";
   return new Response(metodo === "HEAD" ? null : pagina, { status: 200, headers: h.headers() });
@@ -120,6 +129,11 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     ".gl-dc-ch button{width:24px;height:24px;min-height:0;padding:0;border:0;border-radius:50%;background:#fff;cursor:pointer;font-size:.9rem;line-height:1;box-shadow:none}" +
     ".gl-dc-nota{font-size:.84rem;color:#5b6560;margin:8px 0 0}.gl-dc-prova{background:#FFF4E0;border:1px solid #E8B04A;border-radius:8px;padding:8px 10px;font-size:.85rem;margin:0 0 8px}" +
     ".gl-dc-err{color:#a11;font-size:.9rem;margin:10px 0 0}.gl-dc-ok{background:#E3F3EA;border-left:4px solid #0A7D48;border-radius:8px;padding:8px 10px;font-size:.9rem;margin:10px 0 0}" +
+    ".gl-dc-avv{color:#B3261E;font-size:.86rem;font-weight:600;margin:6px 0 0}.gl-dc-avv:empty{display:none}" +
+    ".gl-dc-cf{border:2px solid #B3261E;border-radius:12px;padding:10px 12px;margin:12px 0 0;background:#FFF6F5}.gl-dc-cf h4{margin:0 0 6px;color:#B3261E}" +
+    ".gl-dc-cf ul{margin:4px 0 8px;padding:0 0 0 18px;font-size:.9rem}.gl-dc-cf li{margin:3px 0;word-break:break-all}" +
+    ".gl-dc-est{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#B3261E;color:#fff;font-size:.75rem;font-weight:700;word-break:normal}" +
+    ".gl-dc-int{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#E3F3EA;color:#0A7D48;font-size:.75rem;font-weight:700;word-break:normal}" +
     ".gl-dc-az{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}" +
     ".gl-dc-az button{width:auto;padding:10px 16px;border-radius:10px;border:1px solid #c9d1cd;background:#fff;color:#1b1f1d;font:inherit;font-weight:700;cursor:pointer;box-shadow:none}" +
     ".gl-dc-az button.pr{background:#F26A10;border-color:#F26A10;color:#1B2F4A}.gl-dc-az button[disabled]{opacity:.55;cursor:wait}" +
@@ -155,13 +169,16 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     "   '<div class=\"gl-dc-sc\"><button type=\"button\" data-p=\"s\">Questa settimana</button><button type=\"button\" data-p=\"m\">Questo mese</button><button type=\"button\" data-p=\"i\">Da inizio lavori</button></div>'+\n" +
     "   '<h4>A chi</h4>'+(K.contatti.length?'<div class=\"gl-dc-el\">'+K.contatti.map(function(x,i){return '<label><input type=\"checkbox\" data-i=\"'+i+'\"> <span>'+esc(x.nome||x.email)+' <small>'+esc(x.email)+(x.ruolo?' &middot; '+esc(x.ruolo):'')+' &middot; '+(x.da==='cantiere'?'Persone del cantiere':'Rubrica')+'</small></span></label>';}).join('')+'</div>':'<p class=\"gl-dc-nota\">In Persone del cantiere e in Rubrica non ci sono contatti con l’email: scrivila qui sotto.</p>')+\n" +
     "   '<div class=\"gl-dc-man\"><input type=\"email\" id=\"gl-dc-em\" placeholder=\"Oppure scrivi un’email\" autocomplete=\"off\"><button type=\"button\" id=\"gl-dc-piu\">Aggiungi</button></div><div class=\"gl-dc-ch\" id=\"gl-dc-ch\"></div>'+\n" +
-    "   '<h4>Cosa includere</h4><div class=\"gl-dc-ca\"><label><input type=\"checkbox\" id=\"gl-dc-f\" checked> Foto</label><label><input type=\"checkbox\" id=\"gl-dc-o\" checked> Ore</label><label><input type=\"checkbox\" id=\"gl-dc-d\" checked> DDT</label></div>'+\n" +
+    "   '<h4>Cosa includere</h4><div class=\"gl-dc-ca\"><label><input type=\"checkbox\" id=\"gl-dc-f\" checked> Foto</label><label><input type=\"checkbox\" id=\"gl-dc-o\"> Ore (nomi e ore degli operai)</label><label><input type=\"checkbox\" id=\"gl-dc-d\" checked> DDT</label></div><div class=\"gl-dc-avv\" id=\"gl-dc-avv\"></div>'+\n" +
     "   '<label class=\"t\" for=\"gl-dc-msg\">Messaggio (facoltativo)</label><textarea id=\"gl-dc-msg\" rows=\"3\" maxlength=\"1500\"></textarea>'+\n" +
     "   '<div id=\"gl-dc-es\"></div><div class=\"gl-dc-az\"><button type=\"button\" id=\"gl-dc-no\">Chiudi</button><button type=\"button\" class=\"pr\" id=\"gl-dc-si\">Condividi</button></div>'+\n" +
     "   '<h4>Condivisioni fatte</h4><div id=\"gl-dc-el2\"></div>';\n" +
     "  bx.innerHTML=h;var q=function(s){return bx.querySelector(s);};\n" +
     "  function periodo(p){var a=oggi,d=p==='s'?lun:p==='m'?mese:new Date(K.inizio+'T12:00:00');q('#gl-dc-dal').value=iso(d);q('#gl-dc-al').value=iso(a);}\n" +
     "  periodo('s');bx.querySelectorAll('.gl-dc-sc button').forEach(function(b){b.onclick=function(){periodo(b.getAttribute('data-p'));};});\n" +
+    "  function avvisi(){var a=[];if(q('#gl-dc-o').checked)a.push('Mostrerai nomi e ore dei lavoratori a persone esterne all’impresa.');if(q('#gl-dc-f').checked)a.push('Mostrerai le foto, con le persone riprese, a persone esterne all’impresa.');q('#gl-dc-avv').innerHTML=a.map(function(x){return '&#9888; '+esc(x);}).join('<br>');}\n" +
+    "  q('#gl-dc-o').onchange=avvisi;q('#gl-dc-f').onchange=avvisi;avvisi();\n" +
+    "  function interno(em){var d=(String(em||'').toLowerCase().split('@')[1])||'';return d!==''&&(K.domini_impresa||[]).indexOf(d)!==-1;}\n" +
     "  function chips(){var c=q('#gl-dc-ch');c.innerHTML='';scelti.forEach(function(x,i){var s=el('span','',esc(x.email));var b=el('button','','&times;');b.type='button';b.title='Togli';b.onclick=function(){scelti.splice(i,1);chips();};s.appendChild(b);c.appendChild(s);});}\n" +
     "  q('#gl-dc-piu').onclick=function(){var v=q('#gl-dc-em').value.trim();if(!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)){window.crSegna(q('#gl-dc-em'),'Questa email non sembra giusta');return;}q('#gl-dc-es').innerHTML='';if(!scelti.some(function(x){return x.email.toLowerCase()===v.toLowerCase();}))scelti.push({nome:'',email:v});q('#gl-dc-em').value='';chips();};\n" +
     "  q('#gl-dc-em').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();q('#gl-dc-piu').click();}});\n" +
@@ -171,16 +188,24 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     "   var es=q('#gl-dc-es');es.innerHTML='';\n" +
     "   if(!window.crControlla([{el:q('#gl-dc-dal'),testo:'Scegli il primo giorno'},{el:q('#gl-dc-al'),ok:function(e){return e.value&&e.value>=q('#gl-dc-dal').value;},testo:'Scegli l’ultimo giorno (dopo il primo)'},\n" +
     "     {el:q('.gl-dc-el')||q('.gl-dc-man'),ok:function(){return dest.length>0;},testo:'Scegli almeno un destinatario o scrivi un’email'}]))return;\n" +
-    "   var bt=this;bt.disabled=true;bt.textContent='Invio…';\n" +
-    "   post('condividi',{dal:q('#gl-dc-dal').value,al:q('#gl-dc-al').value,foto:q('#gl-dc-f').checked,ore:q('#gl-dc-o').checked,ddt:q('#gl-dc-d').checked,messaggio:q('#gl-dc-msg').value,destinatari:dest}).then(function(r){bt.disabled=false;bt.textContent='Condividi';\n" +
+    "   conferma(dest);};\n" +
+    "  function conferma(dest){var es=q('#gl-dc-es'),az=q('.gl-dc-az');var est=dest.filter(function(x){return !interno(x.email);}).length;\n" +
+    "   var cosa=['il testo delle giornate',q('#gl-dc-f').checked?'le foto':'',q('#gl-dc-o').checked?'nomi e ore degli operai':'',q('#gl-dc-d').checked?'i DDT':''].filter(Boolean).join(', ');\n" +
+    "   es.innerHTML='<div class=\"gl-dc-cf\"><h4>Controlla prima di inviare</h4><div>Dal '+dIt(q('#gl-dc-dal').value)+' al '+dIt(q('#gl-dc-al').value)+': '+esc(cosa)+'.</div><ul>'+dest.map(function(x){return '<li>'+(x.nome?esc(x.nome)+' &lt;'+esc(x.email)+'&gt;':esc(x.email))+(interno(x.email)?'<span class=\"gl-dc-int\">dell’impresa</span>':'<span class=\"gl-dc-est\">esterno all’impresa</span>')+'</li>';}).join('')+'</ul>'+\n" +
+    "    (est?'<div class=\"gl-dc-avv\">&#9888; '+(est===1?'Un destinatario non è':est+' destinatari non sono')+' dell’impresa: riceverà i dati del diario che hai scelto.</div>':'')+(q('#gl-dc-avv').innerHTML?'<div class=\"gl-dc-avv\">'+q('#gl-dc-avv').innerHTML+'</div>':'')+\n" +
+    "    '<div class=\"gl-dc-az\" style=\"display:flex\"><button type=\"button\" id=\"gl-dc-ind\">Torna a modificare</button><button type=\"button\" class=\"pr\" id=\"gl-dc-ok\">Sì, invia</button></div></div>';\n" +
+    "   az.style.display='none';try{es.scrollIntoView({block:'nearest'});}catch(e){}\n" +
+    "   q('#gl-dc-ind').onclick=function(){es.innerHTML='';az.style.display='';};\n" +
+    "   q('#gl-dc-ok').onclick=function(){var bt=this;bt.disabled=true;bt.textContent='Invio…';q('#gl-dc-ind').disabled=true;\n" +
+    "   post('condividi',{dal:q('#gl-dc-dal').value,al:q('#gl-dc-al').value,foto:q('#gl-dc-f').checked,ore:q('#gl-dc-o').checked,ddt:q('#gl-dc-d').checked,messaggio:q('#gl-dc-msg').value,destinatari:dest}).then(function(r){az.style.display='';es.innerHTML='';\n" +
     "    if(r&&r.esito==='ok'){es.innerHTML='<div class=\"gl-dc-ok\">Fatto: '+r.inviate+(r.inviate===1?' email partita':' email partite')+(r.prova?' (in prova, all’indirizzo di TIX)':'')+'.</div>';scelti=[];chips();bx.querySelectorAll('.gl-dc-el input:checked').forEach(function(i){i.checked=false;});q('#gl-dc-msg').value='';elenco();}\n" +
     "    else if(r&&r.campo==='periodo')window.crSegna(q('#gl-dc-dal'),r.messaggio);else if(r&&r.campo==='destinatari')window.crSegna(q('.gl-dc-el')||q('.gl-dc-man'),r.messaggio);\n" +
-    "    else es.innerHTML='<p class=\"gl-dc-err\">'+esc(r&&r.messaggio?r.messaggio:'Non è partito niente: riprova tra un minuto.')+'</p>';}).catch(function(){bt.disabled=false;bt.textContent='Condividi';es.innerHTML='<p class=\"gl-dc-err\">Connessione assente: riprova.</p>';});};\n" +
+    "    else es.innerHTML='<p class=\"gl-dc-err\">'+esc(r&&r.messaggio?r.messaggio:'Non è partito niente: riprova tra un minuto.')+'</p>';}).catch(function(){az.style.display='';es.innerHTML='<p class=\"gl-dc-err\">Connessione assente: riprova.</p>';});};}\n" +
     "  function elenco(){post('contesto').then(function(r){if(r&&r.esito==='ok'){K.condivisioni=r.condivisioni;lista();}});}\n" +
     "  function lista(){var c=q('#gl-dc-el2');if(!K.condivisioni.length){c.innerHTML='<p class=\"gl-dc-nota\">Nessuna condivisione per ora.</p>';return;}\n" +
     "   c.innerHTML=K.condivisioni.map(function(s){var via=s.ritirata||s.scaduta;var cosa=[s.foto?'foto':'',s.ore?'ore':'',s.ddt?'DDT':''].filter(Boolean).join(', ');\n" +
     "    return '<div class=\"gl-dc-st'+(via?' via':'')+'\"><div class=\"r\"><span><b>'+dIt(s.dal)+' &ndash; '+dIt(s.al)+'</b>'+(cosa?' &middot; con '+cosa:'')+'<br><small>'+esc(s.creato_il)+(s.autore?' &middot; '+esc(s.autore):'')+' &middot; '+(s.ritirata?'ritirato':s.scaduta?'scaduto':'vale fino al '+esc(s.scade_il))+(s.prova?' &middot; prova':'')+'</small></span>'+(via?'':'<button type=\"button\" data-r=\"'+s.id+'\">Ritira</button>')+'</div>'+\n" +
-    "     '<div class=\"d\">'+(s.dest||[]).map(function(d){return d.letto_il?'<span class=\"l\" title=\"Aperto '+d.aperture+(d.aperture===1?' volta':' volte')+', l’ultima il '+esc(d.ultimo_il)+'\"><i>&#9679;</i> Letto &middot; '+esc(d.nome||d.email)+' &middot; '+esc(d.letto_il)+'</span>':'<span><i>&#9675;</i> '+esc(d.nome||d.email)+' &middot; non ancora aperto</span>';}).join('')+'</div></div>';}).join('');\n" +
+    "     '<div class=\"d\">'+(s.dest||[]).map(function(d){return d.letto_il?'<span class=\"l\" title=\"Aperto '+d.aperture+(d.aperture===1?' volta':' volte')+', l’ultima il '+esc(d.ultimo_il)+'\"><i>&#9679;</i> Letto &middot; '+esc(d.nome||d.email)+' &middot; '+esc(d.letto_il)+'</span>':d.aperture_cancellate?'<span title=\"Dopo 12 mesi le aperture si cancellano\"><i>&#9675;</i> '+esc(d.nome||d.email)+' &middot; dati di apertura cancellati</span>':'<span><i>&#9675;</i> '+esc(d.nome||d.email)+' &middot; non ancora aperto</span>';}).join('')+'</div></div>';}).join('');\n" +
     "   c.querySelectorAll('button[data-r]').forEach(function(b){b.onclick=function(){if(!confirm('Ritiro il collegamento? Chi l’ha ricevuto non potrà più aprire il diario.'))return;b.disabled=true;post('ritira',{id:b.getAttribute('data-r')}).then(function(){elenco();});};});}\n" +
     "  lista();}\n" +
     "}\n" +
