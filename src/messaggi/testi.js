@@ -32,7 +32,14 @@ const RIGHE_SEZIONI = [
 const PAROLE_SEZIONE = { LAV: "LAV", LAVORAZIONI: "LAV", VISITA: "VISITA", DDT: "DDT", FIR: "FIR", FORMULARIO: "FIR", NOTE: "NOTE", SAL: "SAL" };
 // testi che i rami 3-6 di Make trattano come comandi (esclusi dal ramo 7) e CANTIERE (pezzo «comandi»)
 const COMANDI = ["OGGI", "IERI", "SETTIMANA", "SEZIONE", "SEZIONI", "ARGOMENTO", "CHIUDI", "CANTIERE"];
-const MODELLO = "claude-sonnet-5";
+const MODELLO = "claude-sonnet-5";   // di riserva, se il database non risponde (testi-sonnet55-1)
+// SONNET 5.5 (16/11/2026): il modello lo decide il database (correzione_leggera_modello, con prova per numero).
+// Sui modelli 5.5 «thinking: disabled» da errore 400: su Sonnet 5.5 «between_tools» (niente ragionamento) + effort low.
+function pensiero(m) {
+  if (/^claude-sonnet-5-5/.test(m)) return { thinking: { type: "between_tools" }, output_config: { effort: "low" } };
+  if (/-5-5/.test(m)) return { output_config: { effort: "low" } };
+  return { thinking: { type: "disabled" } };
+}
 const ISTRUZIONI = "Sei il correttore dei messaggi di un cantiere edile. Il testo delimitato da <<< >>> e' il messaggio di un operaio, scritto a mano oppure trascritto da un vocale. Se non e' in italiano, traducilo in italiano. Se e' in italiano, correggi solo refusi, punteggiatura, maiuscole e parole chiaramente trascritte male, senza riscrivere, riassumere o cambiare lo stile. Non cambiare MAI numeri, quantita', misure, importi, orari, date, nomi di persone, imprese e cantieri, sigle e termini di cantiere, e non aggiungere informazioni. Se non c'e' niente da correggere riportalo identico. Rispondi con UNA SOLA RIGA nel formato esatto: codice~~testo dove codice e' il codice ISO a due lettere della lingua di partenza (it, ro, sq, ar, en, ru, uk, fr, es) e testo e' la versione italiana corretta. Nessuna spiegazione, nessun a capo, nessun markdown. Se il testo e' vuoto rispondi soltanto it~~ ";
 
 function corpo(msg) { return String((msg.text && msg.text.body) || ""); }
@@ -63,14 +70,15 @@ async function manda(c, payload, motivo, commessa) {
 }
 
 // 9460 «Traduci in italiano»: errori ignorati come in Make (stopOnHttpError false, gestore «Resume»)
-async function correggi(env, testo) {
+async function correggi(env, testo, modello) {
+  const mod = modello || MODELLO;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: MODELLO, max_tokens: 700, thinking: { type: "disabled" },
+      body: JSON.stringify({ model: mod, max_tokens: 700, ...pensiero(mod),
         messages: [{ role: "user", content: [{ type: "text", text: ISTRUZIONI + "<<<" + testo + ">>>" }] }] }),
       signal: ctrl.signal
     });
@@ -129,7 +137,9 @@ async function esegui(c) {
     try { p = typeof reg.wa_body === "string" ? JSON.parse(reg.wa_body) : reg.wa_body; } catch (e) { p = null; }
     if (p) await c.invia(p, "138_registrato", x.commessa_id);
   }
-  const risposta = await correggi(env, testo);                                                                     // 9460
+  let modello = MODELLO;                                                                                          // testi-sonnet55-1
+  try { const m = await c.rpc("correzione_leggera_modello", { p_telefono: tel }, 3000); if (typeof m === "string" && m.trim()) modello = m.trim(); } catch (e) {}
+  const risposta = await correggi(env, testo, modello);                                                                     // 9460
   if (risposta !== null && risposta !== "") {                                                                      // filtro del 10005
     const parti = risposta.split("~~");
     await c.rpc("aggiorna_traduzione_messaggio", { p_message_id: String(msg.id),
