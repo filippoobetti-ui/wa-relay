@@ -15,6 +15,10 @@
 //                                                    dei costruttivi dei fornitori, registrato in prof_registro)
 //   POST     /studio/visto                         → la risposta di strutturista o DL: «Visto» oppure «Osservazioni» (09/11/2026:
 //                                                    l'unica cosa che un professionista scrive; tutto in prof_registro e nello storico)
+//   GET      /studio/scheda?c=…&d=…[&scarica=1]    → il PDF di una scheda tecnica mandata al DL dalle Richieste di offerta
+//                                                    (17/11/2026, schede-visto-1, registrato in prof_registro)
+//   POST     /studio/scheda-visto                  → la risposta del DL sulla scheda: «Approvata», «Approvata con osservazioni»,
+//                                                    «Non approvata» (17/11/2026; interruttore impostazioni.schede_visto_attiva)
 //   GET/POST /studio/password?c=…                  → scelta della password (invito o «Password dimenticata?»)
 //   GET      /studio/esci                          → esce
 // L'accesso con email e password passa da /accedi (index.js): prima portale_login, poi prof_login (studioAccedi).
@@ -56,6 +60,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   const sotto = inUrl.pathname.slice(base.length);
   if (sotto === "/studio/password") return password(request, env, base, inUrl, h);
   if (sotto === "/studio/visto") return visto(request, env, base, h, studioGettone(request));
+  if (sotto === "/studio/scheda-visto") return schedaVisto(request, env, base, h, studioGettone(request));
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const tok = studioGettone(request);
   if (sotto === "/studio/esci") {
@@ -67,7 +72,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (!tok) return vai(base + "/");
   if (sotto === "/studio" || sotto === "/studio/") return elenco(request, env, base, h, tok);
   // 16/11/2026 (B1, per la B16): impresa con il canone non pagato (sospesa o chiusa) → niente file dei suoi cantieri
-  if (sotto === "/studio/file" || sotto === "/studio/ddt" || sotto === "/studio/tavola" || sotto === "/studio/costruttivo") {
+  if (sotto === "/studio/file" || sotto === "/studio/ddt" || sotto === "/studio/tavola" || sotto === "/studio/costruttivo" || sotto === "/studio/scheda") {
     const fermo = await pagamentoFermo(env, h, tok, String(inUrl.searchParams.get("c") || "").toLowerCase());
     if (fermo) return pagina(request, base, h, fermo.ca.nome, fermo.utente, "", '<a class="torna" href="' + h.esc(base + "/studio") + '">&larr; I tuoi cantieri</a>' + pagamentoFrase(fermo.ca, h.esc));
   }
@@ -76,6 +81,7 @@ export async function portaleStudio(request, env, base, inUrl, h) {
   if (sotto === "/studio/ddt") return fileDdt(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/tavola") return fileTavola(request, env, base, inUrl, h, tok);
   if (sotto === "/studio/costruttivo") return fileCostruttivo(request, env, base, inUrl, h, tok);
+  if (sotto === "/studio/scheda") return fileScheda(request, env, base, inUrl, h, tok);
   return new Response("Not Found", { status: 404 });
 }
 
@@ -94,13 +100,14 @@ async function elenco(request, env, base, h, tok) {
     corpo += '<a class="scheda" href="' + e(base + "/studio/cantiere?c=" + c.id) + '">' +
       '<div class="riga"><div class="nome">' + e(c.nome) + '</div>' +
       '<span class="avv">' + (c.da_vistare > 0 ? '<span class="nuovi vis">' + c.da_vistare + (c.da_vistare === 1 ? " costruttivo da vistare" : " costruttivi da vistare") + '</span>' : "") +
+      (c.schede_da_vistare > 0 ? '<span class="nuovi vis">' + c.schede_da_vistare + (c.schede_da_vistare === 1 ? " scheda tecnica da approvare" : " schede tecniche da approvare") + '</span>' : "") +
       (c.documenti_nuovi > 0 ? '<span class="nuovi">' + c.documenti_nuovi + (c.documenti_nuovi === 1 ? " documento nuovo" : " documenti nuovi") + '</span>' : "") + '</span></div>' +
       '<div class="sub">' + e(c.impresa || "") + (c.ubicazione ? " · " + e(c.ubicazione) : "") + '</div>' +
       '<div class="chips"><span class="chip">' + e(c.ruolo || "") + '</span>' + sez + (c.chiuso ? '<span class="chip">Cantiere chiuso</span>' : "") +
       (PAGAMENTO_FERMO[c.pagamento] ? '<span class="chip">Servizio sospeso</span>' : "") + '</div></a>';
   }
-  corpo += '<p class="nota">Vedi e scarichi i documenti che l\'impresa ti ha aperto, ma non puoi cambiarli. L\'unica cosa che scrivi è il visto sui costruttivi, ' +
-    'quando l\'impresa te lo chiede. TIX annota quando apri e scarichi un documento e quando rispondi.</p>';
+  corpo += '<p class="nota">Vedi e scarichi i documenti che l\'impresa ti ha aperto, ma non puoi cambiarli. L\'unica cosa che scrivi è il visto sui costruttivi e, se sei il Direttore dei Lavori, ' +
+    'la risposta sulle schede tecniche dei materiali, quando l\'impresa te li chiede. TIX annota quando apri e scarichi un documento e quando rispondi.</p>';
   return pagina(request, base, h, "I tuoi cantieri", d.utente, "", corpo);
 }
 
@@ -128,6 +135,9 @@ async function cantiere(request, env, base, inUrl, h, tok) {
   const cv = await h.rpc(env, "prof_costruttivi", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
   const conVisto = !!(cv && cv.esito === "ok" && (cv.costruttivi || []).length);
   if (conVisto) corpo += vistiRiquadro(base, c, cv, e, inUrl);
+  // 17/11/2026 (schede-visto-1): schede tecniche dei materiali per il DL (dalle Richieste di offerta dell'impresa)
+  const sv = await h.rpc(env, "prof_schede", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
+  if (sv && sv.esito === "ok" && (sv.schede || []).length) corpo += schedeRiquadro(base, c, sv, e, inUrl);
   // una sezione per volta: quella chiesta con ?s=, altrimenti la prima aperta (nell'ordine di _prof_sezioni)
   const sez = (ca.sezioni || []).filter((s) => SEZIONI[s]);
   const chiesta = String(inUrl.searchParams.get("s") || "");
@@ -491,6 +501,114 @@ async function fileCostruttivo(request, env, base, inUrl, h, tok) {
   if (f && f.ok) return servi(f, info, scarica, request.method);
   if (f && (f.status === 400 || f.status === 404)) return h.risposta(h.foglio(base, "Costruttivo", "Il file di questo costruttivo non è più nell'archivio: avvisa l'impresa.", indietro), 404);
   return h.risposta(h.foglio(base, "Costruttivo", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
+}
+
+// ---------------------------------------------------------------------------- schede tecniche per il DL (17/11/2026, schede-visto-1)
+// prof_schede dà le schede tecniche dei materiali che l'impresa ha mandato al Direttore dei Lavori dalle Richieste di offerta
+// (tabella schede_visti; il PDF resta nell'archivio privato wa-media, preventivi/<impresa>/rdo/<richiesta>/scheda-….pdf).
+const ESITI_SCHEDA = { approvata: ["Approvata", "st-ok"], osservazioni: ["Approvata con osservazioni", "st-am"], non_approvata: ["Non approvata", "st-ro"] };
+const MSG_SCHEDA = {
+  ok: ["ok", "Risposta registrata. L'impresa la vede subito."],
+  cambiata: ["ok", "Risposta cambiata. Quella di prima resta nello storico."],
+  nota: ["err", "Scrivi le osservazioni: l'impresa le legge."],
+  tolta: ["err", "L'impresa ha ritirato questa scheda."],
+  errore: ["err", "La risposta non è stata registrata: riprova tra qualche minuto."]
+};
+function schedeRiquadro(base, c, d, e, inUrl) {
+  const lista = d.schede || [];
+  const attesa = lista.filter((x) => !x.esito).length;
+  const msg = MSG_SCHEDA[String(inUrl.searchParams.get("vs") || "")];
+  let h = '<section class="scheda visti" id="schede"><div class="riga"><h2 class="sz"><span class="ic-vis" aria-hidden="true">&#9998;</span>Schede tecniche da approvare</h2>' +
+    '<span class="chip">Direttore dei Lavori</span></div>' +
+    '<p class="sub">' + (attesa ? attesa + (attesa === 1 ? " scheda aspetta" : " schede aspettano") + " la tua risposta." : "Hai risposto a tutte.") +
+    " Sono le schede dei materiali che l'impresa ha ricevuto dai fornitori.</p>" +
+    (msg ? '<p class="msg ' + msg[0] + '" role="status">' + e(msg[1]) + "</p>" : "");
+  for (const x of lista) {
+    const es = ESITI_SCHEDA[x.esito];
+    const chips = (es ? '<span class="chip ' + es[1] + '">' + es[0] + "</span>" : '<span class="chip st-ro">Da approvare</span>') +
+      (x.fornitore ? '<span class="chip">' + e(x.fornitore) + "</span>" : "");
+    const meta = ["mandata il " + quando(x.chiesto_il) + (x.chiesto_da ? " da " + e(x.chiesto_da) : ""), x.byte ? mb(x.byte) : "", x.nome ? e(x.nome) : ""].filter(Boolean).join(" · ");
+    const url = base + "/studio/scheda?c=" + c + "&d=" + x.id;
+    const apri = '<div class="azioni"><a class="btn pr" href="' + e(url) + '" target="_blank" rel="noopener">Apri</a>' +
+      '<a class="btn" href="' + e(url + "&scarica=1") + '">Scarica</a></div>';
+    const risposta = x.esito ? '<div class="risposta"><strong>La tua risposta</strong> del ' + quando(x.risposto_il) + ": " + es[0] +
+      (x.nota ? '<div class="testo-oss">' + e(x.nota) + "</div>" : "") + "</div>" : "";
+    const modulo = '<form class="smod" method="post" action="' + e(base + "/studio/scheda-visto") + '">' +
+      '<input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="d" value="' + e(x.id) + '">' +
+      '<label for="sn-' + e(x.id) + '">Osservazioni <span class="sub">(obbligatorie se non è approvata così com\'è)</span></label>' +
+      '<textarea id="sn-' + e(x.id) + '" name="nota" rows="3" maxlength="2000">' + e(x.esito && x.esito !== "approvata" ? x.nota || "" : "") + "</textarea>" +
+      '<p class="err-oss" role="alert" hidden>Scrivi le osservazioni: l\'impresa le legge.</p>' +
+      '<div class="azioni"><button class="btn ok" type="submit" name="esito" value="approvata">Approvata</button>' +
+      '<button class="btn" type="submit" name="esito" value="osservazioni">Approvata con osservazioni</button>' +
+      '<button class="btn" type="submit" name="esito" value="non_approvata">Non approvata</button></div></form>';
+    h += '<article class="doc" id="s-' + e(x.id) + '"><div class="nome">' + e(x.titolo || x.nome || "Scheda tecnica") + "</div>" +
+      '<div class="chips">' + chips + "</div>" + '<div class="sub">' + meta + "</div>" +
+      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
+      (x.esito ? '<details class="cambia"><summary>Cambia la risposta</summary>' + modulo + "</details>" : modulo) + "</article>";
+  }
+  h += '<p class="nota">La risposta resta registrata con il tuo nome, la data e l\'ora, e l\'impresa la vede subito. ' +
+    'Se la cambi, quella di prima resta nello storico. TIX non controlla il contenuto delle schede.</p>' +
+    "<script>document.querySelectorAll('form.smod').forEach(function(f){var t=f.querySelector('textarea'),m=f.querySelector('.err-oss');" +
+    "f.addEventListener('submit',function(ev){var b=ev.submitter;" +
+    "if(b&&b.value!=='approvata'&&t&&!t.value.trim()){ev.preventDefault();if(m)m.hidden=false;t.focus();}});" +
+    "if(t)t.addEventListener('input',function(){if(m)m.hidden=true;});});</script>";
+  return h + "</section>";
+}
+
+// POST /studio/scheda-visto: c, d, esito (approvata | osservazioni | non_approvata), nota. Stessi controlli di /studio/visto.
+async function schedaVisto(request, env, base, h, tok) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  if (!tok) return vai(base + "/");
+  const origine = request.headers.get("Origin");
+  if (origine && origine !== "null") {
+    let ok = false;
+    try { ok = new URL(origine).host === new URL(request.url).host; } catch (x) { ok = false; }
+    if (!ok) return new Response("Forbidden", { status: 403 });
+  }
+  const testo = await request.text();
+  if (testo.length > 16000) return new Response("Modulo troppo grande.", { status: 413 });
+  const f = new URLSearchParams(testo);
+  const c = String(f.get("c") || "").toLowerCase();
+  const id = String(f.get("d") || "").toLowerCase();
+  const esito = String(f.get("esito") || "");
+  if (!UUID.test(c)) return vai(base + "/studio");
+  const torna = (v) => vai(base + "/studio/cantiere?c=" + c + "&vs=" + v + (UUID.test(id) ? "#s-" + id : "#schede"));
+  if (!UUID.test(id) || !ESITI_SCHEDA[esito]) return torna("errore");
+  const nota = String(f.get("nota") || "").slice(0, 2000);
+  if (esito !== "approvata" && !nota.trim()) return torna("nota");
+  if (await pagamentoFermo(env, h, tok, c)) return vai(base + "/studio/cantiere?c=" + c);
+  const r = await h.rpc(env, "prof_scheda_visto", { p_token: tok, p_commessa: c, p_id: id, p_dati: { esito, nota } }, 15000).catch(() => null);
+  if (!r || typeof r !== "object") return torna("errore");
+  if (r.esito === "gettone" || r.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (r.esito === "ok") return torna(r.cambiato ? "cambiata" : "ok");
+  if (r.esito === "non_trovato" || r.esito === "cantiere") return torna("tolta");
+  return torna(/osservazioni/i.test(String(r.messaggio || "")) ? "nota" : "errore");
+}
+
+// GET /studio/scheda: il PDF della scheda, dall'archivio privato wa-media (preventivi/<impresa>/rdo/<richiesta>/scheda-….pdf)
+async function fileScheda(request, env, base, inUrl, h, tok) {
+  const c = String(inUrl.searchParams.get("c") || "").toLowerCase();
+  const id = String(inUrl.searchParams.get("d") || "").toLowerCase();
+  const scarica = inUrl.searchParams.get("scarica") === "1";
+  const e = h.esc;
+  const indietro = '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "#schede") + '">Torna al cantiere</a>';
+  if (!UUID.test(c) || !UUID.test(id)) return h.risposta(h.foglio(base, "Scheda non trovata", "", indietro), 404);
+  const info = await h.rpc(env, "prof_scheda_file", { p_token: tok, p_commessa: c, p_id: id }, 10000).catch(() => null);
+  if (!info || typeof info !== "object") return h.risposta(h.foglio(base, "Scheda tecnica", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
+  if (info.esito === "gettone" || info.esito === "spento") return vai(base + "/", cookieTogli(base));
+  if (info.esito !== "ok" || String(info.commessa_id || "") !== c) {
+    return h.risposta(h.foglio(base, "Scheda non disponibile", "L'impresa può averla ritirata.", indietro), 404);
+  }
+  const ps = String(info.transito || "");
+  const az = String(info.azienda_id || ""), rdo = String(info.rdo_id || "");
+  if (!UUID.test(az) || !UUID.test(rdo) || ps.indexOf("preventivi/" + az + "/rdo/" + rdo + "/scheda-") !== 0 || ps.indexOf("..") !== -1 || !/\.pdf$/i.test(ps)) {
+    return h.risposta(h.foglio(base, "Scheda tecnica", "Il file di questa scheda non è disponibile in questo momento.", indietro), 404);
+  }
+  const fl = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(ps), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (fl && fl.ok) return servi(fl, info, scarica, request.method);
+  if (fl && (fl.status === 400 || fl.status === 404)) return h.risposta(h.foglio(base, "Scheda tecnica", "Il file di questa scheda non è più nell'archivio: avvisa l'impresa.", indietro), 404);
+  return h.risposta(h.foglio(base, "Scheda tecnica", "Il file non si legge dall'archivio in questo momento: riprova tra un minuto.", indietro), 502);
 }
 
 // ---------------------------------------------------------------------------- file
