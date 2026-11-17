@@ -264,6 +264,12 @@ async function api(request, env, h) {
     // 13/11/2026 (prove-2, chat 02B): Prove sui materiali — prelievi, offerta accettata
     const dpr = pulisciPr(b.dati);
     r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: dpr.id, p_azione: az.slice(3), p_dati: dpr }, 15000).catch(() => null);
+  } else if ((az === "of_sc_testo" || az === "of_sc_invia") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+    // 17/11/2026 (rdo-sconto-1): «Chiedi uno sconto» su un'offerta ricevuta
+    const x = b.dati || {};
+    const pd = { rdo_id: testo(x.rdo_id, 36), pct: testo(x.pct, 6), nota: testo(x.nota, 2000), testo: testo(x.testo, 20000),
+      prezzi: (Array.isArray(x.prezzi) ? x.prezzi : []).slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo_voluto: testo(p && p.prezzo, 20) })) };
+    r = await h.rpc(env, "preventivo_rdo_sconto", { p_token: tok, p_id: testo(x.id, 36), p_azione: az === "of_sc_testo" ? "testo" : "invia", p_dati: pd }, 15000).catch(() => null);
   } else if ((az === "of_sch_chiedi" || az === "of_sch_togli") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 17/11/2026 (rdo-schede-1): schede tecniche della richiesta di offerta
     const dsc = pulisciOf(b.dati);
@@ -2448,7 +2454,7 @@ function disegnaOf(){
  var per={};(r.richieste||[]).forEach(function(q){if(q.stato==='annullata')return;(q.righe||[]).forEach(function(g){if(g.prezzo==null)return;var kk=g.voce_id+'|'+(q.tipo||'altro');(per[kk]=per[kk]||{v:g,t:q.tipo,o:[]}).o.push({q:q,g:g});});});
  var ids=Object.keys(per).sort(function(a,b){return (per[a].v.ordine||0)-(per[b].v.ordine||0);});
  if(ids.length){h+='<h3>Confronto delle offerte</h3><table class="pv-ofg"><tr><th>Voce</th><th>Offerte (prezzo unitario + IVA)</th></tr>'+ids.map(function(k){var x=per[k],min=Math.min.apply(null,x.o.map(function(o){return Number(o.g.prezzo);}));
-  return '<tr><td><b>'+x.v.ordine+'.</b> '+es(x.v.descrizione)+(TD[x.t]?' '+tdChip(x.t):'')+'</td><td>'+x.o.map(function(o){return '<div class="'+(Number(o.g.prezzo)===min?'min':'')+'">'+es(o.q.destinatario)+': '+eur(o.g.prezzo)+(o.g.note?' <small>('+es(o.g.note)+')</small>':'')+
+  return '<tr><td><b>'+x.v.ordine+'.</b> '+es(x.v.descrizione)+(TD[x.t]?' '+tdChip(x.t):'')+'</td><td>'+x.o.map(function(o){return '<div class="'+(Number(o.g.prezzo)===min?'min':'')+'">'+es(o.q.destinatario)+': '+eur(o.g.prezzo)+(o.g.prezzo_prima!=null&&Number(o.g.prezzo_prima)!==Number(o.g.prezzo)?' <small>(prima offerta '+eur(o.g.prezzo_prima)+')</small>':'')+(o.g.note?' <small>('+es(o.g.note)+')</small>':'')+
    (o.g.scelta?' ✓ <small>nel preventivo</small>':(bozza?' <button type="button" class="pv-b sm" data-ofx="scegli" data-riga="'+o.g.id+'">Usa questo prezzo</button>':''))+'</div>';}).join('')+'</td></tr>';}).join('')+'</table>';}
  h+='<h3>Richieste fatte</h3>'+((r.richieste||[]).length?'':'<p class="sotto">Nessuna richiesta ancora.</p>');
  (r.richieste||[]).forEach(function(q){
@@ -2464,12 +2470,12 @@ function disegnaOf(){
   } else if(q.stato!=='annullata'){
    h+='<table class="pv-ofg"><tr><th>Voce</th><th class="n">Quantità</th><th>Prezzo offerto + IVA</th><th>Note</th></tr>'+(q.righe||[]).map(function(g){
     return '<tr><td><b>'+g.ordine+'.</b> '+es(g.descrizione)+'</td><td class="n">'+String(g.quantita==null?'':g.quantita).replace('.',',')+' '+es(g.unita||'')+'</td>'+
-     '<td><input type="text" inputmode="decimal" data-voce="'+g.voce_id+'" value="'+(g.prezzo==null?'':String(g.prezzo).replace('.',','))+'"></td><td><input type="text" data-nota="'+g.voce_id+'" maxlength="500" value="'+es(g.note||'')+'" style="width:100%"></td></tr>';}).join('')+'</table>'+
+     '<td><input type="text" inputmode="decimal" data-voce="'+g.voce_id+'" value="'+(g.prezzo==null?'':String(g.prezzo).replace('.',','))+'">'+(g.prezzo_prima!=null&&Number(g.prezzo_prima)!==Number(g.prezzo)?'<small style="display:block">prima offerta '+eur(g.prezzo_prima)+'</small>':'')+'</td><td><input type="text" data-nota="'+g.voce_id+'" maxlength="500" value="'+es(g.note||'')+'" style="width:100%"></td></tr>';}).join('')+'</table>'+
     '<label><span>Data dell\'offerta</span><input type="date" data-k="data" value="'+es(q.offerta_data||'')+'" style="max-width:200px"></label>'+
     '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button><button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button>'+
     (OF.lettura_attiva?'<label class="pv-b" style="cursor:pointer">Leggi l\'offerta del fornitore<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofleggi="'+q.id+'" style="display:none"></label>':'')+
     (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
-    '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>'+schedeHtml(q);
+    '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>'+schedeHtml(q)+scontoHtml(q);
   }
   if(q.stato!=='bozza'&&(q.allegati||[]).length)h+=allegatiHtml(q,false);
   if(!r.solo_richieste)h+=postaDi('rdo',q.id);
@@ -2487,6 +2493,18 @@ function allegatiHtml(q,bozza){var A=q.allegati||[],tot=A.reduce(function(s,a){r
    (bozza?' <button type="button" class="pv-b sm pv-togli" data-ofx="all_togli" data-all="'+es(a.id)+'" title="Togli il file">✕</button>':'')+'</li>';}).join('')+'</ul>':(bozza?'':'<p class="sotto">Nessun file.</p>'))+
   (bozza&&A.length<5&&tot<10485760?'<label class="pv-b sm" style="cursor:pointer;display:inline-flex">Allega file<input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofall="'+q.id+'" style="display:none"></label>':'')+
   (bozza&&A.length?'<p class="sotto" style="margin:4px 0 0">Con «Copia il testo» i file non partono: allegali tu all’email.</p>':'')+'</div>';}
+// 17/11/2026 (rdo-sconto-1): «Chiedi uno sconto» su un'offerta ricevuta
+function scontoHtml(q){if(q.stato!=='offerta')return '';var G=(q.righe||[]).filter(function(g){return g.prezzo!=null;});
+ return '<details class="pv-ofnota" style="margin:10px 0"><summary style="cursor:pointer"><b>Chiedi uno sconto</b>'+(q.sconto_chiesto_il?' <small>· chiesto il '+dt(q.sconto_chiesto_il)+'</small>':'')+'</summary>'+
+  '<label style="max-width:240px"><span>Sconto sul totale (%)</span><input type="text" inputmode="decimal" data-sc-pct maxlength="5" style="max-width:110px"></label>'+
+  (G.length?'<p class="sotto" style="margin:6px 0">Oppure, o in più, scrivi il prezzo che vorresti su una o più voci:</p><table class="pv-ofg"><tr><th>Voce</th><th>Prezzo offerto + IVA</th><th>Prezzo che vorresti + IVA</th></tr>'+
+   G.map(function(g){return '<tr><td><b>'+g.ordine+'.</b> '+es(g.descrizione)+'</td><td>'+eur(g.prezzo)+'</td><td><input type="text" inputmode="decimal" data-sc-voce="'+g.voce_id+'" style="width:120px"></td></tr>';}).join('')+'</table>':'')+
+  '<label><span>Nota per il fornitore <small>facoltativa</small></span><textarea data-sc-nota maxlength="2000" style="min-height:50px"></textarea></label>'+
+  '<div class="pv-ofbt"><button type="button" class="pv-b sm" data-ofx="sc_testo">Prepara il testo</button></div>'+
+  '<div data-sc-box hidden><label><span>Testo per il fornitore <small>controllalo e cambialo se serve</small></span><textarea class="testo" data-sc-testo></textarea></label>'+
+  '<div class="pv-ofbt"><button type="button" class="pv-b sm pv-pr" data-ofx="sc_invia"'+(OF.email_attive?'':' disabled title="L’invio da TIX non è ancora acceso"')+'>Invia da TIX</button>'+
+  '<button type="button" class="pv-b sm" data-ofx="sc_copia">Copia il testo</button></div>'+
+  '<p class="sotto" style="margin:4px 0 0">Quando arriva l’offerta rivista, premi «Leggi l’offerta del fornitore» o scrivi i prezzi nuovi e «Salva l’offerta»: la prima offerta resta per il confronto.</p></div></details>';}
 // 17/11/2026 (rdo-schede-1): schede tecniche dei materiali dell'offerta
 function schedeHtml(q){if(q.stato!=='offerta'&&!(q.schede||[]).length)return '';var S=q.schede||[];
  return '<div class="pv-ofnota" style="margin:10px 0"><b>Schede tecniche</b> <small>da far approvare alla Direzione dei Lavori</small>'+
@@ -2613,6 +2631,16 @@ function azioneOf(az,el){
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
    (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){return caricaOf();}).then(function(){
     var q=document.querySelector('[data-rdo]');if(q){q.scrollIntoView({block:'start',behavior:'smooth'});mOf(q,'Richiesta pronta: controlla il testo, poi premi «Invia da TIX» oppure «Copia il testo».','ok');}});});return;}
+ if(az==='sc_testo'){var pc=box.querySelector('[data-sc-pct]'),pz=Array.prototype.slice.call(box.querySelectorAll('[data-sc-voce]')).filter(function(x){return x.value.trim()!=='';});
+  if(!crControlla([{el:pc,ok:function(x){return x.value.trim()!==''||pz.length>0;},testo:'Scrivi lo sconto sul totale oppure il prezzo che vorresti su almeno una voce'}])){mOf(box,'Completa i campi segnati in rosso.','err');return;}
+  el.disabled=true;api('of_sc_testo',{rdo_id:rid,pct:pc.value.trim(),nota:(box.querySelector('[data-sc-nota]')||{}).value||'',
+   prezzi:pz.map(function(x){return {voce_id:x.getAttribute('data-sc-voce'),prezzo:x.value.replace(/[€\s]/g,'')};})}).then(function(r){el.disabled=false;
+   if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}var sb=box.querySelector('[data-sc-box]');sb.hidden=false;sb.querySelector('[data-sc-testo]').value=r.testo||'';mOf(box,'Testo pronto: controllalo, poi «Invia da TIX» o «Copia il testo».','ok');});return;}
+ if(az==='sc_invia'){var st=box.querySelector('[data-sc-testo]');if(!crControlla([{el:st,ok:function(x){return x.value.trim().length>=20;},testo:'Scrivi il testo della richiesta di sconto'}])){mOf(box,'Completa i campi segnati in rosso.','err');return;}
+  if(!confirm('Mandare al fornitore la richiesta di sconto?'))return;el.disabled=true;
+  api('of_sc_invia',{rdo_id:rid,testo:st.value}).then(function(r){el.disabled=false;if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}
+   caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2){b2.scrollIntoView({block:'start'});mOf(b2,r.messaggio||'Richiesta mandata.','ok');}});});return;}
+ if(az==='sc_copia'){var sc=box.querySelector('[data-sc-testo]');copia(sc?sc.value:'').then(function(ok){mOf(box,ok?'Testo copiato: incollalo nella tua email al fornitore.':'Non riesco a copiare: seleziona il testo e copialo a mano.',ok?'ok':'err');});return;}
  if(az==='sch_chiedi'){if(!confirm('Mandare al fornitore la richiesta delle schede tecniche dei materiali dell’offerta?'))return;el.disabled=true;
   api('of_sch_chiedi',{rdo_id:rid}).then(function(r){el.disabled=false;if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}
    caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2)mOf(b2,r.messaggio||'Richiesta mandata.','ok');});});return;}
