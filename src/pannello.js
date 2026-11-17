@@ -58,6 +58,13 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     const d = b.dati || {};
     const az = UUID.test(String(d.azienda || "")) ? String(d.azienda).toLowerCase() : null;
     if (b.azione === "dati") return j((await rpc(env, "pannello_dati", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    // pannello-15 (17/11, richiesta B11, Termini 1.6): bonifici in attesa e «Bonifico arrivato»
+    if (b.azione === "bonifici") return j((await rpc(env, "pannello_bonifici", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    if (b.azione === "bonifico_arrivato") {
+      const rif = String(d.riferimento || "");
+      if (!/^[A-Za-z0-9-]{4,64}$/.test(rif)) return j({ esito: "errore", messaggio: "Causale non valida." }, 400);
+      return j((await rpc(env, "pannello_bonifico_arrivato", { p_token: tok, p_disp: disp, p_riferimento: rif })) || { esito: "servizio" });
+    }
     // pannello-6 (17/11, C1): centrale delle email (Brevo), di tutte o di una sola impresa
     if (b.azione === "email") {
       const g = Number(d.giorni);
@@ -251,7 +258,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -341,6 +348,7 @@ function app() {
         k("Da incassare", EUR(s.atteso), "canoni da pagare, + IVA") +
         k("In ritardo", s.ritardi || 0, "pagamenti non arrivati", s.ritardi ? "ro" : "") +
       '</div>' +
+      riquadroBonifici() +
       '<div class="griglia2"><section class="card"><h2>Da fare oggi</h2>' + (avv.length ? avv.map(function (a) {
         return '<button class="avv" data-c="' + a.c.id + '"><span class="pal p-' + a.l + '"></span><span><b>' + E(a.c.nome) + '</b>' + (a.c.prova ? ' <span class="sub">(prova)</span>' : '') +
           '<span class="m"> — ' + E(a.m) + '</span></span></button>';
@@ -349,6 +357,33 @@ function app() {
         '<dt>Errori di Make</dt><dd>' + (si.errori_make_24h || 0) + '</dd><dt>WhatsApp fermi</dt><dd>' + (si.messaggi_fermi_24h || 0) + '</dd></dl></div>' +
         (nuovi.length ? '<h3>Clienti nuovi</h3>' + nuovi.map(function (c) { return '<button class="avv" data-c="' + c.id + '"><span class="pal p-' + c.semaforo + '"></span><span><b>' + E(c.nome) + '</b><span class="m"> dal ' + DT(c.inizio) + '</span></span></button>'; }).join("") : '') +
       '</aside></div></div>';
+  }
+  // bonifici in attesa (B11): si registrano entro 2 giorni lavorativi dall'accredito (Termini 1.6)
+  // aliquota da impostazioni.listino_iva_pct (B11), di riserva 22
+  var IVAT = function (n) { var p = Number((BON && BON.iva_pct) || 22); return Math.round(Number(n || 0) * (100 + p)) / 100; };
+  function riquadroBonifici() {
+    if (!BON) { if (!riquadroBonifici.v) { riquadroBonifici.v = 1; chiama("bonifici").then(function (r) { BON = r || { esito: "servizio" }; riquadroBonifici.v = 0; if (!S.c && !S.p) disegna(); }); } return ''; }
+    if (BON.esito !== "ok") return '<section class="card" style="margin-bottom:14px"><h2>Bonifici in attesa</h2><p class="err">Elenco non letto. Ricarica la pagina.</p></section>';
+    var rr = BON.righe || [];
+    var nveri = rr.filter(function (b) { return !b.prova; }).length;
+    return '<section class="card" style="margin-bottom:14px"><h2>Bonifici in attesa <span class="sub">' + nveri + (rr.length > nveri ? ' + ' + (rr.length - nveri) + ' di prova' : '') + '</span></h2>' +
+      '<p class="sub">Quando vedi l\'accredito in banca, clicca «Bonifico arrivato» entro 2 giorni lavorativi (Termini): TIX segna il pagamento, riapre il servizio se era sospeso, prepara la fattura e avvisa il cliente.</p>' +
+      (rr.length ? '<table><thead><tr><th>Causale</th><th>Impresa</th><th>Cosa</th><th class="num">Importo</th><th>Chiesto il</th><th></th></tr></thead><tbody>' + rr.map(function (b) {
+        return '<tr><td><b>' + E(b.riferimento) + '</b> <button class="copia" data-copia="' + E(b.riferimento) + '">copia</button></td>' +
+          '<td>' + (b.azienda_id ? '<button class="copia" data-c="' + E(b.azienda_id) + '">' + E(b.impresa) + '</button>' : E(b.impresa)) + '</td><td>' + E(b.cosa) + '</td>' +
+          '<td class="num">' + EUR(b.importo_eur) + ' + IVA<div class="sub">' + EUR(IVAT(b.importo_eur)) + ' IVA inclusa</div></td>' +
+          '<td>' + DT(b.chiesto_il) + (b.giorni > 0 ? '<div class="sub">' + b.giorni + (b.giorni === 1 ? ' giorno fa' : ' giorni fa') + '</div>' : '') + '</td>' +
+          '<td>' + (b.prova ? '<span class="badge b-grigio" title="Richiesta di prova: non si registra">PROVA</span>' : '<button class="bt pri" data-bonifico="' + E(b.riferimento) + '">✓ Bonifico arrivato</button>') + '</td></tr>';
+      }).join("") + '</tbody></table>' : '<p class="vuoto">Nessun bonifico in attesa.</p>') + '</section>';
+  }
+  function bonificoArrivato(rif) {
+    var b = ((BON && BON.righe) || []).filter(function (x) { return x.riferimento === rif; })[0]; if (!b) return;
+    if (!confirm("Hai visto l'accredito di " + EUR(IVAT(b.importo_eur)) + " IVA inclusa con causale " + rif + " (" + b.impresa + ", " + b.cosa + ")?")) return;
+    chiama("bonifico_arrivato", { riferimento: rif }).then(function (r) {
+      if (r && r.esito === "ok") { toast("Bonifico registrato: " + b.impresa); BON = null; ricarica(true); return; }
+      alert("Bonifico non registrato: " + ((r && r.messaggio) || "riprova") + ".");
+      BON = null; disegna();
+    });
   }
   function k(et, v, n2, cls) { return '<div class="k ' + (cls || "") + '"><div class="et">' + et + '</div><div class="v">' + E(v) + '</div>' + (n2 ? '<div class="n2">' + E(n2) + '</div>' : '') + '</div>'; }
 
@@ -881,7 +916,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
-      MAIL = {};
+      MAIL = {}; BON = null;
       // l'aggiornamento automatico non ridisegna mentre Filippo scrive o ha una finestra aperta
       var ae = document.activeElement, scrive = ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && ae.id !== "q"));
       if (anche || (!scrive && !$("dlg").open && !($("nn") && $("nn").value))) disegna();
@@ -907,6 +942,7 @@ function app() {
     if (b.hasAttribute("data-tab")) { var fu = b.hasAttribute("data-fuoco"); vai(S.c, b.getAttribute("data-tab")); if (fu) setTimeout(function () { var n = $("nn"); if (n) n.focus(); }, 60); return; }
     if (b.hasAttribute("data-regala")) { regala(); return; }
     if (b.hasAttribute("data-fatt")) { fatturazione(); return; }
+    if (b.hasAttribute("data-bonifico")) { bonificoArrivato(b.getAttribute("data-bonifico")); return; }
     if (b.hasAttribute("data-copia")) { copia(b.getAttribute("data-copia")); return; }
     if (b.hasAttribute("data-copia-tutto")) { copiaTutto(); return; }
     if (b.hasAttribute("data-salva-nota")) {
