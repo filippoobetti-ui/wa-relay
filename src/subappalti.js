@@ -26,6 +26,8 @@ const MAX_FOTO = 8 * 1024 * 1024;
 function json(o, stato, extra) {
   const hd = { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
   if (extra) for (const k in extra) hd[k] = extra[k];
+  // 17/11/2026 (B16): impresa sospesa o chiusa per il canone → 402 con {esito:'sospesa'}
+  if (o && o.esito === "sospesa" && !(stato >= 400)) stato = 402;
   return new Response(JSON.stringify(o), { status: stato || 200, headers: hd });
 }
 
@@ -284,6 +286,7 @@ const MSG_PORTA = {
   link: "Questo link non vale più. Chiedi all’impresa che ti ha incaricato di mandarti il link nuovo.",
   scaduto: "Il link è scaduto. Chiedi all’impresa che ti ha incaricato di allungarlo: lo fa con un clic.",
   spento: "La contabilità dei subappalti non è disponibile in questo momento.",
+  sospesa: "Il servizio TIX dell’impresa che ti ha incaricato è sospeso: per ora non si possono mandare né vedere i SAL. Per informazioni rivolgiti all’impresa.",
   nessuno: "Per entrare apri il link personale che ti ha mandato l’impresa che ti ha incaricato."
 };
 
@@ -295,7 +298,7 @@ async function porta(request, env, base, inUrl, h) {
     if (!GETTONE.test(kq)) return paginaErrore(base, h, "link", true);
     const r = await h.rpc(env, "sub_porta_contesto", { p_k: kq }, 15000).catch(() => null);
     if (!r) return h.risposta(h.foglio(base, "Contabilità del subappalto", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
-    if (r.esito !== "ok") return paginaErrore(base, h, r.esito, true);
+    if (r.esito !== "ok") return paginaErrore(base, h, r.esito, r.esito !== "sospesa", r.messaggio);
     // il codice passa nel cookie e sparisce dall'indirizzo (cronologia, schermate, inoltri)
     return new Response(null, { status: 303, headers: { Location: base + "/sal/sub/porta", "Set-Cookie": cookie(base, kq, 120 * 86400),
       "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
@@ -304,14 +307,15 @@ async function porta(request, env, base, inUrl, h) {
   if (!k) return paginaErrore(base, h, "nessuno", false);
   const d = await h.rpc(env, "sub_porta_contesto", { p_k: k }, 20000).catch(() => null);
   if (!d) return h.risposta(h.foglio(base, "Contabilità del subappalto", "", '<p class="err">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p>'), 503);
-  if (d.esito !== "ok") return paginaErrore(base, h, d.esito, true);
+  if (d.esito !== "ok") return paginaErrore(base, h, d.esito, d.esito !== "sospesa", d.messaggio);
   return new Response(metodo === "HEAD" ? null : paginaPorta(base, d, h), { status: 200, headers: h.headers() });
 }
 
-function paginaErrore(base, h, esito, togliCookie) {
-  const msg = MSG_PORTA[esito] || MSG_PORTA.link;
+function paginaErrore(base, h, esito, togliCookie, messaggio) {
+  // 17/11/2026 (B16): impresa sospesa o chiusa per il canone: frase dal database, niente link di pagamento, il cookie resta
+  const msg = esito === "sospesa" ? String(messaggio || MSG_PORTA.sospesa) : (MSG_PORTA[esito] || MSG_PORTA.link);
   const html = h.foglio(base, "Contabilità del subappalto", "", '<p class="err">' + h.esc(msg) + "</p>");
-  return new Response(html, { status: esito === "nessuno" ? 401 : 403, headers: h.headers(togliCookie ? { "Set-Cookie": cookie(base, "", 0) } : undefined) });
+  return new Response(html, { status: esito === "nessuno" ? 401 : esito === "sospesa" ? 402 : 403, headers: h.headers(togliCookie ? { "Set-Cookie": cookie(base, "", 0) } : undefined) });
 }
 
 async function apiPorta(request, env, h, fn) {
@@ -764,16 +768,33 @@ function pad(cv){var x=cv.getContext('2d'),giu=false;FI.vuoto=true;x.lineWidth=4
   cv.addEventListener('pointermove',function(e){if(!giu)return;var p=pt(e);x.lineTo(p[0],p[1]);x.stroke();e.preventDefault();});
   ['pointerup','pointercancel'].forEach(function(n){cv.addEventListener(n,function(){giu=false;});});
   FI.pulisci=function(){x.clearRect(0,0,cv.width,cv.height);FI.vuoto=true;};}
+// 17/11/2026: dove sta il riquadro «Per il subappaltatore: data, timbro e firma» nell'ultima pagina (sal.js lo disegna alto 80 punti,
+// con la scritta 6 punti a destra del bordo e 12 sotto il lato alto); se pdf.js non si carica o la scritta non c'è, null = posto di prima
+var PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+function libPdfjs(){return window.pdfjsLib?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=PDFJS+'pdf.min.js';
+  s.onload=function(){try{window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS+'pdf.worker.min.js';}catch(e){}ok();};s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}
+function trovaRiquadro(buf){return libPdfjs().then(function(){return window.pdfjsLib.getDocument({data:new Uint8Array(buf.slice(0))}).promise;})
+  .then(function(d){return d.getPage(d.numPages);}).then(function(p){return p.getTextContent();}).then(function(tc){
+    var su=null,im=null;tc.items.forEach(function(i){var t=String(i.str||'');if(!su&&/^Per il subappaltatore/.test(t))su=i;if(!im&&/^Per l.impresa/.test(t))im=i;});
+    if(!su)return null;var lx=su.transform[4],ly=su.transform[5],bw=im&&im.transform[4]>lx+100?im.transform[4]-lx-30:375;
+    return {x:lx-6,y:ly,bw:Math.max(200,Math.min(420,bw))};}).catch(function(){return null;});}
 function scriviFirma(doc,nome,cv){return Promise.all([libPdf(),fetch(C.u+'/firma?id='+FI.id+'&cosa=sub',{credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error('file');return r.arrayBuffer();})])
   .then(function(a){var buf=a[1];return crypto.subtle.digest('SHA-256',buf).then(function(h){if(esa(h)!==String(doc.sha256||''))throw new Error('impronta');return buf;});})
   .then(function(buf){var L=window.PDFLib;return Promise.all([L.PDFDocument.load(buf,{ignoreEncryption:true,updateMetadata:false}),new Promise(function(ok){cv.toBlob(function(b){b.arrayBuffer().then(ok);},'image/png');}),
     fetch(BASE+'/marchio-tix.png',{credentials:'same-origin'}).then(function(r){return r.ok?r.arrayBuffer():null;}).catch(function(){return null;})])
-  .then(function(a){var out=a[0];return Promise.all([out.embedFont(L.StandardFonts.Helvetica),out.embedFont(L.StandardFonts.HelveticaBold),out.embedPng(a[1]),a[2]?out.embedPng(a[2]).catch(function(){return null;}):null]).then(function(f){
-    var pg=out.getPage(out.getPageCount()-1),W=230,H=96,x0=36,y0=62,terr=L.rgb(0.54,0.23,0.15),gr=L.rgb(0.36,0.4,0.45),nero=L.rgb(0.1,0.1,0.1),im=f[2],mk=f[3];
+  .then(function(a){var out=a[0];return Promise.all([out.embedFont(L.StandardFonts.Helvetica),out.embedFont(L.StandardFonts.HelveticaBold),out.embedPng(a[1]),a[2]?out.embedPng(a[2]).catch(function(){return null;}):null,trovaRiquadro(buf)]).then(function(f){
+    var pg=out.getPage(out.getPageCount()-1),W=230,H=96,x0=36,y0=62,terr=L.rgb(0.54,0.23,0.15),gr=L.rgb(0.36,0.4,0.45),nero=L.rgb(0.1,0.1,0.1),im=f[2],mk=f[3],rq=f[4];
+    if(rq){
+      // 17/11/2026 (Filippo): la firma va DENTRO il riquadro «Per il subappaltatore» del PDF, a destra, sotto la scritta
+      W=Math.min(220,rq.bw-12);H=62;x0=rq.x+rq.bw-W-4;y0=rq.y-66;
+      pg.drawRectangle({x:x0,y:y0,width:W,height:H,color:L.rgb(1,1,1),opacity:0.92,borderColor:terr,borderWidth:1});
+      pg.drawText(wa(String(K.impresa_nome||'Subappaltatore')).slice(0,48),{x:x0+8,y:y0+H-10,size:7,font:f[1],color:terr});
+      var s1=Math.min((W-16)/im.width,24/im.height);pg.drawImage(im,{x:x0+8,y:y0+24,width:im.width*s1,height:im.height*s1});
+    }else{
     pg.drawRectangle({x:x0,y:y0,width:W,height:H,color:L.rgb(1,1,1),opacity:0.92,borderColor:terr,borderWidth:1});
     pg.drawText(wa('Per il subappaltatore'),{x:x0+8,y:y0+H-11,size:6.5,font:f[0],color:gr});
     pg.drawText(wa(String(K.impresa_nome||'')).slice(0,46),{x:x0+8,y:y0+H-21,size:8.2,font:f[1],color:terr});
-    var s=Math.min((W-16)/im.width,44/im.height);pg.drawImage(im,{x:x0+8,y:y0+26,width:im.width*s,height:im.height*s});
+    var s=Math.min((W-16)/im.width,44/im.height);pg.drawImage(im,{x:x0+8,y:y0+26,width:im.width*s,height:im.height*s});}
     pg.drawText(wa(nome).slice(0,50),{x:x0+8,y:y0+16,size:7.2,font:f[1],color:nero});pg.drawText(wa(ora()),{x:x0+8,y:y0+9,size:6.3,font:f[0],color:gr});
     pg.drawText(wa('Impronta del documento '+String(doc.sha256).slice(0,16)+'...'),{x:x0+8,y:y0+3,size:5,font:f[0],color:gr});
     if(mk){var hm=9,lm=mk.width*(hm/mk.height);pg.drawImage(mk,{x:x0+W-6-lm,y:y0+3,width:lm,height:hm});}
@@ -798,7 +819,7 @@ function firma(id){var s=(K.sal||[]).filter(function(x){return x.id===id;})[0];i
     $('#sp-dlg-s').textContent=doc.chi==='impresa'?'L’impresa l’ha già firmata: firmi la sua copia, così il documento ha tutte e due le firme.':'Dopo la tua firma la firma anche l’impresa.';
     $('#sp-dlg-c').innerHTML='<div class="tab">'+(p7m?'':'<button type="button" class="b on" data-tm="f">Firma con il dito</button>')+'<button type="button" class="b'+(p7m?' on':'')+'" data-tm="d">Firma digitale</button></div>'+
       '<label>Nome e cognome di chi firma<input type="text" id="fi-nome" maxlength="120" autocomplete="name" value="'+es(ls('sp_chi'))+'"></label>'+
-      '<div data-f'+(p7m?' hidden':'')+'><p class="nota" style="margin:0 0 6px">Firma qui sotto con il dito. La firma va in fondo all’ultima pagina, a sinistra, con il tuo nome, la data e l’ora.</p>'+
+      '<div data-f'+(p7m?' hidden':'')+'><p class="nota" style="margin:0 0 6px">Firma qui sotto con il dito. La firma va nel riquadro «Per il subappaltatore» del documento, con il tuo nome, la data e l’ora.</p>'+
       '<canvas id="fi-pad" width="700" height="240"></canvas><div class="riga-b"><button type="button" class="b" id="fi-pulisci">Cancella la firma</button></div></div>'+
       '<div data-d'+(p7m?'':' hidden')+'><p class="nota" style="margin:0 0 6px">'+(p7m?'Il documento è già firmato digitalmente (.p7m): si firma solo con la firma digitale. ':'')+
       'Scarica il file, firmalo con la tua firma digitale (chiavetta o firma remota) e carica qui il file firmato: .p7m oppure PDF firmato.</p>'+
