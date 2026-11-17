@@ -3,7 +3,7 @@
 // 89 € + IVA al mese fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª; 150 voci a persona (almeno 300);
 // oltre le voci comprese si compra in anticipo il pacchetto da 150 voci a 18 € + IVA (dal 16/11 sera);
 // regola dei cantieri attivi (16/11): ogni persona comprende un cantiere con almeno 3 giorni di diario; si conta il più alto tra persone e cantieri; la persona aggiunta si paga subito
-// per i giorni che mancano alla fine del mese. Carta (scenario Make 8613656 → Stripe) oppure bonifico (richiesta + email a Filippo).
+// per i giorni che mancano alla fine del mese. Carta oppure bonifico, tutti e due con lo scenario Make 8613656 → Stripe (dal 17/11 il bonifico usa l'IBAN dedicato di Stripe e si attiva da solo).
 //   GET  /listino?t=<gettone>[&a=<impresa>]   → pagina (database: listino_v5_portale; «a» solo con l'accesso «Tutte le aziende»)
 //   POST /listino/api  {t, a, azione, dati}    → carta | bonifico (listino_v5_azione)
 // Interruttori: impostazioni.listino_v5_attivo (no / prova / si) e LISTINO_V5 = "off" nel Worker.
@@ -86,7 +86,8 @@ function pagina(base, h, tok, d, torna) {
     const boxCanone = cdp && cdp.riattivazione
       ? '<section class="lv-box lv-evid"><h2>Riparti con TIX</h2>' +
         '<p>Il contratto è chiuso per mancato pagamento. Fino al ' + e(cdp.scadenza) + ' puoi ripartire con un contratto nuovo: tutti i tuoi dati sono conservati e non paghi arretrati.</p>' +
-        '<p>Paghi in anticipo dal ' + e(cdp.dal) + ' al ' + e(cdp.al) + ' (' + e(String(cdp.persone)) + (Number(cdp.persone) === 1 ? " persona" : " persone") + '): <strong>' + eur(cdp.importo_eur) + ' € + IVA</strong>.</p>' +
+        '<p>Paghi <strong>' + eur(cdp.importo_eur) + ' € + IVA</strong> per il periodo dal ' + e(cdp.dal) + ' al ' + e(cdp.al) + ' (' + e(String(cdp.persone)) + (Number(cdp.persone) === 1 ? " persona" : " persone") + '). Il primo periodo si paga intero, anche se è più corto di un mese.</p>' +
+        '<p class="lv-piccolo">Se riparti dal 16 del mese in poi è compreso anche tutto il mese dopo. Il periodo parte dal giorno in cui il pagamento risulta ricevuto.</p>' +
         '<label class="lv-casella"><input type="checkbox" id="lv-termini"> Ho letto e accetto i <a href="' + e(cdp.termini_url || "https://www.tixcantiere.it/termini-condizioni-1.4.pdf") + '" target="_blank" rel="noopener">Termini e condizioni</a> in vigore' + (cdp.termini_versione ? ' (versione ' + e(cdp.termini_versione) + ')' : '') + '.</label>' +
         '<label class="lv-casella"><input type="checkbox" id="lv-art23"> Approvo specificamente le clausole dell\'art. 23 dei Termini e condizioni.</label>' +
         '<div class="lv-pulsanti"><button data-az="carta" data-cosa="canone">Paga con carta</button><button data-az="bonifico" data-cosa="canone" class="lv-sec">Paga con bonifico</button></div></section>'
@@ -108,7 +109,7 @@ function pagina(base, h, tok, d, torna) {
           '<p>Paghi 12 mesi in anticipo con bonifico e ricevi <strong>' + e(String(ap.regalo || 20)) + ' crediti TIX in regalo</strong>. L\'anno parte quando arriva il bonifico.</p>' +
           '<label>Persone da pagare <input id="lv-persone" type="number" min="1" max="500" value="' + e(String(ap.persone || 1)) + '"></label>' +
           '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per 12 mesi.</p>' +
-          '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Chiedi i dati per il bonifico</button></div></section>'
+          '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Paga con bonifico</button></div></section>'
         : "");
     const avc = d.avviso_cantieri || null;
     const boxAvvisoCantieri = avc
