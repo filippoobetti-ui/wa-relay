@@ -176,10 +176,19 @@ export async function accessiAltroDominio(request, env, inUrl) {
     status: 403, headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" } });
 }
 
+// accessi-4 (17/11, richiesta B18): ritorno dopo l'accesso. Solo percorsi interni che iniziano con /pannello
+// (lettere, cifre e trattini; niente «//», «\», schema o parametri). Altrimenti "" = elenco dei cantieri.
+export function accessiDopo(v) {
+  const s = String(v || "").slice(0, 80);
+  return /^\/pannello(?:\/[A-Za-z0-9-]+)*$/.test(s) ? s : "";
+}
+function campoDopo(h, dopo) { return dopo ? '<input type="hidden" name="dopo" value="' + h.esc(dopo) + '">' : ""; }
+
 // Dopo email e password giuste: lega la sessione al dispositivo, oppure chiede il codice.
-export async function accessiDopoLogin(request, env, base, tok, h) {
+export async function accessiDopoLogin(request, env, base, tok, h, dopoGrezzo) {
+  const dopo = accessiDopo(dopoGrezzo);
   const vai = (t, k) => {
-    const hh = new Headers({ Location: base + "/?t=" + t, "Cache-Control": "no-store" });
+    const hh = new Headers({ Location: base + (dopo || "/") + "?t=" + t, "Cache-Control": "no-store" });
     if (k) hh.append("Set-Cookie", cookieImposta(base, k));
     return new Response(null, { status: 303, headers: hh });
   };
@@ -191,17 +200,17 @@ export async function accessiDopoLogin(request, env, base, tok, h) {
   const hh = h.headers();
   if (ESA64.test(r.disp || "")) hh.append("Set-Cookie", cookieImposta(base, r.disp));
   if (r.esito === "troppi") return new Response(h.ingresso(base, "Hai chiesto troppi codici in un'ora. Riprova più tardi.", ""), { status: 200, headers: hh });
-  return new Response(paginaCodice(base, h, r.email || "", ""), { status: 200, headers: hh });
+  return new Response(paginaCodice(base, h, r.email || "", "", dopo), { status: 200, headers: hh });
 }
 
-function paginaCodice(base, h, email, avviso) {
+function paginaCodice(base, h, email, avviso, dopo) {
   return h.foglio(base, "Codice per questo dispositivo",
     "Stai entrando da un dispositivo nuovo. Ti abbiamo mandato un codice di 6 cifre" + (email ? " a <strong>" + h.esc(email) + "</strong>" : "") + ".",
     (avviso ? '<p class="err">' + avviso + '</p>' : '') +
-    '<form method="post" action="' + base + '/accedi/codice">' +
+    '<form method="post" action="' + base + '/accedi/codice">' + campoDopo(h, dopo) +
     '<label for="cd">Codice</label><input id="cd" name="codice" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus>' +
     '<button type="submit">Entra</button></form>' +
-    '<form method="post" action="' + base + '/accedi/codice"><input type="hidden" name="nuovo" value="1">' +
+    '<form method="post" action="' + base + '/accedi/codice"><input type="hidden" name="nuovo" value="1">' + campoDopo(h, dopo) +
     '<button type="submit" style="background:transparent;color:var(--v);border:1px solid var(--l)">Mandami un altro codice</button></form>' +
     '<p class="piede">Il codice vale 10 minuti. Il tuo accesso è personale: non darlo a nessuno.</p>' +
     '<p class="piede"><a href="' + base + '/">&larr; Torna all\'accesso</a></p>');
@@ -211,18 +220,19 @@ export async function accessiCodice(request, env, base, h) {
   if (request.method !== "POST") return Response.redirect(new URL(request.url).origin + base + "/", 303);
   const f = new URLSearchParams((await request.text()).slice(0, 2000));
   const k = accessiChiave(request);
+  const dopo = accessiDopo(f.get("dopo"));
   if (f.get("nuovo")) {
     const r = await rpc(env, "accessi_codice_nuovo", { p_disp: k }, 10000);
-    if (r && r.esito === "codice") return new Response(paginaCodice(base, h, r.email || "", ""), { status: 200, headers: h.headers() });
+    if (r && r.esito === "codice") return new Response(paginaCodice(base, h, r.email || "", "", dopo), { status: 200, headers: h.headers() });
     const m = r && r.esito === "troppi" ? "Hai chiesto troppi codici in un'ora. Riprova più tardi." : "Il codice è scaduto: entra di nuovo con email e password.";
     return new Response(h.ingresso(base, m, ""), { status: 200, headers: h.headers() });
   }
   const r = await rpc(env, "accessi_codice_conferma", { p_disp: k, p_codice: (f.get("codice") || "").slice(0, 12) }, 10000);
   if (r && r.esito === "ok" && ESA64.test(r.token || "")) {
-    return new Response(null, { status: 303, headers: { Location: base + "/?t=" + r.token, "Cache-Control": "no-store" } });
+    return new Response(null, { status: 303, headers: { Location: base + (dopo || "/") + "?t=" + r.token, "Cache-Control": "no-store" } });
   }
   if (r && r.esito === "sbagliato") {
-    return new Response(paginaCodice(base, h, "", "Il codice non è giusto. Puoi riprovare ancora " + (r.restano || 0) + " volte."), { status: 200, headers: h.headers() });
+    return new Response(paginaCodice(base, h, "", "Il codice non è giusto. Puoi riprovare ancora " + (r.restano || 0) + " volte.", dopo), { status: 200, headers: h.headers() });
   }
   return new Response(h.ingresso(base, r ? "Il codice è scaduto: entra di nuovo con email e password." : "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", ""),
     { status: 200, headers: h.headers() });
