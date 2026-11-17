@@ -393,10 +393,12 @@ function app() {
   function colonnaDati(c, p) {
     var a = p.anagrafica || {};
     // regola «campi mancanti in rosso» (14/11): i dati per la fattura che mancano si segnano in rosso
-    var FATT = { "Ragione sociale": a.nome_completo, "Partita IVA": a.partita_iva, "Cod. fiscale": a.codice_fiscale, "SDI": a.sdi, "PEC": a.pec, "Sede": a.indirizzo };
+    // per la fattura basta uno tra SDI e PEC (regola B11): l'altro non si segna in rosso
+    var FATT = { "Ragione sociale": a.nome_completo, "Partita IVA": a.partita_iva, "Cod. fiscale": a.codice_fiscale, "SDI": a.sdi || a.pec, "PEC": a.pec || a.sdi, "Sede": a.indirizzo };
     var manca = Object.keys(FATT).filter(function (kk) { return !FATT[kk]; });
+    if (manca.indexOf("PEC") !== -1) { manca.splice(manca.indexOf("PEC"), 1); manca[manca.indexOf("SDI")] = "SDI o PEC"; }
     var r = function (et, v, tipo) {
-      if (!v) return '<dt>' + et + '</dt><dd>' + (FATT.hasOwnProperty(et) ? '<span class="err">manca</span>' : '<span class="sub">—</span>') + '</dd>';
+      if (!v) return '<dt>' + et + '</dt><dd>' + (FATT.hasOwnProperty(et) && !FATT[et] ? '<span class="err">manca</span>' : '<span class="sub">—</span>') + '</dd>';
       var vis = tipo === "mail" ? '<a href="mailto:' + E(v) + '">' + E(v) + '</a>' : tipo === "tel" ? '<a href="tel:' + E(String(v).replace(/\s/g, "")) + '">' + E(v) + '</a>' : E(v);
       return '<dt>' + et + '</dt><dd><span>' + vis + '</span><button class="copia" data-copia="' + E(v) + '" aria-label="Copia ' + et + '">copia</button></dd>';
     };
