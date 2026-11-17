@@ -968,6 +968,9 @@ function app() {
     if (ev.key === "/" && document.activeElement && ["INPUT", "TEXTAREA"].indexOf(document.activeElement.tagName) === -1) { ev.preventDefault(); var q = $("q"); if (q) q.focus(); }
   });
   window.addEventListener("hashchange", function () { leggiHash(); disegna(); });
+  // pannello-16 (17/11): con ?dopo=/pannello (B16) si arriva qui senza passare dai cantieri: il pannello ricorda lui
+  // l'accesso personale nel browser (stessa chiave del portale), così il link fisso /pannello non richiede di nuovo l'accesso.
+  try { if (/^[0-9a-f]{64}$/.test(C.t || "")) localStorage.setItem("gl_portale_t", C.t); } catch (e) { }
   if (C.apri && !location.hash) location.hash = "#c=" + C.apri;
   leggiHash(); disegna();
   setInterval(function () { if (document.visibilityState === "visible") ricarica(false); }, 300000);
