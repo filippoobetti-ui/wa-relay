@@ -522,7 +522,7 @@ pagina:qual?null:stato.sel.pag,posizione:qual?null:{x:stato.sel.x,y:stato.sel.y,
 return fetch(o.base+'/firma/salva',{method:'POST',headers:{'X-Firma-Dati':b64url(JSON.stringify(dd)),'Content-Type':'application/octet-stream'},body:bytes}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});});});}
 function fine(r){if(r&&r.esito==='ok'){msg.className='tf-msg ok';msg.textContent='Firmato. Aggiorno la pagina…';setTimeout(function(){chiudi();if(o.onFatto)o.onFatto(r);},900);return;}
 bott.disabled=false;msg.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}
-var bott=q('[data-firma]');bott.onclick=function(){msg.className='tf-msg';msg.textContent='';var d=dati();if(!d)return;
+var bott=w.querySelector('button[data-firma]');bott.onclick=function(){msg.className='tf-msg';msg.textContent='';var d=dati();if(!d)return;
 var nomeBase=String(doc.nome||'documento').replace(/\.(pdf|p7m)$/i,'');
 if(stato.modo==='q'){var f=q('#tf-file').files&&q('#tf-file').files[0];if(!f){msg.textContent='Scegli il file firmato.';return;}bott.disabled=true;msg.className='tf-msg ok';msg.textContent='Carico il file firmato…';
 origP.catch(function(){return null;}).then(function(){return f.arrayBuffer();}).then(function(b){return invia(b,d,true,f.name);}).then(fine).catch(function(){bott.disabled=false;msg.className='tf-msg';msg.textContent='Non è andata: controlla la connessione e riprova.';});return;}
