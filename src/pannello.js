@@ -46,7 +46,7 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
   const disp = accessiChiave(request);
   const fuori = () => new Response(h.foglio(base, "Pannello", "", '<p>Questa pagina si apre solo con l\'accesso personale dell\'amministratore di TIX, dal suo dispositivo registrato.</p>' +
     '<p>Se sei l\'amministratore, entra con la tua email e la tua password (non con il collegamento condiviso) e riapri questo link.</p>' +
-    '<p class="piede"><a href="' + base + '/?esci">Entra con email e password</a> &nbsp;·&nbsp; <a href="' + base + '/">&larr; Torna ai cantieri</a></p>'), { status: 200, headers: intestazioni() });
+    '<p class="piede"><a href="' + base + '/accedi?dopo=/pannello">Entra con email e password</a> &nbsp;·&nbsp; <a href="' + base + '/">&larr; Torna ai cantieri</a></p>'), { status: 200, headers: intestazioni() });
 
   if (sotto === "/pannello/azione") {
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
@@ -103,7 +103,8 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
   if (!m) {
     if (request.method !== "GET") return Response.redirect(inUrl.origin + base + "/", 303);
     const vai = JSON.stringify(base + "/pannello?t=").replace(/</g, "\\u003c");
-    const casa = JSON.stringify(base + "/").replace(/</g, "\\u003c");
+    // pannello-12 (accordo B16, accessi-4): senza sessione si va all'accesso con ritorno al pannello (parametro «dopo»)
+    const casa = JSON.stringify(base + "/accedi?dopo=/pannello").replace(/</g, "\\u003c");
     return new Response('<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
       '<meta name="robots" content="noindex, nofollow"><title>Pannello - TIX</title></head><body style="font-family:system-ui,sans-serif;background:#f4f6f5;color:#1b1f1d">' +
       '<p style="text-align:center;margin-top:20vh">Apro il pannello…</p><script>(function(){var t="";try{t=localStorage.getItem("gl_portale_t")||"";}catch(e){}' +
@@ -161,6 +162,8 @@ a{color:var(--az)}button{font:inherit;cursor:pointer}
 .marchio .prova{margin-left:auto;font-size:.7rem;font-weight:700;color:var(--gi);background:var(--gib);border-radius:999px;padding:2px 8px}
 .voceoggi{margin:0 10px 8px;display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;border:0;background:transparent;color:var(--t);font-weight:600;text-align:left}
 .voceoggi[aria-current="page"],.voceoggi:hover{background:var(--l2)}
+.titlato{margin:14px 16px 8px;padding-top:12px;border-top:1px solid var(--l);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t2,#93a0b2);display:flex;justify-content:space-between;align-items:center}
+.titlato.primo{border-top:0;padding-top:0;margin-top:6px}.titlato .n{font-weight:600;letter-spacing:0;text-transform:none}
 .cerca{margin:0 10px 8px;position:relative}.cerca input{width:100%;padding:9px 12px;border:1px solid var(--l);border-radius:10px;background:var(--f);color:var(--t);font:inherit}
 .filtri{display:flex;gap:6px;flex-wrap:wrap;padding:0 10px 10px}
 .chip{border:1px solid var(--l);background:var(--c);color:var(--s);border-radius:999px;padding:4px 10px;font-size:.8rem;font-weight:600}
@@ -294,10 +297,12 @@ function app() {
       return okf && okq;
     });
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
+      '<div class="titlato primo">Centrale di TIX</div>' +
       '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email</button>' +
       '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
-      '<div class="cerca"><input id="q" type="search" placeholder="Cerca un cliente…" aria-label="Cerca un cliente" value="' + E(S.q) + '"></div>' +
+      '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
+      '<div class="cerca"><input id="q" type="search" placeholder="Cerca tra i clienti…" aria-label="Cerca tra i clienti di TIX" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
         return '<button class="chip" data-f="' + f[0] + '" aria-pressed="' + (S.f === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
       }).join("") + '</div>' +
