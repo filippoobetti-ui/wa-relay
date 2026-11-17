@@ -126,7 +126,13 @@ export async function accessiPorta(request, env, base, sotto, inUrl, h) {
     }
   }
   if (h && h.stato) h.stato.set(request, r);
-  if (r.esito !== "blocca") return null;
+  if (r.esito !== "blocca") {
+    // accessi-3 (16/11, L6 della B11): impresa «sospesa» o «chiusa» per il canone non pagato
+    // tesserini e cartello restano sempre attivi anche con l'impresa sospesa o chiusa (decisione di Filippo del 16/11, punto 4)
+    if (/^\/(badge|cartello)(\/|$)/.test(sotto)) return null;
+    if (r.pagamento && (r.pagamento.stato === "sospesa" || r.pagamento.stato === "chiusa")) return pagamentoFerma(request, env, base, sotto, inUrl, h, tok, r.pagamento);
+    return null;
+  }
   CACHE.delete(chiave);
   const msg = (MOTIVI[r.motivo] || MOTIVI.sessione_chiusa)(h.esc(r.nome || ""));
   const accetta = request.headers.get("Accept") || "";
@@ -146,8 +152,28 @@ export function accessiLink(h, request, base, tok) {
   const r = h && h.stato ? h.stato.get(request) : null;
   if (!r || (r.esito === "fuori" && !r.gestisce)) return null;
   const st = ' style="color:#1B2F4A;font-weight:600"';
-  return (r.gestisce ? '<a href="' + base + '/accessi?t=' + tok + '"' + st + '>&#128101; Accessi e numeri</a> &nbsp;·&nbsp; ' : '') +
+  // accessi-3 (16/11, richiesta B18): «Pannello» solo per chi è in pannello_ammessi (oggi Filippo), con sessione personale «ok»
+  return (r.pannello === true && r.esito === "ok" ? '<a href="' + base + '/pannello?t=' + tok + '"' + st + '>&#128202; Pannello</a> &nbsp;·&nbsp; ' : '') +
+    (r.gestisce ? '<a href="' + base + '/accessi?t=' + tok + '"' + st + '>&#128101; Accessi e numeri</a> &nbsp;·&nbsp; ' : '') +
     '<a href="' + base + '/accessi?t=' + tok + '&esci=1"' + st + '>&#x23CF; Esci</a>';
+}
+
+// accessi-3 (17/11, B16 con B2 e B14): tesserini (/badge) e cartello (/cartello) aperti su un dominio diverso da quello
+// dell'app (workers.dev, www). Lì il cookie del dispositivo non arriva, quindi una sessione personale nelle regole nuove viene
+// mandata sulla stessa strada di app.tixcantiere.it, dove passa dalla porta. Gettoni condivisi, QR pubblici e richieste senza
+// gettone passano come prima. Se il database non risponde si lascia passare (come la porta).
+const APP_HOST = "app.tixcantiere.it";
+export async function accessiAltroDominio(request, env, inUrl) {
+  if (!accessiAcceso(env) || !env.SUPABASE_SERVICE_KEY || inUrl.hostname === APP_HOST) return null;
+  const tok = await gettoneDi(request, inUrl);
+  if (!tok) return null;
+  const sua = await rpc(env, "accessi_personale", { p_token: tok }, 4000);
+  if (sua !== true) return null;
+  if (request.method === "GET" || request.method === "HEAD") {
+    return new Response(null, { status: 303, headers: { Location: "https://" + APP_HOST + inUrl.pathname + inUrl.search, "Cache-Control": "no-store" } });
+  }
+  return new Response("Questa pagina si usa dall'app TIX: aprila da https://" + APP_HOST + " con il tuo accesso personale.", {
+    status: 403, headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "no-store" } });
 }
 
 // Dopo email e password giuste: lega la sessione al dispositivo, oppure chiede il codice.
@@ -336,4 +362,90 @@ function paginaAccessi(base, tok, p, h) {
     'if(r&&r.esito==="ok"){location.reload();return;}b.disabled=false;crSegna(b,ERR[r&&r.esito]||"Non è stato possibile");}).catch(function(){b.disabled=false;crSegna(b,ERR.servizio);});});' +
     'document.querySelectorAll("select[data-ruolo]").forEach(function(s){s.addEventListener("change",function(){chiama("ruolo",{utente:s.getAttribute("data-ruolo"),ruolo:s.value}).then(function(r){if(!r||r.esito!=="ok")crSegna(s,ERR[r&&r.esito]||"Ruolo non cambiato");});});});' +
     '})();</script></body></html>';
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// «Ho letto» nella pagina del primo accesso (accessi-3, 16/11). Testo concordato con B6 e B12 (informativa 1.3.2, online dal 16/11).
+// Va nei moduli /imposta (password scelta dal collegamento email o dall'invito) e /crea-accesso. La spunta è obbligatoria e resta
+// annotata in portale_utenti.informativa_letta_il / informativa_versione e nel registro (evento «informativa_letta»).
+export const ACCESSI_INFORMATIVA_VERSIONE = "1.3.2";
+
+export function accessiNotaInformativa() {
+  return '<div style="margin-top:14px;padding:12px;border:1px solid var(--l);border-radius:10px;font-size:.88rem;line-height:1.45;color:var(--s)">' +
+    'L\'accesso è personale e non va prestato. Su ogni computer o telefono nuovo ti mandiamo un codice di 6 cifre per email; puoi usare al massimo 2 dispositivi. ' +
+    'Per sicurezza TIX registra entrate, dispositivi e indirizzo IP abbreviato e li cancella dopo 90 giorni; la tua impresa vede solo i nomi dei dispositivi, non gli orari. ' +
+    'Usiamo un cookie tecnico (tix_disp) per riconoscere il dispositivo. ' +
+    '<a href="https://www.tixcantiere.it/privacy-policy" target="_blank" rel="noopener">Informativa completa (versione ' + ACCESSI_INFORMATIVA_VERSIONE + ')</a>' +
+    '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin:10px 0 0;color:var(--t)">' +
+    '<input type="checkbox" name="letto" value="si" required style="width:auto;margin-top:3px"> Ho letto come funziona il mio accesso e l\'informativa</label></div>';
+}
+
+export function accessiLettoOk(f) { return !!f && f.get("letto") === "si"; }
+
+export async function accessiInformativaLetta(request, env, tok, email) {
+  try {
+    await rpc(env, "accessi_informativa_letta", { p_token: tok || null, p_email: email || null,
+      p_versione: ACCESSI_INFORMATIVA_VERSIONE, p_ip: ipBreve(request) }, 5000);
+  } catch (e) { /* non ferma l'accesso */ }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Servizio SOSPESO o CHIUSO per il canone (accessi-3, 16/11; regola di Filippo passata dalla B11, L6).
+// Sospesa: si ferma il servizio, restano aperti «Abbonamento e voci» (/listino, /listino/api) per pagare e lo scaricamento dei dati.
+// Chiusa: niente pagamento dall'app (proposta B11, da confermare con Filippo); dati scaricabili fino a chiusa_il + 60 giorni.
+// Al pagamento si riapre da sola (al più dopo 60 secondi, la durata della cache).
+const DATA_IT = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : ""; };
+
+async function pagamentoFerma(request, env, base, sotto, inUrl, h, tok, p) {
+  const sospesa = p.stato === "sospesa";
+  if (sotto === "/accessi" && inUrl.searchParams.get("esci") === "1") return null;   // «Esci» sempre
+  // per pagare: con «sospesa» sempre; con «chiusa» fino a riattivabile_fino (decisione di Filippo del 16/11 via B11)
+  const paga = sospesa || p.paga === true;
+  if (paga && (sotto === "/listino" || sotto === "/listino/api")) return null;
+  if (p.esporta && sotto === "/esporta") return null;
+  const accetta = request.headers.get("Accept") || "";
+  const pagina = request.method === "GET" && (accetta.indexOf("text/html") !== -1 || sotto === "/" || sotto === "/index.html");
+  if (!pagina) {
+    return new Response(JSON.stringify({ ok: false, esito: "pagamento", stato: p.stato,
+      errore: sospesa ? "Il servizio è sospeso perché il canone non risulta pagato." : "Il contratto è chiuso." }),
+      { status: 402, headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" } });
+  }
+  const d = await rpc(env, "accessi_sospesa_pagina", { p_token: tok }, 6000);
+  if (d && d.esito === "regolare") { CACHE.clear(); return null; }    // ha appena pagato
+  const imp = d && d.impresa ? h.esc(d.impresa) : "";
+  const oggi = new Date();
+  const iso = (x) => x.toISOString().slice(0, 10);
+  const dal = iso(new Date(oggi.getTime() - 729 * 86400000)), al = iso(oggi);
+  let corpo = "";
+  if (sospesa) {
+    corpo += '<p>Il servizio' + (imp ? ' di <strong>' + imp + '</strong>' : '') + ' è sospeso' + (p.sospesa_dal ? ' dal ' + DATA_IT(p.sospesa_dal) : '') +
+      ' perché il canone non risulta pagato. Durante la sospensione il canone non si accumula.</p>' +
+      '<p><strong>I tuoi dati restano tutti al loro posto</strong> e puoi scaricarli quando vuoi. Appena paghi, il servizio riparte da solo.</p>' +
+      '<a class="btn" href="' + base + '/listino?t=' + tok + '">Paga il canone</a>' +
+      (p.chiusa_il ? '<p class="piede">Se il pagamento non arriva entro il ' + DATA_IT(p.chiusa_il) + ', il contratto si chiude senza altri importi e i dati restano scaricabili per 60 giorni.</p>' : '');
+  } else {
+    corpo += '<p>Il contratto' + (imp ? ' di <strong>' + imp + '</strong>' : '') + ' è chiuso' + (p.chiusa_il ? ' dal ' + DATA_IT(p.chiusa_il) : '') + ' perché il canone non è stato pagato.</p>' +
+      (p.esporta && p.chiusa_il ? '<p>I tuoi dati restano scaricabili fino al <strong>' + DATA_IT(new Date(new Date(p.chiusa_il + "T12:00:00Z").getTime() + 60 * 86400000).toISOString()) + '</strong>.</p>' : '') +
+      (paga
+        ? '<p>Puoi riattivare TIX da solo pagando' + (p.riattivabile_fino ? ' entro il <strong>' + DATA_IT(p.riattivabile_fino) + '</strong>' : '') + ': i tuoi dati sono ancora tutti al loro posto.</p>' +
+          '<a class="btn" href="' + base + '/listino?t=' + tok + '&riattiva=1">Riattiva TIX</a>'
+        : '<p>Per tornare su TIX scrivi a <a href="mailto:info@tixcantiere.it">info@tixcantiere.it</a>.</p>');
+  }
+  const cantieri = d && Array.isArray(d.cantieri) ? d.cantieri : [];
+  if (p.esporta && cantieri.length) {
+    corpo += '<p style="text-align:left;margin-top:18px"><strong>Scarica i tuoi dati in Excel</strong> (ultimi due anni):</p><ul style="text-align:left;padding-left:18px;line-height:1.9">';
+    for (const c of cantieri) {
+      const u = (tipo) => base + '/esporta?t=' + tok + '&c=' + encodeURIComponent(c.id) + '&tipo=' + tipo + '&dal=' + dal + '&al=' + al;
+      corpo += '<li>' + h.esc(c.nome || "Cantiere") + ': <a href="' + u("ore") + '">ore in economia</a> · <a href="' + u("ddt") + '">DDT e forniture</a> · <a href="' + u("presenze") + '">presenze</a></li>';
+    }
+    corpo += '</ul>';
+  }
+  if (p.esporta) {
+    // consegna su richiesta (B6, Termini art. 13.3 e DPA 15.1): diari, PDF, documenti della Sicurezza e tavole non passano da /esporta
+    corpo += '<p class="piede">Per avere tutti i tuoi dati in un unico file (diari, PDF, documenti della Sicurezza, tavole e il resto) scrivi a ' +
+      '<a href="mailto:privacy@tixcantiere.it">privacy@tixcantiere.it</a>: te li mandiamo.</p>';
+  }
+  corpo += '<p class="piede"><a href="' + base + '/accessi?t=' + tok + '&esci=1">Esci</a></p>';
+  return new Response(h.foglio(base, sospesa ? "Servizio sospeso" : "Contratto chiuso", "", corpo), { status: 200, headers: h.headers() });
 }
