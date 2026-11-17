@@ -106,7 +106,7 @@ export function paginaApp(base, tok, dati, h, apri) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Pannello di TIX</title>' + (h && h.testa ? h.testa(base) : "") +
     '<style>' + STILE + '</style></head><body><div id="app" class="app" aria-live="polite"></div>' +
     '<dialog id="dlg"></dialog><div id="toast" role="status" hidden></div>' +
-    '<script id="cfg" type="application/json">' + cfg + '</script><script>(' + app.toString() + ')();</script></body></html>';
+    '<script id="cfg" type="application/json">' + cfg + '</script><script>var __name=function(f){return f};(' + app.toString() + ')();</script></body></html>';
 }
 
 const STILE = `
@@ -215,6 +215,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // L'applicazione nel browser. Si serializza con toString(): non deve usare niente di fuori da questa funzione.
+// pannello-4 (17/11): il bundler di Cloudflare aggiunge __name(...) alle funzioni interne; la pagina lo definisce prima (sopra).
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
   var D = C.dati, CACHE = {}, S = { c: "", tab: "crono", f: "tutti", q: "", cf: "tutto" };
