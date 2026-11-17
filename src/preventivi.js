@@ -270,11 +270,12 @@ async function api(request, env, h) {
     const pd = { rdo_id: testo(x.rdo_id, 36), pct: testo(x.pct, 6), nota: testo(x.nota, 2000), testo: testo(x.testo, 20000),
       prezzi: (Array.isArray(x.prezzi) ? x.prezzi : []).slice(0, 200).map((p) => ({ voce_id: testo(p && p.voce_id, 20), prezzo_voluto: testo(p && p.prezzo, 20) })) };
     r = await h.rpc(env, "preventivo_rdo_sconto", { p_token: tok, p_id: testo(x.id, 36), p_azione: az === "of_sc_testo" ? "testo" : "invia", p_dati: pd }, 15000).catch(() => null);
-  } else if ((az === "of_sch_chiedi" || az === "of_sch_togli") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+  } else if ((az === "of_sch_chiedi" || az === "of_sch_togli" || az === "of_sch_dl" || az === "of_sch_esito") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 17/11/2026 (rdo-schede-1): schede tecniche della richiesta di offerta
     const dsc = pulisciOf(b.dati);
-    r = await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: dsc.id, p_azione: az === "of_sch_chiedi" ? "chiedi" : "togli",
-      p_dati: az === "of_sch_chiedi" ? { rdo_id: dsc.rdo_id || "" } : { scheda_id: dsc.scheda_id || "" } }, 15000).catch(() => null);
+    const azs = az.slice(7); // chiedi | togli | dl | esito
+    r = await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: dsc.id, p_azione: azs,
+      p_dati: azs === "togli" ? { scheda_id: dsc.scheda_id || "" } : { rdo_id: dsc.rdo_id || "", materiale: testo(b.dati && b.dati.materiale, 200) } }, 15000).catch(() => null);
     if (az === "of_sch_togli" && r && r.esito === "ok" && /^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/scheda-[A-Za-z0-9._-]{1,100}\.pdf$/.test(String(r.percorso || ""))) {
       await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso), { method: "DELETE",
         headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
@@ -2483,6 +2484,7 @@ function disegnaOf(){
  h+=smistareHtml();
  finestra(h);
  emTutti();
+ esitiSchede();
  var sel=document.getElementById('of-rub');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
@@ -2510,10 +2512,20 @@ function schedeHtml(q){if(q.stato!=='offerta'&&!(q.schede||[]).length)return '';
  return '<div class="pv-ofnota" style="margin:10px 0"><b>Schede tecniche</b> <small>da far approvare alla Direzione dei Lavori</small>'+
   (q.schede_chieste_il?'<p class="sotto" style="margin:4px 0">Chieste al fornitore il '+dt(q.schede_chieste_il)+'.</p>':'')+
   (S.length?'<ul style="margin:6px 0;padding-left:18px">'+S.map(function(s){return '<li><a target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/scheda')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&s='+s.id)+'">'+es(s.nome)+'</a>'+
-   ' <button type="button" class="pv-b sm pv-togli" data-ofx="sch_togli" data-sch="'+es(s.id)+'" title="Togli la scheda">✕</button></li>';}).join('')+'</ul>':'')+
+   ' <span data-sch-stato="'+es(s.id)+'"></span> <button type="button" class="pv-b sm pv-togli" data-ofx="sch_togli" data-sch="'+es(s.id)+'" title="Togli la scheda">✕</button></li>';}).join('')+'</ul>':'')+
+  (S.length?(q.commessa?'<div class="pv-ofbt" style="align-items:flex-end"><label style="flex:1 1 220px;margin:0"><span>Materiale <small>facoltativo, va nel titolo per il DL</small></span><input type="text" data-sch-mat maxlength="200"></label>'+
+   '<button type="button" class="pv-b sm pv-pr" data-ofx="sch_dl">Manda al Direttore dei Lavori</button></div>':
+   '<p class="sotto" style="margin:4px 0">Per mandare le schede al Direttore dei Lavori collega il preventivo a un cantiere.</p>'):'')+
   '<div class="pv-ofbt"><button type="button" class="pv-b sm" data-ofx="sch_chiedi"'+(OF.email_attive?'':' disabled title="L’invio da TIX non è ancora acceso"')+'>'+(q.schede_chieste_il?'Chiedile di nuovo':'Chiedi le schede tecniche')+'</button>'+
   '<label class="pv-b sm" style="cursor:pointer;display:inline-flex">Carica una scheda ricevuta<input type="file" multiple accept=".pdf,application/pdf" data-ofsch="'+q.id+'" style="display:none"></label></div>'+
-  '<p class="sotto" style="margin:4px 0 0">Le schede che il fornitore manda per email arrivano nella posta della richiesta: scaricale e caricale qui. L’invio al Direttore dei Lavori per l’approvazione arriva a breve.</p></div>';}
+  '<p class="sotto" style="margin:4px 0 0">Le schede che il fornitore manda per email arrivano nella posta della richiesta: scaricale e caricale qui. Poi «Manda al Direttore dei Lavori»: accanto a ogni scheda vedi la sua risposta.</p></div>';}
+// 17/11/2026 (rdo-schede-dl-1): risposta del DL accanto a ogni scheda (visto della B1)
+var SCH_ST={in_attesa:['In attesa del DL','#7A5410'],approvata:['Approvata','#12804A'],osservazioni:['Approvata con osservazioni','#9A6B00'],non_approvata:['Non approvata','#B3261E']};
+function esitiSchede(){Array.prototype.forEach.call(document.querySelectorAll('[data-rdo]'),function(box){if(!box.querySelector('[data-sch-stato]')||!box.querySelector('[data-ofx="sch_dl"]'))return;
+ api('of_sch_esito',{rdo_id:box.getAttribute('data-rdo')}).then(function(r){if(!r||r.esito!=='ok')return;var M={};(r.schede||[]).forEach(function(s){M[s.scheda_id]=s;});
+  Array.prototype.forEach.call(box.querySelectorAll('[data-sch-stato]'),function(sp){var s=M[sp.getAttribute('data-sch-stato')];if(!s){sp.innerHTML='';return;}var e=SCH_ST[s.stato]||[s.stato,'#5B6270'];
+   sp.innerHTML='<small style="font-weight:700;color:'+e[1]+'">· '+es(e[0])+'</small>'+(s.nota?' <small>«'+es(s.nota)+'»</small>':'')+(s.risposto_nome?' <small>('+es(s.risposto_nome)+(s.risposto_il?', '+dt(s.risposto_il):'')+')</small>':'');});});});}
+
 function caricaSchede(inp){var F=Array.prototype.slice.call(inp.files||[]),rid=inp.getAttribute('data-ofsch'),box=document.querySelector('[data-rdo="'+rid+'"]');if(!F.length||!box)return;
  var no=F.filter(function(f){return !/\.pdf$/i.test(f.name)||f.size>20971520;});if(no.length){mOf(box,'Le schede si caricano in PDF fino a 20 MB: '+no.map(function(f){return f.name;}).join(', '),'err');inp.value='';return;}
  inp.disabled=true;mOf(box,'Carico '+(F.length===1?'la scheda':F.length+' schede')+'…');var i=0,err='';
@@ -2644,6 +2656,9 @@ function azioneOf(az,el){
  if(az==='sch_chiedi'){if(!confirm('Mandare al fornitore la richiesta delle schede tecniche dei materiali dell’offerta?'))return;el.disabled=true;
   api('of_sch_chiedi',{rdo_id:rid}).then(function(r){el.disabled=false;if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}
    caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2)mOf(b2,r.messaggio||'Richiesta mandata.','ok');});});return;}
+ if(az==='sch_dl'){if(!confirm('Mandare le schede tecniche di questa richiesta al Direttore dei Lavori per l’approvazione?'))return;el.disabled=true;
+  api('of_sch_dl',{rdo_id:rid,materiale:(box.querySelector('[data-sch-mat]')||{}).value||''}).then(function(r){el.disabled=false;if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}
+   caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2)mOf(b2,r.messaggio||'Schede mandate al Direttore dei Lavori.','ok');});});return;}
  if(az==='sch_togli'){if(!confirm('Togliere questa scheda tecnica?'))return;el.disabled=true;
   api('of_sch_togli',{scheda_id:el.getAttribute('data-sch')}).then(function(r){if(!r||r.esito!=='ok'){el.disabled=false;mOf(box,errore(r),'err');return;}caricaOf();});return;}
  if(az==='all_togli'){if(!confirm('Togliere questo file dalla richiesta?'))return;el.disabled=true;
