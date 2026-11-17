@@ -350,7 +350,7 @@ const MODALI =
   '<label class="pv-c" id="pv-vo-c-cod"><span class="pv-et">Codice <small>facoltativo</small></span><input id="pv-vo-cod" maxlength="60"></label>' +
   '<label class="pv-c" id="pv-vo-c-um"><span class="pv-et">Unità di misura</span><input id="pv-vo-um" maxlength="20" placeholder="m², m, cad, a corpo…"></label>' +
   '<label class="pv-c tutta"><span class="pv-et">Descrizione <small>la vede il cliente nel preventivo</small></span><textarea id="pv-vo-descr" rows="5" maxlength="6000"></textarea></label>' +
-  '<label class="pv-c"><span class="pv-et">Prezzo + IVA <small id="pv-vo-orig"></small></span><span class="pv-euro"><input id="pv-vo-prezzo" inputmode="decimal" maxlength="16"><b>€</b></span></label>' +
+  '<label class="pv-c"><span class="pv-et">Prezzo + IVA <small id="pv-vo-orig"></small></span><span class="pv-euro"><input id="pv-vo-prezzo" inputmode="decimal" maxlength="16" placeholder="vuoto se lo chiedi al fornitore"><b>€</b></span></label>' +
   '<label class="pv-c" id="pv-vo-c-q"><span class="pv-et">Quantità <small id="pv-vo-um2"></small></span><input id="pv-vo-q" inputmode="decimal" maxlength="16"></label>' +
   "</div>" +
   '<div class="pv-mis"><div class="pv-mis-t"><b>Righe di misura</b> <small>facoltative: la quantità diventa la somma delle righe (parti × lunghezza × larghezza × altezza o peso)</small></div>' +
@@ -466,7 +466,7 @@ const STILE =
   // 16/11/2026 (crediti-regalo-1): crediti in regalo con il bonifico
   ".pv-cr-rg{flex-basis:100%;font-size:.82rem;font-weight:700;color:#7a4a00;background:#FFF4D6;border-radius:6px;padding:3px 8px}.pv-cr-rgn{margin:8px 0 0;padding:8px 10px;border:1px solid #E8C65A;border-radius:8px;background:#FFF9E6;font-size:.86rem;line-height:1.45}" + ".pv-cr-m{margin-top:8px;font-size:.84rem}.pv-cr-m summary{cursor:pointer;color:var(--s)}.pv-cr-m table{border-collapse:collapse;margin-top:6px}" + ".pv-cr-m td{padding:3px 12px 3px 0;vertical-align:top}.pv-cr-m td.n{text-align:right;font-weight:600;white-space:nowrap}" +
   // 09/11/2026 (cantiere-da-preventivo-1): riquadro «Cantiere» del preventivo accettato
-  ".pv-cant{margin:16px 0 0;padding:14px 16px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.05)}" + ".pv-cant h3{margin:0 0 6px}.pv-cant h4{margin:12px 0 6px;font-size:.92rem}.pv-cant-s{margin:6px 0;font-size:.9rem;line-height:1.5;color:var(--s)}" + ".pv-cant-l{list-style:none;margin:0;padding:0;display:grid;gap:4px}.pv-cant-l li{display:flex;gap:8px;font-size:.9rem;line-height:1.45}" + ".pv-cant-l li span{width:16px;flex:none;text-align:center;font-weight:800}.pv-cant-l li.ok span{color:#66741C}.pv-cant-l li.no span{color:#9A6B00}.pv-cant-l li.opz{color:var(--s)}" + ".pv-cant-p{display:flex;flex-wrap:wrap;gap:8px}.pv-cant-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.25);border-radius:10px;font-size:.86rem}" + ".pv-cant-k.su{border-color:#66741C;background:rgba(102,116,28,.08)}" +
+  ".pv-cant{margin:16px 0 0;padding:14px 16px;border:1px solid rgba(102,116,28,.35);border-radius:12px;background:rgba(102,116,28,.05)}" + ".pv-cant h3{margin:0 0 6px}.pv-cant h4{margin:12px 0 6px;font-size:.92rem}.pv-cant-s{margin:6px 0;font-size:.9rem;line-height:1.5;color:var(--s)}" + ".pv-cant-l{list-style:none;margin:0;padding:0;display:grid;gap:4px}.pv-cant-l li{display:flex;gap:8px;font-size:.9rem;line-height:1.45}" + ".pv-cant-l li span{width:16px;flex:none;text-align:center;font-weight:800}.pv-cant-l li.ok span{color:#66741C}.pv-cant-l li.no span{color:#9A6B00}.pv-cant-l li.opz{color:var(--s)}" + ".pv-cant-p{display:flex;flex-wrap:wrap;gap:8px}.pv-cant-k{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(102,116,28,.25);border-radius:10px;font-size:.86rem}" + ".pv-cant-k.su{border-color:#66741C;background:rgba(102,116,28,.08)}.pv-cant-av{padding:8px 10px;border:1px solid #E8C65A;border-radius:8px;background:#FFF9E6;color:#5c4300}" +
   ".pv-b{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;font-weight:700;font-size:.92rem;cursor:pointer;text-decoration:none;white-space:nowrap}" +
   ".pv-b:disabled{opacity:.55;cursor:default}.pv-b.sm{min-height:34px;padding:0 12px;font-size:.84rem;border-radius:10px;border-color:rgba(16,27,43,.18);color:var(--t)}" +
   ".pv-pr{border-color:var(--pv);color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,0) 52%),linear-gradient(180deg,#7D8C27,#66741C);box-shadow:0 10px 22px -12px rgba(74,85,18,.8)}" +
@@ -495,7 +495,7 @@ const STILE =
   ".pv-stato.bozza{border-color:var(--gr-b);background:var(--gr-f);color:var(--gr)}.pv-stato.mandato{border-color:var(--pv-b);background:var(--pv-f);color:var(--pv-s)}" +
   ".pv-stato.accettato{border-color:var(--ok-b);background:var(--ok-f);color:var(--ok)}.pv-stato.rifiutato{border-color:var(--ko-b);background:var(--ko-f);color:var(--ko)}" +
   ".pv-st-info{display:block;margin-top:5px;font-size:.76rem;color:var(--s);line-height:1.35}" +
-  ".pv-cant{display:inline-flex;padding:1px 8px;border-radius:6px;background:#EEF2F8;color:var(--navy);font-weight:700;font-size:.78rem}.pv-cant.no{background:#FFF4EC;color:#B4500A}" +
+  "span.pv-cant{display:inline-flex;padding:1px 8px;border-radius:6px;background:#EEF2F8;color:var(--navy);font-weight:700;font-size:.78rem}span.pv-cant.no{background:#FFF4EC;color:#B4500A}" +
   ".pv-vuoto{margin:10px 0 0;padding:16px;border-radius:12px;background:#F5F7FA;color:var(--s);font-size:.92rem}" +
   ".pv-due{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}" +
   "@media (max-width:1180px){.pv-due{grid-template-columns:minmax(0,1fr)}}" +
@@ -862,11 +862,11 @@ function ricalcola(){var M=misure(),tot=0,usa=false,err=false;
  $('pv-vo-imp').textContent=err?'Nelle righe di misura scrivi solo numeri.':(p!==null&&!isNaN(p)&&q!==null&&!isNaN(q)?'Importo: '+euro(Math.round(p*q*100)/100):'');}
 $('pv-vo-prezzo').oninput=ricalcola;$('pv-vo-q').oninput=ricalcola;
 $('pv-vo-salva').onclick=function(){var b=this,v=VOCE,lib=v.fonte==='libera',M=misure().filter(function(m){return String(m.dove||'').trim()||m.parti||m.lun||m.lar||m.alt||m.q;}).map(function(m){if(m.parti||m.lun||m.lar||m.alt)m.q='';return m;});
- var d={id:F.id,descrizione:$('pv-vo-descr').value,prezzo:$('pv-vo-prezzo').value,quantita:M.length?'':$('pv-vo-q').value,misure:M};
+ var d={id:F.id,descrizione:$('pv-vo-descr').value,prezzo:($('pv-vo-prezzo').value.trim()===''?'0':$('pv-vo-prezzo').value),quantita:M.length?'':$('pv-vo-q').value,misure:M};
  if(v.id)d.voce_id=String(v.id);else{d.fonte=v.fonte;if(v.rif)d.rif=v.rif;}
  if(lib){d.codice=$('pv-vo-cod').value;d.unita=$('pv-vo-um').value;}
  if(!crControlla([{el:$('pv-vo-descr'),ok:function(x){return x.value.trim().length>=2;},testo:'Scrivi la descrizione della voce'},
-   {el:$('pv-vo-prezzo'),ok:function(x){var n=inNum(x.value);return n!==null&&!isNaN(n);},testo:'Scrivi il prezzo in euro, per esempio 25,50'},
+   {el:$('pv-vo-prezzo'),ok:function(x){if(x.value.trim()==='')return true;var n=inNum(x.value);return n!==null&&!isNaN(n);},testo:'Scrivi il prezzo in euro, per esempio 25,50 (o lascialo vuoto se lo chiedi al fornitore)'},
    {el:$('pv-vo-q'),ok:function(x){if(M.length)return true;var n=inNum(x.value);return n!==null&&!isNaN(n);},testo:'Scrivi la quantità, oppure le righe di misura'},
    {el:$('pv-vo-um'),ok:function(x){return !lib||x.value.trim()!=='';},testo:'Scrivi l\'unità di misura (m², m³, kg, cad…)'}])){msg($('pv-vo-msg'),'Completa i campi segnati in rosso.','ko');return;}
  b.disabled=true;msg($('pv-vo-msg'),'Un momento…');
@@ -1096,6 +1096,7 @@ function disegnaCant(){var box=$('pv-cant');if(!box)return;var r=CANT;if(!r){box
  else{var d=r.dati||{};
   h+='<p class="pv-cant-s">Il preventivo è accettato. Apri il cantiere con il modulo di sempre, già compilato con i dati del preventivo: <b>'+es(d.nome||'')+'</b>'+
    (d.ubicazione?' · '+es(d.ubicazione):'')+(d.committente?' · cliente del preventivo '+es(d.committente)+' (il committente dei lavori lo confermi nel modulo)':'')+'. Controlli i dati e confermi tu: il modulo dice anche se il cantiere cambia il canone.</p>'+
+   (r.richiesto_il?'<p class="pv-cant-s pv-cant-av">Hai aperto il modulo del cantiere il '+es(r.richiesto_il)+'. Quando il cantiere è attivo (pochi minuti) compare qui sotto: premi <b>«Collega»</b> accanto al suo nome. Se lo ricarichi e non c&#39;è ancora, aspetta qualche minuto.</p>':'')+
    '<p><button type="button" class="pv-b pv-pr" id="pv-cant-apri">Apri il cantiere</button></p>'+
    ((r.proposte||[]).length?'<h4>Oppure collega un cantiere che c\'è già</h4><div class="pv-cant-p">'+r.proposte.map(function(p){
     return '<span class="pv-cant-k'+(p.stesso_nome||p.stesso_luogo?' su':'')+'"><b>'+es(p.nome)+'</b>'+(p.ubicazione?' · '+es(p.ubicazione):'')+
@@ -2527,7 +2528,8 @@ function azioneOf(az,el){
     {el:bx0,ok:function(){return lista(ei).length>0;},testo:'Aggiungi almeno un indirizzo dell\'impresa per la copia e le risposte'}])){nota('of-msg','Completa i campi segnati in rosso.','err');return;}
   el.disabled=true;nota('of-msg','Preparo la richiesta…');
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
-   (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){caricaOf();});});return;}
+   (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){return caricaOf();}).then(function(){
+    var q=document.querySelector('[data-rdo]');if(q){q.scrollIntoView({block:'start',behavior:'smooth'});mOf(q,'Richiesta pronta: controlla il testo, poi premi «Invia da TIX» oppure «Copia il testo».','ok');}});});return;}
  if(az==='scegli'){el.disabled=true;api('of_scegli',{riga_id:el.dataset.riga}).then(function(r){if(r.esito!=='ok'){el.disabled=false;alert(errore(r));return;}caricaOf().then(function(){OF.cambiato=true;});});return;}
  if(az==='copia'){var q=(OF.richieste||[]).filter(function(x){return x.id===rid;})[0];var d2=campiRdo(box);
   var t=(d2.oggetto||q.oggetto)+'\n\n'+(d2.testo||q.testo);
