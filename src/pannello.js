@@ -81,6 +81,13 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     }
     if (!az) return j({ esito: "nontrovata" }, 400);
     if (b.azione === "impresa") return j((await rpc(env, "pannello_impresa", { p_token: tok, p_disp: disp, p_az: az })) || { esito: "servizio" });
+    // pannello-13 (17/11, accordo B11): dati di fatturazione dell'impresa (solo i campi concordati, controlli nel DB)
+    if (b.azione === "fatturazione") {
+      const s = d.scheda && typeof d.scheda === "object" ? d.scheda : {};
+      const ok = {}; ["nome_completo", "partita_iva", "codice_fiscale", "codice_sdi", "pec", "indirizzo_sede", "cap", "citta", "provincia", "email_impresa", "telefono", "referente_nome", "referente_email", "referente_telefono"]
+        .forEach((kk) => { if (s[kk] != null) ok[kk] = String(s[kk]).slice(0, 200); });
+      return j((await rpc(env, "pannello_impresa_fatturazione", { p_token: tok, p_disp: disp, p_az: az, p_dati: ok })) || { esito: "servizio" });
+    }
     if (b.azione === "nota") {
       const togli = /^\d{1,12}$/.test(String(d.togli || "")) ? Number(d.togli) : null;
       const r = await rpc(env, "pannello_nota", { p_token: tok, p_disp: disp, p_az: az, p_testo: togli ? null : String(d.testo || "").slice(0, 4000), p_togli: togli });
@@ -385,12 +392,17 @@ function app() {
 
   function colonnaDati(c, p) {
     var a = p.anagrafica || {};
+    // regola «campi mancanti in rosso» (14/11): i dati per la fattura che mancano si segnano in rosso
+    var FATT = { "Ragione sociale": a.nome_completo, "Partita IVA": a.partita_iva, "Cod. fiscale": a.codice_fiscale, "SDI": a.sdi, "PEC": a.pec, "Sede": a.indirizzo };
+    var manca = Object.keys(FATT).filter(function (kk) { return !FATT[kk]; });
     var r = function (et, v, tipo) {
-      if (!v) return '<dt>' + et + '</dt><dd><span class="sub">—</span></dd>';
+      if (!v) return '<dt>' + et + '</dt><dd>' + (FATT.hasOwnProperty(et) ? '<span class="err">manca</span>' : '<span class="sub">—</span>') + '</dd>';
       var vis = tipo === "mail" ? '<a href="mailto:' + E(v) + '">' + E(v) + '</a>' : tipo === "tel" ? '<a href="tel:' + E(String(v).replace(/\s/g, "")) + '">' + E(v) + '</a>' : E(v);
       return '<dt>' + et + '</dt><dd><span>' + vis + '</span><button class="copia" data-copia="' + E(v) + '" aria-label="Copia ' + et + '">copia</button></dd>';
     };
-    return '<aside class="card dati"><h2>Dati dell\'impresa</h2><dl>' +
+    return '<aside class="card dati"><h2>Dati dell\'impresa</h2>' +
+      (manca.length ? '<p class="err" style="margin:0 0 8px">Per la fattura mancano ' + manca.length + (manca.length === 1 ? ' dato: ' : ' dati: ') + E(manca.join(", ")) + '.</p>' : '<p class="sub" style="margin:0 0 8px">Dati per la fattura completi ✓</p>') +
+      '<button class="bt' + (manca.length ? ' pri' : '') + '" data-fatt style="margin:0 0 10px">✎ ' + (manca.length ? 'Completa i dati di fatturazione' : 'Modifica i dati di fatturazione') + '</button><dl>' +
       r("Ragione sociale", a.nome_completo) + r("Partita IVA", a.partita_iva) + r("Cod. fiscale", a.codice_fiscale) + r("SDI", a.sdi) + r("PEC", a.pec, "mail") +
       r("Sede", a.indirizzo) + r("Email", a.email_impresa, "mail") + r("Telefono", a.telefono, "tel") + r("Titolare", a.titolare) +
       r("Email titolare", a.titolare_email, "mail") + r("Tel. titolare", a.titolare_telefono, "tel") + '</dl>' +
@@ -812,6 +824,33 @@ function app() {
     });
   }
 
+  // dati di fatturazione dell'impresa (accordo B11): stessi controlli del modulo d'attivazione, campo sbagliato in rosso
+  function fatturazione() {
+    var c = cliente(S.c), p = CACHE[S.c]; if (!c || !p) return;
+    var a = p.anagrafica || {}, d = $("dlg");
+    var CAMPI = [["nome_completo", "Ragione sociale *", a.nome_completo], ["partita_iva", "Partita IVA *", a.partita_iva], ["codice_fiscale", "Codice fiscale", a.codice_fiscale],
+      ["codice_sdi", "Codice SDI (7 caratteri)", a.sdi], ["pec", "PEC", a.pec], ["indirizzo_sede", "Indirizzo della sede", a.sede_via], ["cap", "CAP", a.cap], ["citta", "Città", a.citta],
+      ["provincia", "Provincia (sigla)", a.provincia], ["email_impresa", "Email dell'impresa", a.email_impresa], ["telefono", "Telefono", a.telefono],
+      ["referente_nome", "Titolare o referente", a.titolare], ["referente_email", "Email del titolare", a.titolare_email], ["referente_telefono", "Telefono del titolare", a.titolare_telefono]];
+    d.innerHTML = '<form class="dl" method="dialog"><h2>Dati di fatturazione di ' + E(c.nome) + '</h2>' +
+      '<p class="sub">Servono per le fatture di TIX. Obbligatori: ragione sociale, partita IVA e almeno uno tra codice SDI e PEC. Le fatture già emesse non cambiano.</p>' +
+      CAMPI.map(function (f) { return '<label for="ft-' + f[0] + '">' + f[1] + '</label><input id="ft-' + f[0] + '" maxlength="200" value="' + E(f[2] || "") + '"' + (!f[2] && /\*/.test(f[1]) ? ' class="campo-rosso"' : '') + '>'; }).join("") +
+      '<div id="ft-err" class="err"></div><div class="azioni"><button class="bt" value="no">Annulla</button><button class="bt pri" id="ft-ok" value="">Salva</button></div></form>';
+    d.showModal();
+    $("ft-ok").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var s = {}; CAMPI.forEach(function (f) { s[f[0]] = $("ft-" + f[0]).value.trim(); });
+      document.querySelectorAll(".dl .campo-rosso").forEach(function (e) { e.classList.remove("campo-rosso"); });
+      this.disabled = true; var bt = this;
+      chiama("fatturazione", { azienda: c.id, scheda: s }).then(function (r) {
+        if (r && r.esito === "ok") { d.close(); toast("Dati di fatturazione salvati"); delete CACHE[S.c]; ricarica(true); return; }
+        bt.disabled = false;
+        if (r && r.esito === "campo") { var x = $("ft-" + r.campo); if (x) { x.classList.add("campo-rosso"); x.focus(); } $("ft-err").textContent = r.messaggio || "Controlla il campo in rosso."; return; }
+        $("ft-err").textContent = "Non salvato: riprova.";
+      });
+    });
+  }
+
   function copia(t) {
     try { navigator.clipboard.writeText(t).then(function () { toast("Copiato"); }, function () { toast("Non copiato"); }); } catch (e) { toast("Non copiato"); }
   }
@@ -865,6 +904,7 @@ function app() {
     if (b.hasAttribute("data-cf")) { S.cf = b.getAttribute("data-cf"); disegna(); return; }
     if (b.hasAttribute("data-tab")) { var fu = b.hasAttribute("data-fuoco"); vai(S.c, b.getAttribute("data-tab")); if (fu) setTimeout(function () { var n = $("nn"); if (n) n.focus(); }, 60); return; }
     if (b.hasAttribute("data-regala")) { regala(); return; }
+    if (b.hasAttribute("data-fatt")) { fatturazione(); return; }
     if (b.hasAttribute("data-copia")) { copia(b.getAttribute("data-copia")); return; }
     if (b.hasAttribute("data-copia-tutto")) { copiaTutto(); return; }
     if (b.hasAttribute("data-salva-nota")) {
