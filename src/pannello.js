@@ -67,9 +67,9 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     if (b.azione === "fornitori") return j((await rpc(env, "pannello_fornitori_dati", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "fornitore") {
       const op = String(d.op || "");
-      if (!/^(salva|importa|contattato|non_interessato|riapri|togli)$/.test(op)) return j({ esito: "azione" }, 400);
+      if (!/^(salva|importa|contattato|non_interessato|togli)$/.test(op)) return j({ esito: "azione" }, 400);
       const righe = Array.isArray(d.righe) ? d.righe.slice(0, 2000) : undefined;
-      const r = await rpc(env, "pannello_fornitore", { p_token: tok, p_disp: disp, p_azione: op, p_dati: Object.assign({}, d.scheda || {}, { id: d.id || null }, righe ? { righe: righe } : {}) });
+      const r = await rpc(env, "pannello_fornitore", { p_token: tok, p_disp: disp, p_azione: op, p_dati: Object.assign({}, d.scheda || {}, { id: d.id || null }, righe ? { righe: righe, origine: String(d.origine || "").slice(0, 120) } : {}) });
       return j(r || { esito: "servizio" });
     }
     if (!az) return j({ esito: "nontrovata" }, 400);
@@ -554,13 +554,16 @@ function app() {
     var s = FO_ST[r.stato] || [r.stato, "grigio"];
     return [r.stato === "sollecitato" ? "invitato" : r.stato, s[0], s[1]];
   }
+  // testo del parere B12 (17/11): si manda solo dopo il «sì» del fornitore (telefono, di persona o richiesta sua)
+  var FO_COME = { telefono: ["al telefono", "come d'accordo al telefono"], di_persona: ["di persona", "come d'accordo quando ci siamo visti"], richiesta: ["l'ha chiesto lui", "come mi ha chiesto"] };
+  var FO_ORIG = ["dal vostro sito", "da un'impresa cliente di TIX", "da una telefonata", "da un incontro di persona", "da una fiera"];
   function foMailto(r) {
-    var corpo = "Buongiorno" + (r.referente ? " " + r.referente : "") + ",\n\n" +
-      "sono Filippo Obetti di TIX · Diario di cantiere (www.tixcantiere.it), l'app che le imprese edili usano per il diario di cantiere, i preventivi e le richieste di offerta ai fornitori.\n\n" +
-      "Vi propongo di entrare nell'Elenco fornitori di TIX: le imprese che usano TIX vi trovano per zona e per lavorazione e vi mandano le richieste di offerta direttamente.\n\n" +
-      "Per iscrivervi bastano pochi minuti da questo collegamento:\n" + (FO && FO.link || "") + "\n\n" +
-      "L'unica condizione è pubblicare sul vostro sito il riquadro «Siamo nell'elenco fornitori di TIX», che vi mandiamo noi.\n\n" +
-      "Se non volete ricevere altre comunicazioni da TIX, basta rispondere a questa email.\n\nCordiali saluti\nFilippo Obetti\nTIX · Diario di cantiere — info@tixcantiere.it";
+    var corpo = "Buongiorno" + (r.referente ? " " + r.referente : "") + ",\n" +
+      (FO_COME[r.consenso_come] || FO_COME.telefono)[1] + ", le mando l'invito all'Elenco fornitori di TIX · Diario di cantiere (www.tixcantiere.it), l'app che le imprese edili usano per il diario di cantiere, i preventivi e le richieste di offerta ai fornitori.\n" +
+      "Nell'elenco le imprese che usano TIX vi trovano per zona e per lavorazione e vi mandano le richieste di offerta direttamente. L'iscrizione è gratuita e richiede pochi minuti: " + (FO && FO.link || "") + "\n" +
+      "L'unica condizione è pubblicare sul vostro sito il riquadro «Siamo nell'elenco fornitori di TIX», che vi mandiamo noi.\n" +
+      "Il vostro indirizzo lo abbiamo " + (r.origine || "da una telefonata") + ". Se non volete ricevere altre comunicazioni da TIX, rispondete a questa email con «NO»: vi togliamo subito dalla nostra rubrica. Informativa: www.tixcantiere.it/privacy-policy\n" +
+      "Cordiali saluti\nFilippo Obetti\nTIX · Diario di cantiere — info@tixcantiere.it";
     return "mailto:" + String(r.email || "").replace(/[^\w.@+-]/g, "") + "?subject=" + encodeURIComponent("Elenco fornitori di TIX: " + r.ragione_sociale) + "&body=" + encodeURIComponent(corpo);
   }
   function caricaFornitori() {
@@ -606,28 +609,37 @@ function app() {
               (r.note ? '<div class="sub">✎ ' + E(r.note) + '</div>' : '') + '</td>' +
             '<td>' + (r.email ? '<div>' + E(r.email) + '</div>' : '<div class="err">manca l\'email</div>') + (r.telefono ? '<div><a href="tel:' + E(String(r.telefono).replace(/\s/g, "")) + '">' + E(r.telefono) + '</a></div>' : '') +
               (r.sito ? '<div><a href="' + E(/^https?:/i.test(r.sito) ? r.sito : "https://" + r.sito) + '" target="_blank" rel="noopener">sito</a>' + (r.elenco && r.elenco.riquadro_url ? ' · <a href="' + E(r.elenco.riquadro_url) + '" target="_blank" rel="noopener">pagina col logo</a>' : '') + '</div>' : '') + '</td>' +
-            '<td><span class="badge b-' + fa[2] + '">' + E(fa[1]) + '</span>' + (r.contatti_n ? '<div class="sub">' + r.contatti_n + (r.contatti_n === 1 ? ' contatto' : ' contatti') + '</div>' : '') + '</td>' +
+            '<td><span class="badge b-' + fa[2] + '">' + E(fa[1]) + '</span>' +
+              (r.stato === "non_interessato" ? '<div class="sub">ha detto no il ' + DT(r.no_il) + '</div>' :
+                r.consenso_il ? '<div class="sub">sì all\'invito ' + E((FO_COME[r.consenso_come] || [""])[0]) + ' il ' + DT(r.consenso_il) + '</div>' : (!r.elenco ? '<div class="sub">manca il sì all\'invito</div>' : '')) +
+              (r.contatti_n ? '<div class="sub">' + r.contatti_n + (r.contatti_n === 1 ? ' contatto' : ' contatti') + '</div>' : '') + '</td>' +
             '<td>' + (r.ultimo_contatto_il ? DT(r.ultimo_contatto_il) + '<div class="sub">' + FA(r.ultimo_contatto_il) + '</div>' : '<span class="sub">mai</span>') + '</td>' +
             '<td style="white-space:nowrap">' +
-              (r.email && !r.elenco && r.stato !== "non_interessato" ? '<a class="bt pri" data-fo-mail="' + r.id + '" href="' + E(foMailto(r)) + '">✉ ' + (r.stato === "da_contattare" ? "Prepara email" : "Sollecita") + '</a> ' : '') +
-              (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="contattato" data-fo-id="' + r.id + '" title="Hai telefonato o scritto in altro modo">✓ Contattato</button> ' : '') +
-              '<button class="bt" data-fo-mod="' + r.id + '">Modifica</button> ' +
-              (r.stato === "non_interessato" ? '<button class="bt" data-fo-op="riapri" data-fo-id="' + r.id + '">Riapri</button>' : (!r.elenco ? '<button class="bt" data-fo-op="non_interessato" data-fo-id="' + r.id + '">Non interessato</button>' : '')) +
+              (!r.elenco && r.stato !== "non_interessato" && !r.consenso_il ? '<button class="bt pri" data-fo-mod="' + r.id + '" title="Prima chiedi per telefono o di persona se puoi mandare l\'invito, poi segna il sì">📞 Segna il sì</button> ' : '') +
+              (r.email && !r.elenco && r.stato !== "non_interessato" && r.consenso_il ? '<a class="bt pri" data-fo-mail="' + r.id + '" href="' + E(foMailto(r)) + '">✉ ' + (r.stato === "da_contattare" ? "Prepara email" : "Sollecita") + '</a> ' : '') +
+              (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="contattato" data-fo-id="' + r.id + '" title="Hai telefonato o l\'hai visto di persona">✓ Contattato</button> ' : '') +
+              (r.stato !== "non_interessato" ? '<button class="bt" data-fo-mod="' + r.id + '">Modifica</button> ' : '') +
+              (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="non_interessato" data-fo-id="' + r.id + '">Ha detto no</button>' : '') +
+              (r.stato === "non_interessato" ? '<button class="bt" data-fo-op="togli" data-fo-id="' + r.id + '">Togli</button>' : '') +
             '</td></tr>';
         }).join("") + '</tbody></table>' : '<p class="vuoto">' + (rr.length ? 'Nessun fornitore con questi filtri.' : 'La rubrica è vuota: aggiungi un fornitore o importa il tuo file Excel.') + '</p>') +
       '</section>';
     var so = FO.solo_elenco || [];
     if (so.length) x += '<section class="card" style="margin-top:14px"><h2>Iscritti all\'elenco che non sono nella tua rubrica</h2><p class="sub">Arrivati da soli o con il passaparola.</p><table><thead><tr><th>Fornitore</th><th>Sede</th><th>Stato</th><th>Iscritto il</th></tr></thead><tbody>' +
       so.map(function (f) { return '<tr><td>' + E(f.ragione_sociale) + '</td><td>' + E(f.sede || "") + '</td><td>' + E(EL_ST[f.stato] || f.stato) + (f.riquadro ? ' · logo ✓' : '') + '</td><td>' + DT(f.iscritto_il) + '</td></tr>'; }).join("") + '</tbody></table></section>';
-    x += '<p class="sub" style="margin-top:12px">Le email di invito partono dal tuo programma di posta, una alla volta: scegli come mittente info@tixcantiere.it. Per la privacy TIX non manda inviti in automatico a chi non è cliente.</p></div>';
+    x += '<div class="card" style="margin-top:14px"><h2>Regole per gli inviti (parere della B12)</h2><ul class="motivi">' +
+      '<li>Prima chiedi il permesso <b>per telefono o di persona</b>: «Le posso mandare un\'email con l\'invito all\'Elenco fornitori di TIX?». Se dice sì, clicca <b>«📞 Segna il sì»</b> e scrivi come e quando: solo allora si attiva «Prepara email».</li>' +
+      '<li>Non telefonare ai numeri presi da elenchi pubblici se sono iscritti al Registro delle opposizioni; i numeri di lavoro che già conosci vanno bene.</li>' +
+      '<li>Se un fornitore risponde «NO», clicca <b>«Ha detto no»</b>: restano solo nome, email e data, così non lo ricontatti.</li>' +
+      '<li>Le email partono dal tuo programma di posta, una alla volta, con mittente info@tixcantiere.it. Chi resta «da contattare» per 12 mesi senza nessun contatto si cancella da solo.</li></ul></div></div>';
     return x;
   }
   function opFornitore(id, op) {
     var r = foRiga(id); if (!r) return;
-    if (op === "non_interessato" && !confirm("Segnare " + r.ragione_sociale + " come non interessato? Non comparirà più tra quelli da contattare.")) return;
+    if (op === "non_interessato" && !confirm(r.ragione_sociale + " ha detto no? Restano solo nome, email e data del no, così non lo ricontatti. Gli altri dati si cancellano.")) return;
     if (op === "togli" && !confirm("Togliere " + r.ragione_sociale + " dalla rubrica?")) return;
     chiama("fornitore", { op: op, id: Number(id) }).then(function (x) {
-      if (x && x.esito === "ok") { toast({ contattato: "Segnato come contattato", non_interessato: "Segnato come non interessato", riapri: "Riaperto", togli: "Tolto dalla rubrica" }[op] || "Fatto"); FO = null; if ($("dlg").open) $("dlg").close(); disegna(); }
+      if (x && x.esito === "ok") { toast({ contattato: "Segnato come contattato", non_interessato: "Segnato: ha detto no", togli: "Tolto dalla rubrica" }[op] || "Fatto"); FO = null; if ($("dlg").open) $("dlg").close(); disegna(); }
       else toast("Non salvato: riprova");
     });
   }
@@ -637,22 +649,38 @@ function app() {
       ["email", "Email", 200], ["telefono", "Telefono", 40], ["sito", "Sito internet", 200], ["partita_iva", "Partita IVA", 20], ["referente", "Referente", 120]];
     d.innerHTML = '<form class="dl" method="dialog"><h2>' + (r ? "Modifica " + E(r.ragione_sociale) : "Nuovo fornitore") + '</h2>' +
       cam.map(function (c) { return '<label for="fo-' + c[0] + '">' + c[1] + '</label><input id="fo-' + c[0] + '" maxlength="' + c[2] + '" value="' + E(v[c[0]] || "") + '">'; }).join("") +
+      '<label for="fo-origine">Da dove viene il contatto</label><select id="fo-origine"><option value="">— scegli —</option>' +
+        FO_ORIG.concat(v.origine && FO_ORIG.indexOf(v.origine) === -1 ? [v.origine] : []).map(function (o) { return '<option' + (v.origine === o ? ' selected' : '') + '>' + E(o) + '</option>'; }).join("") + '</select>' +
       '<label for="fo-note">Note (le vedi solo tu)</label><textarea id="fo-note" maxlength="2000">' + E(v.note || "") + '</textarea>' +
+      '<fieldset style="margin-top:12px;border:1px solid var(--b,#3a4658);border-radius:10px;padding:10px"><legend>Sì all\'invito</legend>' +
+        '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="fo-si"' + (v.consenso_il ? ' checked' : '') + ' style="width:auto"> Ha detto sì a ricevere l\'email di invito</label>' +
+        '<label for="fo-come">Come</label><select id="fo-come"><option value="">— scegli —</option>' + Object.keys(FO_COME).map(function (c) { return '<option value="' + c + '"' + (v.consenso_come === c ? ' selected' : '') + '>' + FO_COME[c][0] + '</option>'; }).join("") + '</select>' +
+        '<label for="fo-quando">Quando</label><input id="fo-quando" type="date" value="' + E(v.consenso_il || "") + '" max="' + new Date().toISOString().slice(0, 10) + '">' +
+        '<p class="sub">Resta come prova del permesso. Senza il sì, «Prepara email» non si attiva.</p></fieldset>' +
       '<div id="fo-err" class="err"></div><div class="azioni">' + (r ? '<button class="bt" id="fo-togli" value="">Togli dalla rubrica</button>' : '') +
       '<button class="bt" value="no">Annulla</button><button class="bt pri" id="fo-ok" value="">Salva</button></div></form>';
     d.showModal();
     if (r) $("fo-togli").addEventListener("click", function (ev) { ev.preventDefault(); opFornitore(r.id, "togli"); });
     $("fo-ok").addEventListener("click", function (ev) {
       ev.preventDefault();
-      var s = {}; cam.forEach(function (c) { s[c[0]] = $("fo-" + c[0]).value.trim(); }); s.note = $("fo-note").value.trim();
+      var s = {}; cam.forEach(function (c) { s[c[0]] = $("fo-" + c[0]).value.trim(); }); s.note = $("fo-note").value.trim(); s.origine = $("fo-origine").value;
       document.querySelectorAll(".dl .campo-rosso").forEach(function (e) { e.classList.remove("campo-rosso"); });
       if (!s.ragione_sociale) { $("fo-ragione_sociale").classList.add("campo-rosso"); $("fo-err").textContent = "Scrivi la ragione sociale."; return; }
+      if ($("fo-si").checked) {
+        s.consenso_come = $("fo-come").value; s.consenso_il = $("fo-quando").value;
+        if (!s.consenso_come) { $("fo-come").classList.add("campo-rosso"); $("fo-err").textContent = "Scegli come ha detto sì."; return; }
+        if (!s.consenso_il) { $("fo-quando").classList.add("campo-rosso"); $("fo-err").textContent = "Scrivi quando ha detto sì."; return; }
+        if (!s.origine) { $("fo-origine").classList.add("campo-rosso"); $("fo-err").textContent = "Scegli da dove viene il contatto: va scritto nell'email."; return; }
+        if (!s.email) { $("fo-email").classList.add("campo-rosso"); $("fo-err").textContent = "Per mandare l'invito serve l'email."; return; }
+      } else { s.consenso_come = ""; s.consenso_il = ""; }
       if (s.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email)) { $("fo-email").classList.add("campo-rosso"); $("fo-err").textContent = "L'email non è scritta bene."; return; }
       this.disabled = true; var bt = this;
       chiama("fornitore", { op: "salva", id: r ? r.id : null, scheda: s }).then(function (x) {
         if (x && x.esito === "ok") { d.close(); toast("Fornitore salvato"); FO = null; disegna(); return; }
         bt.disabled = false;
         if (x && x.esito === "doppio") { $("fo-err").textContent = "C'è già un fornitore con questa partita IVA o questa email."; return; }
+        if (x && x.esito === "no_detto") { $("fo-err").textContent = "Questo fornitore ha detto no: non si modifica."; return; }
+        if (x && /^consenso_/.test(x.campo || "")) { var cc = $(x.campo === "consenso_come" ? "fo-come" : "fo-quando"); if (cc) cc.classList.add("campo-rosso"); $("fo-err").textContent = "Controlla come e quando ha detto sì (la data non può essere nel futuro)."; return; }
         if (x && x.campo) { var c = $("fo-" + x.campo); if (c) c.classList.add("campo-rosso"); $("fo-err").textContent = x.campo === "email" ? "L'email non è scritta bene." : "Manca un dato obbligatorio."; return; }
         $("fo-err").textContent = "Non salvato: riprova.";
       });
@@ -663,7 +691,9 @@ function app() {
     var COL = ["ragione_sociale", "email", "telefono", "comune", "provincia", "categoria", "sito", "partita_iva", "referente"];
     d.innerHTML = '<form class="dl" method="dialog"><h2>Importa fornitori da Excel</h2>' +
       '<p class="sub">In Excel seleziona le righe (anche con la riga dei titoli), copia con Ctrl + C e incolla qui con Ctrl + V. Colonne in quest\'ordine: <b>Ragione sociale, Email, Telefono, Comune, Provincia, Categoria, Sito, Partita IVA, Referente</b>. Le colonne mancanti si lasciano vuote. I doppi (stessa partita IVA, stessa email o stesso nome) si saltano.</p>' +
-      '<textarea id="fo-imp" style="min-height:180px" placeholder="Incolla qui le righe copiate da Excel…"></textarea><div id="fo-anteprima" class="sub"></div><div id="fo-err" class="err"></div>' +
+      '<textarea id="fo-imp" style="min-height:180px" placeholder="Incolla qui le righe copiate da Excel…"></textarea><div id="fo-anteprima" class="sub"></div>' +
+      '<label for="fo-imp-orig">Da dove vengono questi contatti</label><select id="fo-imp-orig"><option value="">— scegli —</option>' + FO_ORIG.map(function (o) { return '<option>' + E(o) + '</option>'; }).join("") + '</select>' +
+      '<p class="sub">Il «sì all\'invito» non si importa: lo segni fornitore per fornitore dopo la telefonata.</p><div id="fo-err" class="err"></div>' +
       '<div class="azioni"><button class="bt" value="no">Annulla</button><button class="bt pri" id="fo-imp-ok" value="">Importa</button></div></form>';
     d.showModal();
     var leggi = function () {
@@ -679,7 +709,7 @@ function app() {
       if (!righe.length) { $("fo-imp").classList.add("campo-rosso"); $("fo-err").textContent = "Incolla almeno una riga con la ragione sociale."; return; }
       if (righe.length > 2000) { $("fo-err").textContent = "Al massimo 2.000 righe per volta."; return; }
       this.disabled = true; var bt = this;
-      chiama("fornitore", { op: "importa", righe: righe }).then(function (x) {
+      chiama("fornitore", { op: "importa", righe: righe, origine: $("fo-imp-orig").value }).then(function (x) {
         if (x && x.esito === "ok") { d.close(); toast("Importati " + x.nuovi + (x.doppi ? " · " + x.doppi + " doppi saltati" : "")); FO = null; disegna(); return; }
         bt.disabled = false; $("fo-err").textContent = "Importazione non riuscita: riprova.";
       });
