@@ -587,6 +587,7 @@ function app() {
     var x = testa + '<p class="sub">La tua rubrica dei fornitori di materiali e servizi edili da invitare nell\'<b>Elenco fornitori di TIX</b>, dove le imprese li cercano quando chiedono un preventivo. ' +
         'Quando un fornitore si iscrive (stessa partita IVA o stessa email) lo stato cambia da solo. L\'approvazione si fa nei Preventivi, nel riquadro «Elenco fornitori TIX · solo per te».' +
         (FO.elenco_attivo !== "si" ? ' <span class="badge b-giallo">Elenco in prova: le imprese non lo vedono ancora</span>' : '') + '</p>' +
+      (FO.email_inviti !== "si" ? '<p class="badge b-giallo" style="display:block;padding:8px 12px;margin:0 0 12px">Le email d\'invito partono dal lancio: l\'informativa sul sito non ha ancora la riga sugli inviti (B6 e B12). Telefonate e «sì» all\'invito si possono già segnare.</p>' : '') +
       '<div class="kpi">' +
         k("In rubrica", rr.length, conta.da_contattare + " da contattare") +
         k("Invitati", conta.invitato, "in attesa che si iscrivano", conta.invitato ? "gi" : "") +
@@ -616,7 +617,9 @@ function app() {
             '<td>' + (r.ultimo_contatto_il ? DT(r.ultimo_contatto_il) + '<div class="sub">' + FA(r.ultimo_contatto_il) + '</div>' : '<span class="sub">mai</span>') + '</td>' +
             '<td style="white-space:nowrap">' +
               (!r.elenco && r.stato !== "non_interessato" && !r.consenso_il ? '<button class="bt pri" data-fo-mod="' + r.id + '" title="Prima chiedi per telefono o di persona se puoi mandare l\'invito, poi segna il sì">📞 Segna il sì</button> ' : '') +
-              (r.email && !r.elenco && r.stato !== "non_interessato" && r.consenso_il ? '<a class="bt pri" data-fo-mail="' + r.id + '" href="' + E(foMailto(r)) + '">✉ ' + (r.stato === "da_contattare" ? "Prepara email" : "Sollecita") + '</a> ' : '') +
+              (r.email && !r.elenco && r.stato !== "non_interessato" && r.consenso_il ? (FO.email_inviti === "si"
+                ? '<a class="bt pri" data-fo-mail="' + r.id + '" href="' + E(foMailto(r)) + '">✉ ' + (r.stato === "da_contattare" ? "Prepara email" : "Sollecita") + '</a> '
+                : '<span class="bt off" title="Le email d\'invito partono dal lancio: l\'informativa sul sito non ha ancora la riga sugli inviti">✉ Email dal lancio</span> ') : '') +
               (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="contattato" data-fo-id="' + r.id + '" title="Hai telefonato o l\'hai visto di persona">✓ Contattato</button> ' : '') +
               (r.stato !== "non_interessato" ? '<button class="bt" data-fo-mod="' + r.id + '">Modifica</button> ' : '') +
               (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="non_interessato" data-fo-id="' + r.id + '">Ha detto no</button>' : '') +
