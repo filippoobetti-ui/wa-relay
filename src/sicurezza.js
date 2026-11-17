@@ -21,6 +21,8 @@
 // Impresa) ciò che manca si segna in rosso con la riga che dice cosa fare (modulo comune src/campi-rossi.js).
 // ============================================================================
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 17/11/2026 (sicurezza-elimina-1): la copia su Drive di un documento eliminato va nel cestino di Drive
+import { driveCestino } from "./google.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GIORNO = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -281,6 +283,11 @@ async function azione(request, env, h) {
   } else if (a === "annulla") {
     if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
     r = await h.rpc(env, "sicurezza_documento_annulla", { p_token: tok, p_id: id, p_motivo: testo(dati.motivo, 300), p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+  } else if (a === "elimina") {
+    // 17/11/2026 (sicurezza-elimina-1, Filippo): documento caricato per errore cancellato del tutto, poi le sue copie
+    if (!UUID.test(id)) return json({ esito: "richiesta_non_valida" }, 400);
+    r = await h.rpc(env, "sicurezza_documento_elimina", { p_token: tok, p_id: id, p_chi: testo(dati.chi, 120) }, 15000).catch(() => null);
+    if (r && r.esito === "ok") await eliminaCopie(env, h, id, r);
   } else if (a === "impresa_salva") {
     r = await h.rpc(env, "sicurezza_impresa_salva", { p_token: tok, p_commessa: c, p_dati: dati }, 15000).catch(() => null);
   } else if (a === "impresa_togli") {
@@ -290,6 +297,28 @@ async function azione(request, env, h) {
   }
   if (!r || typeof r !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 503);
   return json(r, r.esito === "gettone" ? 403 : 200);
+}
+
+// 17/11/2026 (sicurezza-elimina-1): toglie le copie del documento eliminato (archivio wa-media e Drive) e lo scrive nel registro.
+// Solo percorsi della sezione Sicurezza dello stesso cantiere; un file già assente conta come tolto.
+async function eliminaCopie(env, h, id, r) {
+  const c = String(r.commessa_id || "");
+  const re = new RegExp("^documenti/" + c + "/sicurezza/(cache/)?[A-Za-z0-9_.-]{1,140}\\.(pdf|p7m)$");
+  let archivioOk = true, driveOk = true;
+  const errori = [];
+  for (const p of Array.isArray(r.percorsi) ? r.percorsi : []) {
+    if (!UUID.test(c) || !re.test(String(p))) { archivioOk = false; errori.push("percorso non valido"); continue; }
+    try {
+      const x = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorsoStorage(p), {
+        method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } });
+      if (!x.ok && x.status !== 404 && x.status !== 400) { archivioOk = false; errori.push("archivio " + x.status); }
+    } catch (e) { archivioOk = false; errori.push("archivio non raggiungibile"); }
+  }
+  if (r.drive) {
+    try { await driveCestino(env, String(r.drive)); }
+    catch (e) { driveOk = false; errori.push("Drive: " + String((e && e.message) || e).slice(0, 120)); }
+  }
+  await h.rpc(env, "sicurezza_eliminato_pulito", { p_id: id, p_archivio_ok: archivioOk, p_drive_ok: driveOk, p_errore: errori.join("; ") || null }, 10000).catch(() => null);
 }
 
 // ---------------------------------------------------------------------------- apertura del file
@@ -413,7 +442,7 @@ function pagina(base, h, p, d, torna) {
   inVista.sort(piuRecenti);
   const diTipo = (t) => inVista.filter((x) => x.tipo === t);
   const diImpresa = (t, k) => inVista.filter((x) => x.tipo === t && x.impresa_chiave === k);
-  const ctx = { e, base, p, T, versioni, chiuso, cse: cant.cse || "" };
+  const ctx = { e, base, p, T, versioni, chiuso, cse: cant.cse || "", elimina: !!d.elimina };
 
   // ---- testata, cifre, avvisi
   const ruoli = [cant.cse ? "CSE: <b>" + e(cant.cse) + "</b>" : "", cant.dl ? "Direzione Lavori: <b>" + e(cant.dl) + "</b>" : ""].filter(Boolean).join(" · ");
@@ -638,6 +667,7 @@ function carta(ctx, x, sola) {
     (x.apri === "archivio" ? ' title="Si riprende dall\'archivio Drive: qualche secondo"' : "") + ">" + (p7m ? "Scarica il .p7m" : "Apri il PDF") + "</a>");
   if (!ctx.chiuso && x.stato === "da_verificare") azioni.push('<button type="button" class="sc-btn sc-sm sc-sic" data-az="visto" data-id="' + e(x.id) + '">Visto dal CSE</button>');
   if (!ctx.chiuso && x.stato === "superato") azioni.push('<button type="button" class="sc-btn sc-sm sc-tenue" data-az="ripristina" data-id="' + e(x.id) + '">Rimetti in vigore</button>');
+  if (!ctx.chiuso && ctx.elimina) azioni.push('<button type="button" class="sc-btn sc-sm sc-elimina" data-az="elimina" data-id="' + e(x.id) + '">Elimina</button>');
   const altro = [];
   if (x.apri !== "no" && !p7m) altro.push('<a href="' + e(fileUrl(ctx, x, true)) + '">Scarica</a>');
   if (!ctx.chiuso) {
@@ -733,6 +763,11 @@ function finestre(ctx) {
     '<p class="sc-dlg-nota">Il documento non si cancella: resta in fondo alla pagina, tra i documenti annullati, con il motivo e il tuo nome. Se aveva preso il posto di una versione precedente, quella torna in vigore.</p>' +
     '<label for="da-mot">Motivo</label><textarea id="da-mot" maxlength="300" rows="2" placeholder="Per esempio: caricato per errore, era di un altro cantiere"></textarea>' +
     chi.replace(/__/g, "da") + pie("da", "Annulla il documento", true) + "</dialog>" +
+    (ctx.elimina ? '<dialog class="sc-dlg" id="sc-de" aria-labelledby="de-h"><h3 id="de-h">Elimina il documento</h3><p class="sc-dlg-sotto" id="de-tit"></p>' +
+      '<p class="sc-dlg-nota"><b>Si cancella del tutto</b>: il documento esce dalla pagina e il PDF si toglie dall\'archivio di TIX e da Drive. Non si può tornare indietro. ' +
+      'Resta solo una riga con il tuo nome e la data. Se aveva preso il posto di una versione precedente, quella torna in vigore.</p>' +
+      '<p class="sc-dlg-nota">Se invece il documento era giusto ma non vale più, usa «Annulla il documento» nel menu «Altro»: così resta tra i documenti annullati.</p>' +
+      chi.replace(/__/g, "de") + pie("de", "Elimina per sempre", true) + "</dialog>" : "") +
     '<dialog class="sc-dlg" id="sc-di" aria-labelledby="di-h"><h3 id="di-h">Impresa del cantiere</h3><p class="sc-dlg-nota" id="di-nota"></p>' +
     '<label for="di-nome">Nome dell\'impresa</label><input id="di-nome" maxlength="160" autocomplete="off">' +
     '<label for="di-ruolo">Rapporto con il cantiere</label><select id="di-ruolo"><option value="affidataria">Impresa affidataria</option><option value="subappaltatrice">Impresa subappaltatrice</option><option value="autonomo">Artigiano autonomo</option><option value="altra">Altra impresa</option></select>' +
@@ -775,6 +810,8 @@ const STILE =
   ".sc-btn.sc-sm{min-height:34px;padding:0 12px;font-size:.84rem;border-radius:10px}" +
   ".sc-btn.sc-tenue{border-color:rgba(16,27,43,.16);color:var(--t)}" +
   ".sc-btn.sc-rosso{border-color:var(--ro);color:var(--ro)}" +
+  ".sc-btn.sc-elimina{border-color:#B3261E;color:#B3261E;background:#fff}.sc-btn.sc-elimina:hover,.sc-btn.sc-elimina:focus-visible{background:#B3261E;color:#fff;outline:none}" +
+  "@media (prefers-color-scheme:dark){.sc-btn.sc-elimina{background:transparent;color:#ff9b93;border-color:#ff9b93}}" +
   ".sc-btn.sc-rosso-p{border-color:var(--ro);color:#fff;background-image:linear-gradient(180deg,#C8352B,#B3261E)}" +
   ".sc-agg{margin:10px 0 14px;font-size:.86rem;color:var(--s)}.sc-agg b{color:var(--t)}" +
   ".sc-chiuso{margin:0 0 12px;padding:8px 12px;border-radius:10px;background:var(--z);font-size:.88rem}" +
@@ -1028,6 +1065,7 @@ D.addEventListener('click',function(e){var b=e.target&&e.target.closest?e.target
   if(doc.ik&&$('dm-imp').value!==doc.ik&&doc.imp){$('dm-imp').value='+';$('dm-altra').hidden=false;$('dm-altra-nome').value=doc.imp;}
   $('dm-tit-in').value=doc.tit||'';$('dm-ver').value=doc.ver||'';$('dm-data').value=doc.data||'';$('dm-scad').value=doc.scad||'';$('dm-nota').value=doc.nota||'';riempi('dm');apriDlg($('sc-dm'));return;}
  if(az==='annulla'){corr=id;$('da-tit').textContent=doc.n||'';$('da-mot').value='';riempi('da');apriDlg($('sc-da'));return;}
+ if(az==='elimina'){corr=id;$('de-tit').textContent=doc.n||'';riempi('de');apriDlg($('sc-de'));return;}
  if(az==='nuova'){prepara(doc.tipo,doc.ik);return;}
  if(az==='togli-visto'||az==='ripristina'){if(!confirm(az==='ripristina'?'Rimetti in vigore questa versione? Torna con lo stato che aveva prima.':'Togli «Visto dal CSE» da questo documento? Torna «Da verificare».'))return;
   b.disabled=true;chiama(az==='ripristina'?'ripristina':'da_verificare',id,{chi:leggiChi()}).then(function(r){esito(r,b,null,id);});return;}
@@ -1042,6 +1080,7 @@ if($('dm-si'))$('dm-si').addEventListener('click',function(){var t=TIPI[dmTipo.v
  if(t.pi&&!im.n&&$('dm-imp-box').hidden){$('dm-msg').textContent='Scegli l\'impresa a cui si riferisce il documento.';return;}
  salva('dm','dati',{tipo:dmTipo.value,impresa:im.n,impresa_ruolo:im.r,titolo:$('dm-tit-in').value.trim(),versione:$('dm-ver').value.trim(),data:$('dm-data').value,scadenza:$('dm-scad').value,nota:$('dm-nota').value.trim()},rr);});
 if($('da-si'))$('da-si').addEventListener('click',function(){var mot=$('da-mot').value.trim();salva('da','annulla',{motivo:mot},[{el:$('da-mot'),ok:function(){return mot.length>=3;},testo:'Scrivi il motivo: resta scritto con il documento.'}]);});
+if($('de-si'))$('de-si').addEventListener('click',function(){salva('de','elimina',{});});
 if($('di-si'))$('di-si').addEventListener('click',function(){var n=$('di-nome').value.trim();
  var pos='';D.querySelectorAll('input[name=di-pos]').forEach(function(r){if(r.checked)pos=r.value;});
  salva('di','impresa_salva',{chiave:corr||'',nome:n,ruolo:$('di-ruolo').value,lavorazione:$('di-lav').value.trim(),pos:pos},[{el:$('di-nome'),testo:'Scrivi il nome dell\'impresa.'}]);});
