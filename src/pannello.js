@@ -58,6 +58,11 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     const d = b.dati || {};
     const az = UUID.test(String(d.azienda || "")) ? String(d.azienda).toLowerCase() : null;
     if (b.azione === "dati") return j((await rpc(env, "pannello_dati", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    // pannello-6 (17/11, C1): centrale delle email (Brevo), di tutte o di una sola impresa
+    if (b.azione === "email") {
+      const g = Number(d.giorni);
+      return j((await rpc(env, "pannello_email", { p_token: tok, p_disp: disp, p_az: az, p_giorni: Number.isInteger(g) && g >= 1 && g <= 400 ? g : 30 })) || { esito: "servizio" });
+    }
     if (!az) return j({ esito: "nontrovata" }, 400);
     if (b.azione === "impresa") return j((await rpc(env, "pannello_impresa", { p_token: tok, p_disp: disp, p_az: az })) || { esito: "servizio" });
     if (b.azione === "nota") {
@@ -220,7 +225,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, S = { c: "", tab: "crono", f: "tutti", q: "", cf: "tutto" };
+  var D = C.dati, CACHE = {}, MAIL = {}, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30 };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -238,7 +243,7 @@ function app() {
   var PAG = { regolare: "In regola", promemoria: "Promemoria mandato", avviso: "Avviso mandato", sospesa: "Sospesa", chiusa: "Chiusa", errore: "Non letto" };
   var IC = { pagamento: "€", pagato: "✓", ritardo: "!", crediti: "C", email: "@", cantiere: "▦", nota: "✎", inizio: "★", contratto: "§", assistenza: "?" };
   var CF = [["tutto", "Tutto"], ["soldi", "Pagamenti"], ["crediti", "Crediti"], ["email", "Email"], ["cantiere", "Cantieri"], ["nota", "Note"], ["assistenza", "Assistenza"]];
-  var TABS = [["crono", "Cronologia"], ["pag", "Pagamenti"], ["uso", "Uso"], ["pers", "Persone e numeri"], ["cant", "Cantieri"], ["note", "Note"]];
+  var TABS = [["crono", "Cronologia"], ["pag", "Pagamenti"], ["mail", "Email"], ["uso", "Uso"], ["pers", "Persone e numeri"], ["cant", "Cantieri"], ["note", "Note"]];
 
   function toast(t) { var x = $("toast"); x.textContent = t; x.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function () { x.hidden = true; }, 2600); }
   function chiama(az, dati) {
@@ -253,9 +258,10 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
+    S.p = !S.c && p.get("p") === "email" ? "email" : "";
   }
-  function vai(c, tab) {
-    var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : "#";
+  function vai(c, tab, pag) {
+    var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
     if (location.hash !== h) location.hash = h; else disegna();
   }
 
@@ -272,7 +278,8 @@ function app() {
       return okf && okq;
     });
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
-      '<button class="voceoggi" data-oggi' + (S.c ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
+      '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
+      '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email</button>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca un cliente…" aria-label="Cerca un cliente" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
         return '<button class="chip" data-f="' + f[0] + '" aria-pressed="' + (S.f === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
@@ -350,7 +357,7 @@ function app() {
       '<div class="schede" role="tablist">' + TABS.map(function (t) { return '<button class="scheda" role="tab" data-tab="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join("") + '</div>';
     if (!p) return x + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div><div class="sk" style="width:80%"></div><div class="sk"></div></div></div>';
     if (p.esito !== "ok") return x + '<p class="err">Non è stato possibile leggere questo cliente. Ricarica la pagina.</p></div>';
-    x += '<div class="griglia2"><div>' + ({ crono: tCrono, pag: tPag, uso: tUso, pers: tPers, cant: tCant, note: tNote }[S.tab])(c, p) + '</div>' + colonnaDati(c, p) + '</div></div>';
+    x += '<div class="griglia2"><div>' + ({ crono: tCrono, pag: tPag, mail: tMail, uso: tUso, pers: tPers, cant: tCant, note: tNote }[S.tab])(c, p) + '</div>' + colonnaDati(c, p) + '</div></div>';
     return x;
   }
 
@@ -451,6 +458,80 @@ function app() {
       }).join("") : '<p class="vuoto">Nessuna nota.</p>') + '</div></div>';
   }
 
+  // ---- centrale delle email (C1, 17/11): dati di Brevo letti ogni 10 minuti dal database
+  var DEST_PROB = function (e) { return e.colore === "rosso" || e.colore === "giallo"; };
+  function tabellaEmail(lista, conImpresa) {
+    if (!lista.length) return '<p class="vuoto">Nessuna email qui.</p>';
+    return '<table><thead><tr><th>Quando</th><th>A chi</th>' + (conImpresa ? '<th>Impresa</th>' : '') + '<th>Oggetto</th><th>Destino</th></tr></thead><tbody>' +
+      lista.map(function (e) {
+        var det = e.motivo ? ' title="' + E(e.motivo) + '"' : '';
+        var dove = e.cliccata_il ? 'cliccata ' + DT(e.cliccata_il, true) : e.aperta_il ? 'aperta ' + DT(e.aperta_il, true) : '';
+        return '<tr><td style="white-space:nowrap">' + DT(e.quando, true) + '</td><td>' + (e.a ? E(e.a) : '<span class="sub">—</span>') + '</td>' +
+          (conImpresa ? '<td>' + (e.azienda_id ? '<button class="copia" data-c="' + e.azienda_id + '">' + E(e.azienda || "impresa") + '</button>' : '<span class="sub">—</span>') + '</td>' : '') +
+          '<td>' + E(e.oggetto || "") + '</td><td><span class="badge b-' + E(e.colore) + '"' + det + '>' + E(e.destino) + '</span>' +
+          (dove ? '<div class="sub">' + dove + (e.apertura_incerta ? '' : '') + '</div>' : '') + (e.motivo ? '<div class="err">' + E(e.motivo) + '</div>' : '') + '</td></tr>';
+      }).join("") + '</tbody></table>';
+  }
+  function paginaEmail() {
+    var m = MAIL[""];
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Email</h1>';
+    if (!m) { caricaMail(""); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div><div class="sk" style="width:80%"></div></div></div>'; }
+    if (m.esito !== "ok") return testa + '<p class="err">Non è stato possibile leggere le email. Ricarica la pagina.</p></div>';
+    var pi = (m.piano || [])[0] || {}, og = m.oggi || {}, tr = m.trenta || {};
+    var lim = 300, rest = pi.credits == null ? null : Number(pi.credits);
+    var usate = rest == null ? (og.requests || 0) : lim - rest;
+    var pc = function (a, b) { return b ? Math.round(100 * a / b) + " %" : "—"; };
+    var rimb = (tr.hardBounces || 0) + (tr.softBounces || 0), male = (tr.spamReports || 0) + (tr.blocked || 0) + (tr.invalid || 0) + (tr.error || 0);
+    var tutte = m.email || [];
+    var q = S.eq.toLowerCase();
+    var lista = tutte.filter(function (e) {
+      var okf = S.ef === "tutte" || (S.ef === "problemi" && DEST_PROB(e)) || (S.ef === "aperte" && (e.aperta_il || e.cliccata_il)) || (S.ef === "nonaperte" && e.colore === "verde" && !e.aperta_il && !e.cliccata_il);
+      var okq = !q || [e.a, e.oggetto, e.azienda].join(" ").toLowerCase().indexOf(q) !== -1;
+      return okf && okq;
+    });
+    var nprob = tutte.filter(DEST_PROB).length;
+    var F = [["tutte", "Tutte", tutte.length], ["problemi", "Problemi", nprob], ["aperte", "Aperte", tutte.filter(function (e) { return e.aperta_il || e.cliccata_il; }).length], ["nonaperte", "Consegnate non aperte", tutte.filter(function (e) { return e.colore === "verde" && !e.aperta_il && !e.cliccata_il; }).length]];
+    var dom = m.domini || [], mit = m.mittenti || [], bl = m.bloccati || [];
+    var x = testa + '<p class="sub">Da Brevo, piano ' + E(pi.type === "free" ? "Free (gratuito)" : (pi.type || "—")) + ' · aggiornato ' + DT(m.aggiornato_il, true) + ' · si aggiorna da solo ogni 10 minuti · <a href="https://app.brevo.com/" target="_blank" rel="noopener">apri Brevo</a></p>' +
+      '<div class="kpi">' +
+        '<div class="k' + (usate >= 270 ? ' ro' : usate >= 250 ? ' gi' : '') + '"><div class="et">Inviate oggi</div><div class="v">' + usate + ' / ' + lim + '</div><div class="barra' + (usate >= 270 ? ' ro' : usate >= 250 ? ' gi' : '') + '"><i style="width:' + Math.min(100, Math.round(100 * usate / lim)) + '%"></i></div><div class="n2">' + (rest == null ? '' : 'ne restano ' + rest + ' fino a mezzanotte') + '</div></div>' +
+        k("Consegnate", pc(tr.delivered || 0, tr.requests || 0), (tr.delivered || 0) + " su " + (tr.requests || 0) + " in 30 giorni", (tr.requests && (tr.delivered || 0) < tr.requests) ? "gi" : "") +
+        k("Aperte", pc(tr.uniqueOpens || 0, tr.delivered || 0), (tr.uniqueOpens || 0) + " persone hanno aperto · " + (tr.uniqueClicks || 0) + " hanno cliccato") +
+        k("Rimbalzi", rimb, (tr.hardBounces || 0) + " definitivi · " + (tr.softBounces || 0) + " temporanei", tr.hardBounces ? "ro" : rimb ? "gi" : "") +
+        k("Spam e blocchi", male, (tr.spamReports || 0) + " spam · " + (tr.blocked || 0) + " bloccate · " + (tr.invalid || 0) + " non valide", male ? "ro" : "") +
+        k("Ferme in TIX", m.coda_tix || 0, "non ancora passate a Brevo", m.coda_tix ? "gi" : "") +
+      '</div>' +
+      '<div class="griglia2"><section class="card"><h2>Ogni email e il suo destino</h2>' +
+        '<div class="filtri" style="padding:0 0 8px" role="group" aria-label="Filtra le email">' + F.map(function (f) {
+          return '<button class="chip" data-ef="' + f[0] + '" aria-pressed="' + (S.ef === f[0]) + '">' + f[1] + '<span class="n">' + f[2] + '</span></button>';
+        }).join("") +
+        ' <select id="eg" aria-label="Periodo">' + [[7, "7 giorni"], [30, "30 giorni"], [90, "90 giorni"], [365, "12 mesi"]].map(function (o) { return '<option value="' + o[0] + '"' + (S.eg === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join("") + '</select></div>' +
+        '<div class="cerca" style="padding:0 0 10px"><input id="eq" type="search" placeholder="Cerca per indirizzo, oggetto o impresa…" aria-label="Cerca tra le email" value="' + E(S.eq) + '"></div>' +
+        tabellaEmail(lista, true) +
+        '<p class="sub" style="margin-top:8px">Brevo manda le aperture senza dire chi ha aperto: TIX le abbina all\'email solo quando l\'oggetto è unico. Alcuni programmi di posta (per esempio Apple Mail) segnano «aperta» da soli.</p>' +
+      '</section>' +
+      '<aside class="card dati"><h2>Salute dell\'invio</h2><dl>' +
+        dom.map(function (d) { return '<dt>Dominio ' + E(d.nome) + '</dt><dd>' + (d.autenticato && d.verificato ? '<span class="badge b-verde">autenticato ✓</span>' : '<span class="badge b-rosso">da sistemare</span>') + '</dd>'; }).join("") +
+        '</dl><h3>Mittenti</h3><dl>' + mit.map(function (s) { return '<dt>' + E(s.email) + '</dt><dd>' + (s.active ? 'attivo' : '<span class="err">non attivo</span>') + '</dd>'; }).join("") + '</dl>' +
+        '<h3>Indirizzi bloccati</h3>' + (bl.length ? '<dl>' + bl.map(function (b2) { return '<dt>' + E(b2.email) + '</dt><dd>' + E((b2.reason && (b2.reason.message || b2.reason.code)) || "bloccato") + '</dd>'; }).join("") + '</dl>' : '<p class="sub">Nessuno: tutti gli indirizzi ricevono.</p>') +
+        '<h3>Liste di contatti</h3>' + ((m.liste || []).length ? '<dl>' + m.liste.map(function (l) { return '<dt>' + E(l.nome) + '</dt><dd>' + (l.iscritti || 0) + '</dd>'; }).join("") + '</dl>' : '<p class="sub">Nessuna.</p>') +
+        '<h3>Modelli in Brevo</h3>' + ((m.modelli || []).length ? '<dl>' + m.modelli.map(function (t) { return '<dt>' + E(t.nome) + '</dt><dd>' + (t.attivo ? 'attivo' : 'spento') + '</dd>'; }).join("") + '</dl>' : '<p class="sub">Nessuno.</p>') +
+        '<p class="sub">Campagne inviate: ' + E(m.campagne || 0) + '. Le email di TIX non usano i modelli di Brevo: i testi stanno in TIX.</p>' +
+      '</aside></div></div>';
+    return x;
+  }
+  function tMail(c) {
+    var m = MAIL[c.id];
+    if (!m) { caricaMail(c.id); return '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div>'; }
+    if (m.esito !== "ok") return '<p class="err">Email non lette. Ricarica la pagina.</p>';
+    var l = m.email || [];
+    return '<div class="card"><h2>Email mandate da TIX a questa impresa</h2><p class="sub">Ultimi 12 mesi · abbinate dall\'indirizzo (titolare, impresa, persone, accessi)</p>' + tabellaEmail(l, false) + '</div>';
+  }
+  function caricaMail(id) {
+    if (MAIL["_" + id]) return; MAIL["_" + id] = 1;
+    chiama("email", id ? { azienda: id, giorni: 365 } : { giorni: S.eg }).then(function (r) { MAIL[id] = r || { esito: "servizio" }; delete MAIL["_" + id]; disegna(); });
+  }
+
   // ---- regalo di crediti (finestra con conferma)
   function regala() {
     var c = cliente(S.c); if (!c) return;
@@ -489,11 +570,11 @@ function app() {
   // ---- disegno e dati
   function disegna() {
     var a = $("app");
-    a.className = "app" + (S.c ? " dentro" : "");
-    var su = $("q") && document.activeElement === $("q");
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : oggi()) + '</main>';
-    if (su) { var q = $("q"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
-    document.title = (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : "") + "Pannello di TIX";
+    a.className = "app" + (S.c || S.p ? " dentro" : "");
+    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq") ? ae0.id : "";
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : oggi()) + '</main>';
+    if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    document.title = (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -504,6 +585,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
+      MAIL = {};
       // l'aggiornamento automatico non ridisegna mentre Filippo scrive o ha una finestra aperta
       var ae = document.activeElement, scrive = ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && ae.id !== "q"));
       if (anche || (!scrive && !$("dlg").open && !($("nn") && $("nn").value))) disegna();
@@ -514,6 +596,8 @@ function app() {
     var b = ev.target.closest ? ev.target.closest("button,a") : null; if (!b) return;
     if (b.hasAttribute("data-c")) { vai(b.getAttribute("data-c"), "crono"); var co = $("corpo"); if (co) co.scrollTop = 0; window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
+    if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
+    if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
     if (b.hasAttribute("data-f")) { S.f = b.getAttribute("data-f"); disegna(); return; }
     if (b.hasAttribute("data-cf")) { S.cf = b.getAttribute("data-cf"); disegna(); return; }
     if (b.hasAttribute("data-tab")) { var fu = b.hasAttribute("data-fuoco"); vai(S.c, b.getAttribute("data-tab")); if (fu) setTimeout(function () { var n = $("nn"); if (n) n.focus(); }, 60); return; }
@@ -531,7 +615,13 @@ function app() {
       chiama("nota", { azienda: S.c, togli: b.getAttribute("data-togli") }).then(function (r) { if (r && r.esito === "ok") { toast("Nota tolta"); delete CACHE[S.c]; disegna(); } else toast("Nota non tolta"); });
     }
   });
-  document.addEventListener("input", function (ev) { if (ev.target && ev.target.id === "q") { S.q = ev.target.value; disegna(); } });
+  document.addEventListener("input", function (ev) {
+    if (ev.target && ev.target.id === "q") { S.q = ev.target.value; disegna(); }
+    if (ev.target && ev.target.id === "eq") { S.eq = ev.target.value; disegna(); }
+  });
+  document.addEventListener("change", function (ev) {
+    if (ev.target && ev.target.id === "eg") { S.eg = Number(ev.target.value) || 30; delete MAIL[""]; disegna(); }
+  });
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "/" && document.activeElement && ["INPUT", "TEXTAREA"].indexOf(document.activeElement.tagName) === -1) { ev.preventDefault(); var q = $("q"); if (q) q.focus(); }
   });
