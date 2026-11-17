@@ -144,7 +144,7 @@ export function preventiviIniezione(base, token, commessa) {
     ".gl-pv-b{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:0 16px;border:1.5px solid #66741C;border-radius:10px;background:#F3F5E6;color:#4A5512;font:inherit;font-size:.92rem;font-weight:700;text-decoration:none;box-shadow:0 0 0 3px rgba(102,116,28,.14)}" +
     ".gl-pv-b:hover,.gl-pv-b:focus-visible{background:#66741C;color:#fff;outline:none}" +
     "@media (prefers-color-scheme:dark){.gl-pv-b{background:#262b10;color:#e3e8bf;border-color:#8C9B33}}</style>" +
-    "<script>(function(){try{var a=document.createElement('a');a.className='gl-pv-b';a.href=" + JSON.stringify(u) + ";a.innerHTML=" + JSON.stringify(icona + " Preventivi") + ";" +
+    "<script>(function(){try{var a=document.createElement('a');a.className='gl-pv-b';a.href=" + JSON.stringify(u) + ";a.innerHTML=" + JSON.stringify(icona + " Fai un preventivo") + ";" +
     "var ap=document.createElement('a');ap.className='gl-pv-b';ap.href=" + JSON.stringify(up) + ";ap.innerHTML=" + JSON.stringify(iconaP + " Prove sui materiali") + ";" +
     "var r=document.querySelector('.gl-azioni');if(r){r.appendChild(a);r.appendChild(ap);var n=r.children.length;r.classList.toggle('gl-az4',n===4);r.classList.toggle('gl-az5',n>=5);return;}" +
     "var b=document.createElement('div');b.className='gl-pv-barra';b.appendChild(a);b.appendChild(document.createTextNode(' '));b.appendChild(ap);var nav=document.querySelector('nav.schede');" +
@@ -611,13 +611,13 @@ var FIL={cant:CFG.c||'',stato:''};
 function elenco(){
  var app=$('pv-app');
  if(!D.azienda){
-  app.innerHTML='<section class="pv-card"><p class="pv-chi">Tutte le aziende</p><h1><span class="pv-ic">'+ICONA+'</span>Preventivi</h1>'+scegliImpresa()+
+  app.innerHTML='<section class="pv-card"><p class="pv-chi">Tutte le aziende</p><h1><span class="pv-ic">'+ICONA+'</span>Fai un preventivo</h1>'+scegliImpresa()+
    '<p class="pv-spiega">Scegli l\'impresa per vedere e fare i suoi preventivi.</p></section>';return;}
  var P=D.preventivi||[],C=D.cantieri||[];
  var nC={},nS={bozza:0,mandato:0,accettato:0,rifiutato:0},senza=0;
  P.forEach(function(p){if(p.commessa_id)nC[p.commessa_id]=(nC[p.commessa_id]||0)+1;else senza++;nS[p.stato]=(nS[p.stato]||0)+1;});
  var vis=P.filter(function(p){return (!FIL.cant||(FIL.cant==='senza'?!p.commessa_id:p.commessa_id===FIL.cant))&&(!FIL.stato||p.stato===FIL.stato);});
- var h='<section class="pv-card"><div class="pv-testa"><div><p class="pv-chi">'+es(D.azienda.nome)+'</p><h1><span class="pv-ic">'+ICONA+'</span>Preventivi</h1></div>'+
+ var h='<section class="pv-card"><div class="pv-testa"><div><p class="pv-chi">'+es(D.azienda.nome)+'</p><h1><span class="pv-ic">'+ICONA+'</span>Fai un preventivo</h1></div>'+
   '<div class="pv-az-t"><button type="button" class="pv-b pv-pr" id="pv-nuovo">+ Nuovo preventivo</button></div></div>'+scegliImpresa()+
   '<p class="pv-spiega">Preventivi per i lavori extra di un cantiere e per i lavori nuovi. Le voci si prendono dall\'<b>elenco prezzi del contratto</b> (il computo della sezione SAL), dal <b>prezzario regionale</b> o si scrivono a mano. Un preventivo mandato non si riscrive più: ogni modifica diventa una revisione nuova. I prezzi li vede e li scrive solo l\'ufficio.</p><div id="pv-crediti"></div><div id="pv-elenco-adm"></div>'+
   '<div class="pv-filtri"><span class="et">Cantiere</span>'+chip('cant','',  'Tutti',P.length)+C.filter(function(c){return nC[c.id]||c.id===FIL.cant;}).map(function(c){return chip('cant',c.id,c.nome,nC[c.id]||0);}).join('')+
