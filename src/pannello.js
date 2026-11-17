@@ -63,6 +63,15 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       const g = Number(d.giorni);
       return j((await rpc(env, "pannello_email", { p_token: tok, p_disp: disp, p_az: az, p_giorni: Number.isInteger(g) && g >= 1 && g <= 400 ? g : 30 })) || { esito: "servizio" });
     }
+    // pannello-7 (17/11, F1): rubrica dei fornitori da invitare nell'Elenco fornitori TIX (della B3, solo letto)
+    if (b.azione === "fornitori") return j((await rpc(env, "pannello_fornitori_dati", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    if (b.azione === "fornitore") {
+      const op = String(d.op || "");
+      if (!/^(salva|importa|contattato|non_interessato|riapri|togli)$/.test(op)) return j({ esito: "azione" }, 400);
+      const righe = Array.isArray(d.righe) ? d.righe.slice(0, 2000) : undefined;
+      const r = await rpc(env, "pannello_fornitore", { p_token: tok, p_disp: disp, p_azione: op, p_dati: Object.assign({}, d.scheda || {}, { id: d.id || null }, righe ? { righe: righe } : {}) });
+      return j(r || { esito: "servizio" });
+    }
     if (!az) return j({ esito: "nontrovata" }, 400);
     if (b.azione === "impresa") return j((await rpc(env, "pannello_impresa", { p_token: tok, p_disp: disp, p_az: az })) || { esito: "servizio" });
     if (b.azione === "nota") {
@@ -225,7 +234,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30 };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -258,7 +267,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && p.get("p") === "email" ? "email" : "";
+    S.p = !S.c && (p.get("p") === "email" || p.get("p") === "fornitori") ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -280,6 +289,7 @@ function app() {
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
       '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email</button>' +
+      '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori da invitare</button>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca un cliente…" aria-label="Cerca un cliente" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
         return '<button class="chip" data-f="' + f[0] + '" aria-pressed="' + (S.f === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
@@ -532,6 +542,150 @@ function app() {
     chiama("email", id ? { azienda: id, giorni: 365 } : { giorni: S.eg }).then(function (r) { MAIL[id] = r || { esito: "servizio" }; delete MAIL["_" + id]; disegna(); });
   }
 
+  // ---- fornitori da invitare nell'Elenco TIX (F1, 17/11). L'Elenco è della B3: qui si legge soltanto.
+  var FO_ST = { da_contattare: ["Da contattare", "grigio"], invitato: ["Invitato", "giallo"], sollecitato: ["Sollecitato", "giallo"], non_interessato: ["Non interessato", "grigio"] };
+  var EL_ST = { da_confermare: "Iscritto, deve confermare l'email", da_approvare: "Iscritto, da approvare", approvato: "Nell'elenco", rifiutato: "Rifiutato", nascosto: "Nascosto" };
+  function foRiga(id) { return ((FO && FO.righe) || []).filter(function (r) { return String(r.id) === String(id); })[0]; }
+  function foFase(r) {
+    var el = r.elenco;
+    if (el && el.riquadro) return ["logo", "Logo TIX sul sito ✓", "verde"];
+    if (el && el.stato === "approvato") return ["iscritto", "Nell'elenco · manca il logo", "giallo"];
+    if (el) return ["iscritto", EL_ST[el.stato] || el.stato, el.stato === "rifiutato" ? "rosso" : "giallo"];
+    var s = FO_ST[r.stato] || [r.stato, "grigio"];
+    return [r.stato === "sollecitato" ? "invitato" : r.stato, s[0], s[1]];
+  }
+  function foMailto(r) {
+    var corpo = "Buongiorno" + (r.referente ? " " + r.referente : "") + ",\n\n" +
+      "sono Filippo Obetti di TIX · Diario di cantiere (www.tixcantiere.it), l'app che le imprese edili usano per il diario di cantiere, i preventivi e le richieste di offerta ai fornitori.\n\n" +
+      "Vi propongo di entrare nell'Elenco fornitori di TIX: le imprese che usano TIX vi trovano per zona e per lavorazione e vi mandano le richieste di offerta direttamente.\n\n" +
+      "Per iscrivervi bastano pochi minuti da questo collegamento:\n" + (FO && FO.link || "") + "\n\n" +
+      "L'unica condizione è pubblicare sul vostro sito il riquadro «Siamo nell'elenco fornitori di TIX», che vi mandiamo noi.\n\n" +
+      "Se non volete ricevere altre comunicazioni da TIX, basta rispondere a questa email.\n\nCordiali saluti\nFilippo Obetti\nTIX · Diario di cantiere — info@tixcantiere.it";
+    return "mailto:" + String(r.email || "").replace(/[^\w.@+-]/g, "") + "?subject=" + encodeURIComponent("Elenco fornitori di TIX: " + r.ragione_sociale) + "&body=" + encodeURIComponent(corpo);
+  }
+  function caricaFornitori() {
+    if (caricaFornitori.v) return; caricaFornitori.v = 1;
+    chiama("fornitori").then(function (r) { FO = r || { esito: "servizio" }; caricaFornitori.v = 0; disegna(); });
+  }
+  function paginaFornitori() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Fornitori da invitare</h1>';
+    if (!FO) { caricaFornitori(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
+    if (FO.esito !== "ok") return testa + '<p class="err">Non è stato possibile leggere i fornitori. Ricarica la pagina.</p></div>';
+    var rr = FO.righe || [], el = FO.elenco || {};
+    var conta = { tutti: rr.length, da_contattare: 0, invitato: 0, iscritto: 0, logo: 0, non_interessato: 0 };
+    rr.forEach(function (r) { var f = foFase(r)[0]; if (conta[f] != null) conta[f]++; });
+    var q = S.fq.toLowerCase();
+    var lista = rr.filter(function (r) {
+      var okf = S.ff === "tutti" || foFase(r)[0] === S.ff;
+      var okq = !q || [r.ragione_sociale, r.categoria, r.comune, r.provincia, r.email, r.referente].join(" ").toLowerCase().indexOf(q) !== -1;
+      return okf && okq;
+    });
+    var F = [["tutti", "Tutti"], ["da_contattare", "Da contattare"], ["invitato", "Invitati"], ["iscritto", "Iscritti"], ["logo", "Con il logo TIX"], ["non_interessato", "Non interessati"]];
+    var x = testa + '<p class="sub">La tua rubrica dei fornitori di materiali e servizi edili da invitare nell\'<b>Elenco fornitori di TIX</b>, dove le imprese li cercano quando chiedono un preventivo. ' +
+        'Quando un fornitore si iscrive (stessa partita IVA o stessa email) lo stato cambia da solo. L\'approvazione si fa nei Preventivi, nel riquadro «Elenco fornitori TIX · solo per te».' +
+        (FO.elenco_attivo !== "si" ? ' <span class="badge b-giallo">Elenco in prova: le imprese non lo vedono ancora</span>' : '') + '</p>' +
+      '<div class="kpi">' +
+        k("In rubrica", rr.length, conta.da_contattare + " da contattare") +
+        k("Invitati", conta.invitato, "in attesa che si iscrivano", conta.invitato ? "gi" : "") +
+        k("Iscritti all'elenco", el.iscritti || 0, (el.da_approvare || 0) + " da approvare", el.da_approvare ? "gi" : "") +
+        k("Nell'elenco", el.approvati || 0, "approvati") +
+        k("Con il logo TIX", el.con_riquadro || 0, "riquadro sul loro sito") +
+        k("Non interessati", conta.non_interessato, "") +
+      '</div>' +
+      '<div class="card"><h2>Link d\'invito</h2><p class="sub">È lo stesso link che trovi nei Preventivi. Va nell\'email di invito (il pulsante «Prepara email» lo mette da solo).</p>' +
+        '<dl class="dati"><dt>Link</dt><dd><span>' + E(FO.link) + '</span><button class="copia" data-copia="' + E(FO.link) + '">copia</button></dd></dl></div>' +
+      '<section class="card" style="margin-top:14px"><div class="azioni" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Rubrica</h2><span>' +
+        '<button class="bt pri" data-fo-nuovo>+ Aggiungi fornitore</button> <button class="bt" data-fo-importa>⇪ Importa da Excel</button></span></div>' +
+        '<div class="filtri" style="padding:10px 0 8px" role="group" aria-label="Filtra i fornitori">' + F.map(function (f) {
+          return '<button class="chip" data-ff="' + f[0] + '" aria-pressed="' + (S.ff === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
+        }).join("") + '</div>' +
+        '<div class="cerca" style="padding:0 0 10px"><input id="fq" type="search" placeholder="Cerca per nome, categoria, comune, provincia, email…" aria-label="Cerca tra i fornitori" value="' + E(S.fq) + '"></div>' +
+        (lista.length ? '<table><thead><tr><th>Fornitore</th><th>Contatti</th><th>Stato</th><th>Ultimo contatto</th><th>Azioni</th></tr></thead><tbody>' + lista.map(function (r) {
+          var fa = foFase(r);
+          return '<tr><td><b>' + E(r.ragione_sociale) + '</b><div class="sub">' + E([r.categoria, [r.comune, r.provincia && "(" + r.provincia + ")"].filter(Boolean).join(" ")].filter(Boolean).join(" · ")) + '</div>' +
+              (r.note ? '<div class="sub">✎ ' + E(r.note) + '</div>' : '') + '</td>' +
+            '<td>' + (r.email ? '<div>' + E(r.email) + '</div>' : '<div class="err">manca l\'email</div>') + (r.telefono ? '<div><a href="tel:' + E(String(r.telefono).replace(/\s/g, "")) + '">' + E(r.telefono) + '</a></div>' : '') +
+              (r.sito ? '<div><a href="' + E(/^https?:/i.test(r.sito) ? r.sito : "https://" + r.sito) + '" target="_blank" rel="noopener">sito</a>' + (r.elenco && r.elenco.riquadro_url ? ' · <a href="' + E(r.elenco.riquadro_url) + '" target="_blank" rel="noopener">pagina col logo</a>' : '') + '</div>' : '') + '</td>' +
+            '<td><span class="badge b-' + fa[2] + '">' + E(fa[1]) + '</span>' + (r.contatti_n ? '<div class="sub">' + r.contatti_n + (r.contatti_n === 1 ? ' contatto' : ' contatti') + '</div>' : '') + '</td>' +
+            '<td>' + (r.ultimo_contatto_il ? DT(r.ultimo_contatto_il) + '<div class="sub">' + FA(r.ultimo_contatto_il) + '</div>' : '<span class="sub">mai</span>') + '</td>' +
+            '<td style="white-space:nowrap">' +
+              (r.email && !r.elenco && r.stato !== "non_interessato" ? '<a class="bt pri" data-fo-mail="' + r.id + '" href="' + E(foMailto(r)) + '">✉ ' + (r.stato === "da_contattare" ? "Prepara email" : "Sollecita") + '</a> ' : '') +
+              (!r.elenco && r.stato !== "non_interessato" ? '<button class="bt" data-fo-op="contattato" data-fo-id="' + r.id + '" title="Hai telefonato o scritto in altro modo">✓ Contattato</button> ' : '') +
+              '<button class="bt" data-fo-mod="' + r.id + '">Modifica</button> ' +
+              (r.stato === "non_interessato" ? '<button class="bt" data-fo-op="riapri" data-fo-id="' + r.id + '">Riapri</button>' : (!r.elenco ? '<button class="bt" data-fo-op="non_interessato" data-fo-id="' + r.id + '">Non interessato</button>' : '')) +
+            '</td></tr>';
+        }).join("") + '</tbody></table>' : '<p class="vuoto">' + (rr.length ? 'Nessun fornitore con questi filtri.' : 'La rubrica è vuota: aggiungi un fornitore o importa il tuo file Excel.') + '</p>') +
+      '</section>';
+    var so = FO.solo_elenco || [];
+    if (so.length) x += '<section class="card" style="margin-top:14px"><h2>Iscritti all\'elenco che non sono nella tua rubrica</h2><p class="sub">Arrivati da soli o con il passaparola.</p><table><thead><tr><th>Fornitore</th><th>Sede</th><th>Stato</th><th>Iscritto il</th></tr></thead><tbody>' +
+      so.map(function (f) { return '<tr><td>' + E(f.ragione_sociale) + '</td><td>' + E(f.sede || "") + '</td><td>' + E(EL_ST[f.stato] || f.stato) + (f.riquadro ? ' · logo ✓' : '') + '</td><td>' + DT(f.iscritto_il) + '</td></tr>'; }).join("") + '</tbody></table></section>';
+    x += '<p class="sub" style="margin-top:12px">Le email di invito partono dal tuo programma di posta, una alla volta: scegli come mittente info@tixcantiere.it. Per la privacy TIX non manda inviti in automatico a chi non è cliente.</p></div>';
+    return x;
+  }
+  function opFornitore(id, op) {
+    var r = foRiga(id); if (!r) return;
+    if (op === "non_interessato" && !confirm("Segnare " + r.ragione_sociale + " come non interessato? Non comparirà più tra quelli da contattare.")) return;
+    if (op === "togli" && !confirm("Togliere " + r.ragione_sociale + " dalla rubrica?")) return;
+    chiama("fornitore", { op: op, id: Number(id) }).then(function (x) {
+      if (x && x.esito === "ok") { toast({ contattato: "Segnato come contattato", non_interessato: "Segnato come non interessato", riapri: "Riaperto", togli: "Tolto dalla rubrica" }[op] || "Fatto"); FO = null; if ($("dlg").open) $("dlg").close(); disegna(); }
+      else toast("Non salvato: riprova");
+    });
+  }
+  function schedaFornitore(r) {
+    var d = $("dlg"), v = r || {};
+    var cam = [["ragione_sociale", "Ragione sociale *", 200], ["categoria", "Cosa fa (materiali, ponteggi, noleggi…)", 200], ["comune", "Comune", 100], ["provincia", "Provincia (sigla)", 2],
+      ["email", "Email", 200], ["telefono", "Telefono", 40], ["sito", "Sito internet", 200], ["partita_iva", "Partita IVA", 20], ["referente", "Referente", 120]];
+    d.innerHTML = '<form class="dl" method="dialog"><h2>' + (r ? "Modifica " + E(r.ragione_sociale) : "Nuovo fornitore") + '</h2>' +
+      cam.map(function (c) { return '<label for="fo-' + c[0] + '">' + c[1] + '</label><input id="fo-' + c[0] + '" maxlength="' + c[2] + '" value="' + E(v[c[0]] || "") + '">'; }).join("") +
+      '<label for="fo-note">Note (le vedi solo tu)</label><textarea id="fo-note" maxlength="2000">' + E(v.note || "") + '</textarea>' +
+      '<div id="fo-err" class="err"></div><div class="azioni">' + (r ? '<button class="bt" id="fo-togli" value="">Togli dalla rubrica</button>' : '') +
+      '<button class="bt" value="no">Annulla</button><button class="bt pri" id="fo-ok" value="">Salva</button></div></form>';
+    d.showModal();
+    if (r) $("fo-togli").addEventListener("click", function (ev) { ev.preventDefault(); opFornitore(r.id, "togli"); });
+    $("fo-ok").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var s = {}; cam.forEach(function (c) { s[c[0]] = $("fo-" + c[0]).value.trim(); }); s.note = $("fo-note").value.trim();
+      document.querySelectorAll(".dl .campo-rosso").forEach(function (e) { e.classList.remove("campo-rosso"); });
+      if (!s.ragione_sociale) { $("fo-ragione_sociale").classList.add("campo-rosso"); $("fo-err").textContent = "Scrivi la ragione sociale."; return; }
+      if (s.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email)) { $("fo-email").classList.add("campo-rosso"); $("fo-err").textContent = "L'email non è scritta bene."; return; }
+      this.disabled = true; var bt = this;
+      chiama("fornitore", { op: "salva", id: r ? r.id : null, scheda: s }).then(function (x) {
+        if (x && x.esito === "ok") { d.close(); toast("Fornitore salvato"); FO = null; disegna(); return; }
+        bt.disabled = false;
+        if (x && x.esito === "doppio") { $("fo-err").textContent = "C'è già un fornitore con questa partita IVA o questa email."; return; }
+        if (x && x.campo) { var c = $("fo-" + x.campo); if (c) c.classList.add("campo-rosso"); $("fo-err").textContent = x.campo === "email" ? "L'email non è scritta bene." : "Manca un dato obbligatorio."; return; }
+        $("fo-err").textContent = "Non salvato: riprova.";
+      });
+    });
+  }
+  function importaFornitori() {
+    var d = $("dlg");
+    var COL = ["ragione_sociale", "email", "telefono", "comune", "provincia", "categoria", "sito", "partita_iva", "referente"];
+    d.innerHTML = '<form class="dl" method="dialog"><h2>Importa fornitori da Excel</h2>' +
+      '<p class="sub">In Excel seleziona le righe (anche con la riga dei titoli), copia con Ctrl + C e incolla qui con Ctrl + V. Colonne in quest\'ordine: <b>Ragione sociale, Email, Telefono, Comune, Provincia, Categoria, Sito, Partita IVA, Referente</b>. Le colonne mancanti si lasciano vuote. I doppi (stessa partita IVA, stessa email o stesso nome) si saltano.</p>' +
+      '<textarea id="fo-imp" style="min-height:180px" placeholder="Incolla qui le righe copiate da Excel…"></textarea><div id="fo-anteprima" class="sub"></div><div id="fo-err" class="err"></div>' +
+      '<div class="azioni"><button class="bt" value="no">Annulla</button><button class="bt pri" id="fo-imp-ok" value="">Importa</button></div></form>';
+    d.showModal();
+    var leggi = function () {
+      var testo = $("fo-imp").value.replace(/\r/g, "");
+      return testo.split("\n").map(function (l) { return l.split(l.indexOf("\t") !== -1 ? "\t" : ";"); })
+        .filter(function (c) { return c.join("").trim() && !/^ragione|^nome|^azienda|^fornitore/i.test(String(c[0]).trim()); })
+        .map(function (c) { var o = {}; COL.forEach(function (k2, i) { o[k2] = String(c[i] == null ? "" : c[i]).trim(); }); return o; });
+    };
+    $("fo-imp").addEventListener("input", function () { var n = leggi().length; $("fo-anteprima").textContent = n ? n + (n === 1 ? " riga pronta" : " righe pronte") + " da importare." : ""; });
+    $("fo-imp-ok").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var righe = leggi();
+      if (!righe.length) { $("fo-imp").classList.add("campo-rosso"); $("fo-err").textContent = "Incolla almeno una riga con la ragione sociale."; return; }
+      if (righe.length > 2000) { $("fo-err").textContent = "Al massimo 2.000 righe per volta."; return; }
+      this.disabled = true; var bt = this;
+      chiama("fornitore", { op: "importa", righe: righe }).then(function (x) {
+        if (x && x.esito === "ok") { d.close(); toast("Importati " + x.nuovi + (x.doppi ? " · " + x.doppi + " doppi saltati" : "")); FO = null; disegna(); return; }
+        bt.disabled = false; $("fo-err").textContent = "Importazione non riuscita: riprova.";
+      });
+    });
+  }
+
   // ---- regalo di crediti (finestra con conferma)
   function regala() {
     var c = cliente(S.c); if (!c) return;
@@ -571,10 +725,10 @@ function app() {
   function disegna() {
     var a = $("app");
     a.className = "app" + (S.c || S.p ? " dentro" : "");
-    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq") ? ae0.id : "";
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : oggi()) + '</main>';
+    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq") ? ae0.id : "";
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : oggi()) + '</main>';
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
-    document.title = (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : "") + "Pannello di TIX";
+    document.title = (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -598,6 +752,12 @@ function app() {
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
     if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
+    if (b.hasAttribute("data-ff")) { S.ff = b.getAttribute("data-ff"); disegna(); return; }
+    if (b.hasAttribute("data-fo-nuovo")) { schedaFornitore(null); return; }
+    if (b.hasAttribute("data-fo-importa")) { importaFornitori(); return; }
+    if (b.hasAttribute("data-fo-mod")) { schedaFornitore(foRiga(b.getAttribute("data-fo-mod"))); return; }
+    if (b.hasAttribute("data-fo-op")) { opFornitore(b.getAttribute("data-fo-id"), b.getAttribute("data-fo-op")); return; }
+    if (b.hasAttribute("data-fo-mail")) { var fr = foRiga(b.getAttribute("data-fo-mail")); setTimeout(function () { if (fr && fr.stato !== "non_interessato" && confirm("Hai mandato l'email a " + fr.ragione_sociale + "? Se sì, la segno come contattata.")) opFornitore(fr.id, "contattato"); }, 1500); return; }
     if (b.hasAttribute("data-f")) { S.f = b.getAttribute("data-f"); disegna(); return; }
     if (b.hasAttribute("data-cf")) { S.cf = b.getAttribute("data-cf"); disegna(); return; }
     if (b.hasAttribute("data-tab")) { var fu = b.hasAttribute("data-fuoco"); vai(S.c, b.getAttribute("data-tab")); if (fu) setTimeout(function () { var n = $("nn"); if (n) n.focus(); }, 60); return; }
@@ -618,6 +778,7 @@ function app() {
   document.addEventListener("input", function (ev) {
     if (ev.target && ev.target.id === "q") { S.q = ev.target.value; disegna(); }
     if (ev.target && ev.target.id === "eq") { S.eq = ev.target.value; disegna(); }
+    if (ev.target && ev.target.id === "fq") { S.fq = ev.target.value; disegna(); }
   });
   document.addEventListener("change", function (ev) {
     if (ev.target && ev.target.id === "eg") { S.eg = Number(ev.target.value) || 30; delete MAIL[""]; disegna(); }
