@@ -65,6 +65,13 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     }
     // pannello-7 (17/11, F1): rubrica dei fornitori da invitare nell'Elenco fornitori TIX (della B3, solo letto)
     if (b.azione === "fornitori") return j((await rpc(env, "pannello_fornitori_dati", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    // pannello-11 (17/11, F3): email informative agli iscritti dell'Elenco con il consenso (regole B3/B12)
+    if (b.azione === "fornitori_scrivi") {
+      const ids = (Array.isArray(d.ids) ? d.ids : []).map(String).filter((x) => UUID.test(x)).slice(0, 300);
+      const nonce = /^[0-9a-f]{24,64}$/.test(String(d.nonce || "")) ? String(d.nonce) : null;
+      if (!nonce) return j({ esito: "codice" }, 400);
+      return j((await rpc(env, "pannello_fornitori_scrivi", { p_token: tok, p_disp: disp, p_ids: ids, p_oggetto: String(d.oggetto || "").slice(0, 150), p_testo: String(d.testo || "").slice(0, 6000), p_nonce: nonce })) || { esito: "servizio" });
+    }
     if (b.azione === "fornitore") {
       const op = String(d.op || "");
       if (!/^(salva|importa|contattato|non_interessato|togli)$/.test(op)) return j({ esito: "azione" }, 400);
@@ -604,7 +611,10 @@ function app() {
       '<div class="schede" role="tablist" style="margin-top:14px">' + FT.map(function (t) { return '<button class="scheda" role="tab" data-ft="' + t[0] + '" aria-selected="' + (S.ft === t[0]) + '">' + t[1] + ' <span class="n">' + t[2] + '</span></button>'; }).join("") + '</div>';
     if (S.ft !== "rubrica") {
       var lst = S.ft === "logo" ? conLogo : isc;
-      x += '<section class="card" style="margin-top:10px"><h2>' + (S.ft === "logo" ? 'Fornitori con il logo TIX sul loro sito' : 'Tutti gli iscritti all\'Elenco') + '</h2>' +
+      var conC = lst.filter(function (f) { return f.consenso_email; });
+      x += '<section class="card" style="margin-top:10px"><div class="azioni" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">' + (S.ft === "logo" ? 'Fornitori con il logo TIX sul loro sito' : 'Tutti gli iscritti all\'Elenco') + '</h2>' +
+        (FO.email_info === "si" ? '<button class="bt pri" data-fo-scrivi="' + S.ft + '"' + (conC.length ? '' : ' disabled') + '>✉ Scrivi a chi ha dato il consenso (' + conC.length + ')</button>'
+          : '<span class="bt off" title="Si accende quando la pagina per non ricevere più email è online (B3)">✉ Email ai fornitori: non ancora attive</span>') + '</div>' +
         '<p class="sub">' + (S.ft === "logo" ? 'Hanno pubblicato il riquadro «Siamo nell\'elenco fornitori di TIX»: le imprese li trovano nelle richieste di offerta.' : 'Arrivano dal link d\'invito (e, quando sarà pronto, dal pulsante sul sito di TIX). Iscrivendosi accettano le regole dell\'Elenco e confermano la loro email.') + '</p>' +
         (lst.length ? '<table><thead><tr><th>Fornitore</th><th>Cosa fa</th><th>Contatti</th><th>Stato</th><th>Iscritto il</th></tr></thead><tbody>' + lst.map(function (f) {
           var vv = f.tipi || [];
@@ -613,9 +623,12 @@ function app() {
             '<td>' + (f.email ? '<div><a href="mailto:' + E(f.email) + '">' + E(f.email) + '</a></div>' : '') + (f.telefono ? '<div><a href="tel:' + E(String(f.telefono).replace(/\s/g, "")) + '">' + E(f.telefono) + '</a></div>' : '') +
               (f.referente ? '<div class="sub">' + E(f.referente) + '</div>' : '') + (f.sito ? '<div><a href="' + E(/^https?:/i.test(f.sito) ? f.sito : "https://" + f.sito) + '" target="_blank" rel="noopener">sito</a>' + (f.riquadro_url ? ' · <a href="' + E(f.riquadro_url) + '" target="_blank" rel="noopener">pagina col logo</a>' : '') + '</div>' : '') + '</td>' +
             '<td><span class="badge b-' + (f.riquadro ? "verde" : f.stato === "approvato" ? "giallo" : f.stato === "rifiutato" ? "rosso" : "grigio") + '">' + E(f.riquadro ? "Logo TIX sul sito ✓" : f.stato === "approvato" ? "Nell'elenco · manca il logo" : (EL_ST[f.stato] || f.stato)) + '</span>' +
-              (f.email_confermata_il ? '' : '<div class="sub">email non ancora confermata</div>') + '</td>' +
+              (f.email_confermata_il ? '' : '<div class="sub">email non ancora confermata</div>') +
+              '<div class="sub">' + (f.consenso_email ? '✉ accetta le email di TIX dal ' + DT(f.consenso_email_il) : 'non vuole email informative') + '</div></td>' +
             '<td>' + DT(f.iscritto_il) + '</td></tr>';
         }).join("") + '</tbody></table>' : '<p class="vuoto">' + (S.ft === "logo" ? 'Nessun fornitore ha ancora pubblicato il logo TIX.' : 'Ancora nessun iscritto all\'Elenco.') + '</p>') + '</section>';
+      if ((FO.invii_info || []).length) x += '<section class="card" style="margin-top:14px"><h2>Email informative mandate</h2><table><thead><tr><th>Quando</th><th>Oggetto</th><th class="num">Destinatari</th></tr></thead><tbody>' +
+        FO.invii_info.map(function (i) { return '<tr><td>' + DT(i.quando, true) + '</td><td>' + E(i.oggetto) + '</td><td class="num">' + (i.destinatari || 0) + '</td></tr>'; }).join("") + '</tbody></table><p class="sub">Il destino di ogni email (consegnata, aperta…) è nella pagina «Email».</p></section>';
       return x + '</div>';
     }
     x += '<section class="card" style="margin-top:10px"><div class="azioni" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Da contattare</h2><span>' +
@@ -703,6 +716,39 @@ function app() {
         if (x && /^consenso_/.test(x.campo || "")) { var cc = $(x.campo === "consenso_come" ? "fo-come" : "fo-quando"); if (cc) cc.classList.add("campo-rosso"); $("fo-err").textContent = "Controlla come e quando ha detto sì (la data non può essere nel futuro)."; return; }
         if (x && x.campo) { var c = $("fo-" + x.campo); if (c) c.classList.add("campo-rosso"); $("fo-err").textContent = x.campo === "email" ? "L'email non è scritta bene." : "Manca un dato obbligatorio."; return; }
         $("fo-err").textContent = "Non salvato: riprova.";
+      });
+    });
+  }
+  // email informativa agli iscritti con il consenso: la decide Filippo (finestra + conferma), una volta sola
+  function scriviFornitori(lista) {
+    var isc = (FO && FO.iscritti) || [];
+    var dest = isc.filter(function (f) { return f.consenso_email && (lista !== "logo" || f.riquadro); });
+    if (!dest.length) return;
+    var d = $("dlg");
+    var nonce = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(16)), function (b2) { return ("0" + b2.toString(16)).slice(-2); }).join("");
+    d.innerHTML = '<form class="dl" method="dialog"><h2>Email ai fornitori</h2>' +
+      '<p class="sub">Parte da info@tixcantiere.it solo ai fornitori che hanno accettato le email di TIX. In fondo TIX aggiunge da sola il link per non riceverne più e quello all\'informativa.</p>' +
+      '<label>Destinatari</label><div style="max-height:160px;overflow:auto;border:1px solid var(--b,#3a4658);border-radius:8px;padding:6px 10px">' +
+        dest.map(function (f) { return '<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" class="fo-dest" value="' + E(f.id) + '" checked style="width:auto"> ' + E(f.ragione_sociale) + ' <span class="sub">' + E(f.email || "") + '</span></label>'; }).join("") + '</div>' +
+      '<label for="fs-ogg">Oggetto</label><input id="fs-ogg" maxlength="150" placeholder="Per esempio: Novità dall\'Elenco fornitori di TIX">' +
+      '<label for="fs-txt">Testo</label><textarea id="fs-txt" maxlength="6000" style="min-height:200px" placeholder="Buongiorno,&#10;…"></textarea>' +
+      '<p class="sub">Solo informazioni sull\'Elenco e su TIX. Niente prezzi o offerte senza averlo chiesto alla B12.</p>' +
+      '<div id="fs-err" class="err"></div><div class="azioni"><button class="bt" value="no">Annulla</button><button class="bt pri" id="fs-ok" value="">Manda</button></div></form>';
+    d.showModal();
+    $("fs-ok").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var ids = Array.prototype.map.call(document.querySelectorAll(".fo-dest:checked"), function (c) { return c.value; });
+      var og = $("fs-ogg").value.trim(), tx = $("fs-txt").value.trim();
+      document.querySelectorAll(".dl .campo-rosso").forEach(function (e) { e.classList.remove("campo-rosso"); });
+      if (!ids.length) { $("fs-err").textContent = "Scegli almeno un destinatario."; return; }
+      if (!og) { $("fs-ogg").classList.add("campo-rosso"); $("fs-err").textContent = "Scrivi l'oggetto."; return; }
+      if (!tx) { $("fs-txt").classList.add("campo-rosso"); $("fs-err").textContent = "Scrivi il testo."; return; }
+      if (!confirm("Confermi? Mandi l'email «" + og + "» a " + ids.length + (ids.length === 1 ? " fornitore." : " fornitori."))) return;
+      this.disabled = true; var bt = this;
+      chiama("fornitori_scrivi", { ids: ids, oggetto: og, testo: tx, nonce: nonce }).then(function (r) {
+        if (r && (r.esito === "ok" || r.esito === "gia_fatto")) { d.close(); toast(r.esito === "ok" ? "Email in partenza a " + r.destinatari + (r.destinatari === 1 ? " fornitore" : " fornitori") : "Già mandata"); FO = null; disegna(); return; }
+        bt.disabled = false;
+        $("fs-err").textContent = ({ spento: "Le email ai fornitori non sono ancora attive.", limite: "Troppe email per oggi (limite di Brevo): riprova domani o con meno destinatari.", nessuno: "Nessuno dei destinatari ha il consenso." }[r && r.esito]) || "Non mandata: riprova.";
       });
     });
   }
@@ -804,6 +850,7 @@ function app() {
     if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
     if (b.hasAttribute("data-ff")) { S.ff = b.getAttribute("data-ff"); disegna(); return; }
     if (b.hasAttribute("data-ft")) { S.ft = b.getAttribute("data-ft"); disegna(); return; }
+    if (b.hasAttribute("data-fo-scrivi")) { scriviFornitori(b.getAttribute("data-fo-scrivi")); return; }
     if (b.hasAttribute("data-fo-nuovo")) { schedaFornitore(null); return; }
     if (b.hasAttribute("data-fo-importa")) { importaFornitori(); return; }
     if (b.hasAttribute("data-fo-mod")) { schedaFornitore(foRiga(b.getAttribute("data-fo-mod"))); return; }
