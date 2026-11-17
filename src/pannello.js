@@ -104,7 +104,7 @@ export function paginaApp(base, tok, dati, h, apri) {
   const cfg = JSON.stringify({ base, t: tok, u: base + "/pannello/azione", apri: apri || "", dati }).replace(/</g, "\\u003c");
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>Pannello di TIX</title>' + (h && h.testa ? h.testa(base) : "") +
-    '<style>' + STILE + '</style></head><body><div id="app" class="app" aria-live="polite"></div>' +
+    '<style id="pstile">' + STILE + '</style></head><body><script>document.querySelectorAll("head style:not(#pstile),head link[rel=stylesheet]").forEach(function(s){s.remove()});</script><div id="app" class="app" aria-live="polite"></div>' +
     '<dialog id="dlg"></dialog><div id="toast" role="status" hidden></div>' +
     '<script id="cfg" type="application/json">' + cfg + '</script><script>var __name=function(f){return f};(' + app.toString() + ')();</script></body></html>';
 }
@@ -216,6 +216,8 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 // ---------------------------------------------------------------------------------------------------------------------------
 // L'applicazione nel browser. Si serializza con toString(): non deve usare niente di fuori da questa funzione.
 // pannello-4 (17/11): il bundler di Cloudflare aggiunge __name(...) alle funzioni interne; la pagina lo definisce prima (sopra).
+// pannello-5 (17/11): lo strato «premium» del portale (stile-premium.js, chiaro) si aggiunge in fondo all'head e copriva lo stile
+//   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
   var D = C.dati, CACHE = {}, S = { c: "", tab: "crono", f: "tutti", q: "", cf: "tutto" };
