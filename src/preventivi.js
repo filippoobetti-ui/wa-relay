@@ -71,7 +71,7 @@ function pulisciOf(d) {
   const o = {};
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
     email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36,
-    referente_nome: 120, referente_telefono: 40, referente_email: 160, consegna: 10, consegna_data: 10, // 17/11/2026 (consegna-1): referente del cantiere e consegna
+    allegato_id: 36, referente_nome: 120, referente_telefono: 40, referente_email: 160, consegna: 10, consegna_data: 10, // 17/11/2026 (consegna-1): referente del cantiere e consegna
     descrizione: 6000, unita: 20, quantita: 20, voce_id: 20 }; // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 36)); // 13/11/2026: anche gli id (uuid) del computo del SAL
@@ -167,6 +167,8 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/posta/file") return scaricaPosta(request, env, base, inUrl, h); // 08/11/2026 (preventivi-posta-1)
   if (sotto === "/preventivi/of/leggi") return leggiOffertaRdo(request, env, inUrl, h);        // 10/11/2026 (rdo-lettura-1)
   if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
+  if (sotto === "/preventivi/of/allegato") return caricaAllegatoRdo(request, env, inUrl, h);     // 17/11/2026 (rdo-allegati-1)
+  if (sotto === "/preventivi/of/a") return scaricaAllegatoLink(request, env, base, inUrl, h);    // 17/11/2026: link per il fornitore
   if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
   if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
   if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
@@ -261,6 +263,15 @@ async function api(request, env, h) {
     // 13/11/2026 (prove-2, chat 02B): Prove sui materiali — prelievi, offerta accettata
     const dpr = pulisciPr(b.dati);
     r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: dpr.id, p_azione: az.slice(3), p_dati: dpr }, 15000).catch(() => null);
+  } else if (az === "of_all_togli" && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+    // 17/11/2026 (rdo-allegati-1): toglie un file allegato a una richiesta non ancora mandata
+    const dal = pulisciOf(b.dati);
+    r = await h.rpc(env, "preventivo_rdo_allegati", { p_token: tok, p_id: dal.id, p_azione: "togli", p_dati: { allegato_id: dal.allegato_id || "" } }, 15000).catch(() => null);
+    if (r && r.esito === "ok" && /^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,120}$/.test(String(r.percorso || ""))) {
+      await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso), { method: "DELETE",
+        headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+      r = { esito: "ok" };
+    }
   } else if ((az.startsWith("of_") || az.startsWith("ch_") || az.startsWith("cp_") || az.startsWith("po_")) && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al Direttore dei Lavori
     const dof = pulisciOf(b.dati);
@@ -2435,7 +2446,7 @@ function disegnaOf(){
    h+='<label><span>Email del fornitore</span><input type="text" data-k="email_a" value="'+es((q.email_a||[]).join(', '))+'"></label>'+
     emRiq('data-k="email_impresa"',q.email_impresa||[],false)+
     '<label><span>Oggetto</span><input type="text" data-k="oggetto" maxlength="200" value="'+es(q.oggetto)+'"></label>'+
-    '<label><span>Testo</span><textarea class="testo" data-k="testo">'+es(q.testo)+'</textarea></label>'+
+    '<label><span>Testo</span><textarea class="testo" data-k="testo">'+es(q.testo)+'</textarea></label>'+allegatiHtml(q,true)+
     '<div class="pv-ofbt"><button type="button" class="pv-b" data-ofx="salva">Salva le modifiche</button><button type="button" class="pv-b" data-ofx="copia">Copia il testo</button>'+
     '<button type="button" class="pv-b pv-pr" data-ofx="invia"'+(OF.email_attive?'':' disabled title="L\'invio da TIX non è ancora acceso"')+'>Invia da TIX</button><button type="button" class="pv-b pv-togli" data-ofx="annulla">Annulla</button></div>'+
     (OF.email_attive?'<p class="pv-ofnota">«Invia da TIX» la manda a nome di '+es(r.impresa.nome)+' («'+es(r.impresa.nome)+' tramite TIX»). Gli indirizzi di «Copia e risposte a» ricevono subito una copia, e quando il fornitore preme «Rispondi» la risposta arriva a loro.</p>':'<p class="pv-ofnota">L\'invio da TIX non è ancora acceso: con «Copia il testo» la incolli nella tua posta e la mandi tu.</p>');
@@ -2449,6 +2460,7 @@ function disegnaOf(){
     (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
     '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>';
   }
+  if(q.stato!=='bozza'&&(q.allegati||[]).length)h+=allegatiHtml(q,false);
   if(!r.solo_richieste)h+=postaDi('rdo',q.id);
   h+='<p class="pv-msg" data-m="'+q.id+'" aria-live="polite"></p></div>';});
  h+=smistareHtml();
@@ -2457,6 +2469,23 @@ function disegnaOf(){
  var sel=document.getElementById('of-rub');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
+// 17/11/2026 (rdo-allegati-1): file allegati alla richiesta (schede tecniche, disegni, foto)
+function allegatiHtml(q,bozza){var A=q.allegati||[],tot=A.reduce(function(s,a){return s+Number(a.byte||0);},0);
+ return '<div class="pv-ofnota" style="margin:8px 0"><b>File allegati</b> <small>schede tecniche, disegni, foto · PDF, JPG o PNG · fino a 5 file e 10 MB in tutto · al fornitore arrivano come link da scaricare</small>'+
+  (A.length?'<ul style="margin:6px 0;padding-left:18px">'+A.map(function(a){return '<li>'+es(a.nome)+' <small>('+(Math.round(Number(a.byte||0)/1024/102.4)/10).toString().replace('.',',')+' MB)</small>'+
+   (bozza?' <button type="button" class="pv-b sm pv-togli" data-ofx="all_togli" data-all="'+es(a.id)+'" title="Togli il file">✕</button>':'')+'</li>';}).join('')+'</ul>':(bozza?'':'<p class="sotto">Nessun file.</p>'))+
+  (bozza&&A.length<5&&tot<10485760?'<label class="pv-b sm" style="cursor:pointer;display:inline-flex">Allega file<input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofall="'+q.id+'" style="display:none"></label>':'')+
+  (bozza&&A.length?'<p class="sotto" style="margin:4px 0 0">Con «Copia il testo» i file non partono: allegali tu all’email.</p>':'')+'</div>';}
+function caricaAllegati(inp){var F=Array.prototype.slice.call(inp.files||[]),rid=inp.getAttribute('data-ofall'),box=document.querySelector('[data-rdo="'+rid+'"]');if(!F.length||!box)return;
+ var no=F.filter(function(f){return !/\.(pdf|jpe?g|png)$/i.test(f.name)||f.size>10485760;});if(no.length){mOf(box,'Si possono allegare PDF, JPG e PNG fino a 10 MB: '+no.map(function(f){return f.name;}).join(', '),'err');inp.value='';return;}
+ inp.disabled=true;mOf(box,'Salvo il testo e carico '+(F.length===1?'il file':F.length+' file')+'…');
+ api('of_testo',Object.assign({rdo_id:rid},campiRdo(box))).then(function(){var i=0,err='';
+  function uno(){if(i>=F.length){caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2){b2.scrollIntoView({block:'start'});mOf(b2,err||'File allegati.',err?'err':'ok');}});return;}
+   var f=F[i++];fetch(CFG.u.replace(/\/api$/,'/of/allegato')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f})
+    .then(function(x){return x.json();}).then(function(x){if(!x||x.esito!=='ok')err=(x&&x.messaggio)||('Il file '+f.name+' non si è caricato.');uno();})
+    .catch(function(){err='Connessione assente: il file '+f.name+' non si è caricato.';uno();});}
+  uno();});}
+document.addEventListener('change',function(e){var x=e.target;if(x&&x.getAttribute&&x.getAttribute('data-ofall'))caricaAllegati(x);});
 // 10/11/2026 (rdo-lettura-1): «Leggi l'offerta del fornitore» → i prezzi letti vanno nei campi, da controllare e salvare
 function leggiOfferta(inp){var f=inp.files&&inp.files[0],rid=inp.getAttribute('data-ofleggi'),box=document.querySelector('[data-rdo="'+rid+'"]'),nb=box?box.querySelector('[data-oflet]'):null;if(!f||!box||!nb)return;
  if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){nb.hidden=false;nb.innerHTML='<b>Si leggono PDF, JPG e PNG.</b> Per gli altri file inserisci i prezzi a mano.';inp.value='';return;}
@@ -2555,6 +2584,9 @@ function azioneOf(az,el){
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
    (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){return caricaOf();}).then(function(){
     var q=document.querySelector('[data-rdo]');if(q){q.scrollIntoView({block:'start',behavior:'smooth'});mOf(q,'Richiesta pronta: controlla il testo, poi premi «Invia da TIX» oppure «Copia il testo».','ok');}});});return;}
+ if(az==='all_togli'){if(!confirm('Togliere questo file dalla richiesta?'))return;el.disabled=true;
+  api('of_testo',Object.assign({rdo_id:rid},campiRdo(box))).then(function(){return api('of_all_togli',{allegato_id:el.getAttribute('data-all')});}).then(function(r){
+   if(!r||r.esito!=='ok'){el.disabled=false;mOf(box,errore(r),'err');return;}caricaOf();});return;}
  if(az==='scegli'){el.disabled=true;api('of_scegli',{riga_id:el.dataset.riga}).then(function(r){if(r.esito!=='ok'){el.disabled=false;alert(errore(r));return;}caricaOf().then(function(){OF.cambiato=true;});});return;}
  if(az==='copia'){var q=(OF.richieste||[]).filter(function(x){return x.id===rid;})[0];var d2=campiRdo(box);
   var t=(d2.oggetto||q.oggetto)+'\n\n'+(d2.testo||q.testo);
@@ -3180,6 +3212,59 @@ async function leggiOffertaRdo(request, env, inUrl, h) {
     righe_lette: String(p && Array.isArray(p.righe) ? p.righe.length : 0), iva: String(p && p.iva || "") } }, 15000).catch(() => null);
   return json({ esito: String(l && l.esito || "errore"), messaggio: String(l && l.messaggio || ""), proposta: p, salvato,
     ricarica_eur: info.ricarica_eur == null ? null : info.ricarica_eur });
+}
+
+// 17/11/2026 (rdo-allegati-1, chat B3): file allegati alla richiesta di offerta (prima dell'invio). PDF, JPG o PNG; 5 file e 10 MB in tutto.
+async function caricaAllegatoRdo(request, env, inUrl, h) {
+  if (request.method !== "POST") return json({ esito: "errore" }, 405);
+  const tok = gettone(inUrl.searchParams.get("t")), id = uuid(inUrl.searchParams.get("id")), rdo = uuid(inUrl.searchParams.get("rdo"));
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[^A-Za-z0-9 ._()\-àèéìòùÀÈÉÌÒÙ]+/g, " ").trim().slice(0, 160) || "file";
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!id || !rdo) return json({ esito: "errore" }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > 10485760) return json({ esito: "grande", messaggio: "Il file è troppo grande: al massimo 10 MB." }, 413);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > 10485760) return json({ esito: "grande", messaggio: "Il file è troppo grande: al massimo 10 MB." }, 413);
+  let est = "";
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+  else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+  else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+  if (!est) return json({ esito: "formato", messaggio: "Si possono allegare PDF, JPG e PNG." }, 400);
+  const c = await h.rpc(env, "preventivo_rdo_allegati", { p_token: tok, p_id: id, p_azione: "cartella", p_dati: { rdo_id: rdo } }, 15000).catch(() => null);
+  if (!c) return json({ esito: "incerto" }, 503);
+  if (c.esito !== "ok") return json({ esito: String(c.esito), messaggio: c.messaggio || "" });
+  if (bytes.length > Number(c.restano_byte || 0)) return json({ esito: "grande", messaggio: "I file allegati possono essere al massimo 10 MB in tutto." }, 413);
+  if (!/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/$/.test(String(c.cartella || ""))) return json({ esito: "errore" }, 500);
+  const percorso = String(c.cartella) + "allegato-" + Date.now() + "-" + casuale() + "." + est;
+  const chiavi = { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY };
+  const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+    headers: Object.assign({ "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : "image/jpeg", "x-upsert": "false" }, chiavi), body: bytes }).catch(() => null);
+  if (!up || !up.ok) return json({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  const a = await h.rpc(env, "preventivo_rdo_allegati", { p_token: tok, p_id: id, p_azione: "aggiungi",
+    p_dati: { rdo_id: rdo, nome, percorso, byte: String(bytes.length) } }, 15000).catch(() => null);
+  if (!a || a.esito !== "ok") {
+    await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "DELETE", headers: chiavi }).catch(() => null);
+    return json({ esito: String(a && a.esito || "errore"), messaggio: a && a.messaggio || "Il file non si è salvato: riprova." });
+  }
+  return json({ esito: "ok" });
+}
+
+// 17/11/2026 (rdo-allegati-1): link per il fornitore, dall'email della richiesta (vale 60 giorni dall'invio; niente accesso all'app)
+async function scaricaAllegatoLink(request, env, base, inUrl, h) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const k = String(inUrl.searchParams.get("k") || "").toLowerCase();
+  const info = /^[0-9a-f]{32}$/.test(k) ? await h.rpc(env, "preventivo_rdo_allegato_link", { p_k: k }, 10000).catch(() => null) : null;
+  if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,120}$/.test(String(info.percorso || ""))) {
+    return h.risposta(h.foglio(base, "File della richiesta", "", '<p class="err">Il link non vale più: chiedete il file all’impresa che vi ha mandato la richiesta di offerta.</p>'), 404);
+  }
+  const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.percorso), {
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  if (!f || !f.ok) return h.risposta(h.foglio(base, "File della richiesta", "", '<p class="err">Il file non si legge in questo momento: riprovate tra un minuto.</p>'), 502);
+  const p = String(info.percorso), nome = String(info.nome || "file");
+  return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
+    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
+    "Content-Disposition": 'attachment; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
 }
 
 async function scaricaOffertaRdo(request, env, base, inUrl, h) {
