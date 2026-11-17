@@ -71,7 +71,7 @@ function pulisciOf(d) {
   const o = {};
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
     email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36,
-    allegato_id: 36, referente_nome: 120, referente_telefono: 40, referente_email: 160, consegna: 10, consegna_data: 10, // 17/11/2026 (consegna-1): referente del cantiere e consegna
+    allegato_id: 36, scheda_id: 36, referente_nome: 120, referente_telefono: 40, referente_email: 160, consegna: 10, consegna_data: 10, // 17/11/2026 (consegna-1): referente del cantiere e consegna
     descrizione: 6000, unita: 20, quantita: 20, voce_id: 20 }; // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 36)); // 13/11/2026: anche gli id (uuid) del computo del SAL
@@ -169,6 +169,7 @@ export async function portalePreventivi(request, env, base, inUrl, h) {
   if (sotto === "/preventivi/of/file") return scaricaOffertaRdo(request, env, base, inUrl, h);
   if (sotto === "/preventivi/of/allegato") return caricaAllegatoRdo(request, env, inUrl, h);     // 17/11/2026 (rdo-allegati-1)
   if (sotto === "/preventivi/of/a") return scaricaAllegatoLink(request, env, base, inUrl, h);    // 17/11/2026: link per il fornitore
+  if (sotto === "/preventivi/of/scheda") return schedaRdo(request, env, base, inUrl, h);          // 17/11/2026 (rdo-schede-1)
   if (sotto === "/preventivi/richiedi") return richiediDalCantiere(request, env, base, inUrl, h); // 13/11/2026 (rdo-cantiere-1)
   if (sotto === "/preventivi/prove") return richiediDalCantiere(request, env, base, inUrl, h, true); // 13/11/2026 (prove-1)
   if (sotto === "/preventivi/prove/stampa") return stampaProve(request, env, base, inUrl, h);      // 13/11/2026 (prove-2)
@@ -263,6 +264,16 @@ async function api(request, env, h) {
     // 13/11/2026 (prove-2, chat 02B): Prove sui materiali — prelievi, offerta accettata
     const dpr = pulisciPr(b.dati);
     r = await h.rpc(env, "prove_azione", { p_token: tok, p_id: dpr.id, p_azione: az.slice(3), p_dati: dpr }, 15000).catch(() => null);
+  } else if ((az === "of_sch_chiedi" || az === "of_sch_togli") && UUID.test(String(b && b.dati && b.dati.id || ""))) {
+    // 17/11/2026 (rdo-schede-1): schede tecniche della richiesta di offerta
+    const dsc = pulisciOf(b.dati);
+    r = await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: dsc.id, p_azione: az === "of_sch_chiedi" ? "chiedi" : "togli",
+      p_dati: az === "of_sch_chiedi" ? { rdo_id: dsc.rdo_id || "" } : { scheda_id: dsc.scheda_id || "" } }, 15000).catch(() => null);
+    if (az === "of_sch_togli" && r && r.esito === "ok" && /^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/scheda-[A-Za-z0-9._-]{1,100}\.pdf$/.test(String(r.percorso || ""))) {
+      await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(r.percorso), { method: "DELETE",
+        headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+      r = { esito: "ok" };
+    }
   } else if (az === "of_all_togli" && UUID.test(String(b && b.dati && b.dati.id || ""))) {
     // 17/11/2026 (rdo-allegati-1): toglie un file allegato a una richiesta non ancora mandata
     const dal = pulisciOf(b.dati);
@@ -2458,7 +2469,7 @@ function disegnaOf(){
     '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button><button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button>'+
     (OF.lettura_attiva?'<label class="pv-b" style="cursor:pointer">Leggi l\'offerta del fornitore<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofleggi="'+q.id+'" style="display:none"></label>':'')+
     (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
-    '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>';
+    '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>'+schedeHtml(q);
   }
   if(q.stato!=='bozza'&&(q.allegati||[]).length)h+=allegatiHtml(q,false);
   if(!r.solo_richieste)h+=postaDi('rdo',q.id);
@@ -2476,6 +2487,24 @@ function allegatiHtml(q,bozza){var A=q.allegati||[],tot=A.reduce(function(s,a){r
    (bozza?' <button type="button" class="pv-b sm pv-togli" data-ofx="all_togli" data-all="'+es(a.id)+'" title="Togli il file">✕</button>':'')+'</li>';}).join('')+'</ul>':(bozza?'':'<p class="sotto">Nessun file.</p>'))+
   (bozza&&A.length<5&&tot<10485760?'<label class="pv-b sm" style="cursor:pointer;display:inline-flex">Allega file<input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofall="'+q.id+'" style="display:none"></label>':'')+
   (bozza&&A.length?'<p class="sotto" style="margin:4px 0 0">Con «Copia il testo» i file non partono: allegali tu all’email.</p>':'')+'</div>';}
+// 17/11/2026 (rdo-schede-1): schede tecniche dei materiali dell'offerta
+function schedeHtml(q){if(q.stato!=='offerta'&&!(q.schede||[]).length)return '';var S=q.schede||[];
+ return '<div class="pv-ofnota" style="margin:10px 0"><b>Schede tecniche</b> <small>da far approvare alla Direzione dei Lavori</small>'+
+  (q.schede_chieste_il?'<p class="sotto" style="margin:4px 0">Chieste al fornitore il '+dt(q.schede_chieste_il)+'.</p>':'')+
+  (S.length?'<ul style="margin:6px 0;padding-left:18px">'+S.map(function(s){return '<li><a target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/scheda')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&s='+s.id)+'">'+es(s.nome)+'</a>'+
+   ' <button type="button" class="pv-b sm pv-togli" data-ofx="sch_togli" data-sch="'+es(s.id)+'" title="Togli la scheda">✕</button></li>';}).join('')+'</ul>':'')+
+  '<div class="pv-ofbt"><button type="button" class="pv-b sm" data-ofx="sch_chiedi"'+(OF.email_attive?'':' disabled title="L’invio da TIX non è ancora acceso"')+'>'+(q.schede_chieste_il?'Chiedile di nuovo':'Chiedi le schede tecniche')+'</button>'+
+  '<label class="pv-b sm" style="cursor:pointer;display:inline-flex">Carica una scheda ricevuta<input type="file" multiple accept=".pdf,application/pdf" data-ofsch="'+q.id+'" style="display:none"></label></div>'+
+  '<p class="sotto" style="margin:4px 0 0">Le schede che il fornitore manda per email arrivano nella posta della richiesta: scaricale e caricale qui. L’invio al Direttore dei Lavori per l’approvazione arriva a breve.</p></div>';}
+function caricaSchede(inp){var F=Array.prototype.slice.call(inp.files||[]),rid=inp.getAttribute('data-ofsch'),box=document.querySelector('[data-rdo="'+rid+'"]');if(!F.length||!box)return;
+ var no=F.filter(function(f){return !/\.pdf$/i.test(f.name)||f.size>20971520;});if(no.length){mOf(box,'Le schede si caricano in PDF fino a 20 MB: '+no.map(function(f){return f.name;}).join(', '),'err');inp.value='';return;}
+ inp.disabled=true;mOf(box,'Carico '+(F.length===1?'la scheda':F.length+' schede')+'…');var i=0,err='';
+ function una(){if(i>=F.length){caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2){b2.scrollIntoView({block:'start'});mOf(b2,err||'Schede caricate.',err?'err':'ok');}});return;}
+  var f=F[i++];fetch(CFG.u.replace(/\/api$/,'/of/scheda')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f})
+   .then(function(x){return x.json();}).then(function(x){if(!x||x.esito!=='ok')err=(x&&x.messaggio)||('La scheda '+f.name+' non si è caricata.');una();})
+   .catch(function(){err='Connessione assente: la scheda '+f.name+' non si è caricata.';una();});}
+ una();}
+document.addEventListener('change',function(e){var x=e.target;if(x&&x.getAttribute&&x.getAttribute('data-ofsch'))caricaSchede(x);});
 function caricaAllegati(inp){var F=Array.prototype.slice.call(inp.files||[]),rid=inp.getAttribute('data-ofall'),box=document.querySelector('[data-rdo="'+rid+'"]');if(!F.length||!box)return;
  var no=F.filter(function(f){return !/\.(pdf|jpe?g|png)$/i.test(f.name)||f.size>10485760;});if(no.length){mOf(box,'Si possono allegare PDF, JPG e PNG fino a 10 MB: '+no.map(function(f){return f.name;}).join(', '),'err');inp.value='';return;}
  inp.disabled=true;mOf(box,'Salvo il testo e carico '+(F.length===1?'il file':F.length+' file')+'…');
@@ -2584,6 +2613,11 @@ function azioneOf(az,el){
   api('of_prepara',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}ricorda('of_imp',ei);EL_TIPO='';
    (OF.impresa&&!(OF.impresa.emails||[]).length?api('of_email_impresa',{email_impresa:ei}):Promise.resolve()).then(function(){return caricaOf();}).then(function(){
     var q=document.querySelector('[data-rdo]');if(q){q.scrollIntoView({block:'start',behavior:'smooth'});mOf(q,'Richiesta pronta: controlla il testo, poi premi «Invia da TIX» oppure «Copia il testo».','ok');}});});return;}
+ if(az==='sch_chiedi'){if(!confirm('Mandare al fornitore la richiesta delle schede tecniche dei materiali dell’offerta?'))return;el.disabled=true;
+  api('of_sch_chiedi',{rdo_id:rid}).then(function(r){el.disabled=false;if(!r||r.esito!=='ok'){mOf(box,errore(r),'err');return;}
+   caricaOf().then(function(){var b2=document.querySelector('[data-rdo="'+rid+'"]');if(b2)mOf(b2,r.messaggio||'Richiesta mandata.','ok');});});return;}
+ if(az==='sch_togli'){if(!confirm('Togliere questa scheda tecnica?'))return;el.disabled=true;
+  api('of_sch_togli',{scheda_id:el.getAttribute('data-sch')}).then(function(r){if(!r||r.esito!=='ok'){el.disabled=false;mOf(box,errore(r),'err');return;}caricaOf();});return;}
  if(az==='all_togli'){if(!confirm('Togliere questo file dalla richiesta?'))return;el.disabled=true;
   api('of_testo',Object.assign({rdo_id:rid},campiRdo(box))).then(function(){return api('of_all_togli',{allegato_id:el.getAttribute('data-all')});}).then(function(r){
    if(!r||r.esito!=='ok'){el.disabled=false;mOf(box,errore(r),'err');return;}caricaOf();});return;}
@@ -3265,6 +3299,52 @@ async function scaricaAllegatoLink(request, env, base, inUrl, h) {
     "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
     "Content-Disposition": 'attachment; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
     "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+}
+
+// 17/11/2026 (rdo-schede-1, chat B3): schede tecniche ricevute dal fornitore. POST = carica (PDF fino a 20 MB), GET …&s=<scheda> = apri.
+async function schedaRdo(request, env, base, inUrl, h) {
+  const tok = gettone(inUrl.searchParams.get("t")), id = uuid(inUrl.searchParams.get("id"));
+  const chiavi = { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY };
+  if (request.method === "GET" || request.method === "HEAD") {
+    if (!tok) return Response.redirect(inUrl.origin + base + "/", 303);
+    const s = uuid(inUrl.searchParams.get("s"));
+    const info = id && s ? await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: id, p_azione: "file", p_dati: { scheda_id: s } }, 10000).catch(() => null) : null;
+    if (!info || info.esito !== "ok" || !/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/scheda-[A-Za-z0-9._-]{1,100}\.pdf$/.test(String(info.percorso || ""))) {
+      return h.risposta(h.foglio(base, "Scheda tecnica", "", '<p class="err">Scheda non trovata.</p>'), 404);
+    }
+    const f = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + String(info.percorso), { headers: chiavi }).catch(() => null);
+    if (!f || !f.ok) return h.risposta(h.foglio(base, "Scheda tecnica", "", '<p class="err">La scheda non si legge dall’archivio: riprova tra un minuto.</p>'), 502);
+    const nome = String(info.nome || "scheda tecnica");
+    return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: { "Content-Type": "application/pdf",
+      "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+      "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
+  }
+  if (request.method !== "POST") return json({ esito: "errore" }, 405);
+  const rdo = uuid(inUrl.searchParams.get("rdo"));
+  const nome = String(inUrl.searchParams.get("nome") || "").replace(/[^A-Za-z0-9 ._()\-àèéìòùÀÈÉÌÒÙ]+/g, " ").trim().slice(0, 160) || "scheda tecnica";
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!id || !rdo) return json({ esito: "errore" }, 400);
+  if (Number(request.headers.get("Content-Length") || 0) > 20971520) return json({ esito: "grande", messaggio: "La scheda è troppo grande: al massimo 20 MB." }, 413);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > 20971520) return json({ esito: "grande", messaggio: "La scheda è troppo grande: al massimo 20 MB." }, 413);
+  if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) return json({ esito: "formato", messaggio: "Le schede tecniche si caricano in PDF." }, 400);
+  const c = await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: id, p_azione: "cartella", p_dati: { rdo_id: rdo } }, 15000).catch(() => null);
+  if (!c) return json({ esito: "incerto" }, 503);
+  if (c.esito !== "ok") return json({ esito: String(c.esito), messaggio: c.messaggio || "" });
+  if (!/^preventivi\/[0-9a-f-]{36}\/rdo\/[0-9a-f-]{36}\/$/.test(String(c.cartella || ""))) return json({ esito: "errore" }, 500);
+  const percorso = String(c.cartella) + "scheda-" + Date.now() + "-" + casuale() + ".pdf";
+  const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+    headers: Object.assign({ "Content-Type": "application/pdf", "x-upsert": "false" }, chiavi), body: bytes }).catch(() => null);
+  if (!up || !up.ok) return json({ esito: "archivio", messaggio: "La scheda non si è salvata: riprova tra un minuto." }, 502);
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (x) => x.toString(16).padStart(2, "0")).join("");
+  const a = await h.rpc(env, "preventivo_rdo_schede", { p_token: tok, p_id: id, p_azione: "aggiungi",
+    p_dati: { rdo_id: rdo, nome, percorso, byte: String(bytes.length), sha256: sha } }, 15000).catch(() => null);
+  if (!a || a.esito !== "ok") {
+    await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "DELETE", headers: chiavi }).catch(() => null);
+    return json({ esito: String(a && a.esito || "errore"), messaggio: a && a.messaggio || "La scheda non si è salvata: riprova." });
+  }
+  return json({ esito: "ok" });
 }
 
 async function scaricaOffertaRdo(request, env, base, inUrl, h) {
