@@ -234,7 +234,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -289,7 +289,7 @@ function app() {
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
       '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email</button>' +
-      '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori da invitare</button>' +
+      '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca un cliente…" aria-label="Cerca un cliente" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
         return '<button class="chip" data-f="' + f[0] + '" aria-pressed="' + (S.f === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
@@ -571,7 +571,7 @@ function app() {
     chiama("fornitori").then(function (r) { FO = r || { esito: "servizio" }; caricaFornitori.v = 0; disegna(); });
   }
   function paginaFornitori() {
-    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Fornitori da invitare</h1>';
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Fornitori TIX</h1>';
     if (!FO) { caricaFornitori(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
     if (FO.esito !== "ok") return testa + '<p class="err">Non è stato possibile leggere i fornitori. Ricarica la pagina.</p></div>';
     var rr = FO.righe || [], el = FO.elenco || {};
@@ -584,8 +584,11 @@ function app() {
       return okf && okq;
     });
     var F = [["tutti", "Tutti"], ["da_contattare", "Da contattare"], ["invitato", "Invitati"], ["iscritto", "Iscritti"], ["logo", "Con il logo TIX"], ["non_interessato", "Non interessati"]];
-    var x = testa + '<p class="sub">La tua rubrica dei fornitori di materiali e servizi edili da invitare nell\'<b>Elenco fornitori di TIX</b>, dove le imprese li cercano quando chiedono un preventivo. ' +
-        'Quando un fornitore si iscrive (stessa partita IVA o stessa email) lo stato cambia da solo. L\'approvazione si fa nei Preventivi, nel riquadro «Elenco fornitori TIX · solo per te».' +
+    var isc = FO.iscritti || [];
+    var conLogo = isc.filter(function (f) { return f.riquadro; });
+    var FT = [["logo", "Con il logo TIX sul sito", conLogo.length], ["iscritti", "Iscritti all'elenco", isc.length], ["rubrica", "Da contattare", conta.da_contattare + conta.invitato]];
+    var x = testa + '<p class="sub">I fornitori di materiali, i noleggi e i subappaltatori dell\'<b>Elenco fornitori di TIX</b>, dove le imprese li cercano quando chiedono un preventivo, e la tua rubrica di quelli da contattare. ' +
+        'Quando un fornitore della rubrica si iscrive (stessa partita IVA o stessa email) lo stato cambia da solo. L\'approvazione si fa nei Preventivi, nel riquadro «Elenco fornitori TIX · solo per te».' +
         (FO.elenco_attivo !== "si" ? ' <span class="badge b-giallo">Elenco in prova: le imprese non lo vedono ancora</span>' : '') + '</p>' +
       (FO.email_inviti !== "si" ? '<p class="badge b-giallo" style="display:block;padding:8px 12px;margin:0 0 12px">Le email d\'invito partono dal lancio: l\'informativa sul sito non ha ancora la riga sugli inviti (B6 e B12). Telefonate e «sì» all\'invito si possono già segnare.</p>' : '') +
       '<div class="kpi">' +
@@ -598,7 +601,24 @@ function app() {
       '</div>' +
       '<div class="card"><h2>Link d\'invito</h2><p class="sub">È lo stesso link che trovi nei Preventivi. Va nell\'email di invito (il pulsante «Prepara email» lo mette da solo).</p>' +
         '<dl class="dati"><dt>Link</dt><dd><span>' + E(FO.link) + '</span><button class="copia" data-copia="' + E(FO.link) + '">copia</button></dd></dl></div>' +
-      '<section class="card" style="margin-top:14px"><div class="azioni" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Rubrica</h2><span>' +
+      '<div class="schede" role="tablist" style="margin-top:14px">' + FT.map(function (t) { return '<button class="scheda" role="tab" data-ft="' + t[0] + '" aria-selected="' + (S.ft === t[0]) + '">' + t[1] + ' <span class="n">' + t[2] + '</span></button>'; }).join("") + '</div>';
+    if (S.ft !== "rubrica") {
+      var lst = S.ft === "logo" ? conLogo : isc;
+      x += '<section class="card" style="margin-top:10px"><h2>' + (S.ft === "logo" ? 'Fornitori con il logo TIX sul loro sito' : 'Tutti gli iscritti all\'Elenco') + '</h2>' +
+        '<p class="sub">' + (S.ft === "logo" ? 'Hanno pubblicato il riquadro «Siamo nell\'elenco fornitori di TIX»: le imprese li trovano nelle richieste di offerta.' : 'Arrivano dal link d\'invito (e, quando sarà pronto, dal pulsante sul sito di TIX). Iscrivendosi accettano le regole dell\'Elenco e confermano la loro email.') + '</p>' +
+        (lst.length ? '<table><thead><tr><th>Fornitore</th><th>Cosa fa</th><th>Contatti</th><th>Stato</th><th>Iscritto il</th></tr></thead><tbody>' + lst.map(function (f) {
+          var vv = f.tipi || [];
+          return '<tr><td><b>' + E(f.ragione_sociale) + '</b><div class="sub">' + E([f.sede, f.partita_iva && "P.IVA " + f.partita_iva].filter(Boolean).join(" · ")) + '</div>' + (f.in_rubrica ? '<div class="sub">anche nella tua rubrica</div>' : '') + '</td>' +
+            '<td>' + E(f.tipo || "") + '<div class="sub">' + E(vv.slice(0, 4).join(", ") + (vv.length > 4 ? " e altre " + (vv.length - 4) : "")) + '</div>' + ((f.province || []).length ? '<div class="sub">lavora in ' + E(f.province.join(", ")) + '</div>' : '') + '</td>' +
+            '<td>' + (f.email ? '<div><a href="mailto:' + E(f.email) + '">' + E(f.email) + '</a></div>' : '') + (f.telefono ? '<div><a href="tel:' + E(String(f.telefono).replace(/\s/g, "")) + '">' + E(f.telefono) + '</a></div>' : '') +
+              (f.referente ? '<div class="sub">' + E(f.referente) + '</div>' : '') + (f.sito ? '<div><a href="' + E(/^https?:/i.test(f.sito) ? f.sito : "https://" + f.sito) + '" target="_blank" rel="noopener">sito</a>' + (f.riquadro_url ? ' · <a href="' + E(f.riquadro_url) + '" target="_blank" rel="noopener">pagina col logo</a>' : '') + '</div>' : '') + '</td>' +
+            '<td><span class="badge b-' + (f.riquadro ? "verde" : f.stato === "approvato" ? "giallo" : f.stato === "rifiutato" ? "rosso" : "grigio") + '">' + E(f.riquadro ? "Logo TIX sul sito ✓" : f.stato === "approvato" ? "Nell'elenco · manca il logo" : (EL_ST[f.stato] || f.stato)) + '</span>' +
+              (f.email_confermata_il ? '' : '<div class="sub">email non ancora confermata</div>') + '</td>' +
+            '<td>' + DT(f.iscritto_il) + '</td></tr>';
+        }).join("") + '</tbody></table>' : '<p class="vuoto">' + (S.ft === "logo" ? 'Nessun fornitore ha ancora pubblicato il logo TIX.' : 'Ancora nessun iscritto all\'Elenco.') + '</p>') + '</section>';
+      return x + '</div>';
+    }
+    x += '<section class="card" style="margin-top:10px"><div class="azioni" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Da contattare</h2><span>' +
         '<button class="bt pri" data-fo-nuovo>+ Aggiungi fornitore</button> <button class="bt" data-fo-importa>⇪ Importa da Excel</button></span></div>' +
         '<div class="filtri" style="padding:10px 0 8px" role="group" aria-label="Filtra i fornitori">' + F.map(function (f) {
           return '<button class="chip" data-ff="' + f[0] + '" aria-pressed="' + (S.ff === f[0]) + '">' + f[1] + '<span class="n">' + conta[f[0]] + '</span></button>';
@@ -627,9 +647,6 @@ function app() {
             '</td></tr>';
         }).join("") + '</tbody></table>' : '<p class="vuoto">' + (rr.length ? 'Nessun fornitore con questi filtri.' : 'La rubrica è vuota: aggiungi un fornitore o importa il tuo file Excel.') + '</p>') +
       '</section>';
-    var so = FO.solo_elenco || [];
-    if (so.length) x += '<section class="card" style="margin-top:14px"><h2>Iscritti all\'elenco che non sono nella tua rubrica</h2><p class="sub">Arrivati da soli o con il passaparola.</p><table><thead><tr><th>Fornitore</th><th>Sede</th><th>Stato</th><th>Iscritto il</th></tr></thead><tbody>' +
-      so.map(function (f) { return '<tr><td>' + E(f.ragione_sociale) + '</td><td>' + E(f.sede || "") + '</td><td>' + E(EL_ST[f.stato] || f.stato) + (f.riquadro ? ' · logo ✓' : '') + '</td><td>' + DT(f.iscritto_il) + '</td></tr>'; }).join("") + '</tbody></table></section>';
     x += '<div class="card" style="margin-top:14px"><h2>Regole per gli inviti (parere della B12)</h2><ul class="motivi">' +
       '<li>Prima chiedi il permesso <b>per telefono o di persona</b>: «Le posso mandare un\'email con l\'invito all\'Elenco fornitori di TIX?». Se dice sì, clicca <b>«📞 Segna il sì»</b> e scrivi come e quando: solo allora si attiva «Prepara email».</li>' +
       '<li>Non telefonare ai numeri presi da elenchi pubblici se sono iscritti al Registro delle opposizioni; i numeri di lavoro che già conosci vanno bene.</li>' +
@@ -786,6 +803,7 @@ function app() {
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
     if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
     if (b.hasAttribute("data-ff")) { S.ff = b.getAttribute("data-ff"); disegna(); return; }
+    if (b.hasAttribute("data-ft")) { S.ft = b.getAttribute("data-ft"); disegna(); return; }
     if (b.hasAttribute("data-fo-nuovo")) { schedaFornitore(null); return; }
     if (b.hasAttribute("data-fo-importa")) { importaFornitori(); return; }
     if (b.hasAttribute("data-fo-mod")) { schedaFornitore(foRiga(b.getAttribute("data-fo-mod"))); return; }
