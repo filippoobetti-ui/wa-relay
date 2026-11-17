@@ -2518,11 +2518,23 @@ function azioneOf(az,el){
   var tp=document.getElementById('el-tipo').value;EL_TIPO=TD[tp]?tp:((f.tipi||[]).length===1&&TD[f.tipi[0]]?f.tipi[0]:'altro');var ot=document.getElementById('of-tipo');if(ot)ot.value=EL_TIPO;
   nota('of-msg','Destinatario preso dall\'elenco TIX: controlla e premi «Prepara la richiesta».','ok');document.getElementById('of-dest').scrollIntoView({block:'center'});return;}
  var box=el.closest('[data-rdo]'),rid=box?box.dataset.rdo:null;
- if(az==='prepara'){var sel=document.getElementById('of-rub'),bx0=document.getElementById('of-ei').closest('.pv-emi'),nn=bx0.querySelector('.pv-emi-n');
+ if(az==='prepara'){var rd0=document.getElementById('of-rd');
+  // 17/11/2026 (richiesta-riga-1): riga scritta ma non aggiunta: la aggiunge da sola e prosegue
+  if(OF&&OF.solo_richieste&&!voceSel().length&&rd0&&rd0.value.trim().length>=2&&!el.dataset.auto){var g0=function(i){return document.getElementById(i);};
+   var sv={rub:g0('of-rub')?g0('of-rub').value:null,dest:g0('of-dest').value,ea:g0('of-ea').value,tipo:g0('of-tipo')?g0('of-tipo').value:'',ei:g0('of-ei')?g0('of-ei').value:''};
+   el.disabled=true;nota('of-msg','Aggiungo la riga scritta e preparo la richiesta…');
+   api('of_riga_aggiungi',{descrizione:rd0.value.trim(),unita:g0('of-ru').value,quantita:g0('of-rq').value}).then(function(r){el.disabled=false;
+    if(r.esito!=='ok'){nota('of-msg',errore(r),'err');return;}
+    return caricaOf().then(function(){if(g0('of-rub')&&sv.rub!==null){g0('of-rub').value=sv.rub;g0('of-rub').dispatchEvent(new Event('change',{bubbles:true}));}
+     if(g0('of-dest'))g0('of-dest').value=sv.dest;if(g0('of-ea'))g0('of-ea').value=sv.ea;if(g0('of-tipo')&&sv.tipo)g0('of-tipo').value=sv.tipo;if(g0('of-ei')&&sv.ei)g0('of-ei').value=sv.ei;
+     var b2=document.querySelector('[data-ofx="prepara"]');if(b2){b2.dataset.auto='1';azioneOf('prepara',b2);}});});
+   return;}
+  var sel=document.getElementById('of-rub'),bx0=document.getElementById('of-ei').closest('.pv-emi'),nn=bx0.querySelector('.pv-emi-n');
   if(nn&&nn.value.trim()){emAggiungi(bx0);if(nn.value.trim())return;}var ei=document.getElementById('of-ei').value;
   var d={voci:voceSel(),destinatario:document.getElementById('of-dest').value,email_a:document.getElementById('of-ea').value,email_impresa:ei,
    contatto_id:sel&&sel.value!==''?sel.dataset.cid:'',tipo:(document.getElementById('of-tipo')||{}).value||(sel&&sel.value!==''?sel.dataset.tipo:(EL_TIPO||'altro'))};
-  if(!crControlla([{el:document.getElementById('of-voci'),ok:function(){return d.voci.length>0;},testo:(OF&&OF.prove?'Spunta almeno una prova da chiedere':'Spunta almeno una voce da chiedere')},
+  var vuoto=OF&&OF.solo_richieste&&!(OF.voci||[]).length&&document.getElementById('of-rd');
+  if(!crControlla([{el:vuoto?document.getElementById('of-rd'):document.getElementById('of-voci'),ok:function(){return d.voci.length>0;},testo:(vuoto?'Scrivi qui cosa chiedi e premi «Aggiungi la riga»':OF&&OF.prove?'Spunta almeno una prova da chiedere':'Spunta almeno una voce da chiedere')},
     {el:document.getElementById('of-dest'),testo:'Scrivi a chi va la richiesta (nome della ditta o del laboratorio)'},
     {el:document.getElementById('of-ea'),ok:function(x){return lista(x.value).every(function(e){return okEm(e.toLowerCase());});},testo:'Un indirizzo email è scritto male'},
     {el:bx0,ok:function(){return lista(ei).length>0;},testo:'Aggiungi almeno un indirizzo dell\'impresa per la copia e le risposte'}])){nota('of-msg','Completa i campi segnati in rosso.','err');return;}
