@@ -496,7 +496,14 @@ async function preparaPdfFirma(env, fn, chiamaInfo, chiamaDati, chiamaRegistra) 
 async function mandaDoc(env, doc, metodo, scarica) {
   const perc = String((doc && doc.percorso) || "");
   if (!perc || perc.indexOf("..") !== -1 || !/^(documenti\/[0-9a-f-]{36}\/sub\/|firme\/[0-9a-f-]{36}\/documenti\/)/.test(perc)) return new Response("Not Found", { status: 404 });
-  const f = await fetch(urlArchivio(env, perc), { headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+  // 17/11/2026: l'archivio a volte risponde 429 (troppe richieste) subito dopo l'apertura del cantiere con molte foto:
+  // si riprova da soli fino a 3 volte prima di dare l'errore, così il firmatore non resta bianco
+  let f = null;
+  for (let tentativo = 0; tentativo < 4; tentativo++) {
+    if (tentativo) await new Promise((ok) => setTimeout(ok, [0, 700, 1500, 3000][tentativo]));
+    f = await fetch(urlArchivio(env, perc), { headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
+    if (f && (f.ok || (f.status !== 429 && f.status < 500))) break;
+  }
   if (!f || !f.ok) return new Response("File non disponibile in questo momento: riprova tra un minuto.", { status: 502, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   const p7m = doc.mime === "application/pkcs7-mime";
   const nome = String(doc.nome || (p7m ? "contabilita.pdf.p7m" : "contabilita.pdf"));
