@@ -3229,6 +3229,8 @@ async function rpcServizio(env, nome, corpo) {
 export async function postaPreventivi(message, env, ctx) {
   const a = String(message.to || "").toLowerCase().trim();
   if (env.POSTA_PREVENTIVI === "off" || !env.SUPABASE_SERVICE_KEY) { message.setReject("Indirizzo non attivo"); return; }
+  // 18/11/2026 (posta-info-1): copia della posta di info@ per il pannello di Filippo (B18)
+  if (/^info-copia\.[a-z0-9]{12,32}@posta\.tixcantiere\.it$/.test(a)) return postaInfo(message, env, a);
   if (!POSTA_RE.test(a)) { message.setReject("Indirizzo sconosciuto"); return; }
   if (Number(message.rawSize || 0) > 25 * 1024 * 1024) { message.setReject("Messaggio troppo grande (massimo 25 MB)"); return; }
   let arrivo = null;
@@ -3245,6 +3247,26 @@ export async function postaPreventivi(message, env, ctx) {
   if (!up || !up.ok) { console.log(JSON.stringify({ posta_errore: "salvataggio", id: arrivo.id })); message.setReject("Servizio non disponibile, riprova più tardi"); return; }
   await rpcServizio(env, "preventivi_posta_caricata", { p_id: arrivo.id, p_percorso: percorso }).catch((e) => console.log(JSON.stringify({ posta_errore: "caricata", id: arrivo.id, dettaglio: String(e && e.message || e).slice(0, 200) })));
   console.log(JSON.stringify({ posta: arrivo.id, byte: grezzo.byteLength }));
+}
+
+// 18/11/2026 (posta-info-1, chat B3): copia di info@ → pannello di Filippo. Il database della B18 dice se l'indirizzo è quello giusto
+// (impostazioni.pannello_posta_indirizzo; vuoto = tutto rifiutato) e legge poi l'.eml con la sua Edge Function.
+async function postaInfo(message, env, a) {
+  if (Number(message.rawSize || 0) > 25 * 1024 * 1024) { message.setReject("Messaggio troppo grande (massimo 25 MB)"); return; }
+  let arrivo = null;
+  try { arrivo = await rpcServizio(env, "pannello_posta_arrivo", { p_indirizzo: a, p_da: String(message.from || "").slice(0, 300), p_byte: Number(message.rawSize || 0) }); }
+  catch (e) { console.log(JSON.stringify({ posta_info_errore: "arrivo", dettaglio: String(e && e.message || e).slice(0, 200) })); message.setReject("Servizio non disponibile, riprova più tardi"); return; }
+  if (!arrivo || arrivo.esito !== "ok" || !/^[0-9a-f-]{36}$/.test(String(arrivo.id || ""))) {
+    message.setReject(arrivo && arrivo.esito === "grande" ? "Messaggio troppo grande" : arrivo && arrivo.esito === "troppe" ? "Troppe email" : "Indirizzo sconosciuto");
+    return;
+  }
+  const percorso = "posta-info/" + arrivo.id + ".eml";
+  const grezzo = await new Response(message.raw).arrayBuffer();
+  const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
+    headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": "message/rfc822", "x-upsert": "true" }, body: grezzo }).catch(() => null);
+  if (!up || !up.ok) { console.log(JSON.stringify({ posta_info_errore: "salvataggio", id: arrivo.id })); message.setReject("Servizio non disponibile, riprova più tardi"); return; }
+  await rpcServizio(env, "pannello_posta_caricata", { p_id: arrivo.id, p_percorso: percorso }).catch((e) => console.log(JSON.stringify({ posta_info_errore: "caricata", id: arrivo.id, dettaglio: String(e && e.message || e).slice(0, 200) })));
+  console.log(JSON.stringify({ posta_info: arrivo.id, byte: grezzo.byteLength }));
 }
 
 // allegato di un'email ricevuta: GET /preventivi/posta/file?t=…&id=<preventivo>&p=<email>&n=<numero>

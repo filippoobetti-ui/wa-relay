@@ -107,10 +107,27 @@ export async function areaGestisci(msg, value, env, h) {
   let testo;
   if (r.esito === "ok" && Array.isArray(r.imprese) && r.imprese.length) {
     const piu = r.imprese.length > 1;
-    testo = "Ecco il collegamento alla tua area riservata TIX" + (piu ? ":" : " (" + r.imprese[0].nome + "):") + "\n" +
-      r.imprese.map((i) => (piu ? "*" + i.nome + "*: " : "") + i.link).join("\n") +
-      "\n\nÈ personale: chi lo apre vede tutti i cantieri dell'impresa, giralo solo a chi in azienda deve consultarli." +
-      "\nAprilo dal telefono e mettilo sulla schermata Home come un'app: su Android menu di Chrome → «Installa app», su iPhone Safari → Condividi → «Aggiungi alla schermata Home».";
+    // 18/11/2026 (area-invito-1, B3 con la B16): con l'invito personale acceso la risposta dipende dal tipo di accesso
+    const soloLink = r.imprese.every((i) => !i.tipo || i.tipo === "link");
+    const app = "https://app.tixcantiere.it/";
+    const riga = (i) => {
+      const n = piu ? "*" + i.nome + "*: " : "", t = i.tipo || "link", em = i.email ? String(i.email) : "";
+      if (t === "invito") return n + "ti abbiamo mandato un'email" + (em ? " a " + em : "") + " per creare la tua password. Poi entra da " + (i.link || app);
+      if (t === "accedi") return n + "entra con la tua email" + (em ? " (" + em + ")" : "") + " e la tua password da " + (i.link || app);
+      if (t === "senza_email") return n + "non abbiamo la tua email per l'accesso personale: chiedi al titolare dell'impresa di invitarti, oppure scrivi a info@tixcantiere.it.";
+      return n + i.link;
+    };
+    if (soloLink) {
+      testo = "Ecco il collegamento alla tua area riservata TIX" + (piu ? ":" : " (" + r.imprese[0].nome + "):") + "\n" +
+        r.imprese.map(riga).join("\n") +
+        "\n\nÈ personale: chi lo apre vede tutti i cantieri dell'impresa, giralo solo a chi in azienda deve consultarli." +
+        "\nAprilo dal telefono e mettilo sulla schermata Home come un'app: su Android menu di Chrome → «Installa app», su iPhone Safari → Condividi → «Aggiungi alla schermata Home».";
+    } else {
+      testo = "Ecco come entri nella tua area riservata TIX" + (piu ? ":" : " (" + r.imprese[0].nome + "):") + "\n" +
+        r.imprese.map(riga).join("\n") +
+        "\n\nL'accesso è solo tuo: non dare a nessuno la tua password." +
+        "\nApri l'area dal telefono e mettila sulla schermata Home come un'app: su Android menu di Chrome → «Installa app», su iPhone Safari → Condividi → «Aggiungi alla schermata Home».";
+    }
   } else if (r.esito === "troppi") {
     testo = "Ti ho già mandato il collegamento più volte nelle ultime 24 ore. Riprova domani oppure scrivi a info@tixcantiere.it.";
   } else {
