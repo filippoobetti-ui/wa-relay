@@ -14,6 +14,9 @@ import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
 // Controlli, salvataggio ed email li fa il database (funzioni elenco_*); qui solo trappole contro i programmi automatici,
 // l'impronta giornaliera dell'IP (cancellata entro 24 ore) e i loghi. Nessun dato del modulo va a fornitori di IA.
 // Interruttore per le imprese: impostazioni.elenco_fornitori_attivo (no / prova / si).
+// 17/11/2026 (elenco-libero-1, chat B3): modulo aperto anche senza codice quando impostazioni.elenco_iscrizione_libera = si (lo decide il DB);
+// tipo «professionista»; casella facoltativa delle email informative (testo della B12, salvata con data e versione);
+//   GET  /elenco/stop?k=…               toglie il consenso alle email informative (link in fondo a quelle email). L'iscrizione resta.
 // ============================================================================
 
 const ELENCO_ORIGINI = new Set(["https://www.tixcantiere.it", "https://wa-relay.filippo-obetti.workers.dev"]);
@@ -112,11 +115,12 @@ function elCampi(d) {
   const t = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, " ").trim().slice(0, n);
   const lista = (v, max, n) => (Array.isArray(v) ? v : []).slice(0, max).map((y) => t(y, n)).filter(Boolean);
   return {
-    ragione_sociale: t(x.ragione_sociale, 160), partita_iva: t(x.partita_iva, 20), tipi: lista(x.tipi, 3, 20), voci: lista(x.voci, 450, 30),
+    ragione_sociale: t(x.ragione_sociale, 160), partita_iva: t(x.partita_iva, 20), tipi: lista(x.tipi, 4, 20), voci: lista(x.voci, 450, 30),
     altro: t(x.altro, 300), province: lista(x.province, 110, 2), sede_comune: t(x.sede_comune, 80), sede_provincia: t(x.sede_provincia, 2),
     email: t(x.email, 160), telefono: t(x.telefono, 30), sito: t(x.sito, 200), referente_nome: t(x.referente_nome, 80),
     referente_ruolo: t(x.referente_ruolo, 80), descrizione: t(x.descrizione, 300),
-    logo_path: ELENCO_LOGO.test(String(x.logo_path || "")) ? String(x.logo_path) : "", togli_logo: x.togli_logo === true
+    logo_path: ELENCO_LOGO.test(String(x.logo_path || "")) ? String(x.logo_path) : "", togli_logo: x.togli_logo === true,
+    consenso_email: x.consenso_email === true
   };
 }
 
@@ -155,7 +159,7 @@ function elPagina(titolo, corpo, script) {
   const html = '<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#1B2F4A">' +
     '<title>' + elEsc(titolo) + ' — Elenco fornitori di TIX</title><style>' + ELENCO_CSS + CAMPI_ROSSI_CSS + '</style></head><body>' +
-    '<header><b>TIX</b><span>Elenco fornitori e subappaltatori</span></header><main>' + corpo + '</main>' +
+    '<header><b>TIX</b><span>Elenco fornitori, subappaltatori e professionisti</span></header><main>' + corpo + '</main>' +
     '<footer>TIX · Diario di cantiere™ · www.tixcantiere.it · info@tixcantiere.it</footer>' +
     (script ? '<script>' + CAMPI_ROSSI_JS + script + '</script>' : '') + '</body></html>';
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-store",
@@ -172,12 +176,12 @@ const ELENCO_SCRIPT = String.raw`
 var D=window.__ELENCO__||{};var VOCI=D.voci||[],PROV=D.province||[],S=D.scheda||null,MIA=!!D.mia;
 function es(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function $(id){return document.getElementById(id);}
-var TIPI={fornitore:'Fornitore di materiali',subappaltatore:'Subappaltatore (lavorazioni)',noleggio:'Noleggio di mezzi e attrezzature'};
+var TIPI={fornitore:'Fornitore di materiali',subappaltatore:'Subappaltatore (lavorazioni)',noleggio:'Noleggio di mezzi e attrezzature',professionista:'Professionista (studio tecnico)'};
 var scelte={},provSel={},logo=S&&S.logo_path||'',togliLogo=false,t0=Date.now();
 if(S){(S.voci||[]).forEach(function(v){scelte[v.codice]=1;});(S.province||[]).forEach(function(p){provSel[p]=1;});}
 function tipiScelti(){return Array.prototype.slice.call(document.querySelectorAll('[name=tipo]:checked')).map(function(x){return x.value;});}
 function disegnaVoci(){var tp=tipiScelti(),q=($('cerca').value||'').toLowerCase().trim(),h='';
- if(!tp.length){$('voci').innerHTML='<p class="sotto">Scegliete prima cosa siete (fornitore, subappaltatore, noleggio): qui compaiono le voci.</p>';return;}
+ if(!tp.length){$('voci').innerHTML='<p class="sotto">Scegliete prima cosa siete (fornitore, subappaltatore, noleggio, professionista): qui compaiono le voci.</p>';return;}
  tp.forEach(function(t){var gruppi={},ord=[];VOCI.forEach(function(v){if(v.tipo!==t)return;if(q&&(v.nome+' '+v.macro).toLowerCase().indexOf(q)<0&&!scelte[v.codice])return;
    if(!gruppi[v.macro_codice]){gruppi[v.macro_codice]={nome:v.macro,v:[]};ord.push(v.macro_codice);}gruppi[v.macro_codice].v.push(v);});
   if(!ord.length)return;h+='<div class="tipo-t">'+es(TIPI[t])+'</div>';
@@ -203,7 +207,7 @@ function msg(t,c){var m=$('msg');m.textContent=t||'';m.className='msg'+(c?' '+c:
 function campi(){var d={};['ragione_sociale','partita_iva','altro','sede_comune','sede_provincia','email','telefono','sito','referente_nome','referente_ruolo','descrizione'].forEach(function(k){var el=$(k);if(el)d[k]=el.value;});
  d.tipi=tipiScelti();var ok={};d.tipi.forEach(function(t){ok[t]=1;});
  d.voci=VOCI.filter(function(v){return scelte[v.codice]&&ok[v.tipo];}).map(function(v){return v.codice;});
- d.province=Object.keys(provSel).filter(function(k){return provSel[k];});return d;}
+ d.province=Object.keys(provSel).filter(function(k){return provSel[k];});var ce=$('consenso_email');d.consenso_email=!!(ce&&ce.checked);return d;}
 function caricaLogo(){var el=$('logo'),f=el&&el.files&&el.files[0];if(!f)return Promise.resolve(togliLogo?'':logo);
  msg('Carico il logo…');var q=MIA?'t='+encodeURIComponent(D.t):'k='+encodeURIComponent(D.k);
  return fetch(D.base+'/elenco/logo?'+q+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f}).then(function(r){return r.json();}).then(function(r){
@@ -211,7 +215,7 @@ function caricaLogo(){var el=$('logo'),f=el&&el.files&&el.files[0];if(!f)return 
 function invia(){var b=$('invia');var d=campi();
  var R=[{el:$('ragione_sociale'),testo:'Scrivete la ragione sociale'},
   {el:$('partita_iva'),ok:function(x){return /^(IT)?[0-9]{11}$/i.test(x.value.replace(/\s/g,''));},testo:'Partita IVA di 11 cifre'},
-  {el:document.querySelector('.spunte'),ok:function(){return d.tipi.length>0;},testo:'Indicate cosa siete: fornitore, subappaltatore o noleggio'},
+  {el:document.querySelector('.spunte'),ok:function(){return d.tipi.length>0;},testo:'Indicate cosa siete: fornitore, subappaltatore, noleggio o professionista'},
   {el:$('prov'),ok:function(){return d.province.length>0;},testo:'Indicate almeno una provincia in cui lavorate'},
   {el:$('sede_comune'),testo:'Scrivete il comune della sede'},{el:$('sede_provincia'),testo:'Scegliete la provincia della sede'},
   {el:$('email'),ok:function(x){return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(x.value.trim());},testo:'Scrivete l\'email per le richieste di offerta'}];
@@ -237,11 +241,11 @@ document.addEventListener('click',function(e){var x=e.target.closest&&e.target.c
  if(az==='invia')invia();else if(az==='togli_logo'){togliLogo=true;logo='';var v=$('logo-vista');if(v)v.remove();x.remove();}else azioneMia(az);});
 sedi();disegnaProv();contaProv();
 if(S){['ragione_sociale','partita_iva','altro','sede_comune','email','telefono','sito','referente_nome','referente_ruolo','descrizione'].forEach(function(k){var el=$(k);if(el&&S[k]!=null)el.value=S[k];});
- (S.tipi||[]).forEach(function(t){var c=document.querySelector('[name=tipo][value="'+t+'"]');if(c)c.checked=true;});var dn=$('desc-n');if(dn)dn.textContent=String(S.descrizione||'').length+'/300';}
+ (S.tipi||[]).forEach(function(t){var c=document.querySelector('[name=tipo][value="'+t+'"]');if(c)c.checked=true;});var dn=$('desc-n');if(dn)dn.textContent=String(S.descrizione||'').length+'/300';var ce=$('consenso_email');if(ce)ce.checked=!!S.consenso_email;}
 disegnaVoci();
 })();`;
 
-function elModuloHtml(mia, scheda) {
+function elModuloHtml(mia, scheda, casella) {
   const s = scheda || {};
   const stati = { da_approvare: "In attesa del controllo di TIX", approvato: "Nell'elenco", nascosto: "Nascosta", rifiutato: "Non pubblicata", da_confermare: "Email da confermare" };
   let h = "";
@@ -252,12 +256,12 @@ function elModuloHtml(mia, scheda) {
     else if (s.stato === "nascosto" && s.nascosto_per === "senza_risposta") h += '<div class="box" id="stato-an"><b>L\'iscrizione è nascosta perché non abbiamo ricevuto la conferma annuale.</b><p class="sotto">Premete il pulsante per farla tornare visibile.</p><button type="button" data-az="conferma_annuale">Siamo ancora attivi</button></div>';
   } else {
     h += '<h1>Entrate nell\'elenco fornitori di TIX</h1><p class="sotto">TIX™ · Diario di cantiere è l\'app delle imprese edili per il diario, i preventivi e le richieste di offerta. ' +
-      'Le imprese che usano TIX vi trovano per zona e per lavorazione e vi possono mandare richieste di offerta. L\'iscrizione è gratuita e la controlliamo prima di pubblicarla.</p>';
+      'Fornitori di materiali, subappaltatori, noleggi e professionisti tecnici: le imprese che usano TIX vi trovano per zona e per lavorazione e vi possono mandare richieste di offerta. L\'iscrizione è gratuita e la controlliamo prima di pubblicarla.</p>';
   }
   h += '<div class="box"><h2 style="margin-top:0">La vostra azienda</h2>' +
     '<label><span>Ragione sociale *</span><input type="text" id="ragione_sociale" maxlength="160" autocomplete="organization"></label>' +
     '<label><span>Partita IVA *</span><input type="text" id="partita_iva" maxlength="13" inputmode="numeric"' + (mia ? ' readonly' : '') + '></label>' +
-    '<div class="spunte">' + [["fornitore", "Fornitore di materiali"], ["subappaltatore", "Subappaltatore"], ["noleggio", "Noleggio"]].map((t) =>
+    '<div class="spunte">' + [["fornitore", "Fornitore di materiali"], ["subappaltatore", "Subappaltatore"], ["noleggio", "Noleggio"], ["professionista", "Professionista (studio tecnico)"]].map((t) =>
       '<label><input type="checkbox" name="tipo" value="' + t[0] + '"> ' + t[1] + '</label>').join("") + '</div>' +
     '<h2>Cosa vendete o fate</h2><p class="sotto">Scegliete le voci: le imprese vi trovano così. Potete scrivere qui sotto per cercare.</p>' +
     '<input type="text" id="cerca" class="cerca" placeholder="Cerca una voce, per esempio «calcestruzzo» o «escavatore»">' +
@@ -270,7 +274,7 @@ function elModuloHtml(mia, scheda) {
     '<label><span>Sito web</span><input type="url" id="sito" maxlength="200" placeholder="www.vostrosito.it"></label>' +
     '<div class="due"><label><span>Persona di riferimento (facoltativo)</span><input type="text" id="referente_nome" maxlength="80"></label>' +
     '<label><span>Ruolo (facoltativo)</span><input type="text" id="referente_ruolo" maxlength="80"></label></div>' +
-    '<p class="sotto" style="font-size:.85rem">Le imprese vedono i dati che scrivete qui, compresa la persona di riferimento se la indicate: consigliamo email e telefono aziendali.</p>' +
+    '<p class="sotto" style="font-size:.85rem">Nome, email e telefono del referente sono visibili alle imprese clienti di TIX dentro l\'app: vi consigliamo contatti aziendali.</p>' +
     '<label><span>Due righe su di voi (<span id="desc-n">0/300</span>)</span><textarea id="descrizione" maxlength="300"></textarea></label>' +
     '<label><span>Logo (PNG, JPG o WEBP, fino a 1 MB)</span>' +
     (mia && s.logo_path ? '<img id="logo-vista" class="logo-vista" alt="Logo attuale" src="/elenco/logo?p=' + encodeURIComponent(s.logo_path) + '">' : '') +
@@ -282,7 +286,14 @@ function elModuloHtml(mia, scheda) {
       '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="regole_ok"> <span>Accetto le regole dell\'elenco *</span></label>' +
       '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="riquadro_ok"> <span>Ci impegniamo a mettere sul nostro sito il riquadro «Siamo nell\'elenco fornitori di TIX» quando TIX ce lo manda *</span></label>';
   }
+  // 17/11/2026 (elenco-libero-1): casella facoltativa delle email informative, testo della B12 (versione elenco-email-2026-11-17)
+  // si mostra solo quando l'informativa online ne parla (impostazioni.elenco_casella_email_attiva, avviso B6)
+  if (casella) h += '<h2>Email da TIX (facoltativo)</h2><label style="display:flex;gap:8px;align-items:flex-start;font-weight:400"><input type="checkbox" id="consenso_email"> <span>' +
+    'Voglio ricevere da TIX email con novità sull\'Elenco fornitori e inviti alle iniziative di TIX (facoltativo: l\'iscrizione all\'Elenco non dipende da questa scelta). ' +
+    'Posso togliere il consenso quando voglio dalla mia pagina o dal link in fondo a ogni email.</span></label>' +
+    (mia && s.consenso_email_il ? '<p class="sotto" style="font-size:.85rem">Ultima scelta registrata il ' + elEsc(new Date(s.consenso_email_il).toLocaleDateString("it-IT", { timeZone: "Europe/Rome" })) + '.</p>' : '');
   h += '<div class="bott"><button type="button" id="invia" data-az="invia">' + (mia ? "Salva le modifiche" : "Iscrivimi all'elenco") + '</button></div>' +
+    '<p class="info" style="margin-top:8px"><a href="https://www.tixcantiere.it/privacy-policy" target="_blank" rel="noopener">Informativa privacy completa</a></p>' +
     '<p class="msg" id="msg" aria-live="polite"></p>' +
     (mia ? '' : '<p class="info">' + INFORMATIVA + '</p>') + '</div>';
   if (mia) {
@@ -306,7 +317,7 @@ export async function elencoRoute(request, env, sotto, prefisso) {
     const k = String(url.searchParams.get("k") || "").slice(0, 64);
     const r = await elRpc(env, "elenco_modulo", { p_codice: k });
     if (!r || r.esito !== "ok") return elMessaggio("Modulo non disponibile", '<p>Il modulo d\'iscrizione si apre solo con il link d\'invito che vi ha mandato TIX. Se pensate che sia un errore, scrivete a info@tixcantiere.it.</p>');
-    return elPagina("Iscrizione", elModuloHtml(false, null), elDati({ base: prefisso, k, voci: r.voci || [], province: PROVINCE, mia: false }) + ELENCO_SCRIPT);
+    return elPagina("Iscrizione", elModuloHtml(false, null, r.casella_email === true), elDati({ base: prefisso, k, voci: r.voci || [], province: PROVINCE, mia: false }) + ELENCO_SCRIPT);
   }
 
   if (sotto === "/elenco/iscrivi") {
@@ -343,8 +354,8 @@ export async function elencoRoute(request, env, sotto, prefisso) {
     // il logo si carica solo con il codice d'invito valido o con il link personale valido
     const k = String(url.searchParams.get("k") || "").slice(0, 64), t = String(url.searchParams.get("t") || "").toLowerCase();
     let ok = false;
-    if (k) { const r = await elRpc(env, "elenco_modulo", { p_codice: k }); ok = !!(r && r.esito === "ok"); }
-    else if (ELENCO_TOKEN.test(t)) { const r = await elRpc(env, "elenco_mia", { p_token: t, p_azione: "vedi", p_dati: {} }); ok = !!(r && r.esito === "ok"); }
+    if (ELENCO_TOKEN.test(t)) { const r = await elRpc(env, "elenco_mia", { p_token: t, p_azione: "vedi", p_dati: {} }); ok = !!(r && r.esito === "ok"); }
+    else { const r = await elRpc(env, "elenco_modulo", { p_codice: k }); ok = !!(r && r.esito === "ok"); }   // 17/11/2026: anche con l'iscrizione libera
     if (!ok) return elJson({ esito: "non_valido", messaggio: "Il link non vale più: ricaricate la pagina dall'email." }, 403);
     if (Number(request.headers.get("content-length") || 0) > ELENCO_LOGO_MAX) return elJson({ esito: "grande", messaggio: "Il logo può essere al massimo di 1 MB." }, 413);
     const b = new Uint8Array(await request.arrayBuffer());
@@ -377,8 +388,17 @@ export async function elencoRoute(request, env, sotto, prefisso) {
     const t = String(url.searchParams.get("t") || "").toLowerCase();
     const r = ELENCO_TOKEN.test(t) ? await elRpc(env, "elenco_mia", { p_token: t, p_azione: "vedi", p_dati: {} }) : null;
     if (!r || r.esito !== "ok") return elMessaggio("Link non valido", '<p>Questo link non vale più: usate quello dell\'ultima email che vi abbiamo mandato, oppure scrivete a info@tixcantiere.it.</p>');
-    return elPagina("La vostra iscrizione", elModuloHtml(true, r.scheda),
+    return elPagina("La vostra iscrizione", elModuloHtml(true, r.scheda, r.casella_email === true),
       elDati({ base: prefisso, t, voci: r.voci_tutte || [], province: PROVINCE, scheda: r.scheda, mia: true }) + ELENCO_SCRIPT);
+  }
+
+  // 17/11/2026 (elenco-libero-1): «Per non ricevere più queste email» (link in fondo alle email informative). L'iscrizione resta.
+  if (sotto === "/elenco/stop") {
+    const k = String(url.searchParams.get("k") || "").toLowerCase();
+    const r = /^[0-9a-f]{32}$/.test(k) ? await elRpc(env, "elenco_stop", { p_k: k }) : null;
+    if (!r || r.esito !== "ok") return elMessaggio("Link non valido", '<p>Questo link non vale più. Per non ricevere più le email di TIX scrivete a info@tixcantiere.it.</p>');
+    return elMessaggio("Fatto", '<p>Non riceverete più da TIX le email con novità e inviti per <b>' + elEsc(r.ragione_sociale || "") + '</b>.</p>' +
+      '<p>L\'iscrizione all\'elenco fornitori resta attiva: continueremo a scrivervi solo per le cose dell\'iscrizione (conferme e rinnovo annuale).</p>');
   }
 
   if (sotto === "/elenco/mia/api") {
