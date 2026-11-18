@@ -98,6 +98,22 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       return j((await rpc(env, "pannello_posta_segna", { p_token: tok, p_disp: disp, p_uid: uid, p_op: op })) || { esito: "servizio" });
     }
     // pannello-18 (18/11, P4): IA della posta (smistamento e bozze, mai inviate da sole): stato, spesa, modello, tetto, confronto alla cieca
+    // pannello-19 (18/11, C3): sala controllo (quadro dei programmi) e allarmi in un posto solo
+    if (b.azione === "sistemi") {
+      const r = (await rpc(env, "pannello_sistemi", { p_token: tok, p_disp: disp }, 25000)) || { esito: "servizio" };
+      // versione online del Worker: /versione esiste solo sull'indirizzo workers.dev (senza CORS), quindi la legge il Worker
+      if (r.esito === "ok") {
+        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 3000);
+        try { const v = await fetch("https://wa-relay.filippo-obetti.workers.dev/versione", { signal: ctrl.signal }); if (v.ok) { let t = await v.text(); try { t = JSON.parse(t); } catch (e) { } r.versione = String(t || "").split(" · ")[0].slice(0, 200); } }
+        catch (e) { } finally { clearTimeout(tm); }
+      }
+      return j(r);
+    }
+    if (b.azione === "allarme") {
+      const ch = String(d.chiave || ""), st = String(d.stato || "");
+      if (!/^(es:\d{1,12}|ck:[a-z_]{2,20}:\d{4}-\d{2}-\d{2})$/.test(ch) || !/^(aperto|visto|risolto)$/.test(st)) return j({ esito: "valore" }, 400);
+      return j((await rpc(env, "pannello_allarme_segna", { p_token: tok, p_disp: disp, p_chiave: ch, p_stato: st })) || { esito: "servizio" });
+    }
     if (b.azione === "posta_ia") return j((await rpc(env, "pannello_posta_ia_stato", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia_imposta") {
       const op = String(d.op || "");
@@ -278,7 +294,9 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 .caric{display:grid;gap:12px}.sk{height:16px;border-radius:8px;background:linear-gradient(90deg,var(--l2),var(--l),var(--l2));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{to{background-position:-200% 0}}
 .indietro{display:none}
-.voceoggi .conta{margin-left:auto;background:var(--ara);color:#1b2330;border-radius:999px;font-size:.72rem;font-weight:800;padding:1px 8px}
+.voceoggi .conta{margin-left:auto;background:var(--ara);color:#1b2330;border-radius:999px;font-size:.72rem;font-weight:800;padding:1px 8px}.voceoggi .conta.rossa{background:var(--ro)}
+.sist{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.sist .dati dl{grid-template-columns:minmax(120px,48%) 1fr}
+@media (max-width:820px){.sist{grid-template-columns:1fr}}
 .posta{display:grid;grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:16px;align-items:start}
 .plista{padding:10px;max-height:calc(100vh - 190px);overflow:auto}
 .pr{display:grid;gap:2px;width:100%;text-align:left;border:0;border-top:1px solid var(--l2);background:transparent;color:var(--t);padding:10px 8px;border-radius:0}
@@ -306,7 +324,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -339,7 +357,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && (p.get("p") === "email" || p.get("p") === "fornitori" || p.get("p") === "posta") ? p.get("p") : "";
+    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -364,6 +382,8 @@ function app() {
       '<button class="voceoggi" data-pag="posta"' + (S.p === "posta" ? ' aria-current="page"' : '') + '>📥 Posta in arrivo' + (function () { if (!POSTA) caricaPosta(); var n = pNonLette(); return n ? '<span class="conta">' + n + '</span>' : ''; })() + '</button>' +
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email mandate</button>' +
       '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
+      '<button class="voceoggi" data-pag="sistemi"' + (S.p === "sistemi" ? ' aria-current="page"' : '') + '>🛰 Sistemi</button>' +
+      '<button class="voceoggi" data-pag="allarmi"' + (S.p === "allarmi" ? ' aria-current="page"' : '') + '>🚨 Allarmi' + (function () { if (!SIS) caricaSistemi(); var n = nAllarmi(); return n ? '<span class="conta' + (SIS.rossi_aperti ? ' rossa' : '') + '">' + n + '</span>' : ''; })() + '</button>' +
       '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca tra i clienti…" aria-label="Cerca tra i clienti di TIX" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
@@ -736,6 +756,60 @@ function app() {
       }).join("") + '</div><p class="sub">Gli allegati si scaricano sul computer: aprili solo se conosci chi scrive.</p>' : '') +
       '<p class="sub" style="margin-top:14px">Le risposte partono da Gmail, da info@tixcantiere.it, come sempre. Le email restano qui 12 mesi (clienti 24, automatiche 30 giorni).</p>');
   }
+  // ---- sala controllo (C3, pannello-19): quadro dei programmi e allarmi. Dati letti dal DB (pannello_sistemi), nessuna chiave nel browser.
+  function caricaSistemi() {
+    if (caricaSistemi.v) return; caricaSistemi.v = 1;
+    chiama("sistemi").then(function (r) { SIS = r || { esito: "servizio" }; if (SIS.versione) VERS = SIS.versione; caricaSistemi.v = 0; disegna(); });
+  }
+  function nAllarmi() { return SIS && SIS.esito === "ok" ? SIS.aperti || 0 : 0; }
+  var SEMN = { verde: "tutto a posto", giallo: "da guardare", rosso: "serve un intervento" };
+  function paginaSistemi() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Sistemi</h1>';
+    if (!SIS) { caricaSistemi(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
+    if (SIS.esito !== "ok") return testa + '<p class="err">Quadro non letto. Ricarica la pagina.</p></div>';
+    var ss = SIS.sistemi || [];
+    var nr = ss.filter(function (s) { return s.semaforo === "rosso"; }).length, ng = ss.filter(function (s) { return s.semaforo === "giallo"; }).length;
+    return testa + '<p class="sub">Tutti i programmi di TIX in un colpo d\'occhio · aggiornato ' + DT(SIS.ora, true) + ' · <button class="copia" data-sis-ricarica>↻ aggiorna</button></p>' +
+      '<div class="kpi">' + k("Programmi", ss.length, nr ? nr + " rossi" : ng ? ng + " da guardare" : "tutti verdi", nr ? "ro" : ng ? "gi" : "") +
+        k("Allarmi aperti", SIS.aperti || 0, (SIS.rossi_aperti || 0) + " rossi", SIS.rossi_aperti ? "ro" : SIS.aperti ? "gi" : "") +
+        '<div class="k"><div class="et">Versione online del server</div><div class="v" style="font-size:.95rem!important;line-height:1.35">' + E(VERS || "non letta") + '</div><div class="n2">Cloudflare · wa-relay</div></div>' +
+      '</div><div class="sist">' + ss.map(function (s) {
+        return '<section class="card"><div class="testa" style="gap:8px"><div class="tit" style="min-width:0"><h2 style="margin:0;display:flex;gap:8px;align-items:center"><span class="pal p-' + E(s.semaforo) + '" style="margin:0"></span>' + E(s.nome) + '</h2>' +
+            '<span class="sub">' + (SEMN[s.semaforo] || "") + '</span></div>' +
+            (s.pagina ? '<button class="bt" data-pag="' + E(s.pagina) + '">Apri</button>' : '') + (s.link ? '<a class="bt" href="' + E(s.link) + '" target="_blank" rel="noopener">Console ↗</a>' : '') + '</div>' +
+          '<div class="dati" style="margin-top:10px"><dl>' + (s.righe || []).map(function (r) { return '<dt>' + E(r[0]) + '</dt><dd>' + E(r[1]) + '</dd>'; }).join("") + '</dl></div>' +
+          (s.nota ? '<p class="sub" style="margin:8px 0 0">' + E(s.nota) + '</p>' : '') + '</section>';
+      }).join("") + '</div>' +
+      '<p class="sub" style="margin-top:12px">Da collegare nelle prossime fasi: crediti e scenari di Make, statistiche di Cloudflare, qualità del numero WhatsApp da Meta, Stripe, spazio del Drive, minuti di ElevenLabs.</p></div>';
+  }
+  var ALS = { aperto: "Aperti", visto: "Visti", risolto: "Risolti" };
+  function paginaAllarmi() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Allarmi</h1>';
+    if (!SIS) { caricaSistemi(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
+    if (SIS.esito !== "ok") return testa + '<p class="err">Allarmi non letti. Ricarica la pagina.</p></div>';
+    var tutti = SIS.allarmi || [];
+    var lista = tutti.filter(function (a) { return a.stato === S.af; });
+    var gialliAperti = tutti.filter(function (a) { return a.stato === "aperto" && a.gravita !== "rosso"; }).length;
+    return testa + '<p class="sub">Tutti gli avvisi degli ultimi 30 giorni in un posto solo: errori degli scenari, controlli automatici e quelli del pannello. «Visto» = l\'hai letto; «Risolto» = sistemato.</p>' +
+      '<div class="filtri" style="padding:6px 0 10px" role="group" aria-label="Filtra gli allarmi">' + ["aperto", "visto", "risolto"].map(function (s) {
+        return '<button class="chip" data-af="' + s + '" aria-pressed="' + (S.af === s) + '">' + ALS[s] + '<span class="n">' + tutti.filter(function (a) { return a.stato === s; }).length + '</span></button>';
+      }).join("") + (S.af === "aperto" && gialliAperti > 1 ? ' <button class="bt" data-al-tutti style="padding:4px 10px">Segna visti tutti i gialli (' + gialliAperti + ')</button>' : '') + '</div>' +
+      '<section class="card">' + (lista.length ? lista.map(function (a) {
+        return '<div class="ev" style="grid-template-columns:18px 1fr auto"><span class="pal p-' + (a.gravita === "rosso" ? "rosso" : "giallo") + '"></span><div><div class="ti">' + E(a.fonte) + (a.dove ? ' <span class="sub">· ' + E(a.dove) + '</span>' : '') + (a.impresa ? ' <span class="sub">· ' + E(a.impresa) + '</span>' : '') + '</div>' +
+          '<div class="d">' + E(a.testo) + '</div></div><div style="text-align:right"><div class="q">' + FA(a.quando) + '</div><div class="azioni" style="justify-content:flex-end;margin-top:6px">' +
+          (a.stato !== "visto" && a.stato !== "risolto" ? '<button class="bt" data-al="' + E(a.chiave) + '" data-al-st="visto">Visto</button>' : '') +
+          (a.stato !== "risolto" ? '<button class="bt" data-al="' + E(a.chiave) + '" data-al-st="risolto">Risolto</button>' : '') +
+          (a.stato !== "aperto" ? '<button class="bt" data-al="' + E(a.chiave) + '" data-al-st="aperto">Riapri</button>' : '') + '</div></div></div>';
+      }).join("") : '<p class="vuoto">' + (S.af === "aperto" ? 'Nessun allarme aperto. ✓' : 'Nessuno.') + '</p>') + '</section></div>';
+  }
+  function segnaAllarme(ch, st) {
+    return chiama("allarme", { chiave: ch, stato: st }).then(function (r) {
+      if (r && r.esito === "ok") { (SIS.allarmi || []).forEach(function (a) { if (a.chiave === ch) a.stato = st; }); SIS.aperti = (SIS.allarmi || []).filter(function (a) { return a.stato === "aperto"; }).length;
+        SIS.rossi_aperti = (SIS.allarmi || []).filter(function (a) { return a.stato === "aperto" && a.gravita === "rosso"; }).length; return true; }
+      return false;
+    });
+  }
+
   // ---- IA della posta (P4, pannello-18): stato, spesa del mese con tetto, Medio/Migliore, confronto alla cieca
   var USD = function (n) { return Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $"; };
   var CENT = function (n) { return (Number(n || 0) * 100).toLocaleString("it-IT", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " ¢"; };
@@ -1093,11 +1167,11 @@ function app() {
     a.className = "app" + (S.c || S.p ? " dentro" : "");
     var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq") ? ae0.id : "";
     var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : oggi()) + '</main>';
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : oggi()) + '</main>';
     if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     var nl = pNonLette();
-    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : "") + "Pannello di TIX";
+    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -1109,6 +1183,7 @@ function app() {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
       MAIL = {}; BON = null; PIA = null;
+      chiama("sistemi").then(function (r3) { if (r3 && r3.esito === "ok") { SIS = r3; if (r3.versione) VERS = r3.versione; if ((S.p === "sistemi" || S.p === "allarmi") && !$("dlg").open) disegna(); } });
       // la posta si ricarica senza perdere l'email aperta (PMC resta)
       chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
       // l'aggiornamento automatico non ridisegna mentre Filippo scrive o ha una finestra aperta
@@ -1122,6 +1197,14 @@ function app() {
     if (b.hasAttribute("data-c")) { vai(b.getAttribute("data-c"), "crono"); var co = $("corpo"); if (co) co.scrollTop = 0; window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
+    if (b.hasAttribute("data-sis-ricarica")) { SIS = null; disegna(); return; }
+    if (b.hasAttribute("data-af")) { S.af = b.getAttribute("data-af"); disegna(); return; }
+    if (b.hasAttribute("data-al")) { b.disabled = true; segnaAllarme(b.getAttribute("data-al"), b.getAttribute("data-al-st")).then(function (ok) { toast(ok ? "Fatto" : "Non salvato: riprova"); disegna(); }); return; }
+    if (b.hasAttribute("data-al-tutti")) {
+      var gg = (SIS.allarmi || []).filter(function (a) { return a.stato === "aperto" && a.gravita !== "rosso"; });
+      if (!confirm("Segnare come visti " + gg.length + " allarmi gialli? I rossi restano aperti.")) return;
+      b.disabled = true; gg.reduce(function (p, a) { return p.then(function () { return segnaAllarme(a.chiave, "visto"); }); }, Promise.resolve()).then(function () { toast("Segnati come visti"); disegna(); }); return;
+    }
     if (b.hasAttribute("data-pf")) { S.pf = b.getAttribute("data-pf"); S.pm = ""; disegna(); return; }
     if (b.hasAttribute("data-pm")) { S.pm = b.getAttribute("data-pm"); var rr = pRiga(S.pm); if (rr && rr.stato === "nuova" && !rr.traccia) { rr.stato = "letta"; delete PMC[S.pm]; } disegna(); var pe = document.querySelector(".plegge"); if (pe && window.innerWidth <= 1100) pe.scrollIntoView({ block: "start" }); return; }
     if (b.hasAttribute("data-pop")) { segnaPosta(b.getAttribute("data-pop")); return; }
