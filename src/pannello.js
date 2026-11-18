@@ -100,19 +100,22 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
     // pannello-18 (18/11, P4): IA della posta (smistamento e bozze, mai inviate da sole): stato, spesa, modello, tetto, confronto alla cieca
     // pannello-19 (18/11, C3): sala controllo (quadro dei programmi) e allarmi in un posto solo
     if (b.azione === "sistemi") {
-      const r = (await rpc(env, "pannello_sistemi", { p_token: tok, p_disp: disp }, 25000)) || { esito: "servizio" };
-      // versione online del Worker: /versione esiste solo sull'indirizzo workers.dev (senza CORS), quindi la legge il Worker
-      if (r.esito === "ok") {
-        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 3000);
-        try { const v = await fetch("https://wa-relay.filippo-obetti.workers.dev/versione", { signal: ctrl.signal }); if (v.ok) { let t = await v.text(); try { t = JSON.parse(t); } catch (e) { } r.versione = String(t || "").split(" · ")[0].slice(0, 200); } }
-        catch (e) { } finally { clearTimeout(tm); }
-      }
-      return j(r);
+      // (pannello-20: tolta la lettura di /versione: un Worker non può chiamare sé stesso sul suo indirizzo workers.dev)
+      return j((await rpc(env, "pannello_sistemi", { p_token: tok, p_disp: disp }, 25000)) || { esito: "servizio" });
     }
     if (b.azione === "allarme") {
       const ch = String(d.chiave || ""), st = String(d.stato || "");
-      if (!/^(es:\d{1,12}|ck:[a-z_]{2,20}:\d{4}-\d{2}-\d{2})$/.test(ch) || !/^(aperto|visto|risolto)$/.test(st)) return j({ esito: "valore" }, 400);
+      if (!/^(es:\d{1,12}|ck:[a-z0-9_]{2,30}:\d{4}-\d{2}-\d{2})$/.test(ch) || !/^(aperto|visto|risolto)$/.test(st)) return j({ esito: "valore" }, 400);
       return j((await rpc(env, "pannello_allarme_segna", { p_token: tok, p_disp: disp, p_chiave: ch, p_stato: st })) || { esito: "servizio" });
+    }
+    // pannello-20 (18/11, C4): soldi di TIX (entrate, costi, margine) e scadenze
+    if (b.azione === "soldi") return j((await rpc(env, "pannello_soldi", { p_token: tok, p_disp: disp }, 20000)) || { esito: "servizio" });
+    if (b.azione === "soldi_salva") {
+      const cosa = String(d.cosa || ""), op = String(d.op || "");
+      if (!/^(costo|scadenza)$/.test(cosa) || !/^(salva|togli|fatta)$/.test(op)) return j({ esito: "azione" }, 400);
+      const s = d.scheda && typeof d.scheda === "object" ? d.scheda : {}, ok = {};
+      ["id", "voce", "fornitore", "categoria", "importo", "valuta", "periodo", "rinnovo_giorno", "prossimo_rinnovo", "note", "titolo", "data", "tipo", "ricorrenza"].forEach((kk) => { if (s[kk] != null) ok[kk] = String(s[kk]).slice(0, 500); });
+      return j((await rpc(env, "pannello_soldi_salva", { p_token: tok, p_disp: disp, p_cosa: cosa, p_op: op, p: ok })) || { esito: "servizio" });
     }
     if (b.azione === "posta_ia") return j((await rpc(env, "pannello_posta_ia_stato", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia_imposta") {
@@ -217,6 +220,7 @@ h1{font-size:1.6rem!important;letter-spacing:-.015em;color:var(--t2);font-weight
 .scheda[aria-selected="true"]{color:var(--t2)}
 #toast{background:var(--c2)!important;color:var(--t2)!important;border:1px solid var(--ara)}
 .cerca input,textarea,input[type=number],input[type=text]{background:#1a2230!important}
+.dl select,.dl input[type=date]{font:inherit;padding:9px 10px;border:1px solid var(--l);border-radius:10px;background:#1a2230;color:var(--t);color-scheme:dark}.dl input[type=date]{width:100%}
 .i-nota{background:rgba(217,137,79,.12)!important}
 .ev{border-top-color:var(--l2)!important}
 a{color:var(--az)}button{font:inherit;cursor:pointer}
@@ -324,7 +328,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", SOL = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -357,7 +361,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
+    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi", "soldi"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -382,6 +386,7 @@ function app() {
       '<button class="voceoggi" data-pag="posta"' + (S.p === "posta" ? ' aria-current="page"' : '') + '>📥 Posta in arrivo' + (function () { if (!POSTA) caricaPosta(); var n = pNonLette(); return n ? '<span class="conta">' + n + '</span>' : ''; })() + '</button>' +
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email mandate</button>' +
       '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
+      '<button class="voceoggi" data-pag="soldi"' + (S.p === "soldi" ? ' aria-current="page"' : '') + '>💶 Soldi e scadenze</button>' +
       '<button class="voceoggi" data-pag="sistemi"' + (S.p === "sistemi" ? ' aria-current="page"' : '') + '>🛰 Sistemi</button>' +
       '<button class="voceoggi" data-pag="allarmi"' + (S.p === "allarmi" ? ' aria-current="page"' : '') + '>🚨 Allarmi' + (function () { if (!SIS) caricaSistemi(); var n = nAllarmi(); return n ? '<span class="conta' + (SIS.rossi_aperti ? ' rossa' : '') + '">' + n + '</span>' : ''; })() + '</button>' +
       '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
@@ -772,7 +777,6 @@ function app() {
     return testa + '<p class="sub">Tutti i programmi di TIX in un colpo d\'occhio · aggiornato ' + DT(SIS.ora, true) + ' · <button class="copia" data-sis-ricarica>↻ aggiorna</button></p>' +
       '<div class="kpi">' + k("Programmi", ss.length, nr ? nr + " rossi" : ng ? ng + " da guardare" : "tutti verdi", nr ? "ro" : ng ? "gi" : "") +
         k("Allarmi aperti", SIS.aperti || 0, (SIS.rossi_aperti || 0) + " rossi", SIS.rossi_aperti ? "ro" : SIS.aperti ? "gi" : "") +
-        '<div class="k"><div class="et">Versione online del server</div><div class="v" style="font-size:.95rem!important;line-height:1.35">' + E(VERS || "non letta") + '</div><div class="n2">Cloudflare · wa-relay</div></div>' +
       '</div><div class="sist">' + ss.map(function (s) {
         return '<section class="card"><div class="testa" style="gap:8px"><div class="tit" style="min-width:0"><h2 style="margin:0;display:flex;gap:8px;align-items:center"><span class="pal p-' + E(s.semaforo) + '" style="margin:0"></span>' + E(s.nome) + '</h2>' +
             '<span class="sub">' + (SEMN[s.semaforo] || "") + '</span></div>' +
@@ -808,6 +812,95 @@ function app() {
         SIS.rossi_aperti = (SIS.allarmi || []).filter(function (a) { return a.stato === "aperto" && a.gravita === "rosso"; }).length; return true; }
       return false;
     });
+  }
+
+  // ---- soldi di TIX e scadenze (C4, pannello-20). Importi + IVA; i dollari si convertono col cambio di impostazioni.pannello_cambio_usd_eur
+  var PER = { mese: "al mese", anno: "all'anno", consumo: "a consumo", una_tantum: "una volta" };
+  var VAL = function (n, v) { return n == null ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (v === "USD" ? " $" : " €"); };
+  function caricaSoldi() { if (caricaSoldi.v) return; caricaSoldi.v = 1; chiama("soldi").then(function (r) { SOL = r || { esito: "servizio" }; caricaSoldi.v = 0; disegna(); }); }
+  function paginaSoldi() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Soldi e scadenze</h1>';
+    if (!SOL) { caricaSoldi(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
+    if (SOL.esito !== "ok") return testa + '<p class="err">Dati non letti. Ricarica la pagina.</p></div>';
+    var e = SOL.entrate || {}, ep = SOL.entrate_mese_prima || {}, cc = SOL.costi || [], sc = SOL.scadenze || [];
+    var dac = cc.filter(function (c) { return c.da_completare; }).length;
+    var mg = Number(SOL.margine_mese || 0);
+    return testa + '<p class="sub">Questo mese, tutto + IVA, senza le imprese di prova · i dollari a ' + String(SOL.cambio).replace(".", ",") + ' € · aggiornato ' + DT(SOL.ora, true) + '</p>' +
+      '<div class="kpi">' + k("Entrate del mese", EUR(SOL.entrate_mese), "canoni " + EUR(e.canoni) + " · crediti " + EUR(e.crediti)) +
+        k("Da incassare", EUR(e.attesi), "canoni in attesa di pagamento") +
+        k("Costi del mese", EUR(SOL.uscite_mese), dac ? dac + " costi senza importo: il totale è più basso del vero" : "tutti i programmi", dac ? "gi" : "") +
+        k("Margine del mese", EUR(mg), "entrate meno costi", mg < 0 ? "ro" : "") +
+        k("Costo per cliente", EUR(SOL.costo_per_cliente), (SOL.clienti || 0) + " clienti veri") +
+        k("Mese scorso", EUR(Number(ep.canoni || 0) + Number(ep.crediti || 0)), "entrate") +
+      '</div><div class="griglia2"><section class="card"><div class="testa"><h2 class="tit" style="margin:0">Costi dei programmi</h2><button class="bt" data-costo-nuovo>+ Aggiungi un costo</button></div>' +
+        '<table style="margin-top:8px"><thead><tr><th>Programma</th><th class="num">Prezzo</th><th class="num">Questo mese</th><th>Rinnovo</th><th></th></tr></thead><tbody>' + cc.map(function (c) {
+          return '<tr><td><b>' + E(c.voce) + '</b>' + (c.note ? '<div class="sub">' + E(c.note) + '</div>' : '') + '</td>' +
+            '<td class="num">' + (c.fonte_auto ? '<span class="sub">' + E(c.consumo || "a consumo") + '</span>' : c.importo == null ? '<span class="err">da completare</span>' : VAL(c.importo, c.valuta) + '<div class="sub">' + (PER[c.periodo] || "") + ' + IVA</div>') + '</td>' +
+            '<td class="num">' + (c.mese_eur == null ? '—' : EUR(c.mese_eur)) + '</td><td>' + (c.prossimo_rinnovo ? DT(c.prossimo_rinnovo) : '—') + '</td>' +
+            '<td><button class="copia" data-costo="' + c.id + '">modifica</button></td></tr>';
+        }).join("") + '</tbody></table>' +
+        '<h3>Costi per cliente (questo mese)</h3><table><thead><tr><th>Impresa</th><th class="num">Canone</th><th class="num">IA</th><th class="num">WhatsApp</th></tr></thead><tbody>' + (SOL.per_cliente || []).map(function (p) {
+          return '<tr><td><button class="copia" data-c="' + E(p.id) + '">' + E(p.azienda) + '</button></td><td class="num">' + (p.canone == null ? '—' : EUR(p.canone)) + '</td><td class="num">' + VAL(p.ia_usd, "USD") + '</td><td class="num">' + (p.whatsapp || 0) + ' messaggi</td></tr>';
+        }).join("") + '</tbody></table>' +
+        '<p class="sub">Spazio, Make e server sono in comune: il «costo per cliente» li divide in parti uguali.</p></section>' +
+      '<aside class="card"><div class="testa"><h2 class="tit" style="margin:0">Scadenze</h2><button class="bt" data-scad-nuova>+ Aggiungi</button></div>' +
+        (sc.length ? sc.map(function (s) {
+          var g = s.giorni, cl = g == null ? "b-grigio" : g < 0 ? "b-rosso" : g <= 7 ? "b-rosso" : g <= 30 ? "b-giallo" : "b-grigio";
+          return '<div class="nt"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + E(s.titolo) + '</b><span class="badge ' + cl + '" style="margin:0;white-space:nowrap">' + (s.data ? (g < 0 ? "scaduta" : g === 0 ? "oggi" : "tra " + g + " giorni") : "data da completare") + '</span></div>' +
+            '<div class="sub">' + (s.data ? DT(s.data) : '') + (s.note ? (s.data ? ' · ' : '') + E(s.note) : '') + '</div>' +
+            (s.fonte === "scadenza" ? '<div class="azioni" style="margin-top:6px"><button class="copia" data-scad="' + s.id + '">modifica</button>' + (s.data ? '<button class="copia" data-scad-fatta="' + s.id + '">✓ fatta</button>' : '') + '</div>' : '') + '</div>';
+        }).join("") : '<p class="vuoto">Nessuna scadenza.</p>') +
+        '<p class="sub">Avviso negli Allarmi 30 giorni prima (giallo) e 7 giorni prima (rosso). I rinnovi dei programmi compaiono 45 giorni prima.</p></aside></div></div>';
+  }
+  function schedaCosto(c) {
+    c = c || { valuta: "EUR", periodo: "mese" };
+    var d = $("dlg"), auto = !!c.fonte_auto;
+    d.innerHTML = '<div class="dl"><h2>' + (c.id ? "Modifica il costo" : "Nuovo costo") + '</h2>' +
+      '<label for="co-voce">Programma o servizio *</label><input type="text" id="co-voce" value="' + E(c.voce || "") + '">' +
+      '<label for="co-fornitore">Fornitore</label><input type="text" id="co-fornitore" value="' + E(c.fornitore || "") + '">' +
+      (auto ? '<p class="sub">Questo costo lo calcola TIX dai consumi: puoi cambiare solo nome e note.</p>' :
+      '<label for="co-importo">Prezzo, senza IVA</label><div style="display:flex;gap:8px"><input type="text" id="co-importo" inputmode="decimal" value="' + E(c.importo == null ? "" : String(c.importo).replace(".", ",")) + '">' +
+        '<select id="co-valuta"><option value="EUR"' + (c.valuta !== "USD" ? " selected" : "") + '>€</option><option value="USD"' + (c.valuta === "USD" ? " selected" : "") + '>$</option></select>' +
+        '<select id="co-periodo">' + ["mese", "anno", "una_tantum"].map(function (p) { return '<option value="' + p + '"' + (c.periodo === p ? " selected" : "") + '>' + PER[p] + '</option>'; }).join("") + '</select></div>' +
+      '<label for="co-giorno">Giorno dell\'addebito (per i costi mensili)</label><input type="number" id="co-giorno" min="1" max="31" value="' + E(c.rinnovo_giorno || "") + '">' +
+      '<label for="co-rinnovo">Oppure data del prossimo rinnovo (per gli annuali)</label><input type="date" id="co-rinnovo" value="' + E(c.prossimo_rinnovo && !c.rinnovo_giorno ? c.prossimo_rinnovo : "") + '">') +
+      '<label for="co-note">Note</label><input type="text" id="co-note" value="' + E(c.note || "") + '">' +
+      '<p class="err" id="co-err"></p><div class="azioni">' + (c.id ? '<button class="bt" id="co-togli" style="margin-right:auto">Togli</button>' : '') + '<button class="bt" id="co-annulla">Annulla</button><button class="bt pri" id="co-salva">Salva</button></div></div>';
+    d.showModal();
+    $("co-annulla").onclick = function () { d.close(); };
+    if ($("co-togli")) $("co-togli").onclick = function () { if (!confirm("Togliere questo costo dall'elenco?")) return; chiama("soldi_salva", { cosa: "costo", op: "togli", scheda: { id: c.id } }).then(function (r) { if (r && r.esito === "ok") { d.close(); SOL = null; toast("Tolto"); disegna(); } }); };
+    $("co-salva").onclick = function () {
+      var v = function (id) { var x = $(id); return x ? x.value : null; };
+      var s = { id: c.id || "", voce: v("co-voce"), fornitore: v("co-fornitore"), note: v("co-note") };
+      if (!auto) { s.importo = (v("co-importo") || "").replace(",", "."); s.valuta = v("co-valuta"); s.periodo = v("co-periodo"); s.rinnovo_giorno = v("co-giorno"); s.prossimo_rinnovo = v("co-rinnovo"); }
+      else { s.valuta = c.valuta; s.periodo = c.periodo; }
+      this.disabled = true; var bt = this;
+      chiama("soldi_salva", { cosa: "costo", op: "salva", scheda: s }).then(function (r) {
+        if (r && r.esito === "ok") { d.close(); SOL = null; toast("Costo salvato"); disegna(); return; }
+        bt.disabled = false; $("co-err").textContent = (r && r.messaggio) || "Non salvato: riprova.";
+        var mm = { voce: "co-voce", importo: "co-importo", rinnovo_giorno: "co-giorno", prossimo_rinnovo: "co-rinnovo" }; if (r && mm[r.campo] && $(mm[r.campo])) $(mm[r.campo]).classList.add("campo-rosso");
+      });
+    };
+  }
+  function schedaScadenza(s) {
+    s = s || {};
+    var d = $("dlg");
+    d.innerHTML = '<div class="dl"><h2>' + (s.id ? "Modifica la scadenza" : "Nuova scadenza") + '</h2>' +
+      '<label for="sc-titolo">Cosa scade *</label><input type="text" id="sc-titolo" value="' + E(s.titolo || "") + '">' +
+      '<label for="sc-data">Data</label><input type="date" id="sc-data" value="' + E(s.data || "") + '">' +
+      '<label for="sc-ric">Si ripete</label><select id="sc-ric"><option value="">no</option><option value="mese"' + (s.ricorrenza === "mese" ? " selected" : "") + '>ogni mese</option><option value="anno"' + (s.ricorrenza === "anno" ? " selected" : "") + '>ogni anno</option></select>' +
+      '<label for="sc-note">Note</label><input type="text" id="sc-note" value="' + E(s.note || "") + '">' +
+      '<p class="err" id="sc-err"></p><div class="azioni">' + (s.id ? '<button class="bt" id="sc-togli" style="margin-right:auto">Elimina</button>' : '') + '<button class="bt" id="sc-annulla">Annulla</button><button class="bt pri" id="sc-salva">Salva</button></div></div>';
+    d.showModal();
+    $("sc-annulla").onclick = function () { d.close(); };
+    if ($("sc-togli")) $("sc-togli").onclick = function () { if (!confirm("Eliminare questa scadenza?")) return; chiama("soldi_salva", { cosa: "scadenza", op: "togli", scheda: { id: s.id } }).then(function (r) { if (r && r.esito === "ok") { d.close(); SOL = null; SIS = null; toast("Eliminata"); disegna(); } }); };
+    $("sc-salva").onclick = function () {
+      this.disabled = true; var bt = this;
+      chiama("soldi_salva", { cosa: "scadenza", op: "salva", scheda: { id: s.id || "", titolo: $("sc-titolo").value, data: $("sc-data").value, ricorrenza: $("sc-ric").value, tipo: s.tipo || "", note: $("sc-note").value } }).then(function (r) {
+        if (r && r.esito === "ok") { d.close(); SOL = null; SIS = null; toast("Scadenza salvata"); disegna(); return; }
+        bt.disabled = false; $("sc-err").textContent = (r && r.messaggio) || "Non salvata: riprova.";
+      });
+    };
   }
 
   // ---- IA della posta (P4, pannello-18): stato, spesa del mese con tetto, Medio/Migliore, confronto alla cieca
@@ -1167,11 +1260,11 @@ function app() {
     a.className = "app" + (S.c || S.p ? " dentro" : "");
     var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq") ? ae0.id : "";
     var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : oggi()) + '</main>';
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : oggi()) + '</main>';
     if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     var nl = pNonLette();
-    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : "") + "Pannello di TIX";
+    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : S.p === "soldi" ? "Soldi - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -1182,7 +1275,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
-      MAIL = {}; BON = null; PIA = null;
+      MAIL = {}; BON = null; PIA = null; if (!(S.p === "soldi" && $("dlg").open)) SOL = null;
       chiama("sistemi").then(function (r3) { if (r3 && r3.esito === "ok") { SIS = r3; if (r3.versione) VERS = r3.versione; if ((S.p === "sistemi" || S.p === "allarmi") && !$("dlg").open) disegna(); } });
       // la posta si ricarica senza perdere l'email aperta (PMC resta)
       chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
@@ -1198,6 +1291,11 @@ function app() {
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
     if (b.hasAttribute("data-sis-ricarica")) { SIS = null; disegna(); return; }
+    if (b.hasAttribute("data-costo-nuovo")) { schedaCosto(null); return; }
+    if (b.hasAttribute("data-costo")) { schedaCosto(((SOL && SOL.costi) || []).filter(function (c) { return String(c.id) === b.getAttribute("data-costo"); })[0]); return; }
+    if (b.hasAttribute("data-scad-nuova")) { schedaScadenza(null); return; }
+    if (b.hasAttribute("data-scad")) { schedaScadenza(((SOL && SOL.scadenze) || []).filter(function (s) { return String(s.id) === b.getAttribute("data-scad"); })[0]); return; }
+    if (b.hasAttribute("data-scad-fatta")) { if (!confirm("Segnare come fatta? Se si ripete, passa alla prossima data.")) return; chiama("soldi_salva", { cosa: "scadenza", op: "fatta", scheda: { id: b.getAttribute("data-scad-fatta") } }).then(function (r) { if (r && r.esito === "ok") { SOL = null; SIS = null; toast("Fatta"); disegna(); } else toast("Non salvato: riprova"); }); return; }
     if (b.hasAttribute("data-af")) { S.af = b.getAttribute("data-af"); disegna(); return; }
     if (b.hasAttribute("data-al")) { b.disabled = true; segnaAllarme(b.getAttribute("data-al"), b.getAttribute("data-al-st")).then(function (ok) { toast(ok ? "Fatto" : "Non salvato: riprova"); disegna(); }); return; }
     if (b.hasAttribute("data-al-tutti")) {
