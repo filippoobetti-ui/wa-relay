@@ -97,6 +97,14 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       if (!/^(letta|nuova|archivia|ripristina|no_ia|si_ia)$/.test(op)) return j({ esito: "azione" }, 400);
       return j((await rpc(env, "pannello_posta_segna", { p_token: tok, p_disp: disp, p_uid: uid, p_op: op })) || { esito: "servizio" });
     }
+    // pannello-18 (18/11, P4): IA della posta (smistamento e bozze, mai inviate da sole): stato, spesa, modello, tetto, confronto alla cieca
+    if (b.azione === "posta_ia") return j((await rpc(env, "pannello_posta_ia_stato", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
+    if (b.azione === "posta_ia_imposta") {
+      const op = String(d.op || "");
+      if (!/^(modello|tetto|scelta)$/.test(op)) return j({ esito: "azione" }, 400);
+      const uid = UUID.test(String(d.uid || "")) ? String(d.uid).toLowerCase() : null;
+      return j((await rpc(env, "pannello_posta_ia_imposta", { p_token: tok, p_disp: disp, p_op: op, p_valore: String(d.valore || "").slice(0, 20), p_uid: uid })) || { esito: "servizio" });
+    }
     if (!az) return j({ esito: "nontrovata" }, 400);
     if (b.azione === "impresa") return j((await rpc(env, "pannello_impresa", { p_token: tok, p_disp: disp, p_az: az })) || { esito: "servizio" });
     // pannello-13 (17/11, accordo B11): dati di fatturazione dell'impresa (solo i campi concordati, controlli nel DB)
@@ -280,6 +288,8 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 .pr .bb .badge{margin-top:4px;font-size:.7rem;padding:1px 8px}
 .pr.nuova .chi,.pr.nuova .ogg{font-weight:800;color:var(--t2)}.pr.nuova .chi::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ara);margin-right:6px;vertical-align:1px}
 .plegge{min-height:300px}.plegge .badge{margin-top:0}
+.bozze2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.bozza .ptesto{background:rgba(216,180,106,.06);border-color:rgba(216,180,106,.3)}
+@media (max-width:1400px){.bozze2{grid-template-columns:1fr}}
 .ptesto{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:.95rem;background:var(--f);border:1px solid var(--l2);border-radius:10px;padding:14px 16px;max-height:60vh;overflow:auto}
 @media (max-width:1100px){.posta{grid-template-columns:1fr}.plista{max-height:none}}
 @media (max-width:1100px){.griglia2{grid-template-columns:1fr}}
@@ -296,7 +306,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -655,8 +665,11 @@ function app() {
   }
   function pNonLette() { return ((POSTA && POSTA.righe) || []).filter(function (r) { return !r.traccia && r.stato === "nuova"; }).length; }
   function pChi(r) { return E(r.da_nome || r.da || "mittente sconosciuto"); }
+  var PCAT = { possibile_cliente: ["possibile cliente", "b-verde"], fornitore: ["fornitore", "b-grigio"], pubblicita: ["pubblicità", "b-grigio"], spam: ["spam", "b-rosso"], altro: ["altro", "b-grigio"] };
   function pBadge(r) {
-    return (r.azienda ? '<span class="badge b-verde">cliente: ' + E(r.azienda) + '</span> ' : '') +
+    var pc = !r.azienda && PCAT[r.categoria];
+    return (r.azienda ? '<span class="badge b-verde">cliente: ' + E(r.azienda) + '</span> ' : '') + (pc ? '<span class="badge ' + pc[1] + '">' + pc[0] + '</span> ' : '') +
+      (r.ha_bozza ? '<span class="badge b-giallo" title="L\'IA ha preparato una bozza di risposta">✎ bozza pronta</span> ' : '') +
       (r.categoria === "servizio" ? '<span class="badge b-grigio" title="Email automatica di un servizio: si cancella dopo 30 giorni">automatica</span> ' : '') +
       (r.sensibile ? '<span class="badge b-rosso" title="Parole delicate: da leggere a mano, mai all\'IA">delicata</span> ' : '') +
       (r.urgente ? '<span class="badge b-rosso">urgente</span> ' : '') +
@@ -675,8 +688,8 @@ function app() {
     var base = S.pf === "archivio" ? arch : S.pf === "scartate" ? scart : S.pf === "nonlette" ? arrivo.filter(function (r) { return r.stato === "nuova"; }) : S.pf === "clienti" ? arrivo.filter(function (r) { return r.azienda; }) : arrivo;
     var q = S.pq.toLowerCase();
     var lista = base.filter(function (r) { return !q || [r.da, r.da_nome, r.oggetto, r.anteprima, r.azienda].join(" ").toLowerCase().indexOf(q) !== -1; });
-    return testa + '<p class="sub">Copia della posta di info@tixcantiere.it (senza banche, codici d\'accesso e servizi automatici) · aggiornata ' + DT(POSTA.ora, true) +
-        ' · L\'IA sulla posta è ' + (POSTA.ia_attiva === "si" ? 'accesa' : 'spenta: si accende con l\'informativa 1.4 e il tuo ok') + '</p>' +
+    return testa + '<p class="sub">Copia della posta di info@tixcantiere.it (senza banche, codici d\'accesso e servizi automatici) · aggiornata ' + DT(POSTA.ora, true) + '</p>' +
+      riquadroIA() +
       '<div class="filtri" style="padding:6px 0 8px" role="group" aria-label="Filtra la posta">' + F.map(function (f) {
         return '<button class="chip" data-pf="' + f[0] + '" aria-pressed="' + (S.pf === f[0]) + '">' + f[1] + '<span class="n">' + f[2] + '</span></button>';
       }).join("") + ' <button class="bt" data-posta-ricarica style="padding:4px 10px">↻ Aggiorna</button></div>' +
@@ -716,11 +729,59 @@ function app() {
         (p.stato !== "nuova" ? '<button class="bt" data-pop="nuova">Segna da leggere</button>' : '') +
         (p.escluso_ia ? '<button class="bt" data-pop="si_ia" title="Il mittente torna a essere letto dall\'IA, quando l\'IA è accesa">Usa di nuovo l\'IA</button>' : '<button class="bt" data-pop="no_ia" title="Le email di questo mittente non andranno mai all\'IA (opposizione, regola B12)">Non usare l\'IA per questo mittente</button>') +
       '</div>' +
-      '<div class="ptesto">' + E(p.testo || "") + '</div>' +
+      (p.riassunto ? '<p class="sub" style="margin:0 0 8px"><b>Riassunto dell\'IA:</b> ' + E(p.riassunto) + '</p>' : '') +
+      '<div class="ptesto">' + E(p.testo || "") + '</div>' + bozzeIA(p, gm) +
       (all.length ? '<h3>Allegati</h3><div class="azioni">' + all.map(function (a) {
         return '<a class="bt" href="' + C.base + '/pannello/allegato?t=' + C.t + '&u=' + encodeURIComponent(p.uid) + '&n=' + a.n + '" rel="noopener">📎 ' + E(a.nome) + ' <span class="sub">' + (a.byte ? Math.max(1, Math.round(a.byte / 1024)) + ' KB' : '') + '</span></a>';
       }).join("") + '</div><p class="sub">Gli allegati si scaricano sul computer: aprili solo se conosci chi scrive.</p>' : '') +
       '<p class="sub" style="margin-top:14px">Le risposte partono da Gmail, da info@tixcantiere.it, come sempre. Le email restano qui 12 mesi (clienti 24, automatiche 30 giorni).</p>');
+  }
+  // ---- IA della posta (P4, pannello-18): stato, spesa del mese con tetto, Medio/Migliore, confronto alla cieca
+  var USD = function (n) { return Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $"; };
+  var CENT = function (n) { return (Number(n || 0) * 100).toLocaleString("it-IT", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " ¢"; };
+  var MODN = { "claude-sonnet-5-5": "Medio (Sonnet 5.5)", "claude-opus-5-5": "Migliore (Opus 5.5)" };
+  function riquadroIA() {
+    if (!PIA) { if (!riquadroIA.v) { riquadroIA.v = 1; chiama("posta_ia").then(function (r) { PIA = r || { esito: "servizio" }; riquadroIA.v = 0; if (S.p === "posta") disegna(); }); } return ''; }
+    if (PIA.esito !== "ok") return '';
+    var tetto = Number(PIA.tetto_usd || 20), sp = Number(PIA.speso_usd || 0), pc = Math.min(100, Math.round(100 * sp / tetto));
+    var mig = PIA.modello === "claude-opus-5-5", cm = PIA.costo_medio || {}, cf = PIA.confronto || {};
+    var son = cf["claude-sonnet-5-5"] || 0, opu = cf["claude-opus-5-5"] || 0, pari = cf.pari || 0, dasc = cf.da_scegliere || 0;
+    var stato = PIA.attiva === "si" ? '<span class="badge b-verde">accesa</span>' : PIA.attiva === "prova" ? '<span class="badge b-giallo" title="Lavora solo sulle email mandate da te, per provarla">in prova: solo le tue email</span>' : '<span class="badge b-grigio">spenta</span>';
+    return '<section class="card" style="margin:10px 0 14px"><div class="testa"><div class="tit"><h2 style="margin:0">IA della posta ' + stato + '</h2>' +
+        '<p class="sub" style="margin:4px 0 0">Smista ogni email e, per clienti e possibili clienti, prepara una bozza di risposta. Le bozze non partono mai da sole: le copi in Gmail e rispondi tu.' +
+        (PIA.attiva !== "si" ? ' Per tutti si accende con l\'informativa sulla privacy 1.4 e il tuo ok.' : '') + '</p></div>' +
+        '<div role="group" aria-label="Modello delle bozze" class="filtri" style="padding:0"><button class="chip" data-ia-mod="medio" aria-pressed="' + !mig + '">Medio</button><button class="chip" data-ia-mod="migliore" aria-pressed="' + mig + '">Migliore</button></div></div>' +
+      '<div class="kpi" style="margin:10px 0 0">' +
+        '<div class="k' + (pc >= 100 ? ' ro' : pc >= 80 ? ' gi' : '') + '"><div class="et">Spesa del mese</div><div class="v">' + USD(sp) + ' / ' + USD(tetto) + '</div><div class="barra' + (pc >= 100 ? ' ro' : pc >= 80 ? ' gi' : '') + '"><i style="width:' + pc + '%"></i></div>' +
+          '<div class="n2">' + (pc >= 100 ? 'tetto raggiunto: bozze ferme fino al mese prossimo' : 'a fine mese circa ' + USD(PIA.proiezione_usd)) + ' · <button class="copia" data-ia-tetto>cambia il tetto</button></div></div>' +
+        k("Bozze del mese", PIA.bozze_mese || 0, "modello: " + (MODN[PIA.modello] || PIA.modello)) +
+        k("Costo di una bozza", (cm["claude-sonnet-5-5"] != null ? CENT(cm["claude-sonnet-5-5"]) : "—") + " · " + (cm["claude-opus-5-5"] != null ? CENT(cm["claude-opus-5-5"]) : "—"), "Medio · Migliore, in centesimi di dollaro + IVA") +
+        k("Confronto alla cieca", "Medio " + son + " · Migliore " + opu, (pari ? pari + " pari · " : "") + (dasc ? dasc + " da scegliere" : "su 1 email ogni 5 due bozze, scegli la migliore")) +
+      '</div>' + (son + opu + pari >= 10 ? '<p class="sub" style="margin:8px 0 0">' + (opu > son * 1.5 ? 'Il Migliore vince chiaramente: vale la pena passare a «Migliore» (costa circa il doppio).' : 'Il Medio regge il confronto: conviene restare su «Medio».') + '</p>' : '') +
+      '</section>';
+  }
+  function bozzeIA(p, gm) {
+    var bz = p.bozze || [];
+    var st = p.ia_stato === "fermo_tetto" ? '<p class="err">Bozza non preparata: è stato raggiunto il tetto di spesa del mese.</p>'
+      : p.ia_stato === "errore" ? '<p class="err">L\'IA non è riuscita a lavorare su questa email' + (p.ia_errore ? ' (' + E(p.ia_errore) + ')' : '') + '.</p>'
+      : p.ia_stato === "da_smistare" && PIA && PIA.attiva !== "no" ? '<p class="sub">L\'IA la leggerà tra pochi minuti.</p>' : '';
+    if (!bz.length) return st ? '<div style="margin-top:12px">' + st + '</div>' : '';
+    var cieca = p.confronto && !p.scelta;
+    return '<h3>' + (cieca ? 'Due bozze: quale è migliore?' : 'Bozza di risposta dell\'IA') + '</h3>' +
+      (cieca ? '<p class="sub" style="margin:0 0 8px">Confronto alla cieca: una è del modello Medio, l\'altra del Migliore. Scegli quella che manderesti; poi vedi quale era quale.</p>' : '') +
+      '<div class="' + (bz.length > 1 ? 'bozze2' : '') + '">' + bz.map(function (b, i) {
+        return '<div class="bozza"><div class="sub" style="margin-bottom:6px">' + (bz.length > 1 ? '<b>Bozza ' + (i + 1) + '</b>' : '') + (b.modello ? ' · ' + E(MODN[b.modello] || b.modello) : '') +
+            (p.scelta && p.scelta === b.modello ? ' · <span class="badge b-verde" style="margin:0">la tua scelta</span>' : '') + '</div>' +
+          '<div class="ptesto" style="max-height:44vh">' + E(b.testo) + '</div><div class="azioni" style="margin-top:8px">' +
+          '<button class="bt" data-ia-copia="' + i + '">Copia la bozza</button>' + (cieca ? '<button class="bt pri" data-ia-scelta="' + b.pos + '">Scelgo questa</button>' : '') + '</div></div>';
+      }).join("") + '</div>' + (cieca ? '<div class="azioni" style="margin-top:8px"><button class="bt" data-ia-scelta="pari">Sono uguali</button></div>' : '') +
+      '<p class="sub" style="margin-top:8px">Copia la bozza, clicca «↩ Rispondi in Gmail», incolla e correggi le parti tra [parentesi quadre] prima di mandarla.</p>';
+  }
+  function impostaIA(op, valore) {
+    return chiama("posta_ia_imposta", { op: op, valore: valore, uid: S.pm }).then(function (r) {
+      if (r && r.esito === "ok") { PIA = null; if (op === "scelta") { delete PMC[S.pm]; toast(r.scelta === "pari" ? "Segnato: pari" : "Hai scelto " + (MODN[r.scelta] || r.scelta)); } else toast("Salvato"); disegna(); }
+      else toast("Non salvato: riprova");
+    });
   }
   function segnaPosta(op) {
     var u = S.pm; if (!u) return;
@@ -1047,7 +1108,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
-      MAIL = {}; BON = null;
+      MAIL = {}; BON = null; PIA = null;
       // la posta si ricarica senza perdere l'email aperta (PMC resta)
       chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
       // l'aggiornamento automatico non ridisegna mentre Filippo scrive o ha una finestra aperta
@@ -1064,7 +1125,13 @@ function app() {
     if (b.hasAttribute("data-pf")) { S.pf = b.getAttribute("data-pf"); S.pm = ""; disegna(); return; }
     if (b.hasAttribute("data-pm")) { S.pm = b.getAttribute("data-pm"); var rr = pRiga(S.pm); if (rr && rr.stato === "nuova" && !rr.traccia) { rr.stato = "letta"; delete PMC[S.pm]; } disegna(); var pe = document.querySelector(".plegge"); if (pe && window.innerWidth <= 1100) pe.scrollIntoView({ block: "start" }); return; }
     if (b.hasAttribute("data-pop")) { segnaPosta(b.getAttribute("data-pop")); return; }
-    if (b.hasAttribute("data-posta-ricarica")) { POSTA = null; PMC = {}; disegna(); return; }
+    if (b.hasAttribute("data-posta-ricarica")) { POSTA = null; PMC = {}; PIA = null; disegna(); return; }
+    if (b.hasAttribute("data-ia-mod")) { var vm = b.getAttribute("data-ia-mod"); if (b.getAttribute("aria-pressed") === "true") return;
+      if (vm === "migliore" && !confirm("Le prossime bozze le scrive il modello Migliore (Opus 5.5): costa circa il doppio del Medio. Va bene?")) return; impostaIA("modello", vm); return; }
+    if (b.hasAttribute("data-ia-tetto")) { var tt = prompt("Tetto di spesa al mese per l'IA della posta, in dollari (da 1 a 500):", PIA && PIA.tetto_usd || 20); if (tt == null) return;
+      tt = String(tt).replace(",", ".").trim(); if (!/^\d{1,3}(\.\d{1,2})?$/.test(tt) || Number(tt) < 1 || Number(tt) > 500) { alert("Scrivi un numero da 1 a 500."); return; } impostaIA("tetto", tt); return; }
+    if (b.hasAttribute("data-ia-scelta")) { impostaIA("scelta", b.getAttribute("data-ia-scelta")); return; }
+    if (b.hasAttribute("data-ia-copia")) { var pp = PMC[S.pm], bb = pp && (pp.bozze || [])[Number(b.getAttribute("data-ia-copia"))]; if (bb) copia(bb.testo); return; }
     if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
     if (b.hasAttribute("data-ff")) { S.ff = b.getAttribute("data-ff"); disegna(); return; }
     if (b.hasAttribute("data-ft")) { S.ft = b.getAttribute("data-ft"); disegna(); return; }
