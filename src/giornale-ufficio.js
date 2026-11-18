@@ -73,7 +73,8 @@ function nomeBreve(nome) {
 // Toglie dall'archivio un file delle integrazioni di questo cantiere (mai altro).
 async function togliFile(env, percorso, c) {
   const p = String(percorso || "");
-  if (!UUID.test(c) || p.indexOf("documenti/" + c.toLowerCase() + "/integrazioni/") !== 0 || p.indexOf("..") !== -1) return false;
+  const pre = "documenti/" + c.toLowerCase();
+  if (!UUID.test(c) || (p.indexOf(pre + "/integrazioni/") !== 0 && p.indexOf(pre + "/ufficio/") !== 0) || p.indexOf("..") !== -1) return false;
   try {
     const r = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + p.split("/").map(encodeURIComponent).join("/"), {
       method: "DELETE", headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } });
@@ -132,6 +133,58 @@ async function caricaFile(request, env, inUrl, h) {
     return jsonRisposta(r, r.esito === "gettone" ? 403 : 200);
   }
   return jsonRisposta({ esito: "ok", id: r.id, nome: r.nome, mime: tipo.mime, byte: bytes.length, sha256: sha });
+}
+
+// 18/11/2026 (voce-oggi-file-1, Filippo): foto e file nella voce di oggi dell'ufficio. Ogni file diventa una voce del diario di oggi
+// (database: giornale_ufficio_file), come una foto mandata su WhatsApp; copia privata in documenti/<cantiere>/ufficio/<giorno>/.
+// POST {base}/giornale/ufficio/oggi?t=…&c=…&sezione=…&autore=…&nome=…  (corpo = il file)
+async function caricaOggi(request, env, inUrl, h) {
+  if (request.method !== "POST") return jsonRisposta({ esito: "metodo_non_consentito" }, 405);
+  if (!env.SUPABASE_SERVICE_KEY) return jsonRisposta({ esito: "non_configurato" }, 503);
+  const q = inUrl.searchParams;
+  const t = String(q.get("t") || "").toLowerCase();
+  const c = String(q.get("c") || "").toLowerCase();
+  const nome = String(q.get("nome") || "").replace(/[\u0000-\u001f\\/]+/g, " ").trim().slice(0, 180);
+  const comune = { sezione: String(q.get("sezione") || "").slice(0, 10), autore: String(q.get("autore") || "").slice(0, 120) };
+  if (!/^[0-9a-f]{64}$/.test(t)) return jsonRisposta({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return jsonRisposta({ esito: "richiesta_non_valida" }, 400);
+  const dichiarati = Number(request.headers.get("Content-Length") || 0);
+  if (dichiarati > MAX_FILE) return jsonRisposta({ esito: "grande", messaggio: "Il file è troppo grande: massimo 10 MB." }, 413);
+  const ctl = await h.rpc(env, "giornale_ufficio_file", { p_token: t, p_commessa: c, p_azione: "controlla",
+    p_dati: Object.assign({ byte: dichiarati || 1 }, comune) }, 10000).catch(() => null);
+  if (ctl === null || typeof ctl !== "object") return jsonRisposta({ esito: "incerto" }, 502);
+  if (ctl.esito !== "ok") return jsonRisposta(ctl, ctl.esito === "gettone" ? 403 : 200);
+  const cartella = String(ctl.cartella || "");
+  if (cartella.indexOf("documenti/" + c + "/ufficio/") !== 0) return jsonRisposta({ esito: "errore" }, 502);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length) return jsonRisposta({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+  if (bytes.length > MAX_FILE) return jsonRisposta({ esito: "grande", messaggio: "Il file è troppo grande: massimo 10 MB." }, 413);
+  const tipo = tipoFile(bytes);
+  if (!tipo) return jsonRisposta({ esito: "formato", messaggio: "Formato non ammesso: carica una foto (JPG, PNG, WEBP o HEIC) o un PDF." }, 415);
+  const ora = new Date();
+  const d2 = (n) => String(n).padStart(2, "0");
+  const timbro = ora.getUTCFullYear() + d2(ora.getUTCMonth() + 1) + d2(ora.getUTCDate()) + "-" + d2(ora.getUTCHours()) + d2(ora.getUTCMinutes()) + d2(ora.getUTCSeconds());
+  const percorso = cartella + timbro + "-" + casuale() + "-" + nomeBreve(nome) + "." + tipo.est;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso.split("/").map(encodeURIComponent).join("/"), {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY, "Content-Type": tipo.mime, "x-upsert": "false" },
+      body: bytes, signal: ctrl.signal
+    });
+    if (!up.ok) return jsonRisposta({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } catch (e) {
+    return jsonRisposta({ esito: "archivio", messaggio: "Il file non si è salvato: riprova tra un minuto." }, 502);
+  } finally { clearTimeout(timer); }
+  const r = await h.rpc(env, "giornale_ufficio_file", { p_token: t, p_commessa: c, p_azione: "registra",
+    p_dati: Object.assign({ percorso, mime: tipo.mime, byte: bytes.length }, comune) }, 10000).catch(() => null);
+  if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
+  if (r.esito !== "ok") {
+    await togliFile(env, percorso, c);
+    return jsonRisposta(r, r.esito === "gettone" ? 403 : 200);
+  }
+  return jsonRisposta({ esito: "ok", mid: r.mid });
 }
 
 // Azioni dell'aggiunta (giornale_aggiunte_portale): «aggiungi_giorno» salva l'aggiunta e la versione nuova dell'integrazione,
@@ -219,6 +272,7 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
   const sotto = inUrl ? inUrl.pathname.slice(String(base || "").length) : "/giornale/ufficio";
   if (sotto === "/giornale/integrazione") return documentoIntegrazione(request, env, String(base || ""), inUrl, h);
   if (sotto === "/giornale/ufficio/file") return caricaFile(request, env, inUrl, h);
+  if (sotto === "/giornale/ufficio/oggi") return caricaOggi(request, env, inUrl, h);
   if (request.method !== "POST") return jsonRisposta({ esito: "metodo_non_consentito" }, 405);
   if (!env.SUPABASE_SERVICE_KEY) return jsonRisposta({ esito: "non_configurato" }, 503);
   if (!/^application\/json\b/i.test(request.headers.get("Content-Type") || "")) return jsonRisposta({ esito: "errore" }, 415);
@@ -386,29 +440,77 @@ function correggi(mid){
   setTimeout(function(){try{t.focus();}catch(x){}},50);
  }).catch(function(){bx.innerHTML='<h3>Correggi la voce</h3><p class="gl-gu-err">Connessione assente. Riprova.</p>';});
 }
-/* ---------- Aggiungi ---------- */
+/* ---------- Aggiungi (18/11/2026 voce-oggi-file-1: anche foto e file, ognuno diventa una voce del diario di oggi) ---------- */
 function aggiungi(){
- var w=finestra(),bx=w.bx;
+ var w=finestra(),bx=w.bx,lista=[],occupato=false;
  bx.innerHTML='<h3>Aggiungi una voce di oggi</h3>'+
   '<div class="gl-gu-ok">La voce entra nel diario di oggi e nel PDF di stasera (chiusura alle '+esc(STATO.ora_chiusura)+'), segnata «Ufficio» con il tuo nome.</div>'+
   '<label for="gl-gu-s">Sezione</label><select id="gl-gu-s"><option value="LAV">Lavorazioni</option><option value="NOTE">Note</option><option value="VISITA">Visite</option><option value="SAL">SAL</option>'+(STATO.economie?'<option value="ECO">Economie extracontrattuali</option>':'')+'</select>'+
-  '<label for="gl-gu-t">Testo</label><textarea id="gl-gu-t" rows="5" maxlength="4000" placeholder="es. Getto del solaio del piano 1 completato"></textarea>'+
+  '<label for="gl-gu-t">Testo <span class="gl-ag-fac">(facoltativo se alleghi foto o file)</span></label><textarea id="gl-gu-t" rows="5" maxlength="4000" placeholder="es. Getto del solaio del piano 1 completato"></textarea>'+
+  '<label>Foto o file <span class="gl-ag-fac">(facoltativi)</span></label>'+
+  '<label class="gl-ag-sc" for="gl-gu-f">&#128206; Aggiungi foto o file</label><input type="file" id="gl-gu-f" class="gl-ag-in" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,application/pdf,.pdf">'+
+  '<div class="gl-ag-aiuto">Dal telefono scatti una foto o la scegli dalla galleria; dal computer scegli il file. Foto (JPG, PNG, WEBP, HEIC) o PDF · fino a 5 file · massimo 10 MB l’uno. Ogni file diventa una voce del diario di oggi.</div><ul class="gl-ag-lista"></ul>'+
   '<label for="gl-gu-a">Inserita da <span style="font-weight:400;color:#666">(nome e cognome)</span></label><input type="text" id="gl-gu-a" maxlength="120" autocomplete="name">'+
-  '<div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="ag">Aggiungi la voce</button></div>';
- var s=bx.querySelector('#gl-gu-s'),t=bx.querySelector('#gl-gu-t'),a=bx.querySelector('#gl-gu-a'),err=bx.querySelector('.gl-gu-err'),ag=bx.querySelector('.ag');
+  '<div class="gl-ag-pr" hidden></div><div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="ag">Aggiungi la voce</button></div>';
+ var s=bx.querySelector('#gl-gu-s'),t=bx.querySelector('#gl-gu-t'),a=bx.querySelector('#gl-gu-a'),fi=bx.querySelector('#gl-gu-f'),ul=bx.querySelector('.gl-ag-lista'),pr=bx.querySelector('.gl-ag-pr'),err=bx.querySelector('.gl-gu-err'),ag=bx.querySelector('.ag'),an=bx.querySelector('.an');
  a.value=autore();
- s.addEventListener('change',function(){if(s.value==='ECO'){chiudi(w.ov);economia(STATO.oggi,null);}});
- bx.querySelector('.an').onclick=function(){chiudi(w.ov);};
- ag.onclick=function(){
-  var tv=t.value.trim(),av=a.value.trim();
-  function no(x){err.textContent=x;err.style.display='block';}
+ function no(x){err.textContent=x;err.style.display='block';}
+ function libera(){lista.forEach(function(x){if(x.url)try{URL.revokeObjectURL(x.url);}catch(e){}});}
+ s.addEventListener('change',function(){if(s.value==='ECO'){if(occupato)return;libera();chiudi(w.ov);economia(STATO.oggi,null);}});
+ function disegna(){
+  ul.innerHTML='';
+  lista.forEach(function(x,i){
+   var li=el('li'),ic=el('span','ic');
+   if(x.url){var im=el('img');im.src=x.url;im.alt='';ic.appendChild(im);}else ic.textContent=/\.pdf$/i.test(x.f.name||'')||x.f.type==='application/pdf'?'PDF':'FOTO';
+   li.appendChild(ic);li.appendChild(el('span','n',esc(x.f.name||'allegato')));li.appendChild(el('span','d',mis(x.f.size)));
+   li.appendChild(el('span','st'+(x.ok?' ok':x.err?' no':''),x.ok?'&#10003; nel diario':x.err?'non caricato':''));
+   if(!x.ok){var b=el('button',null,'&times;');b.type='button';b.title='Togli il file';b.setAttribute('aria-label','Togli '+(x.f.name||'il file'));
+    b.onclick=function(){if(occupato)return;if(x.url)try{URL.revokeObjectURL(x.url);}catch(e){}lista.splice(i,1);disegna();};li.appendChild(b);}
+   ul.appendChild(li);
+  });
+ }
+ fi.addEventListener('change',function(){
   err.style.display='none';
-  if(!crControlla([{el:t,testo:'Scrivi il testo della voce.'},{el:a,testo:'Scrivi chi inserisce la voce (nome e cognome).'}]))return no(CR_RIGA);
-  ag.disabled=true;ricorda(av);
-  chiama('aggiungi',{sezione:s.value,testo:tv,autore:av}).then(function(q){
-   if(q&&q.esito==='ok'){location.reload();return;}
-   ag.disabled=false;no(errore(q));crServer(q,{sezione:s,testo:t,autore:a});
-  }).catch(function(){ag.disabled=false;no('Connessione assente. Riprova.');});
+  var msg='';
+  Array.prototype.slice.call(fi.files||[]).forEach(function(f){
+   if(lista.length>=MAXF){msg='Puoi allegare al massimo 5 file alla volta.';return;}
+   if(!tipoOk(f)){msg='«'+f.name+'»: formato non ammesso. Carica foto (JPG, PNG, WEBP, HEIC) o PDF.';return;}
+   if(!f.size){msg='«'+f.name+'» è vuoto.';return;}
+   if(f.size>MAXB){msg='«'+f.name+'» è troppo grande: massimo 10 MB.';return;}
+   lista.push({f:f,url:eFoto(f)?URL.createObjectURL(f):null,ok:false,err:false});
+  });
+  fi.value='';disegna();if(msg){no(msg);crSegna(bx.querySelector('.gl-ag-sc'),msg);}else{var sc=bx.querySelector('.gl-ag-sc'),nx=sc.nextElementSibling;sc.classList.remove('cr-box');sc.removeAttribute('aria-invalid');if(nx&&nx.classList.contains('cr-msg'))nx.remove();}
+ });
+ an.onclick=function(){if(occupato)return;libera();chiudi(w.ov);};
+ ag.onclick=function(){
+  if(occupato)return;
+  var tv=t.value.trim(),av=a.value.trim(),fatti=0,daFare=lista.filter(function(x){return !x.ok;});
+  err.style.display='none';
+  if(!crControlla([{el:t,ok:function(){return !!t.value.trim()||lista.length>0;},testo:'Scrivi il testo della voce oppure allega almeno una foto o un file.'},{el:a,testo:'Scrivi chi inserisce la voce (nome e cognome).'}]))return no(CR_RIGA);
+  occupato=true;ag.disabled=true;an.disabled=true;ricorda(av);
+  function fine(x){occupato=false;ag.disabled=false;an.disabled=false;pr.hidden=true;no(x);}
+  function finito(){libera();location.reload();}
+  function testo(){
+   if(!tv)return finito();
+   pr.hidden=false;pr.textContent='Salvo il testo…';
+   chiama('aggiungi',{sezione:s.value,testo:tv,autore:av}).then(function(q){
+    if(q&&q.esito==='ok')return finito();
+    fine((fatti?'Foto e file sono già nel diario, ma il testo no: ':'')+errore(q));crServer(q,{sezione:s,testo:t,autore:a});
+   }).catch(function(){fine('Connessione assente: il testo non è salvato. Riprova.');});
+  }
+  function prossimo(k){
+   if(k>=daFare.length)return testo();
+   var x=daFare[k];pr.hidden=false;pr.textContent='Carico '+(k+1)+' di '+daFare.length+': '+(x.f.name||'file')+'…';
+   fetch(CFG.u+'/oggi?t='+CFG.t+'&c='+encodeURIComponent(CFG.c)+'&sezione='+encodeURIComponent(s.value)+'&autore='+encodeURIComponent(av)+'&nome='+encodeURIComponent(x.f.name||'allegato'),
+    {method:'POST',headers:{'Content-Type':x.f.type||'application/octet-stream'},body:x.f})
+    .then(function(r){return r.json().catch(function(){return null;});})
+    .then(function(q){
+     if(q&&q.esito==='ok'){x.ok=true;x.err=false;fatti++;disegna();return prossimo(k+1);}
+     x.err=true;disegna();
+     fine((fatti?(fatti===1?'1 file è già nel diario. ':fatti+' file sono già nel diario. '):'')+'«'+(x.f.name||'file')+'» non si è caricato: '+errore(q)+' Premi di nuovo «Aggiungi la voce» per riprovare gli altri.');
+    }).catch(function(){x.err=true;disegna();fine('Connessione assente: «'+(x.f.name||'file')+'» non si è caricato. Riprova.');});
+  }
+  prossimo(0);
  };
  setTimeout(function(){try{t.focus();}catch(x){}},50);
 }
