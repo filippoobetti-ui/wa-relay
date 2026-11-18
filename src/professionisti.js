@@ -26,6 +26,9 @@
 // _sicurezza_recupero, pacchetto «sicurezza-2»): finché non ci sono la pagina dice «in arrivo».
 // Interruttori: impostazioni.professionisti_attivo (no / prova / si) e variabile del Worker PROFESSIONISTI=off.
 
+// 18/11/2026 (studio-campi-rossi-1): campi mancanti in rosso, come in tutta l'app
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
 const ATTESA_GIRI = 8;
@@ -313,7 +316,11 @@ function diario(base, c, d, e) {
     '<form class="dia-scegli" method="get" action="' + e(base + "/studio/cantiere") + '"><input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="s" value="diario">' +
     '<label>Dal <input type="date" name="dal" value="' + e(dal) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
     '<label>al <input type="date" name="al" value="' + e(al) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
-    '<button class="btn" type="submit">Mostra</button><span class="sub">al massimo 31 giorni per volta</span></form>';
+    '<button class="btn" type="submit">Mostra</button><span class="sub">al massimo 31 giorni per volta</span></form>' +
+    "<script>(function(){var f=document.querySelector('form.dia-scegli');if(!f)return;f.addEventListener('submit',function(ev){" +
+    "var a=f.querySelector('[name=dal]'),b=f.querySelector('[name=al]');var ok=crControlla([{el:a,testo:'Scegli il primo giorno'},{el:b,testo:'Scegli l\\'ultimo giorno'}]);" +
+    "if(!ok){ev.preventDefault();return;}if(b.value<a.value){ev.preventDefault();crSegna(b,'Deve essere dopo il primo giorno');b.focus();return;}" +
+    "if((Date.parse(b.value)-Date.parse(a.value))/86400000>30){ev.preventDefault();crSegna(b,'Al massimo 31 giorni dal primo');b.focus();}});})();</script>";
   const doc = String(d.html || "");
   h += doc.trim() ? '<div class="dia">' + doc + "</div>" : '<p class="nota">In questi giorni il diario di questo cantiere è vuoto.</p>';
   return h + '<p class="nota">È il diario che scrive l\'impresa dal cantiere, giorno per giorno. Ogni sera alle 22:00 la giornata si chiude e non si cambia più: ' +
@@ -478,10 +485,9 @@ function vistiRiquadro(base, c, d, e, inUrl) {
     'Puoi cambiarla finché l\'impresa non firma; quella di prima resta nello storico. TIX non controlla il contenuto dei disegni.</p>' +
     // «Invia osservazioni» con il testo vuoto: si ferma qui, senza perdere niente
     // (un messaggio sotto il testo, non setCustomValidity: quello bloccherebbe anche il «Visto» dopo)
-    "<script>document.querySelectorAll('form.vmod').forEach(function(f){var t=f.querySelector('textarea'),m=f.querySelector('.err-oss');" +
+    "<script>document.querySelectorAll('form.vmod').forEach(function(f){var t=f.querySelector('textarea');" +
     "f.addEventListener('submit',function(ev){var b=ev.submitter;" +
-    "if(b&&b.value==='osservazioni'&&t&&!t.value.trim()){ev.preventDefault();if(m)m.hidden=false;t.focus();}});" +
-    "if(t)t.addEventListener('input',function(){if(m)m.hidden=true;});});</script>";
+    "if(b&&b.value==='osservazioni'&&t&&!t.value.trim()){ev.preventDefault();crSegna(t,'Scrivi le osservazioni: l\\'impresa le legge prima di firmare.');t.focus();}});});</script>";
   return h + "</section>";
 }
 
@@ -587,10 +593,9 @@ function schedeRiquadro(base, c, d, e, inUrl) {
   }
   h += '<p class="nota">La risposta resta registrata con il tuo nome, la data e l\'ora, e l\'impresa la vede subito. ' +
     'Se la cambi, quella di prima resta nello storico. TIX non controlla il contenuto delle schede.</p>' +
-    "<script>document.querySelectorAll('form.smod').forEach(function(f){var t=f.querySelector('textarea'),m=f.querySelector('.err-oss');" +
+    "<script>document.querySelectorAll('form.smod').forEach(function(f){var t=f.querySelector('textarea');" +
     "f.addEventListener('submit',function(ev){var b=ev.submitter;" +
-    "if(b&&b.value!=='approvata'&&t&&!t.value.trim()){ev.preventDefault();if(m)m.hidden=false;t.focus();}});" +
-    "if(t)t.addEventListener('input',function(){if(m)m.hidden=true;});});</script>";
+    "if(b&&b.value!=='approvata'&&t&&!t.value.trim()){ev.preventDefault();crSegna(t,'Scrivi le osservazioni: l\\'impresa le legge.');t.focus();}});});</script>";
   return h + "</section>";
 }
 
@@ -768,7 +773,7 @@ async function password(request, env, base, inUrl, h) {
   const scaduto = h.foglio(base, "Collegamento scaduto", "",
     '<p>Questo collegamento non è più valido: scade dopo qualche giorno (invito) o dopo poche ore (password dimenticata), e vale una volta sola.</p>' +
     '<a class="btn" href="' + e(base + "/password-dimenticata") + '">Chiedi un nuovo collegamento</a>' + torna);
-  const modulo = (email, primo, avviso) => h.foglio(base, primo ? "Scegli la password" : "Nuova password",
+  const modulo = (email, primo, avviso, campoErrato) => h.foglio(base, primo ? "Scegli la password" : "Nuova password",
     email ? "Per l'accesso di <strong>" + e(email) + "</strong> ai documenti dei cantieri" : "",
     (avviso ? '<p class="err">' + avviso + "</p>" : "") +
     '<form method="post" action="' + e(base + "/studio/password") + '"><input type="hidden" name="c" value="' + codice + '">' +
@@ -776,16 +781,23 @@ async function password(request, env, base, inUrl, h) {
     '<label for="p1">Password (almeno 8 caratteri)</label><input id="p1" name="password" type="password" minlength="8" autocomplete="new-password" required>' +
     '<label for="p2">Ripeti la password</label><input id="p2" name="password2" type="password" minlength="8" autocomplete="new-password" required>' +
     '<button type="submit">Salva ed entra</button></form>' +
+    "<style>" + CAMPI_ROSSI_CSS + "</style><script>" + CAMPI_ROSSI_JS +
+    "(function(){var f=document.querySelector('form[action$=\"/studio/password\"]');if(!f)return;var a=document.getElementById('p1'),b=document.getElementById('p2');" +
+    "var srv=" + JSON.stringify(campoErrato || "") + ";if(srv==='p1')crSegna(a,'Almeno 8 caratteri');if(srv==='p2')crSegna(b,'Deve essere uguale alla prima');" +
+    "f.noValidate=true;f.addEventListener('submit',function(ev){" +
+    "if(!crControlla([{el:a,testo:'Scrivi la password'},{el:b,testo:'Ripeti la password'}])){ev.preventDefault();return;}" +
+    "if(a.value.length<8){ev.preventDefault();crSegna(a,'Almeno 8 caratteri');a.focus();return;}" +
+    "if(a.value!==b.value){ev.preventDefault();crSegna(b,'Deve essere uguale alla prima');b.focus();}});})();</script>" +
     '<p class="piede">Poi entri da <strong>app.tixcantiere.it</strong> con la tua email e questa password.</p>');
   if (env.PROFESSIONISTI === "off" || !codice) return h.risposta(scaduto);
   if (metodo === "POST") {
     const p1 = f.get("password") || "", p2 = f.get("password2") || "", email = (f.get("email") || "").slice(0, 200), primo = f.get("primo") === "1";
-    if (p1 !== p2) return h.risposta(modulo(email, primo, "Le due password non coincidono."));
-    if (p1.length < 8) return h.risposta(modulo(email, primo, "La password deve avere almeno 8 caratteri."));
+    if (p1.length < 8) return h.risposta(modulo(email, primo, "La password deve avere almeno 8 caratteri.", "p1"));
+    if (p1 !== p2) return h.risposta(modulo(email, primo, "Le due password non coincidono.", "p2"));
     const r = await h.rpc(env, "prof_codice_conferma", { p_codice: codice, p_password: p1.slice(0, 200) }, 15000).catch(() => null);
     if (!r) return h.risposta(modulo(email, primo, "Il servizio non risponde in questo momento. Riprova tra qualche minuto."));
     if (r.esito === "ok" && GETTONE.test(r.token || "")) return vai(base + "/studio", cookieImposta(base, r.token));
-    if (r.esito === "corta") return h.risposta(modulo(email, primo, "La password deve avere almeno 8 caratteri."));
+    if (r.esito === "corta") return h.risposta(modulo(email, primo, "La password deve avere almeno 8 caratteri.", "p1"));
     return h.risposta(scaduto);
   }
   const v = await h.rpc(env, "prof_codice_valido", { p_codice: codice }, 10000).catch(() => null);
@@ -804,6 +816,10 @@ function pagina(request, base, h, titolo, utente, sottotitolo, corpo, stato) {
     '<a class="esci" href="' + e(base + "/studio/esci") + '">Esci</a></span></div>' +
     "<h1>" + e(titolo) + "</h1>" + (sottotitolo ? "<p>" + sottotitolo + "</p>" : "") + "</div></header>" +
     '<main class="corpo"><div class="in">' + corpo + "</div></main>" +
+    "<script>" + CAMPI_ROSSI_JS + "(function(){var q=new URLSearchParams(location.search),h=location.hash.slice(1);" +
+    "var t=null;if(q.get('v')==='nota'&&/^v-/.test(h)){var a=document.getElementById(h);t=a&&a.querySelector('form.vmod textarea');}" +
+    "if(q.get('vs')==='nota'&&/^s-/.test(h)){var s=document.getElementById(h);t=s&&s.querySelector('form.smod textarea');}" +
+    "if(t){var d=t.closest('details');if(d)d.open=true;crSegna(t,'Scrivi le osservazioni');try{t.focus();}catch(e){}}})();</script>" +
     // chi è anche utente di un'impresa (accesso ricordato dal browser) ci torna con un tocco, senza uscire
     "<script>(function(){try{var s=localStorage.getItem(\"gl_portale_t\");if(s&&/^[0-9a-f]{64}$/.test(s)){var a=document.getElementById(\"impresa\");" +
     "a.href=" + JSON.stringify(base) + "+\"/?t=\"+s;a.hidden=false}}catch(e){}" +
@@ -894,4 +910,4 @@ const STILE = "[hidden]{display:none!important}" +
   ".dia-scegli{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:0 0 12px;font-size:.92rem}.dia-scegli input{font:inherit;padding:6px 8px;border:1px solid var(--l);border-radius:8px;background:var(--carta);color:var(--t)}" +
   ".dia{margin-top:8px;color-scheme:light;background:#F6F7F9;color:#1B2F4A;border-radius:14px;padding:10px;overflow-x:auto}" +
   "@media print{.dia-nav,.dia-scegli,.dia~.nota{display:none}.dia{background:#fff;padding:0}}" +
-  "@media (prefers-reduced-motion:reduce){*{transition:none!important}}";
+  "@media (prefers-reduced-motion:reduce){*{transition:none!important}}" + CAMPI_ROSSI_CSS;
