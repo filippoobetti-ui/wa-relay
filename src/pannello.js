@@ -300,6 +300,15 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 .caric{display:grid;gap:12px}.sk{height:16px;border-radius:8px;background:linear-gradient(90deg,var(--l2),var(--l),var(--l2));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{to{background-position:-200% 0}}
 .indietro{display:none}
+.voceoggi{padding:7px 12px!important;margin:0 10px 2px!important;font-weight:550!important;color:var(--s)!important}.voceoggi[aria-current="page"]{color:var(--t2)!important;background:rgba(217,137,79,.12)!important;box-shadow:inset 3px 0 0 var(--ara)}
+.voceoggi:hover{color:var(--t)!important}.ico{width:18px;height:18px;flex:none;opacity:.85}.voceoggi[aria-current="page"] .ico{color:var(--ara);opacity:1}
+.lato .titlato{margin:12px 16px 4px;padding-top:10px;font-size:.66rem;color:var(--s)}.lato .titlato.primo{padding-top:0;margin-top:4px}
+.stato-barra{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 24px;background:rgba(27,35,48,.94);border-bottom:1px solid var(--l2);backdrop-filter:blur(6px)}
+.sb-p{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--l2);background:var(--c);color:var(--s);border-radius:999px;padding:3px 10px;font-size:.76rem;font-weight:600}
+.sb-p:hover{color:var(--t);border-color:var(--l)}.sb-p .pal{margin:0;width:8px;height:8px}.sb-p .ico{width:14px;height:14px}
+.sb-ro{color:var(--ro);border-color:rgba(224,143,138,.45);background:var(--rob)}.sb-gi{color:var(--gi);border-color:rgba(216,180,106,.4)}.sb-ar{color:var(--ara);border-color:rgba(217,137,79,.45)}
+.sb-sep{flex:1}.sb-ora{color:var(--s);font-size:.74rem;font-variant-numeric:tabular-nums}
+@media (max-width:820px){.stato-barra{padding:8px 14px}.sb-sep{display:none}.sb-ora{width:100%}}
 .voceoggi .conta{margin-left:auto;background:var(--ara);color:#1b2330;border-radius:999px;font-size:.72rem;font-weight:800;padding:1px 8px}.voceoggi .conta.rossa{background:var(--ro)}
 .sist{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.sist .dati dl{grid-template-columns:minmax(120px,48%) 1fr}
 @media (max-width:820px){.sist{grid-template-columns:1fr}}
@@ -370,6 +379,41 @@ function app() {
     if (location.hash !== h) location.hash = h; else disegna();
   }
 
+  // ---- grafica (pannello-22, 18/11): icone a linea (SVG, colore del testo) al posto delle emoji, voci in gruppi, barra di stato in alto
+  var IKO = {
+    oggi: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    posta: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
+    allarmi: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    email: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>',
+    fornitori: '<path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/>',
+    soldi: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/>',
+    interruttori: '<rect x="2" y="6" width="20" height="12" rx="6"/><circle cx="16" cy="12" r="3"/>',
+    sistemi: '<rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/>'
+  };
+  var ICO = function (n) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (IKO[n] || "") + '</svg>'; };
+  function voce(pag, nome, conta, rossa) {
+    var att = pag === "oggi" ? !S.c && !S.p : S.p === pag;
+    return '<button class="voceoggi" ' + (pag === "oggi" ? 'data-oggi' : 'data-pag="' + pag + '"') + (att ? ' aria-current="page"' : '') + '>' + ICO(pag) + '<span>' + nome + '</span>' +
+      (conta ? '<span class="conta' + (rossa ? ' rossa' : '') + '">' + conta + '</span>' : '') + '</button>';
+  }
+  function navCentrale() {
+    if (!POSTA) caricaPosta(); if (!SIS) caricaSistemi();
+    return '<div class="titlato primo">Ogni giorno</div>' + voce("oggi", "Oggi") + voce("posta", "Posta in arrivo", pNonLette()) + voce("allarmi", "Allarmi", nAllarmi(), SIS && SIS.rossi_aperti) +
+      '<div class="titlato">Comunicazioni</div>' + voce("email", "Email mandate") + voce("fornitori", "Fornitori TIX") +
+      '<div class="titlato">Controllo</div>' + voce("soldi", "Soldi e scadenze") + voce("sistemi", "Sistemi") + voce("interruttori", "Interruttori");
+  }
+  var CORTO = { make: "Make", supabase: "Supabase", whatsapp: "WhatsApp", brevo: "Brevo", posta: "Posta", claude: "IA", sito: "Sito" };
+  function barraStato() {
+    if (!SIS || SIS.esito !== "ok") return '';
+    var ss = SIS.sistemi || [], nl = pNonLette();
+    return '<div class="stato-barra" role="status" aria-label="Stato di TIX">' + ss.map(function (s) {
+        return '<button class="sb-p" data-pag="sistemi" title="' + E(s.nome) + ': ' + E(SEMN[s.semaforo] || "") + '"><span class="pal p-' + E(s.semaforo) + '"></span>' + E(CORTO[s.chiave] || s.nome) + '</button>';
+      }).join("") + '<span class="sb-sep"></span>' +
+      '<button class="sb-p' + (SIS.rossi_aperti ? ' sb-ro' : SIS.aperti ? ' sb-gi' : '') + '" data-pag="allarmi">' + ICO("allarmi") + (SIS.aperti || 0) + ' allarmi</button>' +
+      '<button class="sb-p' + (nl ? ' sb-ar' : '') + '" data-pag="posta">' + ICO("posta") + nl + ' da leggere</button>' +
+      '<span class="sb-ora">' + DT(SIS.ora, true) + '</span></div>';
+  }
+
   // ---- colonna dei clienti
   function lato() {
     var cl = D.clienti || [];
@@ -383,15 +427,7 @@ function app() {
       return okf && okq;
     });
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
-      '<div class="titlato primo">Centrale di TIX</div>' +
-      '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
-      '<button class="voceoggi" data-pag="posta"' + (S.p === "posta" ? ' aria-current="page"' : '') + '>📥 Posta in arrivo' + (function () { if (!POSTA) caricaPosta(); var n = pNonLette(); return n ? '<span class="conta">' + n + '</span>' : ''; })() + '</button>' +
-      '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email mandate</button>' +
-      '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
-      '<button class="voceoggi" data-pag="soldi"' + (S.p === "soldi" ? ' aria-current="page"' : '') + '>💶 Soldi e scadenze</button>' +
-      '<button class="voceoggi" data-pag="interruttori"' + (S.p === "interruttori" ? ' aria-current="page"' : '') + '>🎚 Interruttori</button>' +
-      '<button class="voceoggi" data-pag="sistemi"' + (S.p === "sistemi" ? ' aria-current="page"' : '') + '>🛰 Sistemi</button>' +
-      '<button class="voceoggi" data-pag="allarmi"' + (S.p === "allarmi" ? ' aria-current="page"' : '') + '>🚨 Allarmi' + (function () { if (!SIS) caricaSistemi(); var n = nAllarmi(); return n ? '<span class="conta' + (SIS.rossi_aperti ? ' rossa' : '') + '">' + n + '</span>' : ''; })() + '</button>' +
+      navCentrale() +
       '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca tra i clienti…" aria-label="Cerca tra i clienti di TIX" value="' + E(S.q) + '"></div>' +
       '<div class="filtri" role="group" aria-label="Filtra i clienti">' + F.map(function (f) {
@@ -430,8 +466,10 @@ function app() {
         return '<button class="avv" data-c="' + a.c.id + '"><span class="pal p-' + a.l + '"></span><span><b>' + E(a.c.nome) + '</b>' + (a.c.prova ? ' <span class="sub">(prova)</span>' : '') +
           '<span class="m"> — ' + E(a.m) + '</span></span></button>';
       }).join("") : '<p class="vuoto">Niente da fare: tutti i clienti sono a posto. ✓</p>') + '</section>' +
-      '<aside class="card"><h2>Sistema</h2><p class="sub">Ultime 24 ore</p><div class="dati"><dl>' +
-        '<dt>Errori di Make</dt><dd>' + (si.errori_make_24h || 0) + '</dd><dt>WhatsApp fermi</dt><dd>' + (si.messaggi_fermi_24h || 0) + '</dd></dl></div>' +
+      '<aside class="card"><h2>Sala controllo</h2>' + (SIS && SIS.esito === "ok" ?
+        '<div class="sc-l">' + (SIS.sistemi || []).map(function (s) { return '<button class="avv" data-pag="sistemi" style="margin:4px 0;padding:8px 10px"><span class="pal p-' + E(s.semaforo) + '" style="margin:0"></span><span><b>' + E(s.nome) + '</b><span class="m"> — ' + E(SEMN[s.semaforo] || "") + '</span></span></button>'; }).join("") + '</div>' +
+        '<button class="avv" data-pag="allarmi" style="margin:8px 0 0"><span class="pal p-' + (SIS.rossi_aperti ? 'rosso' : SIS.aperti ? 'giallo' : 'verde') + '" style="margin:0"></span><span><b>' + (SIS.aperti || 0) + ' allarmi aperti</b><span class="m"> — ' + (SIS.rossi_aperti || 0) + (SIS.rossi_aperti === 1 ? ' rosso' : ' rossi') + '</span></span></button>'
+        : '<p class="sub">Ultime 24 ore</p><div class="dati"><dl><dt>Errori di Make</dt><dd>' + (si.errori_make_24h || 0) + '</dd><dt>WhatsApp fermi</dt><dd>' + (si.messaggi_fermi_24h || 0) + '</dd></dl></div>') +
         (nuovi.length ? '<h3>Clienti nuovi</h3>' + nuovi.map(function (c) { return '<button class="avv" data-c="' + c.id + '"><span class="pal p-' + c.semaforo + '"></span><span><b>' + E(c.nome) + '</b><span class="m"> dal ' + DT(c.inizio) + '</span></span></button>'; }).join("") : '') +
       '</aside></div></div>';
   }
@@ -767,7 +805,7 @@ function app() {
   // ---- sala controllo (C3, pannello-19): quadro dei programmi e allarmi. Dati letti dal DB (pannello_sistemi), nessuna chiave nel browser.
   function caricaSistemi() {
     if (caricaSistemi.v) return; caricaSistemi.v = 1;
-    chiama("sistemi").then(function (r) { SIS = r || { esito: "servizio" }; if (SIS.versione) VERS = SIS.versione; caricaSistemi.v = 0; disegna(); });
+    chiama("sistemi").then(function (r) { SIS = r || { esito: "servizio" }; caricaSistemi.v = 0; if (!$("dlg").open) disegna(); });
   }
   function nAllarmi() { return SIS && SIS.esito === "ok" ? SIS.aperti || 0 : 0; }
   var SEMN = { verde: "tutto a posto", giallo: "da guardare", rosso: "serve un intervento" };
@@ -779,7 +817,7 @@ function app() {
     var nr = ss.filter(function (s) { return s.semaforo === "rosso"; }).length, ng = ss.filter(function (s) { return s.semaforo === "giallo"; }).length;
     return testa + '<p class="sub">Tutti i programmi di TIX in un colpo d\'occhio · aggiornato ' + DT(SIS.ora, true) + ' · <button class="copia" data-sis-ricarica>↻ aggiorna</button></p>' +
       '<div class="kpi">' + k("Programmi", ss.length, nr ? nr + " rossi" : ng ? ng + " da guardare" : "tutti verdi", nr ? "ro" : ng ? "gi" : "") +
-        k("Allarmi aperti", SIS.aperti || 0, (SIS.rossi_aperti || 0) + " rossi", SIS.rossi_aperti ? "ro" : SIS.aperti ? "gi" : "") +
+        k("Allarmi aperti", SIS.aperti || 0, (SIS.rossi_aperti || 0) + (SIS.rossi_aperti === 1 ? " rosso" : " rossi"), SIS.rossi_aperti ? "ro" : SIS.aperti ? "gi" : "") +
       '</div><div class="sist">' + ss.map(function (s) {
         return '<section class="card"><div class="testa" style="gap:8px"><div class="tit" style="min-width:0"><h2 style="margin:0;display:flex;gap:8px;align-items:center"><span class="pal p-' + E(s.semaforo) + '" style="margin:0"></span>' + E(s.nome) + '</h2>' +
             '<span class="sub">' + (SEMN[s.semaforo] || "") + '</span></div>' +
@@ -1293,7 +1331,7 @@ function app() {
     a.className = "app" + (S.c || S.p ? " dentro" : "");
     var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq" || ae0.id === "iq") ? ae0.id : "";
     var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : S.p === "interruttori" ? paginaInterruttori() : oggi()) + '</main>';
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + barraStato() + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : S.p === "interruttori" ? paginaInterruttori() : oggi()) + '</main>';
     if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     var nl = pNonLette();
