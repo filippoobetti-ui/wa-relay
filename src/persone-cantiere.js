@@ -818,7 +818,7 @@ function pfApri(p,modo){var x=PROF.persone[String(p.id)],a=x&&x.accesso;PFC={id:
   var sel=(a&&a.stato!=="revocato"&&a.sezioni)?a.sezioni:null;
   $("pf-sez").innerHTML=(PROF.sezioni||[]).map(function(s){var on=sel?sel.indexOf(s.chiave)>=0:(x&&x.proposte?x.proposte.indexOf(s.chiave)>=0:s.aperta);
     return '<label class="spunta"><input type="checkbox" value="'+esc(s.chiave)+'"'+(on&&s.aperta?" checked":"")+(s.aperta?"":" disabled")+'> <span>'+esc(s.etichetta)+(s.aperta?"":" (non ancora accesa)")+'</span></label>';}).join("")+
-    '<p class="sotto" style="margin:6px 0 0">Diario, SAL, Economie e Agenda arriveranno qui più avanti.</p>';
+    '<p class="sotto" style="margin:6px 0 0">SAL, Economie e Agenda arriveranno qui più avanti. Nel Diario non si vedono nomi e ore degli operai.</p>';
   var avv=(a&&a.avvisi==="no")?"no":"subito";document.querySelectorAll('input[name="pf-avv"]').forEach(function(r){r.checked=r.value===avv;});
   $("velo-prof").hidden=false;}
 $("gruppi").addEventListener("click",function(e){var b=e.target.closest("button");if(!b||!PROF)return;
