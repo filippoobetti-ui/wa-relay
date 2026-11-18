@@ -146,7 +146,11 @@ async function cantiere(request, env, base, inUrl, h, tok) {
     corpo += '<nav class="sezioni" aria-label="Sezioni del cantiere">' +sez.map((k) => '<a href="' + e(base + "/studio/cantiere?c=" + c + "&s=" + k) + '"' +
       (k === s ? ' class="on" aria-current="page"' : "") + ">" + SEZIONI[k][0] + "</a>").join("") + "</nav>";
   }
-  if (s === "sicurezza") {
+  if (s === "diario") {
+    // 18/11/2026 (B1, P2b): il Diario nella vista per esterni, una settimana per volta
+    const d = await h.rpc(env, "prof_diario", { p_token: tok, p_commessa: c, p_dal: String(inUrl.searchParams.get("dal") || ""), p_al: String(inUrl.searchParams.get("al") || "") }, 25000).catch(() => null);
+    corpo += diario(base, c, d, e);
+  } else if (s === "sicurezza") {
     const d = await h.rpc(env, "prof_sicurezza", { p_token: tok, p_commessa: c }, 15000).catch(() => null);
     corpo += sicurezza(base, c, d, e);
   } else if (s === "ddt") {
@@ -181,7 +185,7 @@ function pagamentoFrase(ca, e) {
 }
 
 // le sezioni che le pagine conoscono: nome della scheda e classe del bollino nell'elenco dei cantieri
-const SEZIONI = { sicurezza: ["Sicurezza", "sic"], ddt: ["DDT e documenti", "ddt"], crono: ["Cronoprogramma", "cro"], progetti: ["Progetti", "pro"] };
+const SEZIONI = { diario: ["Diario di cantiere", "dia"], sicurezza: ["Sicurezza", "sic"], ddt: ["DDT e documenti", "ddt"], crono: ["Cronoprogramma", "cro"], progetti: ["Progetti", "pro"] };
 
 const STATI = { da_verificare: ["Da verificare", "st-am"], visto_cse: ["Visto dal CSE", "st-ok"], superato: ["Superato", "st-gr"] };
 function giorno(s) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : ""; }
@@ -279,6 +283,41 @@ function crono(base, d) {
   const doc = String(d.html || "").replace(/url\(caratteri\//g, "url(" + base + "/caratteri/");
   return h + '<div class="azioni"><button class="btn" type="button" id="stampa">Stampa</button></div><div class="cro">' + doc + "</div>" +
     '<p class="nota">È lo stesso cronoprogramma che vede l\'impresa, aggiornato con quello che arriva dal cantiere. I lavori fuori programma non compaiono qui.</p></section>';
+}
+
+// ---------------------------------------------------------------------------- Diario di cantiere (18/11/2026, B1, P2b)
+// prof_diario: le giornate del periodo come le vede chi è fuori dall'impresa (diario_esterni_html della B2): niente economie
+// del subappaltatore, niente PDF della sera, Agenda e firme. Al massimo 31 giorni; di base gli ultimi 7 fino a oggi.
+function dataPiu(s, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ""));
+  if (!m) return "";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n));
+  return d.toISOString().slice(0, 10);
+}
+function diario(base, c, d, e) {
+  let h = '<section class="scheda"><div class="riga"><h2 class="sz"><span class="ic-dia" aria-hidden="true">&#128221;</span>Diario di cantiere</h2><span class="chip">Sola lettura</span></div>';
+  if (!d) return h + '<p class="nota">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p></section>';
+  if (d.esito !== "ok") return h + '<p class="nota">Il diario di questo cantiere non è disponibile in questo momento.</p></section>';
+  const dal = String(d.dal || ""), al = String(d.al || ""), oggi = String(d.oggi || ""), inizio = String(d.inizio || "");
+  const giorni = Math.round((Date.parse(al) - Date.parse(dal)) / 86400000) + 1 || 7;
+  const url = (a, b) => base + "/studio/cantiere?c=" + c + "&s=diario&dal=" + a + "&al=" + b;
+  const primaAl = dataPiu(dal, -1), primaDal = dataPiu(dal, -giorni);
+  const dopoDal = dataPiu(al, 1), dopoAl = dataPiu(al, giorni) > oggi ? oggi : dataPiu(al, giorni);
+  const prima = inizio && primaAl < inizio ? '<span class="btn off" aria-disabled="true">&larr; Prima</span>'
+    : '<a class="btn" href="' + e(url(primaDal, primaAl)) + '">&larr; Prima</a>';
+  const dopo = al >= oggi ? '<span class="btn off" aria-disabled="true">Dopo &rarr;</span>'
+    : '<a class="btn" href="' + e(url(dopoDal, dopoAl)) + '">Dopo &rarr;</a>';
+  h += '<div class="dia-nav">' + prima + '<span class="dia-per">dal ' + giorno(dal) + ' al ' + giorno(al) + '</span>' + dopo +
+    (al < oggi ? '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "&s=diario") + '">Oggi</a>' : "") +
+    '<button class="btn" type="button" id="stampa">Stampa</button></div>' +
+    '<form class="dia-scegli" method="get" action="' + e(base + "/studio/cantiere") + '"><input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="s" value="diario">' +
+    '<label>Dal <input type="date" name="dal" value="' + e(dal) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
+    '<label>al <input type="date" name="al" value="' + e(al) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
+    '<button class="btn" type="submit">Mostra</button><span class="sub">al massimo 31 giorni per volta</span></form>';
+  const doc = String(d.html || "");
+  h += doc.trim() ? '<div class="dia">' + doc + "</div>" : '<p class="nota">In questi giorni il diario di questo cantiere è vuoto.</p>';
+  return h + '<p class="nota">È il diario che scrive l\'impresa dal cantiere, giorno per giorno. Ogni sera alle 22:00 la giornata si chiude e non si cambia più: ' +
+    'le aggiunte dell\'ufficio compaiono come «Integrazione al diario». TIX annota quando lo apri.</p></section>';
 }
 
 // ---------------------------------------------------------------------------- Progetti (09/11/2026, chat 02A)
@@ -848,4 +887,11 @@ const STILE = "[hidden]{display:none!important}" +
   ".lotto{display:inline-block;vertical-align:middle;margin-left:6px;padding:1px 9px;border-radius:6px;border:1px solid var(--navy);color:var(--navy);font-size:.78rem;font-weight:700;max-width:100%;overflow-wrap:anywhere}" +
   "@media (prefers-color-scheme:dark){.lotto{border-color:#C9D6E5;color:#C9D6E5}}" +
   "@media (prefers-color-scheme:dark){.chip.pro{background:#3A2A1E;color:#E8C3A0}}" +
+  // Diario di cantiere (18/11/2026): foglio chiaro anche con il tema scuro, come il diario dell'impresa
+  ".chip.dia{background:#FFF1E6;color:#9A4A0B}.ic-dia{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;" +
+  "background:linear-gradient(135deg,#F9B27A,#F26A10 45%,#1B2F4A)}" +
+  ".dia-nav{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 8px}.dia-per{font-weight:700;padding:0 4px}.btn.off{opacity:.45;pointer-events:none}" +
+  ".dia-scegli{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:0 0 12px;font-size:.92rem}.dia-scegli input{font:inherit;padding:6px 8px;border:1px solid var(--l);border-radius:8px;background:var(--carta);color:var(--t)}" +
+  ".dia{margin-top:8px;color-scheme:light;background:#F6F7F9;color:#1B2F4A;border-radius:14px;padding:10px;overflow-x:auto}" +
+  "@media print{.dia-nav,.dia-scegli,.dia~.nota{display:none}.dia{background:#fff;padding:0}}" +
   "@media (prefers-reduced-motion:reduce){*{transition:none!important}}";
