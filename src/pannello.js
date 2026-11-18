@@ -117,6 +117,8 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       ["id", "voce", "fornitore", "categoria", "importo", "valuta", "periodo", "rinnovo_giorno", "prossimo_rinnovo", "note", "titolo", "data", "tipo", "ricorrenza"].forEach((kk) => { if (s[kk] != null) ok[kk] = String(s[kk]).slice(0, 500); });
       return j((await rpc(env, "pannello_soldi_salva", { p_token: tok, p_disp: disp, p_cosa: cosa, p_op: op, p: ok })) || { esito: "servizio" });
     }
+    // pannello-21 (18/11, C5): quadro degli interruttori, solo lettura
+    if (b.azione === "interruttori") return j((await rpc(env, "pannello_interruttori", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia") return j((await rpc(env, "pannello_posta_ia_stato", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia_imposta") {
       const op = String(d.op || "");
@@ -328,7 +330,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", SOL = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", SOL = null, INT = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto", if_: "prova", iq: "" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -361,7 +363,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi", "soldi"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
+    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi", "soldi", "interruttori"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -387,6 +389,7 @@ function app() {
       '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email mandate</button>' +
       '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
       '<button class="voceoggi" data-pag="soldi"' + (S.p === "soldi" ? ' aria-current="page"' : '') + '>💶 Soldi e scadenze</button>' +
+      '<button class="voceoggi" data-pag="interruttori"' + (S.p === "interruttori" ? ' aria-current="page"' : '') + '>🎚 Interruttori</button>' +
       '<button class="voceoggi" data-pag="sistemi"' + (S.p === "sistemi" ? ' aria-current="page"' : '') + '>🛰 Sistemi</button>' +
       '<button class="voceoggi" data-pag="allarmi"' + (S.p === "allarmi" ? ' aria-current="page"' : '') + '>🚨 Allarmi' + (function () { if (!SIS) caricaSistemi(); var n = nAllarmi(); return n ? '<span class="conta' + (SIS.rossi_aperti ? ' rossa' : '') + '">' + n + '</span>' : ''; })() + '</button>' +
       '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
@@ -812,6 +815,36 @@ function app() {
         SIS.rossi_aperti = (SIS.allarmi || []).filter(function (a) { return a.stato === "aperto" && a.gravita === "rosso"; }).length; return true; }
       return false;
     });
+  }
+
+  // ---- quadro degli interruttori (C5, pannello-21): SOLO LETTURA. Cambiarli resta alle chat proprietarie (accordo per ognuna).
+  var VST = { si: ["acceso", "b-verde"], on: ["acceso", "b-verde"], prova: ["in prova", "b-giallo"], no: ["spento", "b-grigio"], off: ["spento", "b-grigio"] };
+  function paginaInterruttori() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Interruttori</h1>';
+    if (!INT) { if (!paginaInterruttori.v) { paginaInterruttori.v = 1; chiama("interruttori").then(function (r) { INT = r || { esito: "servizio" }; paginaInterruttori.v = 0; disegna(); }); }
+      return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>'; }
+    if (INT.esito !== "ok") return testa + '<p class="err">Interruttori non letti. Ricarica la pagina.</p></div>';
+    var tutti = INT.righe || [], ON = function (r) { return r.valore === "si" || r.valore === "on"; }, OFF = function (r) { return r.valore === "no" || r.valore === "off"; };
+    var q = S.iq.toLowerCase();
+    var lista = tutti.filter(function (r) {
+      var okf = S.if_ === "tutti" || (S.if_ === "prova" && r.valore === "prova") || (S.if_ === "si" && ON(r)) || (S.if_ === "no" && OFF(r));
+      return okf && (!q || [r.chiave, r.descrizione, r.sezione, r.chat].join(" ").toLowerCase().indexOf(q) !== -1);
+    });
+    var gruppi = [], visti = {};
+    lista.forEach(function (r) { if (!visti[r.sezione]) { visti[r.sezione] = { nome: r.sezione, chat: r.chat, righe: [] }; gruppi.push(visti[r.sezione]); } visti[r.sezione].righe.push(r); });
+    var F = [["tutti", "Tutti", tutti.length], ["prova", "In prova", tutti.filter(function (r) { return r.valore === "prova"; }).length], ["si", "Accesi", tutti.filter(ON).length], ["no", "Spenti", tutti.filter(OFF).length]];
+    return testa + '<p class="sub">Le funzioni di TIX che si accendono e si spengono: «acceso» per tutti, «in prova» solo per «Tutte le aziende» o per chi è indicato, «spento». Solo da guardare: per cambiarne uno si chiede alla chat responsabile.</p>' +
+      '<div class="kpi">' + k("Accesi", tutti.filter(ON).length, "per tutti") + k("In prova", tutti.filter(function (r) { return r.valore === "prova"; }).length, "da accendere al lancio o dopo la prova", "gi") + k("Spenti", tutti.filter(OFF).length, "") + '</div>' +
+      '<div class="filtri" style="padding:0 0 8px" role="group" aria-label="Filtra gli interruttori">' + F.map(function (f) { return '<button class="chip" data-if="' + f[0] + '" aria-pressed="' + (S.if_ === f[0]) + '">' + f[1] + '<span class="n">' + f[2] + '</span></button>'; }).join("") + '</div>' +
+      '<div class="cerca" style="margin:0 0 12px"><input id="iq" type="search" placeholder="Cerca per nome, descrizione o chat…" aria-label="Cerca tra gli interruttori" value="' + E(S.iq) + '"></div>' +
+      (gruppi.length ? gruppi.map(function (g) {
+        return '<section class="card" style="margin-bottom:12px"><h2 style="margin:0 0 6px">' + E(g.nome) + ' <span class="sub">· chat ' + E(g.chat) + ' · ' + g.righe.length + '</span></h2><table><tbody>' + g.righe.map(function (r) {
+          var v = VST[r.valore] || [r.valore, "b-grigio"];
+          return '<tr><td style="width:120px"><span class="badge ' + v[1] + '" style="margin:0">' + v[0] + '</span></td><td><code style="font-size:.82rem">' + E(r.chiave) + '</code>' + (r.descrizione ? '<div class="sub">' + E(r.descrizione) + '</div>' : '') + '</td>' +
+            '<td class="q" style="white-space:nowrap;color:var(--s);font-size:.8rem">' + (r.aggiornato_il ? 'toccato ' + FA(r.aggiornato_il) : '') + '</td></tr>';
+        }).join("") + '</tbody></table></section>';
+      }).join("") : '<p class="vuoto">Nessun interruttore trovato.</p>') +
+      '<p class="sub">«Toccato» viene dalla colonna aggiornato_il: non sempre dice quando è cambiato il valore (la tabella non ha un registro automatico). La chat responsabile è indicativa, ricavata dal nome.</p></div>';
   }
 
   // ---- soldi di TIX e scadenze (C4, pannello-20). Importi + IVA; i dollari si convertono col cambio di impostazioni.pannello_cambio_usd_eur
@@ -1258,13 +1291,13 @@ function app() {
   function disegna() {
     var a = $("app");
     a.className = "app" + (S.c || S.p ? " dentro" : "");
-    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq") ? ae0.id : "";
+    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq" || ae0.id === "iq") ? ae0.id : "";
     var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : oggi()) + '</main>';
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : S.p === "interruttori" ? paginaInterruttori() : oggi()) + '</main>';
     if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     var nl = pNonLette();
-    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : S.p === "soldi" ? "Soldi - " : "") + "Pannello di TIX";
+    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : S.p === "soldi" ? "Soldi - " : S.p === "interruttori" ? "Interruttori - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -1275,7 +1308,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
-      MAIL = {}; BON = null; PIA = null; if (!(S.p === "soldi" && $("dlg").open)) SOL = null;
+      MAIL = {}; BON = null; PIA = null; INT = null; if (!(S.p === "soldi" && $("dlg").open)) SOL = null;
       chiama("sistemi").then(function (r3) { if (r3 && r3.esito === "ok") { SIS = r3; if (r3.versione) VERS = r3.versione; if ((S.p === "sistemi" || S.p === "allarmi") && !$("dlg").open) disegna(); } });
       // la posta si ricarica senza perdere l'email aperta (PMC resta)
       chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
@@ -1291,6 +1324,7 @@ function app() {
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
     if (b.hasAttribute("data-sis-ricarica")) { SIS = null; disegna(); return; }
+    if (b.hasAttribute("data-if")) { S.if_ = b.getAttribute("data-if"); disegna(); return; }
     if (b.hasAttribute("data-costo-nuovo")) { schedaCosto(null); return; }
     if (b.hasAttribute("data-costo")) { schedaCosto(((SOL && SOL.costi) || []).filter(function (c) { return String(c.id) === b.getAttribute("data-costo"); })[0]); return; }
     if (b.hasAttribute("data-scad-nuova")) { schedaScadenza(null); return; }
@@ -1346,6 +1380,7 @@ function app() {
     if (ev.target && ev.target.id === "eq") { S.eq = ev.target.value; disegna(); }
     if (ev.target && ev.target.id === "fq") { S.fq = ev.target.value; disegna(); }
     if (ev.target && ev.target.id === "pq") { S.pq = ev.target.value; disegna(); }
+    if (ev.target && ev.target.id === "iq") { S.iq = ev.target.value; disegna(); }
   });
   document.addEventListener("change", function (ev) {
     if (ev.target && ev.target.id === "eg") { S.eg = Number(ev.target.value) || 30; delete MAIL[""]; disegna(); }
