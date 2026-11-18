@@ -442,7 +442,7 @@ function correggi(mid){
 }
 /* ---------- Aggiungi (18/11/2026 voce-oggi-file-1: anche foto e file, ognuno diventa una voce del diario di oggi) ---------- */
 function aggiungi(){
- var w=finestra(),bx=w.bx,lista=[],occupato=false;
+ var w=finestra(),bx=w.bx,lista=[],occupato=false,testoFatto=false;
  bx.innerHTML='<h3>Aggiungi una voce di oggi</h3>'+
   '<div class="gl-gu-ok">La voce entra nel diario di oggi e nel PDF di stasera (chiusura alle '+esc(STATO.ora_chiusura)+'), segnata «Ufficio» con il tuo nome.</div>'+
   '<label for="gl-gu-s">Sezione</label><select id="gl-gu-s"><option value="LAV">Lavorazioni</option><option value="NOTE">Note</option><option value="VISITA">Visite</option><option value="SAL">SAL</option>'+(STATO.economie?'<option value="ECO">Economie extracontrattuali</option>':'')+'</select>'+
@@ -490,16 +490,17 @@ function aggiungi(){
   occupato=true;ag.disabled=true;an.disabled=true;ricorda(av);
   function fine(x){occupato=false;ag.disabled=false;an.disabled=false;pr.hidden=true;no(x);}
   function finito(){libera();location.reload();}
+  /* 18/11/2026 (voce-oggi-file-2, Filippo «prima il testo»): prima il testo, poi le foto e i file, così nel diario il testo sta sopra */
   function testo(){
-   if(!tv)return finito();
+   if(!tv||testoFatto)return prossimo(0);
    pr.hidden=false;pr.textContent='Salvo il testo…';
    chiama('aggiungi',{sezione:s.value,testo:tv,autore:av}).then(function(q){
-    if(q&&q.esito==='ok')return finito();
-    fine((fatti?'Foto e file sono già nel diario, ma il testo no: ':'')+errore(q));crServer(q,{sezione:s,testo:t,autore:a});
+    if(q&&q.esito==='ok'){testoFatto=true;t.readOnly=true;return prossimo(0);}
+    fine(errore(q));crServer(q,{sezione:s,testo:t,autore:a});
    }).catch(function(){fine('Connessione assente: il testo non è salvato. Riprova.');});
   }
   function prossimo(k){
-   if(k>=daFare.length)return testo();
+   if(k>=daFare.length)return finito();
    var x=daFare[k];pr.hidden=false;pr.textContent='Carico '+(k+1)+' di '+daFare.length+': '+(x.f.name||'file')+'…';
    fetch(CFG.u+'/oggi?t='+CFG.t+'&c='+encodeURIComponent(CFG.c)+'&sezione='+encodeURIComponent(s.value)+'&autore='+encodeURIComponent(av)+'&nome='+encodeURIComponent(x.f.name||'allegato'),
     {method:'POST',headers:{'Content-Type':x.f.type||'application/octet-stream'},body:x.f})
@@ -507,10 +508,10 @@ function aggiungi(){
     .then(function(q){
      if(q&&q.esito==='ok'){x.ok=true;x.err=false;fatti++;disegna();return prossimo(k+1);}
      x.err=true;disegna();
-     fine((fatti?(fatti===1?'1 file è già nel diario. ':fatti+' file sono già nel diario. '):'')+'«'+(x.f.name||'file')+'» non si è caricato: '+errore(q)+' Premi di nuovo «Aggiungi la voce» per riprovare gli altri.');
+     fine((testoFatto?'Il testo è già nel diario. ':'')+(fatti?(fatti===1?'1 file è già nel diario. ':fatti+' file sono già nel diario. '):'')+'«'+(x.f.name||'file')+'» non si è caricato: '+errore(q)+' Premi di nuovo «Aggiungi la voce» per riprovare gli altri.');
     }).catch(function(){x.err=true;disegna();fine('Connessione assente: «'+(x.f.name||'file')+'» non si è caricato. Riprova.');});
   }
-  prossimo(0);
+  testo();
  };
  setTimeout(function(){try{t.focus();}catch(x){}},50);
 }
