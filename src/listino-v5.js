@@ -99,9 +99,7 @@ function pagina(base, h, tok, d, torna) {
       : "";
     const boxAnno = (an
       ? '<section class="lv-box"><h2>Anno pagato</h2><p>Dal ' + e(an.dal) + ' al ' + e(an.al) + ' · ' + e(String(an.persone)) + (Number(an.persone) === 1 ? " persona" : " persone") + '.</p>' +
-        (an.passa_mensile
-          ? '<p class="lv-nota">Hai scelto di continuare mese per mese dopo la scadenza.</p>'
-          : '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="mensile" class="lv-sec" data-conferma="Dopo la scadenza dell\'anno continui pagando mese per mese. Confermi?">Dopo la scadenza continua mese per mese</button></div>') +
+        '<p class="lv-piccolo">Alla scadenza, se non rinnovi l\'anno, TIX continua senza interruzioni: dal giorno dopo ricevi la richiesta del canone mese per mese.</p>' +
         "</section>"
       : "") +
       (!an || an.rinnovabile
@@ -147,15 +145,8 @@ function pagina(base, h, tok, d, torna) {
       '<p>' + eur(d.pacchetto_eur) + ' € + IVA ciascuno, pagato subito.</p>' +
       '<label>Quanti pacchetti <input id="lv-quanti" type="number" min="1" max="50" value="' + consigliati + '"></label>' +
       '<div class="lv-pulsanti"><button data-az="carta" data-cosa="voci">Paga con carta</button><button data-az="bonifico" data-cosa="voci" class="lv-sec">Paga con bonifico</button></div></section>' +
-      '<section class="lv-box"><h2>Aggiungi una persona</h2>' +
-      (p.esito === "ok"
-        ? (p.gratis ? "<p>Con 89 € + IVA sono già comprese 2 persone: la prossima non costa niente.</p>"
-                    : (p.annuale
-                      ? "<p>" + eur(p.prezzo_mese_eur) + " € + IVA al mese. Con l'anno pagato la paghi fino alla scadenza (" + e(String(p.giorni)) + " giorni): <strong>" + eur(p.importo_eur) + " € + IVA</strong>.</p>"
-                      : "<p>" + eur(p.prezzo_mese_eur) + " € + IVA al mese. Per questo mese paghi solo i " + e(String(p.giorni)) + " giorni che mancano: <strong>" + eur(p.importo_eur) + " € + IVA</strong>.</p>"))
-        : "<p>Prezzo disponibile quando il listino nuovo è acceso.</p>") +
-      '<label>Nome e cognome <input id="lv-persona" type="text" maxlength="200"></label>' +
-      '<div class="lv-pulsanti"><button data-az="carta" data-cosa="persona">Paga con carta</button><button data-az="bonifico" data-cosa="persona" class="lv-sec">Paga con bonifico</button></div></section>' +
+      '<section class="lv-box"><h2>Persone in più</h2>' +
+      '<p>Le persone in più non si pagano subito: chi usa TIX si conta nel canone del mese successivo (le prime 2 sono comprese nei 89 € + IVA).</p></section>' +
       (Array.isArray(d.bonifici) && d.bonifici.length
         ? '<section class="lv-box"><h2>Bonifici in attesa</h2><ul>' + d.bonifici.map((x) => "<li>" + e(x.cosa) + " · " + eur(x.importo_eur) + " € + IVA · rif. " + e(x.riferimento) + " · " + e(x.chiesto) + "</li>").join("") + "</ul></section>"
         : "") +
