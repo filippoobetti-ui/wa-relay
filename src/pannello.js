@@ -11,7 +11,8 @@
 //  3. impostazioni.pannello_attivo (no / prova / si). Interruttore d'emergenza del Worker: PANNELLO = "off".
 // Rotte: /pannello                 link fisso: riprende la sessione ricordata dal browser (gl_portale_t)
 //        /pannello?t=…             l'applicazione (elenco dei clienti, «Oggi», pagina del cliente con #c=<impresa>)
-//        /pannello/azione          POST JSON {t, azione, dati}: dati, impresa, nota, regala_crediti
+//        /pannello/azione          POST JSON {t, azione, dati}: dati, impresa, nota, regala_crediti, posta, posta_apri, posta_segna…
+//        /pannello/allegato        GET ?t=&u=&n= allegato di un'email in arrivo (pannello-17)
 // Funzioni del database (chiuse ad anon): pannello_dati, pannello_impresa, pannello_nota, pannello_regala_crediti.
 // Privacy (parere B12 via B6, 16/11): per le persone solo numeri, mai orari o accessi persona per persona.
 // ============================================================================
@@ -86,6 +87,16 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       const r = await rpc(env, "pannello_fornitore", { p_token: tok, p_disp: disp, p_azione: op, p_dati: Object.assign({}, d.scheda || {}, { id: d.id || null }, righe ? { righe: righe, origine: String(d.origine || "").slice(0, 120) } : {}) });
       return j(r || { esito: "servizio" });
     }
+    // pannello-17 (18/11, P3): posta in arrivo di info@tixcantiere.it (copie con timbro X-TIX-Copia, vedi 06-filtro-gmail-posta.md)
+    if (b.azione === "posta") return j((await rpc(env, "pannello_posta_elenco", { p_token: tok, p_disp: disp, p_limite: 300 })) || { esito: "servizio" });
+    if (b.azione === "posta_apri" || b.azione === "posta_segna") {
+      const uid = UUID.test(String(d.uid || "")) ? String(d.uid).toLowerCase() : null;
+      if (!uid) return j({ esito: "nontrovata" }, 400);
+      if (b.azione === "posta_apri") return j((await rpc(env, "pannello_posta_apri", { p_token: tok, p_disp: disp, p_uid: uid })) || { esito: "servizio" });
+      const op = String(d.op || "");
+      if (!/^(letta|nuova|archivia|ripristina|no_ia|si_ia)$/.test(op)) return j({ esito: "azione" }, 400);
+      return j((await rpc(env, "pannello_posta_segna", { p_token: tok, p_disp: disp, p_uid: uid, p_op: op })) || { esito: "servizio" });
+    }
     if (!az) return j({ esito: "nontrovata" }, 400);
     if (b.azione === "impresa") return j((await rpc(env, "pannello_impresa", { p_token: tok, p_disp: disp, p_az: az })) || { esito: "servizio" });
     // pannello-13 (17/11, accordo B11): dati di fatturazione dell'impresa (solo i campi concordati, controlli nel DB)
@@ -110,6 +121,21 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       return j(r || { esito: "servizio" });
     }
     return j({ esito: "azione" }, 400);
+  }
+
+  // pannello-17 (18/11): allegato di un'email in arrivo. Il DB controlla chi chiede e dà solo il percorso; il file non diventa mai pubblico.
+  if (sotto === "/pannello/allegato") {
+    const tk = String(inUrl.searchParams.get("t") || "").toLowerCase(), uid = String(inUrl.searchParams.get("u") || "").toLowerCase();
+    const n = Number(inUrl.searchParams.get("n"));
+    if (request.method !== "GET" || !ESA64.test(tk) || !UUID.test(uid) || !Number.isInteger(n) || n < 0 || n > 29 || !stato || stato.esito !== "ok" || !ESA64.test(disp)) return fuori();
+    const r = await rpc(env, "pannello_posta_allegato", { p_token: tk, p_disp: disp, p_uid: uid, p_n: n });
+    if (!r || r.esito !== "ok" || !/^posta-info\/[0-9a-f-]{36}\/[^/]+$/.test(String(r.percorso || ""))) return new Response("Allegato non trovato", { status: 404, headers: { "Cache-Control": "no-store" } });
+    const url = (env.SUPABASE_URL || "https://rvigugiufrjmzedjstuz.supabase.co") + "/storage/v1/object/wa-media/" + String(r.percorso).split("/").map(encodeURIComponent).join("/");
+    const f = await fetch(url, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY } });
+    if (!f.ok) return new Response("Allegato non trovato", { status: 404, headers: { "Cache-Control": "no-store" } });
+    const nome = String(r.nome || "allegato").replace(/[\r\n"\\]/g, "_").slice(0, 150);
+    return new Response(f.body, { status: 200, headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "attachment; filename=\"" + nome.replace(/[^\x20-\x7E]/g, "_") + "\"; filename*=UTF-8''" + encodeURIComponent(nome), "Referrer-Policy": "no-referrer" } });
   }
 
   const m = String(inUrl.searchParams.get("t") || "").match(/[0-9a-fA-F]{64}/);
@@ -244,6 +270,18 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 .caric{display:grid;gap:12px}.sk{height:16px;border-radius:8px;background:linear-gradient(90deg,var(--l2),var(--l),var(--l2));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{to{background-position:-200% 0}}
 .indietro{display:none}
+.voceoggi .conta{margin-left:auto;background:var(--ara);color:#1b2330;border-radius:999px;font-size:.72rem;font-weight:800;padding:1px 8px}
+.posta{display:grid;grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:16px;align-items:start}
+.plista{padding:10px;max-height:calc(100vh - 190px);overflow:auto}
+.pr{display:grid;gap:2px;width:100%;text-align:left;border:0;border-top:1px solid var(--l2);background:transparent;color:var(--t);padding:10px 8px;border-radius:0}
+.pr:first-of-type{border-top:0}.pr:hover{background:var(--l2)}.pr[aria-current="true"]{background:rgba(217,137,79,.1);box-shadow:inset 3px 0 0 var(--ara)}
+.pr .r1{display:flex;justify-content:space-between;gap:8px}.pr .chi{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pr .q{color:var(--s);font-size:.78rem;white-space:nowrap}
+.pr .ogg{font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pr .ant{color:var(--s);font-size:.82rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pr .bb .badge{margin-top:4px;font-size:.7rem;padding:1px 8px}
+.pr.nuova .chi,.pr.nuova .ogg{font-weight:800;color:var(--t2)}.pr.nuova .chi::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ara);margin-right:6px;vertical-align:1px}
+.plegge{min-height:300px}.plegge .badge{margin-top:0}
+.ptesto{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:.95rem;background:var(--f);border:1px solid var(--l2);border-radius:10px;padding:14px 16px;max-height:60vh;overflow:auto}
+@media (max-width:1100px){.posta{grid-template-columns:1fr}.plista{max-height:none}}
 @media (max-width:1100px){.griglia2{grid-template-columns:1fr}}
 @media (max-width:820px){.app{grid-template-columns:1fr;height:auto;min-height:100vh}.lato{border-right:0;min-height:100vh}.app.dentro .lato{display:none}.app:not(.dentro) .corpo{display:none}
  .corpo{overflow:visible}.wrap{padding:14px 14px 50px}.indietro{display:inline-flex;margin-bottom:10px}.kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.k .v{font-size:1.1rem}
@@ -258,7 +296,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -268,7 +306,7 @@ function app() {
   };
   var FA = function (s) {
     if (!s) return "mai"; var d = (Date.now() - new Date(s).getTime()) / 1000;
-    if (d < 3600) return "da poco"; if (d < 86400) return Math.floor(d / 3600) + " ore fa"; if (d < 172800) return "ieri";
+    if (d < 3600) return "da poco"; if (d < 7200) return "1 ora fa"; if (d < 86400) return Math.floor(d / 3600) + " ore fa"; if (d < 172800) return "ieri";
     if (d < 86400 * 30) return Math.floor(d / 86400) + " giorni fa"; return DT(s);
   };
   var MESE = function (s) { try { return new Date(s).toLocaleString("it-IT", { timeZone: "Europe/Rome", month: "long", year: "numeric" }); } catch (e) { return ""; } };
@@ -291,7 +329,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && (p.get("p") === "email" || p.get("p") === "fornitori") ? p.get("p") : "";
+    S.p = !S.c && (p.get("p") === "email" || p.get("p") === "fornitori" || p.get("p") === "posta") ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -313,7 +351,8 @@ function app() {
     return '<div class="marchio"><span class="logo">T</span><b>Pannello di TIX</b>' + (D.stato === "prova" ? '<span class="prova">in prova</span>' : '') + '</div>' +
       '<div class="titlato primo">Centrale di TIX</div>' +
       '<button class="voceoggi" data-oggi' + (S.c || S.p ? '' : ' aria-current="page"') + '>☀ Oggi</button>' +
-      '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email</button>' +
+      '<button class="voceoggi" data-pag="posta"' + (S.p === "posta" ? ' aria-current="page"' : '') + '>📥 Posta in arrivo' + (function () { if (!POSTA) caricaPosta(); var n = pNonLette(); return n ? '<span class="conta">' + n + '</span>' : ''; })() + '</button>' +
+      '<button class="voceoggi" data-pag="email"' + (S.p === "email" ? ' aria-current="page"' : '') + '>✉ Email mandate</button>' +
       '<button class="voceoggi" data-pag="fornitori"' + (S.p === "fornitori" ? ' aria-current="page"' : '') + '>🏗 Fornitori TIX</button>' +
       '<div class="titlato">Clienti di TIX <span class="n">' + cl.filter(function (c) { return !c.prova; }).length + (conta.prova ? ' + ' + conta.prova + ' di prova' : '') + '</span></div>' +
       '<div class="cerca"><input id="q" type="search" placeholder="Cerca tra i clienti…" aria-label="Cerca tra i clienti di TIX" value="' + E(S.q) + '"></div>' +
@@ -601,6 +640,95 @@ function app() {
   function caricaMail(id) {
     if (MAIL["_" + id]) return; MAIL["_" + id] = 1;
     chiama("email", id ? { azienda: id, giorni: 365 } : { giorni: S.eg }).then(function (r) { MAIL[id] = r || { esito: "servizio" }; delete MAIL["_" + id]; disegna(); });
+  }
+
+  // ---- posta in arrivo di info@tixcantiere.it (P3, pannello-17, 18/11). Si legge solo il testo, mai l'HTML dell'email
+  // (niente immagini o codice di chi scrive). Le «scartate» sono le copie senza timbro X-TIX-Copia: restano solo come traccia.
+  function caricaPosta() {
+    if (caricaPosta.v) return; caricaPosta.v = 1;
+    chiama("posta").then(function (r) { POSTA = r || { esito: "servizio" }; caricaPosta.v = 0; disegna(); });
+  }
+  function pRiga(uid) { return ((POSTA && POSTA.righe) || []).filter(function (r) { return r.uid === uid; })[0]; }
+  function pAggiorna(p) {
+    if (!p) return; PMC[p.uid] = p;
+    ((POSTA && POSTA.righe) || []).forEach(function (r, i) { if (r.uid === p.uid) POSTA.righe[i] = Object.assign({}, r, { stato: p.stato, escluso_ia: p.escluso_ia }); });
+  }
+  function pNonLette() { return ((POSTA && POSTA.righe) || []).filter(function (r) { return !r.traccia && r.stato === "nuova"; }).length; }
+  function pChi(r) { return E(r.da_nome || r.da || "mittente sconosciuto"); }
+  function pBadge(r) {
+    return (r.azienda ? '<span class="badge b-verde">cliente: ' + E(r.azienda) + '</span> ' : '') +
+      (r.categoria === "servizio" ? '<span class="badge b-grigio" title="Email automatica di un servizio: si cancella dopo 30 giorni">automatica</span> ' : '') +
+      (r.sensibile ? '<span class="badge b-rosso" title="Parole delicate: da leggere a mano, mai all\'IA">delicata</span> ' : '') +
+      (r.urgente ? '<span class="badge b-rosso">urgente</span> ' : '') +
+      (r.allegati_n ? '<span class="badge b-grigio">📎 ' + r.allegati_n + '</span> ' : '') +
+      (r.escluso_ia ? '<span class="badge b-grigio">senza IA</span>' : '');
+  }
+  function paginaPosta() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Posta in arrivo</h1>';
+    if (!POSTA) { caricaPosta(); return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div><div class="sk" style="width:80%"></div></div></div>'; }
+    if (POSTA.esito !== "ok") return testa + '<p class="err">Non è stato possibile leggere la posta. Ricarica la pagina.</p></div>';
+    var tutte = POSTA.righe || [];
+    var arrivo = tutte.filter(function (r) { return !r.traccia && r.stato !== "archiviata"; });
+    var arch = tutte.filter(function (r) { return !r.traccia && r.stato === "archiviata"; });
+    var scart = tutte.filter(function (r) { return r.traccia; });
+    var F = [["arrivo", "In arrivo", arrivo.length], ["nonlette", "Da leggere", pNonLette()], ["clienti", "Dai clienti", arrivo.filter(function (r) { return r.azienda; }).length], ["archivio", "Archiviate", arch.length], ["scartate", "Scartate", scart.length]];
+    var base = S.pf === "archivio" ? arch : S.pf === "scartate" ? scart : S.pf === "nonlette" ? arrivo.filter(function (r) { return r.stato === "nuova"; }) : S.pf === "clienti" ? arrivo.filter(function (r) { return r.azienda; }) : arrivo;
+    var q = S.pq.toLowerCase();
+    var lista = base.filter(function (r) { return !q || [r.da, r.da_nome, r.oggetto, r.anteprima, r.azienda].join(" ").toLowerCase().indexOf(q) !== -1; });
+    return testa + '<p class="sub">Copia della posta di info@tixcantiere.it (senza banche, codici d\'accesso e servizi automatici) · aggiornata ' + DT(POSTA.ora, true) +
+        ' · L\'IA sulla posta è ' + (POSTA.ia_attiva === "si" ? 'accesa' : 'spenta: si accende con l\'informativa 1.4 e il tuo ok') + '</p>' +
+      '<div class="filtri" style="padding:6px 0 8px" role="group" aria-label="Filtra la posta">' + F.map(function (f) {
+        return '<button class="chip" data-pf="' + f[0] + '" aria-pressed="' + (S.pf === f[0]) + '">' + f[1] + '<span class="n">' + f[2] + '</span></button>';
+      }).join("") + ' <button class="bt" data-posta-ricarica style="padding:4px 10px">↻ Aggiorna</button></div>' +
+      '<div class="posta"><section class="card plista"><div class="cerca" style="margin:0 0 8px"><input id="pq" type="search" placeholder="Cerca per mittente, oggetto o testo…" aria-label="Cerca nella posta" value="' + E(S.pq) + '"></div>' +
+        (lista.length ? lista.map(function (r) {
+          return '<button class="pr' + (r.stato === "nuova" && !r.traccia ? ' nuova' : '') + '" data-pm="' + E(r.uid) + '" aria-current="' + (S.pm === r.uid) + '">' +
+            '<span class="r1"><span class="chi">' + pChi(r) + '</span><span class="q">' + FA(r.data) + '</span></span>' +
+            '<span class="ogg">' + E(r.oggetto || "(senza oggetto)") + '</span>' +
+            (r.traccia ? '<span class="ant">Scartata: ' + E(r.motivo || "non passata dalla regola di Google") + '</span>' : '<span class="ant">' + E(r.riassunto || r.anteprima) + '</span>') +
+            '<span class="bb">' + pBadge(r) + '</span></button>';
+        }).join("") : '<p class="vuoto">' + (S.pf === "nonlette" ? 'Hai letto tutto. ✓' : S.pf === "scartate" ? 'Nessuna email scartata.' : 'Nessuna email.') + '</p>') +
+      '</section><section class="card plegge">' + letturaPosta() + '</section></div>' +
+      (S.pf === "scartate" ? '<p class="sub" style="margin-top:10px">Le scartate sono arrivate all\'indirizzo riservato di TIX senza il timbro segreto della regola di Google: non sono passate da info@. Restano solo mittente e oggetto, senza testo né allegati, e si cancellano dopo 30 giorni.</p>' : '') +
+      '</div>';
+  }
+  function letturaPosta() {
+    if (!S.pm) return '<p class="vuoto">Scegli un\'email a sinistra per leggerla.</p>';
+    var p = PMC[S.pm];
+    if (!p) {
+      if (!letturaPosta.v) { letturaPosta.v = 1; var u = S.pm; chiama("posta_apri", { uid: u }).then(function (r) { letturaPosta.v = 0; if (r && r.esito === "ok") pAggiorna(r.posta); else PMC[u] = { errore: 1 }; disegna(); }); }
+      return '<div class="caric"><div class="sk" style="width:50%"></div><div class="sk"></div><div class="sk"></div></div>';
+    }
+    if (p.errore) return '<p class="err">Email non letta. Riprova.</p>';
+    var mid = String(p.message_id || "").replace(/^<|>$/g, "");
+    var gm = mid ? "https://mail.google.com/mail/?authuser=info%40obettifilippo.com#search/rfc822msgid%3A" + encodeURIComponent(mid) : "";
+    var all = p.allegati || [];
+    return '<h2 style="margin-bottom:4px">' + E(p.oggetto || "(senza oggetto)") + '</h2>' +
+      '<div class="dati"><dl><dt>Da</dt><dd>' + E(p.da_nome ? p.da_nome + " <" + p.da + ">" : p.da) + (p.da ? ' <button class="copia" data-copia="' + E(p.da) + '">copia</button>' : '') + '</dd>' +
+        (p.a ? '<dt>A</dt><dd>' + E(p.a) + '</dd>' : '') + (p.cc ? '<dt>Cc</dt><dd>' + E(p.cc) + '</dd>' : '') +
+        '<dt>Data</dt><dd>' + DT(p.data, true) + '</dd></dl></div>' +
+      '<p style="margin:8px 0">' + pBadge(p) + '</p>' +
+      (p.traccia ? '<p class="err">Scartata: ' + E(p.motivo || "") + '. Il testo non è stato conservato.</p>' :
+      '<div class="azioni" style="margin:10px 0 14px">' +
+        (gm ? '<a class="bt pri" href="' + gm + '" target="_blank" rel="noopener">↩ Rispondi in Gmail</a>' : '') +
+        (p.azienda_id ? '<button class="bt" data-c="' + E(p.azienda_id) + '">Apri il cliente</button>' : '') +
+        (p.stato === "archiviata" ? '<button class="bt" data-pop="ripristina">Rimetti in arrivo</button>' : '<button class="bt" data-pop="archivia">Archivia</button>') +
+        (p.stato !== "nuova" ? '<button class="bt" data-pop="nuova">Segna da leggere</button>' : '') +
+        (p.escluso_ia ? '<button class="bt" data-pop="si_ia" title="Il mittente torna a essere letto dall\'IA, quando l\'IA è accesa">Usa di nuovo l\'IA</button>' : '<button class="bt" data-pop="no_ia" title="Le email di questo mittente non andranno mai all\'IA (opposizione, regola B12)">Non usare l\'IA per questo mittente</button>') +
+      '</div>' +
+      '<div class="ptesto">' + E(p.testo || "") + '</div>' +
+      (all.length ? '<h3>Allegati</h3><div class="azioni">' + all.map(function (a) {
+        return '<a class="bt" href="' + C.base + '/pannello/allegato?t=' + C.t + '&u=' + encodeURIComponent(p.uid) + '&n=' + a.n + '" rel="noopener">📎 ' + E(a.nome) + ' <span class="sub">' + (a.byte ? Math.max(1, Math.round(a.byte / 1024)) + ' KB' : '') + '</span></a>';
+      }).join("") + '</div><p class="sub">Gli allegati si scaricano sul computer: aprili solo se conosci chi scrive.</p>' : '') +
+      '<p class="sub" style="margin-top:14px">Le risposte partono da Gmail, da info@tixcantiere.it, come sempre. Le email restano qui 12 mesi (clienti 24, automatiche 30 giorni).</p>');
+  }
+  function segnaPosta(op) {
+    var u = S.pm; if (!u) return;
+    if (op === "no_ia" && !confirm("Le email di questo mittente non andranno mai all'IA, nemmeno quando l'IA sarà accesa. Va bene?")) return;
+    chiama("posta_segna", { uid: u, op: op }).then(function (r) {
+      if (r && r.esito === "ok") { pAggiorna(r.posta); toast({ archivia: "Archiviata", ripristina: "Rimessa in arrivo", nuova: "Segnata da leggere", no_ia: "Questo mittente non andrà all'IA", si_ia: "Il mittente torna all'IA" }[op] || "Fatto"); if (op === "archivia" || op === "nuova") S.pm = ""; disegna(); }
+      else toast("Non fatto: riprova");
+    });
   }
 
   // ---- fornitori da invitare nell'Elenco TIX (F1, 17/11). L'Elenco è della B3: qui si legge soltanto.
@@ -902,10 +1030,13 @@ function app() {
   function disegna() {
     var a = $("app");
     a.className = "app" + (S.c || S.p ? " dentro" : "");
-    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq") ? ae0.id : "";
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : oggi()) + '</main>';
+    var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq") ? ae0.id : "";
+    var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : oggi()) + '</main>';
+    if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
-    document.title = (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : "") + "Pannello di TIX";
+    var nl = pNonLette();
+    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -917,6 +1048,8 @@ function app() {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
       MAIL = {}; BON = null;
+      // la posta si ricarica senza perdere l'email aperta (PMC resta)
+      chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
       // l'aggiornamento automatico non ridisegna mentre Filippo scrive o ha una finestra aperta
       var ae = document.activeElement, scrive = ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && ae.id !== "q"));
       if (anche || (!scrive && !$("dlg").open && !($("nn") && $("nn").value))) disegna();
@@ -928,6 +1061,10 @@ function app() {
     if (b.hasAttribute("data-c")) { vai(b.getAttribute("data-c"), "crono"); var co = $("corpo"); if (co) co.scrollTop = 0; window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-oggi")) { vai("", ""); return; }
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
+    if (b.hasAttribute("data-pf")) { S.pf = b.getAttribute("data-pf"); S.pm = ""; disegna(); return; }
+    if (b.hasAttribute("data-pm")) { S.pm = b.getAttribute("data-pm"); var rr = pRiga(S.pm); if (rr && rr.stato === "nuova" && !rr.traccia) { rr.stato = "letta"; delete PMC[S.pm]; } disegna(); var pe = document.querySelector(".plegge"); if (pe && window.innerWidth <= 1100) pe.scrollIntoView({ block: "start" }); return; }
+    if (b.hasAttribute("data-pop")) { segnaPosta(b.getAttribute("data-pop")); return; }
+    if (b.hasAttribute("data-posta-ricarica")) { POSTA = null; PMC = {}; disegna(); return; }
     if (b.hasAttribute("data-ef")) { S.ef = b.getAttribute("data-ef"); disegna(); return; }
     if (b.hasAttribute("data-ff")) { S.ff = b.getAttribute("data-ff"); disegna(); return; }
     if (b.hasAttribute("data-ft")) { S.ft = b.getAttribute("data-ft"); disegna(); return; }
@@ -960,6 +1097,7 @@ function app() {
     if (ev.target && ev.target.id === "q") { S.q = ev.target.value; disegna(); }
     if (ev.target && ev.target.id === "eq") { S.eq = ev.target.value; disegna(); }
     if (ev.target && ev.target.id === "fq") { S.fq = ev.target.value; disegna(); }
+    if (ev.target && ev.target.id === "pq") { S.pq = ev.target.value; disegna(); }
   });
   document.addEventListener("change", function (ev) {
     if (ev.target && ev.target.id === "eg") { S.eg = Number(ev.target.value) || 30; delete MAIL[""]; disegna(); }
