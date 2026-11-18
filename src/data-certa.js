@@ -28,12 +28,15 @@ async function chiaveDataCerta(env) {
   if (chiaveCache && Date.now() - chiaveCache.t < 300000) return chiaveCache.v;
   const base = env.SUPABASE_URL || SUPABASE_PREDEFINITO;
   try {
-    const r = await fetch(base + "/rest/v1/impostazioni?chiave=eq.data_certa_chiave&select=valore", {
-      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, Accept: "application/json" }
+    // 18/11/2026 (chiavi-vault, B2 con B14): la chiave sta nel Vault, letta con la funzione segreto_edge
+    const r = await fetch(base + "/rest/v1/rpc/segreto_edge", {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ p_nome: "data_certa_chiave" })
     });
     if (!r.ok) return "";
     const j = await r.json();
-    const v = Array.isArray(j) && j[0] && typeof j[0].valore === "string" ? j[0].valore : "";
+    const v = typeof j === "string" ? j : "";
     if (v) chiaveCache = { v, t: Date.now() };
     return v;
   } catch (e) {
