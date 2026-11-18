@@ -465,13 +465,13 @@ if(!fs.length){w.innerHTML='<h3>Prima indica chi può firmare</h3><p class="tf-s
 '<div class="tf-fine"><button type="button" class="tf-b" data-x>Chiudi</button><a class="tf-b pr" href="'+esc(o.impostazioni)+'">Apri «Firme e timbro»</a></div>';w.querySelector('[data-x]').onclick=chiudi;return;}
 var solo=!!doc.p7m,stato={modo:solo?'q':'s',pag:1,sel:null,pdf:null,orig:null,n:0,vp:null,rot:0};
 w.innerHTML='<h3>'+esc(doc.dicitura||'Firma')+'</h3><p class="tf-sub">'+esc(doc.titolo||'')+'</p>'+
-'<div class="tf-tab">'+(solo?'':'<button type="button" class="on" data-m="s">Firma con TIX</button>')+'<button type="button" data-m="q"'+(solo?' class="on"':'')+'>Firma digitale qualificata</button></div>'+
+'<div class="tf-tab">'+(solo?'':'<button type="button" class="on" data-m="s">Firma con TIX</button>')+'<button type="button" data-m="q"'+(solo?' class="on"':'')+'>Carica il file firmato digitalmente</button></div>'+
 '<div class="tf-g"><div class="tf-col"><span class="tf-lab">Esito</span><div class="tf-es">'+(doc.esiti||[]).map(function(e,i){return '<label><input type="radio" name="tf-es" value="'+esc(e)+'"'+(i===0?' checked':'')+'> '+esc(e)+'</label>';}).join('')+'</div>'+
 '<div data-nota hidden><label for="tf-nota">Osservazioni</label><textarea id="tf-nota" maxlength="2000" placeholder="Vanno sulla copia firmata e le vede chi la riceve"></textarea></div>'+
 '<label for="tf-chi">Chi firma</label><select id="tf-chi">'+fs.map(function(f){return '<option value="'+esc(f.id)+'" data-firma="'+(f.ha_firma?'1':'')+'">'+esc(f.nome+(f.qualifica?' — '+f.qualifica:''))+'</option>';}).join('')+'</select>'+
 '<p class="tf-av" data-senza hidden>Per questa persona non c\'è ancora l\'immagine della firma: sul foglio ci sarà solo il nome. La puoi aggiungere in <a href="'+esc(o.impostazioni)+'">«Firme e timbro»</a>.</p>'+
 (P.timbro?'':'<p class="tf-av">Il timbro dell\'impresa non è ancora caricato: lo aggiungi in <a href="'+esc(o.impostazioni)+'">«Firme e timbro»</a>.</p>')+
-'<div data-q'+(solo?'':' hidden')+'><p class="tf-sub" style="margin-top:12px">'+(solo?'Questo documento è già un file firmato digitalmente (.p7m): TIX non può scriverci sopra. ':'')+'Scarica il file, firmalo con la tua firma digitale (chiavetta o firma remota) e carica qui il file firmato, .p7m oppure PDF firmato.</p>'+
+'<div data-q'+(solo?'':' hidden')+'><p class="tf-sub" style="margin-top:12px">'+(solo?'Questo documento è già un file firmato digitalmente (.p7m): TIX non può scriverci sopra. ':'')+'Scarica il file, firmalo con la tua firma digitale (chiavetta o firma remota) e carica qui il file firmato, .p7m oppure PDF firmato. <strong>TIX conserva il file così com\'è e non verifica la firma.</strong></p>'+
 '<a class="tf-b sec" href="'+esc(o.pdf+'&scarica=1')+'">Scarica il file da firmare</a><label for="tf-file">File firmato</label><input type="file" id="tf-file" accept=".p7m,.pdf,application/pdf,application/pkcs7-mime"></div>'+
 '</div><div data-s'+(solo?' hidden':'')+'><div class="tf-nav"><button type="button" class="tf-b" data-pr>‹</button><span data-pn>Pagina 1</span><button type="button" class="tf-b" data-ps>›</button>'+
 '<button type="button" class="tf-b sec" data-fondo>In fondo all\'ultima pagina</button></div><p class="tf-sub" style="margin:0 0 6px">Tocca sulla pagina il punto dove mettere firma e timbro.</p><div class="tf-vis" data-vis><canvas></canvas></div></div></div>'+
@@ -493,7 +493,7 @@ return pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise.then(d
 function scegli(cx,cy){var sc=stato.vp.scale,w0=W*sc,h0=H*sc;var left=Math.min(Math.max(0,cx-w0/2),cv.width-w0),bottom=Math.min(Math.max(h0,cy+h0/2),cv.height);
 var pp=stato.vp.convertToPdfPoint(left,bottom);stato.sel={pag:stato.pag,left:left,bottom:bottom,w:w0,h:h0,x:pp[0],y:pp[1],rot:stato.rot};disegnaBox();msg.textContent='';}
 if(!solo){librerie().then(function(){return origP;}).then(function(buf){return window.pdfjsLib.getDocument({data:new Uint8Array(buf.slice(0))}).promise;}).then(function(pdf){stato.pdf=pdf;stato.n=pdf.numPages;return pagina(1);})
-.catch(function(e){msg.textContent=e&&e.message==='impronta'?'Il file scaricato non è quello registrato: ricarica la pagina.':'Il PDF non si apre qui: usa «Firma digitale qualificata».';});}
+.catch(function(e){msg.textContent=e&&e.message==='impronta'?'Il file scaricato non è quello registrato: ricarica la pagina.':'Il PDF non si apre qui: usa «Carica il file firmato digitalmente».';});}
 cv.addEventListener('click',function(ev){if(!stato.vp)return;var r=cv.getBoundingClientRect();scegli((ev.clientX-r.left)*cv.width/r.width,(ev.clientY-r.top)*cv.height/r.height);});
 q('[data-pr]').onclick=function(){if(stato.pdf&&stato.pag>1)pagina(stato.pag-1);};q('[data-ps]').onclick=function(){if(stato.pdf&&stato.pag<stato.n)pagina(stato.pag+1);};
 q('[data-fondo]').onclick=function(){if(!stato.pdf)return;pagina(stato.n).then(function(){var sc=stato.vp.scale;scegli(cv.width-(W/2+MARGINE)*sc,cv.height-(H/2+MARGINE_GIU)*sc);});};
@@ -529,7 +529,7 @@ origP.catch(function(){return null;}).then(function(){return f.arrayBuffer();}).
 if(!stato.orig||!stato.pdf){msg.textContent='Il documento non è ancora pronto: aspetta un momento.';return;}if(!stato.sel){msg.textContent='Tocca sulla pagina il punto dove mettere firma e timbro, oppure «In fondo all\'ultima pagina».';return;}
 bott.disabled=true;msg.className='tf-msg ok';msg.textContent='Metto firma e timbro…';
 timbra(d).then(function(bytes){msg.textContent='Salvo la copia firmata…';return invia(bytes,d,false,nomeBase+' - firmato.pdf');}).then(fine)
-.catch(function(){bott.disabled=false;msg.className='tf-msg';msg.textContent='Non sono riuscito a scrivere sul PDF: se è protetto usa «Firma digitale qualificata».';});};
+.catch(function(){bott.disabled=false;msg.className='tf-msg';msg.textContent='Non sono riuscito a scrivere sul PDF: se è protetto usa «Carica il file firmato digitalmente».';});};
 }).catch(function(){errore('Il servizio non risponde: riprova tra un minuto.');});}
 window.TIXFirma={apri:apri};})();`;
 

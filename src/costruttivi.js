@@ -529,7 +529,7 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo)
     ? (senzaVisto ? '<button type="button" class="btn sm pr" disabled title="Si firma dopo il visto di strutturista e DL">Firma per approvazione</button>'
       : '<button type="button" class="btn sm pr" data-firma="' + e(x.id) + '">Firma per approvazione</button>') : "";
   if (fm) meta.push('copia firmata: <span class="cs-imp" title="Impronta SHA-256 della copia firmata: ' + e(fm.sha256 || "") + '">impronta ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
-    (fm.qualificata ? " · firma digitale qualificata" : ""));
+    (fm.qualificata ? " · file firmato digitalmente" : ""));
   // costruttivi-5: copia su Drive di originale e copia firmata (cartella «Costruttivi dei fornitori» del cantiere)
   const dv = x.drive && typeof x.drive === "object" ? x.drive : null;
   if (dv) {
