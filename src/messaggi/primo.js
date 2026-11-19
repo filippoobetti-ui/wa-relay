@@ -18,6 +18,9 @@
 // Le foto e i documenti di chi non e' registrato vanno allo scenario delle foto: qui non arrivano.
 // ============================================================================
 
+// VISITATORI (19/11/2026, visitatori-ia-1): chi non e' registrato riceve la risposta dell'IA (src/messaggi/visitatori.js)
+import { visitatoriConfig, visitatoriAcceso, visitatoreRispondi } from "./visitatori.js";
+
 const TIPI_MAKE = ["text", "interactive", "image", "location", "audio"];   // filtro «Real WhatsApp message» del 9600
 
 function eMio(msg) { return !!(msg && TIPI_MAKE.indexOf(msg.type) !== -1 && msg.type !== "image"); }
@@ -53,6 +56,20 @@ async function esegui(c) {
 
   const nuovo = String(x.persona_id || "") === "";
   const informazioni = corpo(msg).toLowerCase().indexOf("informazioni") !== -1;   // lower(…) text:contain
+
+  // VISITATORI (19/11/2026): con visitatori_ia acceso, a chi non e' registrato (numero nuovo, in ATTESA_SCELTA o
+  // NON_INTERESSATO) risponde l'IA della chat del sito, su qualunque domanda. Il pulsante «Sono un operaio»
+  // (GIORNALE_LAVORI) continua a portare al messaggio dell'invito (route 3 qui sotto).
+  if ((nuovo || stato === "ATTESA_SCELTA" || stato === "NON_INTERESSATO") && pulsante(msg) !== "GIORNALE_LAVORI") {
+    const vcfg = await visitatoriConfig(c);
+    if (visitatoriAcceso(vcfg, tel)) {
+      if (nuovo || stato === "NON_INTERESSATO") {
+        await c.rpc("aggiorna_persona", { p_telefono: tel, p_stato: "ATTESA_SCELTA" }, 8000);
+      }
+      c.segnaScritto();
+      return visitatoreRispondi(c, vcfg, msg.type === "text" ? corpo(msg) : "", nuovo);
+    }
+  }
 
   if (nuovo && !informazioni) {                                                    // route 1
     await c.rpc("aggiorna_persona", { p_telefono: tel, p_stato: "ATTESA_SCELTA" }, 8000);                // 241
