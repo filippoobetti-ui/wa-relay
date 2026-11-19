@@ -83,6 +83,7 @@ function pagina(base, h, tok, d, torna) {
         : (perc >= 80 ? '<p class="lv-nota">Hai usato l\'' + perc + "% delle voci di questo mese.</p>" : ""));
     const consigliati = Math.max(1, Number(f.pacchetti_da_comprare || 1));
     const cdp = d.canone_da_pagare || null, an = d.annuale || null, ap = d.annuale_proposta || {};
+    const pm = !!d.compreso_pm;
     const boxCanone = cdp && cdp.riattivazione
       ? '<section class="lv-box lv-evid"><h2>Riparti con TIX</h2>' +
         '<p>Il contratto è chiuso per mancato pagamento. Fino al ' + e(cdp.scadenza) + ' puoi ripartire con un contratto nuovo: tutti i tuoi dati sono conservati e non paghi arretrati.</p>' +
@@ -102,7 +103,7 @@ function pagina(base, h, tok, d, torna) {
         '<p class="lv-piccolo">Alla scadenza, se non rinnovi l\'anno, TIX continua senza interruzioni: i giorni fino alla fine di quel mese sono compresi e dal mese dopo si paga il canone mese per mese (persone e cantieri in attività), senza addebiti automatici. Se non vuoi continuare, scrivi a info@tixcantiere.it prima della scadenza oppure non pagare la richiesta: i tuoi dati restano scaricabili per 60 giorni.</p>' +
         "</section>"
       : "") +
-      (!an || an.rinnovabile
+      (!pm && (!an || an.rinnovabile)
         ? '<section class="lv-box"><h2>' + (an ? "Rinnova in anticipo" : "Paga 3, 6 o 12 mesi in anticipo") + '</h2>' +
           '<p>Stesso prezzo del mese per mese, pagato in anticipo per 3, 6 o 12 mesi. Crediti TIX in regalo: con 12 mesi <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong> o ' + e(String(ap.regalo_carta || 5)) + ' con la carta; con 3 o 6 mesi 1 credito per ogni mese pagato con bonifico. Il periodo parte dal giorno del pagamento.</p>' +
           '<p class="lv-piccolo">Nel periodo pagato, ogni persona in più si paga subito, solo fino alla fine del periodo: quando la attivi ricevi l\'importo e le date, e la persona si attiva al pagamento.</p>' +
@@ -120,16 +121,20 @@ function pagina(base, h, tok, d, torna) {
       : "";
     corpo = boxCanone + boxAvvisoCantieri +
       '<section class="lv-box"><h2>Il tuo abbonamento</h2>' +
-      '<p class="lv-grande">' + eur(c.canone_eur) + ' € <small>+ IVA al mese</small></p>' +
+      (pm
+        ? '<p class="lv-grande">Canone compreso <small>nel compenso di Project Management</small></p>'
+        : '<p class="lv-grande">' + eur(c.canone_eur) + ' € <small>+ IVA al mese</small></p>') +
       (c.per_cantieri
         ? '<p>Contato come <strong>' + e(String(c.persone || 0)) + ' persone</strong>: ' + e(String(c.persone_reali || 0)) + (Number(c.persone_reali) === 1 ? " persona ha" : " persone hanno") +
           ' usato TIX negli ultimi 30 giorni, ma i cantieri in attività sono ' + e(String(c.cantieri_attivi || 0)) + '.'
         : '<p>' + e(String(c.persone || 0)) + (Number(c.persone) === 1 ? " persona" : " persone") + ' (chi ha usato TIX negli ultimi 30 giorni)' +
           (Number(c.cantieri_attivi) ? " · " + e(String(c.cantieri_attivi)) + (Number(c.cantieri_attivi) === 1 ? " cantiere in attività" : " cantieri in attività") : "") + '.') +
       (Number(c.sospese) ? " " + e(String(c.sospese)) + " sospese per 30 giorni senza uso." : "") + '</p>' +
-      '<p class="lv-piccolo">89 € + IVA fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª. Ogni persona comprende un cantiere in attività ' +
-      '(un cantiere con almeno ' + e(String(c.cantiere_attivo_giorni || 3)) + ' giorni di diario negli ultimi 30 giorni): se i cantieri in attività sono più delle persone, si conta un cantiere come una persona. ' +
-      'Il conto si fa quando si prepara il canone del mese.</p>' +
+      (pm
+        ? '<p class="lv-piccolo">Per la tua impresa TIX è compreso nel compenso di Project Management: non ricevi richieste di pagamento del canone. Persone e cantieri servono solo a calcolare le voci comprese.</p>'
+        : '<p class="lv-piccolo">89 € + IVA fino a 2 persone, +22 € dalla 3ª alla 15ª, +12 € dalla 16ª. Ogni persona comprende un cantiere in attività ' +
+          '(un cantiere con almeno ' + e(String(c.cantiere_attivo_giorni || 3)) + ' giorni di diario negli ultimi 30 giorni): se i cantieri in attività sono più delle persone, si conta un cantiere come una persona. ' +
+          'Il conto si fa quando si prepara il canone del mese.</p>') +
       (Array.isArray(d.cantieri_elenco) && d.cantieri_elenco.length
         ? '<details class="lv-cantieri"><summary>Cantieri in attività: <strong>' + e(String(c.cantieri_attivi || 0)) + '</strong> (servono ' + e(String(c.cantiere_attivo_giorni || 3)) +
           ' giornate con almeno una voce negli ultimi 30 giorni)</summary><ul>' +
@@ -148,7 +153,9 @@ function pagina(base, h, tok, d, torna) {
       '<label>Quanti pacchetti <input id="lv-quanti" type="number" min="1" max="50" value="' + consigliati + '"></label>' +
       '<div class="lv-pulsanti"><button data-az="carta" data-cosa="voci">Paga con carta</button><button data-az="bonifico" data-cosa="voci" class="lv-sec">Paga con bonifico</button></div></section>' +
       '<section class="lv-box"><h2>Persone in più</h2>' +
-      '<p>Le persone in più non si pagano subito: chi usa TIX si conta nel canone del mese successivo (le prime 2 sono comprese nei 89 € + IVA).</p></section>' +
+      (pm
+        ? '<p>Le persone in più non costano niente: TIX è compreso nel compenso di Project Management. Ogni persona in più aggiunge 150 voci comprese.</p></section>'
+        : '<p>Le persone in più non si pagano subito: chi usa TIX si conta nel canone del mese successivo (le prime 2 sono comprese nei 89 € + IVA).</p></section>') +
       (Array.isArray(d.bonifici) && d.bonifici.length
         ? '<section class="lv-box"><h2>Bonifici in attesa</h2><ul>' + d.bonifici.map((x) => "<li>" + e(x.cosa) + " · " + eur(x.importo_eur) + " € + IVA · rif. " + e(x.riferimento) + " · " + e(x.chiesto) + "</li>").join("") + "</ul></section>"
         : "") +
