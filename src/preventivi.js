@@ -1187,7 +1187,8 @@ function caricaCrediti(){var box=$('pv-crediti');if(!box)return;
       'quando finisce, TIX usa 1 credito alla volta e te lo scrive qui. Se non ci sono crediti, l\'IA si ferma fino al mese dopo e TIX funziona lo stesso. ')+
      'Messaggi WhatsApp, correzione dei testi e Agenda non usano crediti.</small>'+
      (ia.avvisi||[]).map(function(a){return '<p class="pv-cr-av">'+es(a.data)+' · '+es(a.testo)+'</p>';}).join('')+'</div>';})()+
-   '<p class="pv-cr-s">«Prepara con TIX» usa 1 credito per un preventivo fino a 100 voci, 2 fino a 300, 3 oltre; +1 per la lettura approfondita o «Subito». '+
+   '<p class="pv-cr-s">«Prepara con TIX»: 1 credito per un preventivo fino a 100 voci, 2 fino a 300, 3 oltre: comprende 3 letture dello stesso preventivo. '+
+   'La lettura approfondita e «Subito» costano 1 credito in più ciascuna, ogni volta che le scegli. «Ricontrolla le voci» non usa crediti. Dalla quarta lettura si paga di nuovo. '+
    'Il credito comprende email al direttore dei lavori, richieste di offerta e posta. Se una lettura non riesce per un problema di TIX, il credito torna indietro. '+
    'I crediti comprati valgono 12 mesi.</p><div class="pv-cr-p">'+
    (function(){var pk=r.pacchetti||[],b0=null;pk.forEach(function(p){var u=num(p.eur)/num(p.crediti);if(num(p.crediti)>0&&isFinite(u)&&(b0===null||num(p.crediti)<b0.c))b0={c:num(p.crediti),u:u};});
