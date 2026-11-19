@@ -152,7 +152,7 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
 <circle cx="1749" cy="558" r="22" fill="#1B2F4A"/>
 <circle cx="1471" cy="870" r="22" fill="#1B2F4A"/>
 <circle cx="1722" cy="870" r="22" fill="#1B2F4A"/>
-<circle cx="1615" cy="708" r="34" fill="#1B2F4A"/><style>@keyframes tixsh{0%,38%{transform:translateX(0)}78%,100%{transform:translateX(2900px)}}.tixsh{animation:tixsh 3.8s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.tixsh{animation:none;transform:translateX(1050px)}}</style><g clip-path="url(#clTix)"><rect x="120" y="262" width="1756" height="694" fill="url(#gSil)"/><g transform="skewX(-20)"><rect class="tixsh" x="-450" y="250" width="380" height="720" fill="url(#gBand)"/></g></g></svg></a><a class="home-link" href="https://www.tixcantiere.it/" aria-label="Torna alla pagina iniziale di TIX">&#8962; Home</a>
+<circle cx="1615" cy="708" r="34" fill="#1B2F4A"/><style>@keyframes tixsh{0%,38%{transform:translateX(0)}78%,100%{transform:translateX(2900px)}}.tixsh{animation:tixsh 3.8s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.tixsh{animation:none;transform:translateX(1050px)}}</style><g clip-path="url(#clTix)"><rect x="120" y="262" width="1756" height="694" fill="url(#gSil)"/><g transform="skewX(-20)"><rect class="tixsh" x="-450" y="250" width="380" height="720" fill="url(#gBand)"/></g></g></svg></a><a class="home-link" id="torna-cantieri" href="https://app.tixcantiere.it/" aria-label="Torna all'elenco dei cantieri">&larr; Torna ai cantieri</a>
     <h1>Cartello di cantiere</h1>
   </div>
   <div class="slogan"><strong>Compila il tuo cartello in pochi minuti.</strong><span>Inserisci qui sotto i dati del cantiere &middot; controlla l’anteprima &middot; scarica il file per la tipografia</span></div>
@@ -2375,6 +2375,11 @@ header.testata .slogan strong{display:inline-block;background:linear-gradient(11
       ridisegna();
       var q = new URLSearchParams(location.search);
       if (/^[0-9a-f]{64}$/.test(q.get('t') || '')) { try { sessionStorage.setItem('cartello.t', q.get('t')); } catch (e) {} }
+      // 19/11/2026 (torna-cantieri-1): «← Torna ai cantieri» porta all'elenco dei cantieri con lo stesso accesso
+      try {
+        var tc = document.getElementById('torna-cantieri'), gt = gettone();
+        if (tc) tc.href = (/^app\./.test(location.hostname) ? location.origin : 'https://app.tixcantiere.it') + '/' + (/^[0-9a-f]{64}$/.test(gt) ? '?t=' + gt : '');
+      } catch (e) {}
       avviaCantiere();
       caricaCrediti();
       var sess = q.get('sessione') || stato.sessione;
