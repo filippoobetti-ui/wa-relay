@@ -99,15 +99,16 @@ function pagina(base, h, tok, d, torna) {
       : "";
     const boxAnno = (an
       ? '<section class="lv-box"><h2>Anno pagato</h2><p>Dal ' + e(an.dal) + ' al ' + e(an.al) + ' · ' + e(String(an.persone)) + (Number(an.persone) === 1 ? " persona" : " persone") + '.</p>' +
-        '<p class="lv-piccolo">Alla scadenza, se non rinnovi l\'anno, TIX continua senza interruzioni: dal giorno dopo ricevi la richiesta del canone mese per mese.</p>' +
+        '<p class="lv-piccolo">Alla scadenza, se non rinnovi l\'anno, TIX continua senza interruzioni: i giorni fino alla fine di quel mese sono compresi e dal mese dopo si paga il canone mese per mese (persone e cantieri in attività), senza addebiti automatici. Se non vuoi continuare, scrivi a info@tixcantiere.it prima della scadenza oppure non pagare la richiesta: i tuoi dati restano scaricabili per 60 giorni.</p>' +
         "</section>"
       : "") +
       (!an || an.rinnovabile
-        ? '<section class="lv-box"><h2>' + (an ? "Rinnova per un altro anno" : "Paga un anno con bonifico") + '</h2>' +
-          '<p>Paghi 12 mesi in anticipo con bonifico e ricevi <strong>' + e(String(ap.regalo || 20)) + ' crediti TIX in regalo</strong>. L\'anno parte quando arriva il bonifico.</p>' +
+        ? '<section class="lv-box"><h2>' + (an ? "Rinnova per un altro anno" : "Paga un anno in anticipo") + '</h2>' +
+          '<p>Paghi 12 mesi in anticipo e ricevi crediti TIX in regalo: <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong>, ' + e(String(ap.regalo_carta || 5)) + ' con la carta. L\'anno parte dal giorno del pagamento.</p>' +
+          '<p class="lv-piccolo">Con l\'anno pagato, ogni persona in più si paga subito, fino alla scadenza dell\'anno: quando la attivi ricevi l\'importo e il periodo, e la persona si attiva al pagamento.</p>' +
           '<label>Persone da pagare <input id="lv-persone" type="number" min="1" max="500" value="' + e(String(ap.persone || 1)) + '"></label>' +
           '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per 12 mesi.</p>' +
-          '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Paga con bonifico</button></div></section>'
+          '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Paga con bonifico</button><button data-az="carta" data-cosa="annuale" class="lv-sec">Paga con carta</button></div></section>'
         : "");
     const avc = d.avviso_cantieri || null;
     const boxAvvisoCantieri = avc
