@@ -301,12 +301,12 @@ function paginaAccessi(base, tok, p, h) {
         // accessi-2 (15/11, paletto della B12): degli altri si vedono solo i dispositivi attivi, mai gli orari (non è un registro presenze)
         const disp = (u.dispositivi || []).map((d) => '<li>' + e(d.nome || "Dispositivo") + (d.verificato ? "" : ' <span class="tag">da confermare</span>') + '</li>').join("");
         return '<div class="pers' + (u.attivo ? "" : " tolta") + '"><div class="cap"><strong>' + e(u.nome || u.email) + '</strong>' +
-          '<span class="tag">' + (u.attivo ? (u.in_attesa ? "invito mandato" : RUOLI[u.ruolo] || "Utente") : "tolto il " + quando(u.tolto_il)) + '</span></div>' +
+          '<span class="tag">' + (u.attivo ? (u.attesa_pagamento ? "in attesa del pagamento" : u.in_attesa ? "invito mandato" : RUOLI[u.ruolo] || "Utente") : "tolto il " + quando(u.tolto_il)) + '</span></div>' +
           '<div class="sub">' + e(u.email) + '</div>' +
           (disp ? '<ul class="disp">' + disp + '</ul>' : '') +
           '<div class="az">' +
           (u.attivo ? '<select data-ruolo="' + u.id + '" aria-label="Ruolo">' + Object.keys(RUOLI).map((r) => '<option value="' + r + '"' + (u.ruolo === r ? " selected" : "") + '>' + RUOLI[r] + '</option>').join("") + '</select>' +
-            (u.in_attesa ? '<button data-az="reinvita" data-u="' + u.id + '">Rimanda l\'invito</button>' : '') +
+            (u.in_attesa && !u.attesa_pagamento ? '<button data-az="reinvita" data-u="' + u.id + '">Rimanda l\'invito</button>' : '') +
             '<button data-az="esci_tutti" data-u="' + u.id + '">Esci da tutti i dispositivi</button>' +
             '<button class="rosso" data-az="togli" data-u="' + u.id + '">Togli l\'accesso</button>'
             : '<button data-az="riattiva" data-u="' + u.id + '">Riattiva</button>') +
@@ -322,7 +322,7 @@ function paginaAccessi(base, tok, p, h) {
       corpo += '<section><h2>Persone contate negli ultimi 30 giorni</h2>' +
         '<p class="tot"><strong>' + c.persone + '</strong> persone · ' + c.accessi + ' con l\'accesso all\'app · ' + c.numeri + ' con il numero WhatsApp</p>' +
         '<p class="sub">' + e(c.regola) + '</p><table><thead><tr><th>Persona</th><th>Come</th><th>Conta nel mese</th></tr></thead><tbody>' +
-        (c.righe || []).map((r) => '<tr><td>' + e(r.nome || "") + '</td><td>' + (r.fonte === "accesso" ? "App" : "WhatsApp") + '</td><td>' + (r.conta ? "sì" : (r.sospesa ? "no (sospesa)" : "no")) + '</td></tr>').join("") +
+        (c.righe || []).map((r) => '<tr><td>' + e(r.nome || "") + '</td><td>' + (r.fonte === "accesso" ? "App" : "WhatsApp") + '</td><td>' + (r.conta ? "sì" : (r.sospesa ? "no (fermo da 30 giorni)" : "no")) + '</td></tr>').join("") +
         '</tbody></table></section>';
     }
   } else if (p.chi && p.chi.admin) {
@@ -365,6 +365,9 @@ function paginaAccessi(base, tok, p, h) {
     'if(!crControlla([{el:n,testo:"Scrivi nome e cognome della persona"},{el:e,ok:function(x){return /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(x.value.trim());},testo:"Scrivi l\'email personale della persona"}]))return;' +
     'var b=f.querySelector("button");b.disabled=true;chiama("invita",{nome:n.value.trim(),email:e.value.trim(),ruolo:ru.value}).then(function(r){b.disabled=false;' +
     'if(r&&r.esito==="ok"){var o=document.getElementById("in-ok");o.hidden=false;o.textContent="Invito mandato a "+e.value.trim()+".";setTimeout(function(){location.reload();},1200);return;}' +
+    // accessi-5 (19/11, Filippo via B11): con l'anno pagato e i posti pieni la persona in più si attiva dopo il pagamento
+    'if(r&&r.esito==="in_attesa"){var o2=document.getElementById("in-ok");o2.hidden=false;var imp=(r.importo_eur!=null?Number(r.importo_eur).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})+" € + IVA":"");' +
+    'var al=r.al?String(r.al).split("-").reverse().join("/"):"";o2.textContent="Con l\'abbonamento annuale i posti pagati sono pieni: "+e.value.trim()+" si attiva quando arriva il pagamento della persona in più"+(imp?" ("+imp+(al?" fino al "+al:"")+")":"")+". Ti abbiamo mandato l\'email con i link per pagare; l\'invito parte da solo dopo il pagamento.";b.disabled=true;setTimeout(function(){location.reload();},6000);return;}' +
     'var el=r&&r.campo==="nome"?n:e;crSegna(el,ERR[r&&r.esito]||"Non è stato possibile mandare l\'invito");}).catch(function(){b.disabled=false;crSegna(e,ERR.servizio);});});' +
     'var DOM={togli:"Togliere l\'accesso a questa persona? Non potrà più entrare finché non la riattivi.",esci_tutti:"Chiudere tutte le sessioni di questa persona? Dovrà entrare di nuovo con email, password e codice.",chiudi_mio:"Scollegare questo dispositivo?"};' +
     'document.addEventListener("click",function(ev){var b=ev.target.closest&&ev.target.closest("button[data-az]");if(!b)return;var az=b.getAttribute("data-az");' +
