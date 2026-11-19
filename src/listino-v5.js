@@ -38,7 +38,7 @@ export async function portaleListinoV5(request, env, base, inUrl, h) {
     const d = b && b.dati && typeof b.dati === "object" ? b.dati : {};
     const COSE = ["voci", "persona", "canone", "annuale", "mensile"];
     const dati = { cosa: COSE.includes(d.cosa) ? d.cosa : "voci", quanti: testo(d.quanti, 3), persona: testo(d.persona, 200),
-      termini: d.termini === true, art23: d.art23 === true };
+      termini: d.termini === true, art23: d.art23 === true, mesi: [3, 6, 12].includes(Number(d.mesi)) ? Number(d.mesi) : 12 };
     const r = await h.rpc(env, "listino_v5_azione", { p_token: tok, p_azienda: a, p_azione: az, p_dati: dati }, 20000).catch(() => null);
     return json(r || { esito: "errore" }, r ? 200 : 503);
   }
@@ -103,11 +103,12 @@ function pagina(base, h, tok, d, torna) {
         "</section>"
       : "") +
       (!an || an.rinnovabile
-        ? '<section class="lv-box"><h2>' + (an ? "Rinnova per un altro anno" : "Paga un anno in anticipo") + '</h2>' +
-          '<p>Paghi 12 mesi in anticipo e ricevi crediti TIX in regalo: <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong>, ' + e(String(ap.regalo_carta || 5)) + ' con la carta. L\'anno parte dal giorno del pagamento.</p>' +
-          '<p class="lv-piccolo">Con l\'anno pagato, ogni persona in più si paga subito, fino alla scadenza dell\'anno: quando la attivi ricevi l\'importo e il periodo, e la persona si attiva al pagamento.</p>' +
+        ? '<section class="lv-box"><h2>' + (an ? "Rinnova in anticipo" : "Paga 3, 6 o 12 mesi in anticipo") + '</h2>' +
+          '<p>Stesso prezzo del mese per mese, pagato in anticipo per 3, 6 o 12 mesi. Crediti TIX in regalo: con 12 mesi <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong> o ' + e(String(ap.regalo_carta || 5)) + ' con la carta; con 3 o 6 mesi 1 credito per ogni mese pagato con bonifico. Il periodo parte dal giorno del pagamento.</p>' +
+          '<p class="lv-piccolo">Nel periodo pagato, ogni persona in più si paga subito, solo fino alla fine del periodo: quando la attivi ricevi l\'importo e le date, e la persona si attiva al pagamento.</p>' +
+          '<label>Mesi <select id="lv-mesi"><option value="3">3 mesi</option><option value="6">6 mesi</option><option value="12" selected>12 mesi</option></select></label>' +
           '<label>Persone da pagare <input id="lv-persone" type="number" min="1" max="500" value="' + e(String(ap.persone || 1)) + '"></label>' +
-          '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per 12 mesi.</p>' +
+          '<p>Totale: <strong id="lv-anno-eur">' + eur(ap.importo_eur) + '</strong> € + IVA per <span id="lv-anno-mesi">12</span> mesi.</p>' +
           '<div class="lv-pulsanti"><button data-az="bonifico" data-cosa="annuale">Paga con bonifico</button><button data-az="carta" data-cosa="annuale" class="lv-sec">Paga con carta</button></div></section>'
         : "");
     const avc = d.avviso_cantieri || null;
@@ -180,13 +181,15 @@ function pagina(base, h, tok, d, torna) {
     'var lt=document.getElementById("lv-termini"),l23=document.getElementById("lv-art23");' +
     'if(cosa==="canone"&&lt&&!crControlla([{el:lt.closest("label"),testo:"Per ripartire devi accettare i Termini e condizioni.",ok:function(){return lt.checked;}},{el:l23.closest("label"),testo:"Per ripartire devi approvare le clausole dell\'art. 23.",ok:function(){return l23.checked;}}]))return;' +
     'if(b.dataset.conferma&&!confirm(b.dataset.conferma))return;' +
-    'var dati={cosa:cosa,quanti:cosa==="annuale"?(pn?pn.value:""):((document.getElementById("lv-quanti")||{}).value||"1"),persona:pers?pers.value:"",termini:!!(lt&&lt.checked),art23:!!(l23&&l23.checked)};' +
+    'var lm=document.getElementById("lv-mesi");' +
+    'var dati={cosa:cosa,quanti:cosa==="annuale"?(pn?pn.value:""):((document.getElementById("lv-quanti")||{}).value||"1"),persona:pers?pers.value:"",termini:!!(lt&&lt.checked),art23:!!(l23&&l23.checked),mesi:lm?Number(lm.value):12};' +
     'b.disabled=true;es.textContent="Un momento…";try{var r=await fetch(LV.u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({t:LV.t,a:LV.a,azione:b.dataset.az,dati:dati})});' +
     'var j=await r.json();if(j.esito==="ok"&&j.url){location.href=j.url;return;}' +
     'if(j.campo){crSegna(document.getElementById("lv-"+j.campo),j.messaggio);}' +
     'es.textContent=j.messaggio||(j.esito==="ok"||j.esito==="gratis"?"Fatto.":"Non è stato possibile completare la richiesta.");}catch(x){es.textContent="Il servizio non risponde: riprova tra poco.";}b.disabled=false;});});' +
-    'var lvp=document.getElementById("lv-persone"),lve=document.getElementById("lv-anno-eur");' +
-    'if(lvp&&lve){lvp.addEventListener("input",function(){var n=Math.max(1,Math.floor(Number(lvp.value)||1));' +
-    'var c=89+22*Math.max(0,Math.min(n,15)-2)+12*Math.max(0,n-15);lve.textContent=(c*12).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});});}' +
+    'var lvp=document.getElementById("lv-persone"),lve=document.getElementById("lv-anno-eur"),lvm=document.getElementById("lv-mesi"),lvmt=document.getElementById("lv-anno-mesi");' +
+    'function lvTot(){var n=Math.max(1,Math.floor(Number(lvp.value)||1));var m=lvm?Number(lvm.value)||12:12;' +
+    'var c=89+22*Math.max(0,Math.min(n,15)-2)+12*Math.max(0,n-15);lve.textContent=(c*m).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});if(lvmt)lvmt.textContent=String(m);}' +
+    'if(lvp&&lve){lvp.addEventListener("input",lvTot);if(lvm)lvm.addEventListener("change",lvTot);}' +
     '</script></body></html>';
 }
