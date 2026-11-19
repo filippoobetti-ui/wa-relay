@@ -118,6 +118,8 @@ export async function portalePannello(request, env, base, sotto, inUrl, h) {
       return j((await rpc(env, "pannello_soldi_salva", { p_token: tok, p_disp: disp, p_cosa: cosa, p_op: op, p: ok })) || { esito: "servizio" });
     }
     // pannello-21 (18/11, C5): quadro degli interruttori, solo lettura
+    // pannello-23 (19/11, richiesta B4): conversazioni dei visitatori, chat del sito e WhatsApp (solo lettura)
+    if (b.azione === "chat_visitatori") return j((await rpc(env, "pannello_chat_visitatori", { p_token: tok, p_disp: disp, p_giorni: Math.min(90, Math.max(1, parseInt(d.giorni, 10) || 30)), p_canale: "" })) || { esito: "servizio" });
     if (b.azione === "interruttori") return j((await rpc(env, "pannello_interruttori", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia") return j((await rpc(env, "pannello_posta_ia_stato", { p_token: tok, p_disp: disp })) || { esito: "servizio" });
     if (b.azione === "posta_ia_imposta") {
@@ -339,7 +341,7 @@ dialog::backdrop{background:rgba(15,20,25,.45)}.dl{padding:20px}.dl h2{font-size
 //   scuro: la pagina toglie ogni foglio di stile che non sia il suo (#pstile) prima di disegnare.
 function app() {
   var C = JSON.parse(document.getElementById("cfg").textContent);
-  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", SOL = null, INT = null, S = { c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto", if_: "prova", iq: "" };
+  var D = C.dati, CACHE = {}, MAIL = {}, FO = null, BON = null, POSTA = null, PMC = {}, PIA = null, SIS = null, VERS = "", SOL = null, INT = null, CHV = null, S = { vc: "", vg: 30, vo: "", c: "", p: "", tab: "crono", f: "tutti", q: "", cf: "tutto", ef: "tutte", eq: "", eg: 30, ff: "tutti", fq: "", ft: "logo", pf: "arrivo", pq: "", pm: "", af: "aperto", if_: "prova", iq: "" };
   var $ = function (id) { return document.getElementById(id); };
   var E = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var EUR = function (n) { return (n === null || n === undefined || n === "") ? "—" : Number(n).toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €"; };
@@ -372,7 +374,7 @@ function app() {
     var p = new URLSearchParams(location.hash.slice(1));
     S.c = /^[0-9a-f-]{36}$/i.test(p.get("c") || "") ? p.get("c") : "";
     S.tab = TABS.some(function (t) { return t[0] === p.get("s"); }) ? p.get("s") : "crono";
-    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi", "soldi", "interruttori"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
+    S.p = !S.c && ["email", "fornitori", "posta", "sistemi", "allarmi", "soldi", "interruttori", "visitatori"].indexOf(p.get("p")) !== -1 ? p.get("p") : "";
   }
   function vai(c, tab, pag) {
     var h = c ? "#c=" + c + (tab && tab !== "crono" ? "&s=" + tab : "") : pag ? "#p=" + pag : "#";
@@ -387,6 +389,7 @@ function app() {
     email: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>',
     fornitori: '<path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/>',
     soldi: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/>',
+    visitatori: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9 11h.01M12 11h.01M15 11h.01"/>',
     interruttori: '<rect x="2" y="6" width="20" height="12" rx="6"/><circle cx="16" cy="12" r="3"/>',
     sistemi: '<rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/>'
   };
@@ -399,7 +402,7 @@ function app() {
   function navCentrale() {
     if (!POSTA) caricaPosta(); if (!SIS) caricaSistemi();
     return '<div class="titlato primo">Ogni giorno</div>' + voce("oggi", "Oggi") + voce("posta", "Posta in arrivo", pNonLette()) + voce("allarmi", "Allarmi", nAllarmi(), SIS && SIS.rossi_aperti) +
-      '<div class="titlato">Comunicazioni</div>' + voce("email", "Email mandate") + voce("fornitori", "Fornitori TIX") +
+      '<div class="titlato">Comunicazioni</div>' + voce("visitatori", "Chat dei visitatori") + voce("email", "Email mandate") + voce("fornitori", "Fornitori TIX") +
       '<div class="titlato">Controllo</div>' + voce("soldi", "Soldi e scadenze") + voce("sistemi", "Sistemi") + voce("interruttori", "Interruttori");
   }
   var CORTO = { make: "Make", supabase: "Supabase", whatsapp: "WhatsApp", brevo: "Brevo", posta: "Posta", claude: "IA", sito: "Sito" };
@@ -878,11 +881,40 @@ function app() {
       (gruppi.length ? gruppi.map(function (g) {
         return '<section class="card" style="margin-bottom:12px"><h2 style="margin:0 0 6px">' + E(g.nome) + ' <span class="sub">· chat ' + E(g.chat) + ' · ' + g.righe.length + '</span></h2><table><tbody>' + g.righe.map(function (r) {
           var v = VST[r.valore] || [r.valore, "b-grigio"];
-          return '<tr><td style="width:120px"><span class="badge ' + v[1] + '" style="margin:0">' + v[0] + '</span></td><td><code style="font-size:.82rem">' + E(r.chiave) + '</code>' + (r.descrizione ? '<div class="sub">' + E(r.descrizione) + '</div>' : '') + '</td>' +
+          return '<tr><td style="width:120px"><span class="badge ' + E(v[1]) + '" style="margin:0">' + E(v[0]) + '</span></td><td><code style="font-size:.82rem">' + E(r.chiave) + '</code>' + (r.descrizione ? '<div class="sub">' + E(r.descrizione) + '</div>' : '') + '</td>' +
             '<td class="q" style="white-space:nowrap;color:var(--s);font-size:.8rem">' + (r.aggiornato_il ? 'toccato ' + FA(r.aggiornato_il) : '') + '</td></tr>';
         }).join("") + '</tbody></table></section>';
       }).join("") : '<p class="vuoto">Nessun interruttore trovato.</p>') +
       '<p class="sub">«Toccato» viene dalla colonna aggiornato_il: non sempre dice quando è cambiato il valore (la tabella non ha un registro automatico). La chat responsabile è indicativa, ricavata dal nome.</p></div>';
+  }
+
+  // ---- chat dei visitatori (pannello-23, 19/11): chat del sito e WhatsApp di chi non è registrato (B4, visitatori_ia). Solo lettura, senza numeri.
+  function paginaVisitatori() {
+    var testa = '<div class="wrap"><button class="bt indietro" data-oggi>← Oggi</button><h1>Chat dei visitatori</h1>';
+    if (!CHV) {
+      if (!paginaVisitatori.v) { paginaVisitatori.v = 1; chiama("chat_visitatori", { giorni: S.vg }).then(function (r) { CHV = r || { esito: "servizio" }; paginaVisitatori.v = 0; disegna(); }); }
+      return testa + '<div class="caric"><div class="sk" style="width:60%"></div><div class="sk"></div></div></div>';
+    }
+    if (CHV.esito !== "ok") return testa + '<p class="err">Conversazioni non lette. Ricarica la pagina.</p></div>';
+    var T = CHV.totali || {}, tutte = CHV.conversazioni || [];
+    var lista = tutte.filter(function (c) { return !S.vc || c.canale === S.vc; });
+    var F = [["", "Tutte", tutte.length], ["whatsapp", "WhatsApp", T.whatsapp || 0], ["sito", "Chat del sito", T.sito || 0]];
+    var G = [[7, "7 giorni"], [30, "30 giorni"], [90, "90 giorni"]];
+    return testa + '<p class="sub">Le domande di chi non è ancora cliente: chat del sito e messaggi al numero WhatsApp di TIX da numeri non registrati, con la risposta dell\'IA. Le conversazioni restano 90 giorni. I numeri di telefono qui non compaiono.</p>' +
+      '<div class="kpi">' + k("Conversazioni", T.conversazioni || 0, "negli ultimi " + S.vg + " giorni") + k("Domande", T.domande || 0, "") + k("WhatsApp", T.whatsapp || 0, "") + k("Costo IA", "≈ " + VAL(T.usd, "USD"), "stima") + '</div>' +
+      '<div class="filtri" style="padding:0 0 8px" role="group" aria-label="Canale">' + F.map(function (f) { return '<button class="chip" data-vc="' + f[0] + '" aria-pressed="' + (S.vc === f[0]) + '">' + f[1] + '<span class="n">' + f[2] + '</span></button>'; }).join("") +
+      '<span style="flex:1"></span>' + G.map(function (g) { return '<button class="chip" data-vg="' + g[0] + '" aria-pressed="' + (S.vg === g[0]) + '">' + g[1] + '</button>'; }).join("") + '</div>' +
+      (lista.length ? lista.map(function (c) {
+        var aperta = S.vo === c.sessione, msg = c.messaggi || [], prima = msg.filter(function (m) { return m.ruolo === "utente" || m.ruolo === "user"; })[0];
+        return '<section class="card" style="margin-bottom:10px"><button class="bt" style="width:100%;text-align:left;display:block;background:none;border:0;padding:0" data-vo="' + E(c.sessione) + '" aria-expanded="' + aperta + '">' +
+          '<span class="badge ' + (c.canale === "whatsapp" ? "b-verde" : "b-grigio") + '" style="margin:0 8px 0 0">' + (c.canale === "whatsapp" ? "WhatsApp" : "Sito") + '</span>' +
+          '<b>' + E(prima ? String(prima.testo || "(senza testo)").slice(0, 120) : "(senza domande)") + '</b>' +
+          '<div class="sub">' + DT(c.ultimo, true) + ' · ' + (c.domande || 0) + (c.domande === 1 ? ' domanda' : ' domande') + (c.pagina ? ' · pagina ' + E(c.pagina) : '') + '</div></button>' +
+          (aperta ? '<div style="margin-top:10px">' + msg.map(function (m) {
+            var u = m.ruolo === "utente" || m.ruolo === "user";
+            return '<div style="margin:6px 0;padding:8px 10px;border-radius:10px;white-space:pre-wrap;' + (u ? 'background:rgba(242,106,16,.13);border:1px solid rgba(242,106,16,.35)' : 'border:1px solid rgba(127,140,155,.35)') + '"><div class="sub" style="margin-bottom:2px">' + (u ? 'Visitatore' : 'IA di TIX') + ' · ' + DT(m.quando, true) + (m.esito && m.esito !== "ok" ? ' · ' + E(m.esito) : '') + '</div>' + E(m.testo || "") + '</div>';
+          }).join("") + '</div>' : '') + '</section>';
+      }).join("") : '<p class="vuoto">Nessuna conversazione in questo periodo.</p>') + '</div>';
   }
 
   // ---- soldi di TIX e scadenze (C4, pannello-20). Importi + IVA; i dollari si convertono col cambio di impostazioni.pannello_cambio_usd_eur
@@ -1331,11 +1363,11 @@ function app() {
     a.className = "app" + (S.c || S.p ? " dentro" : "");
     var ae0 = document.activeElement, fid = ae0 && (ae0.id === "q" || ae0.id === "eq" || ae0.id === "fq" || ae0.id === "pq" || ae0.id === "iq") ? ae0.id : "";
     var co0 = $("corpo"), sc0 = co0 ? co0.scrollTop : 0, pl0 = document.querySelector(".plista"), ps0 = pl0 ? pl0.scrollTop : 0;
-    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + barraStato() + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : S.p === "interruttori" ? paginaInterruttori() : oggi()) + '</main>';
+    a.innerHTML = '<aside class="lato">' + lato() + '</aside><main class="corpo" id="corpo">' + barraStato() + (S.c ? paginaCliente() : S.p === "email" ? paginaEmail() : S.p === "fornitori" ? paginaFornitori() : S.p === "posta" ? paginaPosta() : S.p === "sistemi" ? paginaSistemi() : S.p === "allarmi" ? paginaAllarmi() : S.p === "soldi" ? paginaSoldi() : S.p === "interruttori" ? paginaInterruttori() : S.p === "visitatori" ? paginaVisitatori() : oggi()) + '</main>';
     if (S.p === "posta") { var co1 = $("corpo"), pl1 = document.querySelector(".plista"); if (co1) co1.scrollTop = sc0; if (pl1) pl1.scrollTop = ps0; }
     if (fid && $(fid)) { var q = $(fid); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     var nl = pNonLette();
-    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : S.p === "soldi" ? "Soldi - " : S.p === "interruttori" ? "Interruttori - " : "") + "Pannello di TIX";
+    document.title = (nl ? "(" + nl + ") " : "") + (S.c && cliente(S.c) ? cliente(S.c).nome + " - " : S.p === "email" ? "Email - " : S.p === "fornitori" ? "Fornitori - " : S.p === "posta" ? "Posta - " : S.p === "sistemi" ? "Sistemi - " : S.p === "allarmi" ? "Allarmi - " : S.p === "soldi" ? "Soldi - " : S.p === "interruttori" ? "Interruttori - " : S.p === "visitatori" ? "Chat dei visitatori - " : "") + "Pannello di TIX";
     if (S.c && !CACHE[S.c]) carica(S.c);
   }
   function carica(id) {
@@ -1346,7 +1378,7 @@ function app() {
     chiama("dati").then(function (r) {
       if (r && r.esito === "ok") D = r;
       if (anche && S.c) { delete CACHE[S.c]; }
-      MAIL = {}; BON = null; PIA = null; INT = null; if (!(S.p === "soldi" && $("dlg").open)) SOL = null;
+      MAIL = {}; BON = null; PIA = null; INT = null; CHV = null; if (!(S.p === "soldi" && $("dlg").open)) SOL = null;
       chiama("sistemi").then(function (r3) { if (r3 && r3.esito === "ok") { SIS = r3; if (r3.versione) VERS = r3.versione; if ((S.p === "sistemi" || S.p === "allarmi") && !$("dlg").open) disegna(); } });
       // la posta si ricarica senza perdere l'email aperta (PMC resta)
       chiama("posta").then(function (r2) { if (r2 && r2.esito === "ok") { POSTA = r2; if (S.p === "posta" && !$("dlg").open && !(document.activeElement && document.activeElement.id === "pq")) disegna(); } });
@@ -1363,6 +1395,9 @@ function app() {
     if (b.hasAttribute("data-pag")) { vai("", "", b.getAttribute("data-pag")); return; }
     if (b.hasAttribute("data-sis-ricarica")) { SIS = null; disegna(); return; }
     if (b.hasAttribute("data-if")) { S.if_ = b.getAttribute("data-if"); disegna(); return; }
+    if (b.hasAttribute("data-vc")) { S.vc = b.getAttribute("data-vc"); disegna(); return; }
+    if (b.hasAttribute("data-vg")) { S.vg = parseInt(b.getAttribute("data-vg"), 10) || 30; CHV = null; disegna(); return; }
+    if (b.hasAttribute("data-vo")) { S.vo = S.vo === b.getAttribute("data-vo") ? "" : b.getAttribute("data-vo"); disegna(); return; }
     if (b.hasAttribute("data-costo-nuovo")) { schedaCosto(null); return; }
     if (b.hasAttribute("data-costo")) { schedaCosto(((SOL && SOL.costi) || []).filter(function (c) { return String(c.id) === b.getAttribute("data-costo"); })[0]); return; }
     if (b.hasAttribute("data-scad-nuova")) { schedaScadenza(null); return; }
