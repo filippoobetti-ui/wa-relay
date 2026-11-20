@@ -221,7 +221,7 @@ async function carica(request, env, h) {
   const max = Number(ctl.max_byte) || 0;
   if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
   if (bytes.length > max) return json({ esito: "grande", messaggio: "Il file è troppo grande: in TIX un'offerta arriva fino a " + Math.round(max / 1048576) + " MB." }, 413);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file: ricarica la pagina e riprova." }, 400);
   const vero = tipoDaiByte(bytes);
   if (vero !== est) {
     const atteso = { pdf: "un PDF", p7m: "un PDF firmato (.p7m) nel formato binario", jpg: "una foto JPG", png: "un'immagine PNG" }[est];
@@ -515,7 +515,7 @@ function pagina(base, h, p, d, torna) {
   const form = chiuso ? "" :
     '<section class="of-form" id="carica"><h3><span class="of-mini">' + SVG.su + '</span>Carica un\'offerta</h3>' +
     '<p class="of-sotto">Un\'offerta alla volta: il PDF che ti ha mandato il fornitore, oppure la foto se è su carta.</p>' +
-    '<label class="of-drop" id="of-drop"><span class="of-scegli">' + SVG.file + '<span id="of-file-nome">Trascina qui il file o tocca per sceglierlo<small>PDF, PDF firmato (.p7m), JPG o PNG, fino a ' + maxMb + ' MB · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
+    '<label class="of-drop" id="of-drop"><span class="of-scegli">' + SVG.file + '<span id="of-file-nome">Trascina qui il file o tocca per sceglierlo<small>PDF, PDF firmato (.p7m), JPG o PNG, fino a ' + maxMb + ' MB · il codice di controllo lo calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli il file</span><input type="file" id="of-file" accept="application/pdf,.pdf,.p7m,image/jpeg,image/png,.jpg,.jpeg,.png" hidden></label>' +
     (iaAttiva ? '<div class="of-ia" id="of-ia" role="status" hidden></div>' : '') +
     campiDati("of-c") +
@@ -590,7 +590,7 @@ function scheda(e, qui, p, x, chiuso, oggi, minimi) {
     else if (dv.stato === "da_archiviare") meta.push('<span class="of-tenue">su Drive tra poco</span>');
     else if (dv.stato === "errore") meta.push('<span class="of-tenue">su Drive: non ancora, lo stiamo controllando</span>');
   }
-  meta.push('<span class="of-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + "…</span>");
+  meta.push('<span class="of-imp" title="Codice di controllo (SHA-256) del file: ' + e(x.sha256 || "") + '">codice di controllo ' + e(String(x.sha256 || "").slice(0, 8)) + "…</span>");
   const righe = lista(x.righe);
   const prezzi = righe.length ? '<table class="of-tab"><thead><tr><th>Voce</th><th>Unità</th><th class="n">Prezzo + IVA</th></tr></thead><tbody>' +
     righe.map((r) => {
@@ -818,7 +818,7 @@ if(!FILE){msg.textContent='Scegli il file dell\u2019offerta.';return;}
 var x=campi('of-c');if(!controlla('of-c',x,msg))return;
 var righe=righeDi($('of-c-righe'));if(righe===null){$('of-c-det').open=true;msg.textContent='Controlla le voci segnate in rosso: serve la voce e un prezzo come 98,50.';return;}
 var chi=$('of-c-chi').value.trim();$('of-c-chi').classList.toggle('manca',!chi);if(!chi){msg.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
-salva.disabled=true;msg.className='of-msg ok';msg.textContent='Calcolo l\u2019impronta e salvo l\u2019offerta…';
+salva.disabled=true;msg.className='of-msg ok';msg.textContent='Calcolo il codice di controllo e salvo l\u2019offerta…';
 FILE.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){
 var dati={t:CFG.t,c:CFG.c,fornitore:x.fornitore,materiale:x.materiale,descrizione:x.descrizione,numero:x.numero,data:x.data,valida_fino:x.valida_fino,note:x.note,
 autore:chi,nome:FILE.name,byte:buf.byteLength,sha256:esa(h),righe:righe};

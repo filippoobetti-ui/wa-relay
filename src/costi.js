@@ -443,7 +443,7 @@ async function caricaFattura(request, env, h) {
   const max = Number(ctl.max_byte) || 0;
   if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
   if (bytes.length > max) return json({ esito: "grande", messaggio: "Il file è troppo grande: in TIX una fattura arriva fino a " + Math.round(max / 1048576) + " MB." }, 413);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file: ricarica la pagina e riprova." }, 400);
   const vero = tipoFattura(bytes);
   if (vero !== est) {
     const atteso = { xml: "una fattura elettronica XML", p7m: "una fattura elettronica firmata (.p7m)", pdf: "un PDF" }[est];
