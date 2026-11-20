@@ -105,7 +105,7 @@ function pagina(base, h, tok, d, torna) {
       : "") +
       (!pm && (!an || an.rinnovabile)
         ? '<section class="lv-box"><h2>' + (an ? "Rinnova in anticipo" : "Paga 3, 6 o 12 mesi in anticipo") + '</h2>' +
-          '<p>Stesso prezzo del mese per mese, pagato in anticipo per 3, 6 o 12 mesi. Crediti TIX in regalo: con 12 mesi <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong> o ' + e(String(ap.regalo_carta || 5)) + ' con la carta; con 3 o 6 mesi 1 credito per ogni mese pagato con bonifico. Il periodo parte dal giorno del pagamento.</p>' +
+          '<p>Stesso prezzo del mese per mese, pagato in anticipo per 3, 6 o 12 mesi. Crediti TIX in regalo: con 12 mesi <strong>' + e(String(ap.regalo || 20)) + ' con il bonifico</strong> o ' + e(String(ap.regalo_carta || 5)) + ' con la carta; con 3 o 6 mesi 1 credito per ogni mese pagato con bonifico. ' + (an ? 'Il nuovo periodo parte dal giorno dopo la scadenza di quello in corso.' : 'Il periodo parte dal giorno dopo la fine del periodo già pagato (o dal giorno del pagamento, se non ce n\'è uno).') + '</p>' +
           '<p class="lv-piccolo">Nel periodo pagato, ogni persona in più si paga subito, solo fino alla fine del periodo: quando la attivi ricevi l\'importo e le date, e la persona si attiva al pagamento.</p>' +
           '<label>Mesi <select id="lv-mesi"><option value="3">3 mesi</option><option value="6">6 mesi</option><option value="12" selected>12 mesi</option></select></label>' +
           '<label>Persone da pagare <input id="lv-persone" type="number" min="1" max="500" value="' + e(String(ap.persone || 1)) + '"></label>' +
