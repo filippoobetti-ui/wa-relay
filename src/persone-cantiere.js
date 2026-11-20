@@ -14,6 +14,8 @@
 import { TIPI_DITTA_CSS, TIPI_DITTA_CSS_SCURO, TIPI_DITTA_JS } from "./tipi-ditta.js";
 // 14/11/2026 (campi-rossi-1, chat B3): campi mancanti in rosso, regola di Filippo per tutti i moduli
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 20/11/2026 (invito-lingua-1, B4): dopo il benvenuto l'operaio sceglie la lingua (src/invito-lingua.js)
+import { invitoLinguaDopoBenvenuto } from "./invito-lingua.js";
 
 const NUMERO_TIX = "393783107501";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -81,7 +83,11 @@ export async function invitoGestisci(msg, value, env, h) {
       messaging_product: "whatsapp", recipient_type: "individual", to: tel, type: "text",
       context: { message_id: msg.id }, text: { body: testoRisposta(r).slice(0, 1600), preview_url: false }
     });
-    if (r.esito === "ok") await h.invia(phoneId, env.WHATSAPP_TOKEN, bigliettoTix(tel));
+    if (r.esito === "ok") {
+      await h.invia(phoneId, env.WHATSAPP_TOKEN, bigliettoTix(tel));
+      // 20/11/2026 (invito-lingua-1): elenco delle lingue, solo se invito_lingua_attiva lo permette per questo numero
+      try { await invitoLinguaDopoBenvenuto(tel, phoneId, env, h); } catch (e) {}
+    }
   } catch (e) {}
   try { await h.log(env, tel, msg.id, "persone_cantiere_invito", codice.slice(0, 2) + "**** → " + r.esito); } catch (e) {}
   return true;
