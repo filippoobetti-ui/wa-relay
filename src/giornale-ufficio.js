@@ -248,7 +248,7 @@ async function documentoIntegrazione(request, env, base, inUrl, h) {
       ? '<p class="gi-av">C’è una versione più recente. <a href="' + e(vai(ultima.id)) + '">Apri la versione ' + e(ultima.versione) + '</a>.</p>' : "") +
     (versioni.length > 1 ? '<p class="gi-nota">Versioni: ' + versioni.map((x) => String(x.id) === id
       ? "<b>" + e(x.versione) + " (questa)</b>" : '<a href="' + e(vai(x.id)) + '">' + e(x.versione) + "</a> del " + e(x.il)).join(" · ") + "</p>" : "") +
-    '<p class="gi-nota">Impronta SHA-256 registrata: <code>' + e(r.impronta || "") + "</code>. Foto e PDF si aprono con collegamenti che durano almeno 12 ore: se uno è scaduto, ricarica la pagina.</p></div>";
+    '<p class="gi-nota">Codice di controllo registrato: <code>' + e(r.impronta || "") + "</code>. Foto e PDF si aprono con collegamenti che durano almeno 12 ore: se uno è scaduto, ricarica la pagina.</p></div>";
   const stile = '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">' +
     "<title>" + e("Integrazione al diario del " + giorno + " (versione " + r.versione + ")") + "</title><style>" +
     '.gi-barra{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#FFF7EA;border:1px solid #F1D7AE;border-radius:10px;padding:10px 12px;margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px;letter-spacing:normal}' +
@@ -302,6 +302,7 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
     const dati = { mid: s(d.mid, 300), data: s(d.data, 10), per: s(d.per, 20), impresa: s(d.impresa, 120), squadra: s(d.squadra, 120),
                    qualifica: s(d.qualifica, 20), operai: s(d.operai, 6), ore: s(d.ore, 8), descrizione: s(d.descrizione, 300),
                    motivo: s(d.motivo, 600), autore: s(d.autore, 120), mezzi };
+    if (Array.isArray(d.foto)) dati.foto = d.foto.slice(0, 21).map((x) => s(x, 300));
     const r = await h.rpc(env, "economia_diario", { p_token: t, p_commessa: c, p_azione: eco, p_dati: dati }, 20000).catch(() => null);
     if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
     return jsonRisposta(r);
@@ -347,7 +348,7 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-gu-bx input[type=number]{display:block;width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #c9d1cd;border-radius:8px;font:inherit;font-size:1rem;background:#fff;color:#1b1f1d}" +
     "@media (prefers-color-scheme:dark){.gl-gu-bx input[type=number]{background:#111513;color:#eef2f0;border-color:#3a4540}}" +
     ".gl-ec-per input{width:auto;margin:0}.gl-ec-r{display:flex;gap:6px;align-items:center;margin:0 0 6px}.gl-ec-r select{flex:1;min-width:0}" +
-    ".gl-gu-bx .gl-ec-r input{width:96px;flex:none}.gl-ec-r button{flex:none;width:36px;min-height:36px;border:1px solid #d5dbd8;border-radius:8px;background:#fff;cursor:pointer;font-size:1.1rem}" +
+    ".gl-gu-bx .gl-ec-r input{width:96px;flex:none}.gl-ec-r button{flex:none;width:36px;min-height:36px;padding:0;border:1px solid #d5dbd8;border-radius:8px;background:#fff;color:#1b1f1d;box-shadow:none;cursor:pointer;font-size:1.1rem}" +
     ".gl-gu-bx .gl-ec-piu{margin:0 0 8px}@media (prefers-color-scheme:dark){.gl-ec-r button{background:#232b27;color:#eef2f0;border-color:#3a4540}}" +
     // 03/11/2026 economie-foto-1: la striscia delle foto del giorno, si toccano quelle da allegare
     ".gl-ec-ft{display:flex;gap:8px;overflow-x:auto;padding:3px 3px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}" +
@@ -612,7 +613,7 @@ function aggiungiGiorno(g){
  var ov=el('div','gl-gu-ov'),bx=el('div','gl-gu-bx gl-ag-bx');ov.appendChild(bx);document.body.appendChild(ov);
  bx.setAttribute('role','dialog');bx.setAttribute('aria-modal','true');bx.setAttribute('aria-label','Aggiungi al diario del '+gi);
  bx.innerHTML='<h3>Aggiungi al diario del '+esc(gi)+'</h3>'+
-  '<div class="gl-gu-nota">Il diario '+(oggi?'di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+')':'del '+esc(gi)+' è chiuso')+' e non cambia. Quello che aggiungi va nell’<b>Integrazione al diario del '+esc(gi)+'</b>: un documento a parte, con il tuo nome, la data di oggi e la sua impronta, che resta sempre insieme al diario di quel giorno. Dopo il salvataggio non si modifica.</div>'+
+  '<div class="gl-gu-nota">Il diario '+(oggi?'di oggi è chiuso (alle '+esc(STATO.ora_chiusura)+')':'del '+esc(gi)+' è chiuso')+' e non cambia. Quello che aggiungi va nell’<b>Integrazione al diario del '+esc(gi)+'</b>: un documento a parte, con il tuo nome, la data di oggi e il suo codice di controllo, che resta sempre insieme al diario di quel giorno. Dopo il salvataggio non si modifica.</div>'+
   '<label for="gl-ag-s">Sezione</label><select id="gl-ag-s">'+SEZ.map(function(s){return '<option value="'+s[0]+'">'+s[1]+'</option>';}).join('')+(STATO.economie?'<option value="ECO">Economie extracontrattuali</option>':'')+'</select>'+
   '<div class="gl-ag-ddt gl-ag-2" hidden><div><label for="gl-ag-for">Fornitore <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ag-for" maxlength="160" autocomplete="off"></div>'+
   '<div><label for="gl-ag-num">Numero del DDT <span class="gl-ag-fac">(facoltativo)</span></label><input type="text" id="gl-ag-num" maxlength="60" autocomplete="off"></div></div>'+

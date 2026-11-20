@@ -68,8 +68,8 @@ export function cestinoIniezione(base, token, commessa) {
     ".gl-ct-avv{background:#fff7e6;border:1px solid #f0c36a;border-radius:8px;padding:8px 10px;font-size:.85rem;margin:0 0 12px}" +
     ".gl-ct-err{color:#a11;font-size:.88rem;margin:0 0 10px}" +
     ".gl-ct-el{border-top:1px solid #e3e8e5;padding:10px 0;display:flex;gap:10px;align-items:flex-start}.gl-ct-el:first-of-type{border-top:0}" +
-    ".gl-ct-el .tx{flex:1;font-size:.88rem;word-break:break-word}.gl-ct-el .tx small{display:block;color:#5b6560;margin-top:2px}" +
-    ".gl-ct-el button{padding:7px 12px;border-radius:8px;border:1px solid #1B2F4A;background:#fff;color:#1B2F4A;font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap}" +
+    ".gl-ct-el .tx{flex:1 1 auto;min-width:0;font-size:.88rem;word-break:break-word}.gl-ct-el .tx small{display:block;color:#5b6560;margin-top:2px}" +
+    ".gl-ct-el button{padding:7px 12px;border-radius:8px;border:1px solid #1B2F4A;background:#fff;color:#1B2F4A;font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap}.gl-ct-el button{width:auto!important;flex:0 0 auto!important;align-self:flex-start}" +
     "@media (prefers-color-scheme:dark){.gl-ct-b{color:#7a1f1f}.gl-ct-bx{background:#1a201d;color:#eef2f0}.gl-ct-bx h3{color:#cfe0ff}.gl-ct-bx .anteprima{background:#232b27}.gl-ct-bx input[type=text]{background:#111513;color:#eef2f0;border-color:#3a4540}.gl-ct-az button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ct-az button.pr{background:#b23b3b;border-color:#b23b3b;color:#fff}.gl-ct-avv{background:#3a2f12;border-color:#7a6320}.gl-ct-el{border-color:#2c3531}.gl-ct-el button{background:#232b27;color:#cfe0ff;border-color:#5c7aa8}.gl-ct-vai button{background:#3a1c1c;border-color:#ff6b6b;color:#ff8a8a}.gl-ct-vai button:hover,.gl-ct-vai button:focus-visible{background:#ff6b6b;color:#1a0f0f}}" +
     "</style>";
   const script = "<script>" + String.raw`(function(){try{
@@ -97,7 +97,7 @@ function conferma(tipo,ref,nodi){
     var avv=r.consolidato_gia_emesso, ncr=Number(r.crono_effetti)||0;
     var haAvv=avv&&(avv===true||(Array.isArray(avv)&&avv.length)||typeof avv==='object');
     if(haAvv||ncr>0){
-     bx.innerHTML='<h3>Spostato nel cestino</h3>'+(haAvv?'<div class="gl-ct-avv"><b>Attenzione:</b> il diario di quel giorno era già chiuso e resta com\'è, con la sua impronta. La voce tolta resta archiviata con il motivo e compare nell\'email del sabato.</div>':'')+(ncr>0?'<div class="gl-ct-avv"><b>Cronoprogramma:</b> questa voce aveva aggiornato l\'avanzamento ('+ncr+(ncr===1?' registrazione':' registrazioni')+'). Le date reali e le percentuali del cronoprogramma non sono state toccate: se non sono corrette, vanno sistemate dall\'ufficio.</div>':'')+'<div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
+     bx.innerHTML='<h3>Spostato nel cestino</h3>'+(haAvv?'<div class="gl-ct-avv"><b>Attenzione:</b> il diario di quel giorno era già chiuso e resta com\'è, con il suo codice di controllo. La voce tolta resta archiviata con il motivo e compare nell\'email del sabato.</div>':'')+(ncr>0?'<div class="gl-ct-avv"><b>Cronoprogramma:</b> questa voce aveva aggiornato l\'avanzamento ('+ncr+(ncr===1?' registrazione':' registrazioni')+'). Le date reali e le percentuali del cronoprogramma non sono state toccate: se non sono corrette, vanno sistemate dall\'ufficio.</div>':'')+'<div class="gl-ct-az"><button type="button" class="pr">Ho capito</button></div>';
      bx.querySelector('.pr').onclick=function(){chiudi(w.ov);};
     }else chiudi(w.ov);
    }else{
@@ -128,7 +128,8 @@ function apriCestino(){
   if(!r||r.esito!=='ok'){bx.innerHTML='<h3>Cestino</h3><p>Non riesco a leggere il cestino. Riprova.</p><div class="gl-ct-az"><button type="button" class="an">Chiudi</button></div>';bx.querySelector('.an').onclick=function(){chiudi(w.ov);};return;}
   var el_=r.elementi||[];
   var h='<h3>Cestino</h3><p>'+(el_.length?'Elementi tolti dall\'area riservata. «Ripristina» li rimette dove erano.':'Il cestino è vuoto.')+'</p>';
-  el_.forEach(function(x,i){h+='<div class="gl-ct-el"><div class="tx"><b>'+esc(x.sezione||x.tipo)+'</b> · '+esc(x.quando||'')+(x.con_file?' · con file':'')+'<br>'+esc(x.testo||'')+'<small>'+esc(x.motivo||'')+'</small></div><button type="button" data-i="'+i+'">Ripristina</button></div>';});
+  var SEZ={LAV:'Lavorazioni',VISITA:'Sopralluogo',DDT:'DDT',FIR:'Formulario',NOTE:'Note',SAL:'SAL',ECO:'Ore in economia'};
+  el_.forEach(function(x,i){var sz=String(x.sezione||'').trim().toUpperCase();h+='<div class="gl-ct-el"><div class="tx"><b>'+esc(SEZ[sz]||x.sezione||x.tipo)+'</b> · '+esc(x.quando||'')+(x.con_file?' · con file':'')+'<br>'+esc(x.testo||'')+'<small>'+esc(x.motivo||'')+'</small></div><button type="button" data-i="'+i+'">Ripristina</button></div>';});
   h+='<div class="gl-ct-az"><button type="button" class="an">Chiudi</button></div>';
   bx.innerHTML=h;
   bx.querySelector('.an').onclick=function(){chiudi(w.ov);};

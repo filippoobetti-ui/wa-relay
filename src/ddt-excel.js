@@ -128,7 +128,7 @@ export function ddtExcelIniezione(base, token, commessa) {
     "  bx.querySelector('#gl-dx-no').onclick=function(){chiudi(false);};elenco();\n" +
     "  bx.querySelector('#gl-dx-f').onchange=function(){var f=this.files&&this.files[0];if(!f)return;if(f.size>15*1024*1024){passo1('Il file è troppo grande: massimo 15 MB.');return;}\n" +
     "   attesa('Leggo il file…');\n" +
-    "   Promise.all([lib(),f.arrayBuffer()]).then(function(x){var buf=x[1],wb=window.XLSX.read(buf,{type:'array',cellDates:true}),best=null;\n" +
+    "   Promise.all([lib(),f.arrayBuffer()]).then(function(x){var buf=x[1],wb=window.XLSX.read(buf,/\\.(csv|txt)$/i.test(f.name)?{type:'array',raw:true}:{type:'array',cellDates:true}),best=null;\n" +
     "    wb.SheetNames.forEach(function(nm){var rows=window.XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}),t=testa(rows);if(t&&(!best||t.tot>best.t.tot))best={t:t,rows:rows,foglio:nm};});\n" +
     "    if(!best){passo1('Non trovo le intestazioni delle colonne (numero e data del DDT): controlla che il file abbia una riga di titoli.');return;}\n" +
     "    return hex(buf).then(function(sha){F={nome:f.name,sha:sha,rows:best.rows,t:best.t,m:best.t.m,foglio:best.foglio,forn:'',gruppi:{},auto:{},\n" +

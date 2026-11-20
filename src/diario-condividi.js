@@ -124,7 +124,7 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     ".gl-dc-el{max-height:190px;overflow:auto;border:1px solid #D9DEE5;border-radius:10px;padding:4px 8px}" +
     ".gl-dc-el label,.gl-dc-ca label{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.92rem;margin:0}.gl-dc-el label small{color:#5b6560}" +
     ".gl-dc-el input,.gl-dc-ca input{width:auto;margin:0;flex:none}.gl-dc-ca{display:flex;flex-wrap:wrap;gap:4px 18px}" +
-    ".gl-dc-man{display:flex;gap:6px;margin-top:8px}.gl-dc-man input{flex:1;min-width:0}.gl-dc-man button{width:auto;flex:none;padding:0 12px;border:1px solid #c9d1cd;border-radius:8px;background:#fff;font:inherit;font-weight:700;cursor:pointer}" +
+    ".gl-dc-man{display:flex;gap:6px;margin-top:8px}.gl-dc-man input{flex:1;min-width:0}.gl-dc-man button{width:auto;flex:none;padding:0 12px;border:1px solid #c9d1cd;border-radius:8px;background:#fff;color:#1b1f1d;font:inherit;font-weight:700;cursor:pointer;box-shadow:none}" +
     ".gl-dc-ch{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.gl-dc-ch span{display:inline-flex;align-items:center;gap:6px;background:#EEF3F9;border-radius:999px;padding:3px 4px 3px 10px;font-size:.85rem}" +
     ".gl-dc-ch button{width:24px;height:24px;min-height:0;padding:0;border:0;border-radius:50%;background:#fff;cursor:pointer;font-size:.9rem;line-height:1;box-shadow:none}" +
     ".gl-dc-nota{font-size:.84rem;color:#5b6560;margin:8px 0 0}.gl-dc-prova{background:#FFF4E0;border:1px solid #E8B04A;border-radius:8px;padding:8px 10px;font-size:.85rem;margin:0 0 8px}" +

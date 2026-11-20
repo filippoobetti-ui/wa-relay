@@ -100,11 +100,12 @@ const STILI = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>' +
   '<border><left style="thin"><color rgb="FFD3D3D3"/></left><right style="thin"><color rgb="FFD3D3D3"/></right>' +
   '<top style="thin"><color rgb="FFD3D3D3"/></top><bottom style="thin"><color rgb="FFD3D3D3"/></bottom><diagonal/></border></borders>' +
-  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4">' +
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5">' +
   '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
   '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf>' +
   '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>' +
   '<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="top"/></xf>' +
+  '<xf numFmtId="1" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="top"/></xf>' +
   '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
 function foglioXml(righe, hf) {
@@ -118,7 +119,7 @@ function foglioXml(righe, hf) {
       larg[j] = Math.min(60, Math.max(larg[j], Math.min(60, s.length + 2)));
       if (i === 0) { x += '<c r="' + ref + '" s="1" t="inlineStr"><is><t xml:space="preserve">' + xe(s) + "</t></is></c>"; return; }
       const num = numero(s);
-      if (num !== null) x += '<c r="' + ref + '" s="3"><v>' + num + "</v></c>";
+      if (num !== null) x += '<c r="' + ref + '" s="' + (Number.isInteger(num) ? 4 : 3) + '"><v>' + num + "</v></c>";
       else if (s !== "") x += '<c r="' + ref + '" s="2" t="inlineStr"><is><t xml:space="preserve">' + xe(s) + "</t></is></c>";
       else x += '<c r="' + ref + '" s="2"/>';
     });

@@ -191,7 +191,7 @@ async function carica(request, env, h) {
   const max = Number(ctl.max_byte) || 0;
   if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
   if (dichiarati > max) return json({ esito: "grande", messaggio: "Il file è troppo grande: il massimo è " + Math.round(max / 1048576) + " MB." }, 413);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file: ricarica la pagina e riprova." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
   if (bytes.length > max) return json({ esito: "grande", messaggio: "Il file è troppo grande: il massimo è " + Math.round(max / 1048576) + " MB." }, 413);
@@ -576,7 +576,7 @@ function pagina(base, h, p, d, torna) {
     '<div class="sc-c6"><label for="f-nota">Note <small>(facoltative)</small></label><textarea id="f-nota" maxlength="1000" rows="2" placeholder="Per esempio: consegnato a mano in cantiere dal titolare"></textarea></div>' +
     '<div class="sc-c3"><label for="f-chi">Il tuo nome</label><input id="f-chi" maxlength="120" autocomplete="name" placeholder="Nome e cognome"><p class="sc-aiuto">Resta scritto chi ha caricato il documento.</p></div>' +
     "</div>" +
-    '<div class="sc-archivio">' + SVG.cartella + "<span>Il file va nella cartella «Sicurezza» del cantiere, nell'archivio Drive di TIX, e parte come «Da verificare». Il tuo dispositivo calcola l'impronta SHA-256 prima di mandarlo.</span></div>" +
+    '<div class="sc-archivio">' + SVG.cartella + "<span>Il file va nella cartella «Sicurezza» del cantiere, nell'archivio Drive di TIX, e parte come «Da verificare». Il tuo dispositivo calcola il codice di controllo prima di mandarlo.</span></div>" +
     '<div class="sc-prog" id="f-prog" hidden><i></i></div><p class="sc-msg" id="f-msg" aria-live="polite"></p>' +
     '<div class="sc-form-az"><button type="reset" class="sc-btn sc-tenue">Svuota</button><button type="submit" class="sc-btn sc-pr" id="f-invia">Carica nella Sicurezza</button></div></form></section>';
 
@@ -603,7 +603,7 @@ function pagina(base, h, p, d, torna) {
     '<p class="sc-agg"><b>Aggiornato a oggi</b>, ' + e(giornoLungo(d.oggi)) + ", alle " + e(d.ora || "") + "</p>" +
     (chiuso ? '<p class="sc-chiuso">Cantiere chiuso: i documenti si consultano e si scaricano, non se ne caricano di nuovi.</p>' : "") +
     cifreHtml + (chiuso ? "" : avvisi.join("")) + filtri + sezioni + annullatiHtml + modulo +
-    '<p class="sc-fonti">Ogni documento ha la sua impronta SHA-256, calcolata quando lo carichi e confrontata con la copia nell\'archivio Drive: se il file cambia anche di poco, l\'impronta non torna più. ' +
+    '<p class="sc-fonti">Ogni documento ha il suo codice di controllo, calcolato quando lo carichi e confrontato con la copia nell\'archivio Drive: se il file cambia anche di poco, il codice non torna più. ' +
     "TIX conserva i documenti, li tiene in ordine e ti ricorda le scadenze; il contenuto lo valuta chi li riceve. «Visto dal CSE» è un'etichetta che mette la tua impresa: non è la firma del CSE.</p>" +
     "</div></main>" + finestre(ctx) +
     '<div class="sc-toast" id="sc-toast" role="status" hidden></div>' +
@@ -641,7 +641,7 @@ function scadChip(ctx, x) {
   return '<span class="sc-st sc-ok">Valido fino al ' + ctx.e(dataIt(x.scade)) + "</span>";
 }
 function archivio(x) {
-  if (x.archivio === "archiviato") return x.impronta === "uguale" ? '<span class="sc-arch sc-arch-ok">✓&nbsp;Archiviato su Drive · impronta verificata</span>' : '<span class="sc-arch sc-arch-ok">Archiviato su Drive</span>';
+  if (x.archivio === "archiviato") return x.impronta === "uguale" ? '<span class="sc-arch sc-arch-ok">✓&nbsp;Archiviato su Drive · codice di controllo verificato</span>' : '<span class="sc-arch sc-arch-ok">Archiviato su Drive</span>';
   if (x.archivio === "errore") return '<span class="sc-arch sc-arch-e">Archivio su Drive da ricontrollare: il file resta in TIX, ce ne occupiamo noi</span>';
   if (x.annullato_il) return '<span class="sc-arch">Annullato prima dell\'archivio su Drive</span>';
   return x.archivio_riprova ? '<span class="sc-arch sc-arch-r">Errore di archiviazione: TIX riprova da solo</span>' : '<span class="sc-arch">In archiviazione su Drive…</span>';
@@ -686,7 +686,7 @@ function carta(ctx, x, sola) {
     '<p class="sc-tit">' + e(titoloDoc(ctx.T, x)) + (x.versione ? ' <span class="sc-rev">' + e(x.versione) + "</span>" : "") + "</p>" +
     '<p class="sc-meta">' + meta1 + "</p>" +
     '<p class="sc-meta" title="' + e(x.accesso ? "Accesso: " + x.accesso : "") + '">Caricato da <b>' + e(x.caricato_da || "-") + "</b> il " + e(quando(x.caricato_il)) + " · " + (p7m ? "PDF firmato (.p7m)" : "PDF") + ", " + e(mb(x.byte)) + "</p>" +
-    '<p class="sc-meta">Impronta SHA-256 <button type="button" class="sc-impr" data-sha="' + e(sha) + '" title="Copia l\'impronta intera">' + e(sha.slice(0, 12)) + "…</button> · " + archivio(x) + "</p>" +
+    '<p class="sc-meta">Codice di controllo <button type="button" class="sc-impr" data-sha="' + e(sha) + '" title="Copia il codice di controllo intero">' + e(sha.slice(0, 12)) + "…</button> · " + archivio(x) + "</p>" +
     (x.nota ? '<p class="sc-meta sc-nota-doc">Nota: ' + e(x.nota) + "</p>" : "") +
     "</div>" +
     '<div class="sc-lato">' + (x.scadenza === "in_scadenza" || x.scadenza === "scaduto" ? scadChip(ctx, x) : "") + statoChip(ctx, x) +
@@ -977,7 +977,7 @@ fb.forEach(function(b){b.addEventListener('click',function(){var f=b.getAttribut
 D.addEventListener('click',function(e){D.querySelectorAll('details.sc-altro[open]').forEach(function(x){if(!x.contains(e.target))x.open=false;});});
 // ---- impronta da copiare
 function copia(t){if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(t);return new Promise(function(ok,ko){var a=D.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';D.body.appendChild(a);a.select();try{D.execCommand('copy')?ok():ko();}catch(e){ko(e);}D.body.removeChild(a);});}
-D.querySelectorAll('[data-sha]').forEach(function(b){b.addEventListener('click',function(){copia(b.getAttribute('data-sha')).then(function(){toast('Impronta SHA-256 copiata');},function(){toast(b.getAttribute('data-sha'));});});});
+D.querySelectorAll('[data-sha]').forEach(function(b){b.addEventListener('click',function(){copia(b.getAttribute('data-sha')).then(function(){toast('Codice di controllo copiato');},function(){toast(b.getAttribute('data-sha'));});});});
 // ---- modulo «Aggiungi documento»
 var F=$('sc-f');var prepara=function(){};
 if(F){
@@ -999,13 +999,13 @@ if(F){
   if(!m){fileNo('Carica un PDF, anche firmato digitalmente (.p7m). Per le foto di un documento fai prima un PDF.');return;}
   if(!f.size){fileNo('Il file è vuoto.');return;}
   if(f.size>CFG.max*1048576){fileNo('Il file è troppo grande: il massimo è '+CFG.max+' MB. Comprimi il PDF o dividilo in più parti.');return;}
-  var est=m[1].toLowerCase();mostra(f,est,'calcolo l\'impronta SHA-256…');
+  var est=m[1].toLowerCase();mostra(f,est,'calcolo il codice di controllo…');
   f.slice(0,1024).arrayBuffer().then(function(testa){var b=new Uint8Array(testa);
    if(est==='pdf'){var s='';for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);if(s.indexOf('%PDF-')===-1)throw new Error('Il file non sembra un PDF: controlla di aver scelto quello giusto.');}
    else if(b[0]!==0x30){var s2=String.fromCharCode(b[0]||0,b[1]||0,b[2]||0);throw new Error(s2==='MII'?'Questo .p7m è salvato come testo (base64): TIX accetta il .p7m binario. Salvalo di nuovo dal programma di firma, oppure carica il PDF.':'Il file .p7m non sembra un documento firmato: controlla di aver scelto quello giusto.');}
-   if(!window.crypto||!crypto.subtle)throw new Error('Questo browser non calcola l\'impronta del file: usa Chrome, Edge, Safari o Firefox aggiornati.');
+   if(!window.crypto||!crypto.subtle)throw new Error('Questo browser non calcola il codice di controllo del file: usa Chrome, Edge, Safari o Firefox aggiornati.');
    return f.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf);});
-  }).then(function(h){if(mio!==lettura)return;scelto={file:f,sha:esa(h),est:est};mostra(f,est,'impronta SHA-256 calcolata sul tuo dispositivo: '+scelto.sha.slice(0,12)+'…'+scelto.sha.slice(-8));})
+  }).then(function(h){if(mio!==lettura)return;scelto={file:f,sha:esa(h),est:est};mostra(f,est,'codice di controllo calcolato sul tuo dispositivo: '+scelto.sha.slice(0,12)+'…'+scelto.sha.slice(-8));})
   .catch(function(e){if(mio!==lettura)return;scelto=null;fScelto.hidden=true;fileNo((e&&e.message)||'Non riesco a leggere il file.');});}
  fFile.addEventListener('change',function(){scegli(fFile.files&&fFile.files[0]);});
  ['dragenter','dragover'].forEach(function(n){fDrop.addEventListener(n,function(e){e.preventDefault();fDrop.classList.add('sc-sopra');});});
@@ -1019,7 +1019,7 @@ if(F){
   var im=fImpBox.hidden?{n:'',r:''}:impresaScelta(fImp,fAltraN,fAltraR);
   var altra=fImp.value==='+'&&!fImpBox.hidden;
   var chi=fChi.value.trim(),calcolo=!scelto&&fFile.files&&fFile.files.length&&!fScelto.hidden;
-  if(calcolo){fMsg.textContent='Aspetta un momento: sto calcolando l\'impronta del file.';return;}
+  if(calcolo){fMsg.textContent='Aspetta un momento: sto calcolando il codice di controllo del file.';return;}
   var regole=[{el:fTipo,ok:function(){return !!t;},testo:'Scegli il tipo di documento.'}];
   if(altra)regole.push({el:fAltraN,testo:'Scrivi il nome dell\'impresa.'});
   else if(t&&t.pi&&!fImpBox.hidden)regole.push({el:fImp,ok:function(){return !!im.n;},testo:'Scegli l\'impresa a cui si riferisce il documento.'});

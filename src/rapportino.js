@@ -127,7 +127,7 @@ async function documento(request, env, base, inUrl, h) {
     '<a href="' + e(base + "/rapportino/documento?t=" + tok + "&id=" + id + "&originale=1") + '">Scarica l’originale</a>' +
     (r.stato === "sostituito" && succ
       ? '<p class="rp-av">Questa versione è stata sostituita. <a href="' + e(base + "/rapportino/documento?t=" + tok + "&id=" + succ) + '">Apri la versione successiva</a>.</p>' : "") +
-    '<p class="rp-nota">Impronta SHA-256 registrata: <code>' + e(r.impronta || "") + "</code></p></div>";
+    '<p class="rp-nota">Codice di controllo registrato: <code>' + e(r.impronta || "") + "</code></p></div>";
   const stile = '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">' +
     '<title>' + e(nome.replace(/\.html$/, "").replace(/-/g, " ")) + "</title><style>" +
     '.rp-barra{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#FFF7EA;border:1px solid #F1D7AE;border-radius:10px;padding:10px 12px;margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px}' +
@@ -232,15 +232,15 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<select class="m-e" aria-label="Tipo di ore"><option value="no">Ore normali</option><option value="si">Economia committente</option><option value="sub">Economia subappaltatore</option></select>' +
     '<button type="button" class="m-x" aria-label="Togli la riga">&times;</button></div></template>' +
     '<p class="nota">Il rapportino dell’ufficio è un documento a parte: il diario di cantiere del giorno resta com’è. ' +
-    'Con «Firma e registra» riceve un numero e un’impronta SHA-256 (livello L1) e non si modifica più: ogni correzione crea una versione nuova con il motivo, ' +
-    'e quella di prima resta consultabile. Solo le righe «Economia per il committente» entrano nella lista settimanale delle ore in economia, se la lista di quella settimana non è ancora uscita ' +
+    'Con «Firma e registra» riceve un numero e un codice di controllo e resta registrato così com’è: ogni correzione crea una versione nuova, con il motivo, ' +
+    'e la versione di prima resta consultabile. Solo le righe «Economia per il committente» entrano nella lista settimanale delle ore in economia, se la lista di quella settimana non è ancora uscita ' +
     '(il lunedì alle 6:30); le righe «Economia del subappaltatore» vanno nella sua lista del mese, in «Economie dei subappaltatori».</p>' +
     "<noscript><p class=\"nota\"><b>Per scrivere i rapportini serve JavaScript attivo nel browser.</b></p></noscript>" +
     "</main>" +
     // annullamento
     '<dialog id="an-dlg" aria-labelledby="an-tit"><form method="dialog" id="an-form">' +
     '<div class="dl-t"><h2 id="an-tit">Annullare il rapportino?</h2><p id="an-sub"></p></div><div class="dl-c">' +
-    '<p class="piccolo">Il rapportino non si cancella: nasce una versione «annullata» con il motivo, e quella di prima resta consultabile con la sua impronta.</p>' +
+    '<p class="piccolo">Il rapportino non si cancella: nasce una versione «annullata» con il motivo, e quella di prima resta consultabile con il suo codice di controllo.</p>' +
     '<label>Motivo dell’annullamento<textarea id="an-motivo" rows="2" maxlength="600" placeholder="es. rapportino inserito due volte"></textarea></label>' +
     '<label>Annullato da <small>(nome e cognome)</small><input type="text" id="an-autore" maxlength="120" autocomplete="name"></label>' +
     '<p class="msg" id="an-msg" aria-live="polite"></p></div>' +
@@ -459,8 +459,8 @@ bBozza.addEventListener('click',function(){if(stato.occupato)return;var err=cont
  }).catch(function(){occupa(false);m('ko','Il servizio non risponde: controlla la connessione e riprova.');});});
 form.addEventListener('submit',function(ev){ev.preventDefault();if(stato.occupato)return;var err=controlla(true);if(err){m('ko',err);return;}
  var d=datiModulo(),corr=stato.modo==='correggi';
- if(!confirm(corr?'Registrare la correzione? Nasce la versione nuova con il motivo; quella di prima resta consultabile con la sua impronta.':
-   'Registrare il rapportino del '+d.data.split('-').reverse().join('/')+'? Dopo la registrazione non si modifica più: ogni correzione diventa una versione nuova, con il motivo.'))return;
+ if(!confirm(corr?'Registrare la correzione? Nasce la versione nuova con il motivo; quella di prima resta consultabile con il suo codice di controllo.':
+   'Registrare il rapportino del '+d.data.split('-').reverse().join('/')+'? Dopo la registrazione resta così com’è: ogni correzione crea una versione nuova, con il motivo, e la versione di prima resta consultabile.'))return;
  occupa(true);m('','Registro…');ricordaAutore(d.autore);
  var pr=corr?post('azione',{t:D.t,id:Number(stato.id),azione:'correggi',dati:d}):post('salva',{t:D.t,c:D.c,dati:Object.assign({},d,{registra:true})});
  pr.then(function(j){occupa(false);if(esitoComune(j))return;
