@@ -229,8 +229,8 @@ function pagina(base, tok, c, d, h) {
     '<h1>Persone del cantiere</h1><p id="sotto"></p><div class="riass" id="riass"></div></div></header>' +
     '<main class="corpo"><div class="in"><div class="barra"><h2>Chi lavora qui</h2><button class="btn pr" id="apri-scelta" type="button">&#128211; Scegli contatto da rubrica oppure nuovo contatto</button></div>' +
     '<div id="gruppi"></div><p class="nota">Entra in TIX solo chi aggiungi qui. Ogni persona riceve un link personale: lo apre, invia il messaggio già scritto e il cantiere si attiva. Il link vale 14 giorni.</p></div></main>' +
-    SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + PROF_HTML + '<div class="toast" id="toast" hidden></div>' +
-    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + CAMPI_ROSSI_JS + PAGINA_JS + PROF_JS + "})();</script></body></html>";
+    SCELTA_HTML + FORM + RUBRICA_HTML + INVITO_HTML + MOD_HTML + PROF_HTML + '<div class="toast" id="toast" hidden></div>' +
+    "<script>" + QR_JS + "</script><script>(function(){var CFG=" + cfg + ";" + TEL_JS + TIPI_DITTA_JS + CAMPI_ROSSI_JS + PAGINA_JS + MOD_JS + PROF_JS + "})();</script></body></html>";
 }
 
 // Rubrica (26/10/2026, persone-cantiere-4): i contatti dell'impresa con i dati anagrafici (GET /rubrica?t=).
@@ -687,7 +687,7 @@ function disegna(){
       h+='<article class="p"><div class="p-top"><div><div class="p-nome">'+esc(p.nome)+'</div><div class="p-sub">'+esc(p.impresa||"")+' · '+esc(quando(p))+'</div></div>'+statoHtml(p)+'</div>'+
         '<div class="chips">'+tdChip(p.tipo_rapporto,p.tipo_rapporto==="noleggio"?(p.nolo_operatore?"con operatore":p.nolo_operatore===false?"a freddo":""):p.tipo_rapporto==="laboratorio"&&p.entra_cantiere?"entra in cantiere":"")+'<span class="chip">'+esc(p.ruolo_etichetta)+'</span>'+(p.telefono?'<span class="chip">+'+esc(p.telefono)+'</span>':'')+(p.email?'<span class="chip">'+esc(p.email)+'</span>':'')+'</div>'+
         '<div class="tgs">'+tg(p,"scrive","Scrive su WhatsApp")+(p.tipo_rapporto==="noleggio"?tg(p,"nolo_operatore","Con operatore (nolo a caldo); spento = a freddo"):"")+(p.tipo_rapporto==="laboratorio"?tg(p,"entra_cantiere","Entra in cantiere (prove in sito): servono i documenti della Sicurezza"):"")+(p.tipo_rapporto==="autonomo"?'<p class="p-sub" style="margin:0">Artigiano autonomo incaricato: scrive solo su WhatsApp, senza costi per l\'impresa. Per avere l\'area riservata e il diario serve un abbonamento TIX suo.</p>':tg(p,"riceve_diario","Riceve il diario ogni sera")+tg(p,"vede_area",area))+'</div>'+
-        '<div class="azioni">'+(p.stato!=="attivato"?'<button class="btn sm" type="button" data-inv="'+p.id+'">Invito</button>':'')+'<button class="btn sm rosso" type="button" data-togli="'+p.id+'">Togli dal cantiere</button></div></article>';
+        '<div class="azioni"><button class="btn sm" type="button" data-mod="'+p.id+'">Modifica</button>'+(p.stato!=="attivato"?'<button class="btn sm" type="button" data-inv="'+p.id+'">Invito</button>':'')+'<button class="btn sm rosso" type="button" data-togli="'+p.id+'">Togli dal cantiere</button></div></article>';
     });
     h+='</div></section>';
   });
@@ -703,6 +703,7 @@ $("gruppi").addEventListener("change",function(e){
 $("gruppi").addEventListener("click",function(e){
   var b=e.target.closest("button");if(!b)return;
   if(b.dataset.inv){var i=trova(b.dataset.inv);if(i>=0)mostraInvito(persone[i]);}
+  if(b.dataset.mod){var j=trova(b.dataset.mod);if(j>=0)apriModifica(persone[j]);}
   if(b.dataset.togli){
     if(!b.dataset.conferma){b.dataset.conferma="1";b.textContent="Tocca di nuovo per confermare";return;}
     b.disabled=true;chiama("togli",{id:+b.dataset.togli}).then(function(r){if(r.esito==="ok"){persone.splice(trova(b.dataset.togli),1);disegna();toast(r.nome+" non fa più parte del cantiere");}else{b.disabled=false;toast("Non riuscito: riprova");}});
@@ -763,6 +764,52 @@ $("i-copia").addEventListener("click",function(){var l=$("i-link").textContent;
 $("i-stampa").addEventListener("click",function(){segnaInviato();window.print();});
 $("i-nuovo").addEventListener("click",function(){if(!corrente)return;chiama("modifica",{id:corrente.id,dati:{nuovo_codice:true}}).then(function(r){if(r.esito==="ok"){sostituisci(r.persona);mostraInvito(r.persona);toast("Nuovo codice creato: il vecchio non vale più");}});});
 disegna();`;
+
+// MODIFICA (20/11/2026, persone-modifica-1, B4): su ogni persona il pulsante «Modifica» apre i suoi dati per
+// correggerli o completarli: nome, ruolo, cellulare, email, impresa, rapporto con l'impresa. Ciò che manca si segna in
+// rosso con la spiegazione (regola del 14/11). Il cellulare decide chi riceve i messaggi: si cambia solo se nel
+// database persone_modifica_telefono = si e solo per chi non ha ancora attivato l'invito (mod_tel da _pc_riga).
+// Dopo un cambio di numero si riapre l'invito, da mandare al numero nuovo.
+const MOD_HTML = '<div class="velo" id="velo-mod" hidden><form class="foglio" id="form-mod" novalidate aria-labelledby="t-mod">' +
+  '<h2 id="t-mod">Modifica <span id="m-titolo"></span></h2><p class="sotto">Correggi o completa i dati di questa persona in questo cantiere. Le spunte si cambiano dalla scheda, con un tocco.</p>' +
+  '<label class="c" for="m-nome">Nome e cognome</label><input class="campo" id="m-nome" autocomplete="off" maxlength="120">' +
+  '<label class="c" for="m-ruolo">Ruolo nel cantiere</label><select class="campo" id="m-ruolo"></select>' +
+  '<div class="riga2"><div><label class="c" for="m-tel">Cellulare WhatsApp</label><input class="campo" id="m-tel" type="tel" inputmode="tel" maxlength="20" placeholder="333 123 4567"></div>' +
+  '<div><label class="c" for="m-mail">Email</label><input class="campo" id="m-mail" type="email" maxlength="120" placeholder="facoltativa"></div></div>' +
+  '<p class="sotto" id="m-tel-nota" style="margin:6px 0 0"></p>' +
+  '<label class="c" for="m-imp">Impresa della persona</label><input class="campo" id="m-imp" maxlength="120">' +
+  '<label class="c" for="m-rapp">Rapporto con l\'impresa</label><select class="campo" id="m-rapp"></select>' +
+  '<p class="errore" id="m-err" hidden></p><div class="fine"><button class="btn" type="button" data-chiudi>Annulla</button><button class="btn pr" type="submit" id="m-ok">Salva le modifiche</button></div></form></div>';
+
+const MOD_JS = String.raw`
+var MODP=null;
+$("m-ruolo").innerHTML=$("f-ruolo").innerHTML;$("m-rapp").innerHTML=$("f-rapp").innerHTML;telMonta("m-tel");
+$("m-ruolo").addEventListener("change",function(){var r=RUOLI[$("m-ruolo").value];if(r&&r.rapporto)$("m-rapp").value=r.rapporto;});
+function modMancanti(p){crPulisci($("form-mod"));
+  if(!$("m-nome").value.trim())crSegna($("m-nome"),"Manca nome e cognome.");
+  if(!$("m-tel").value.trim()&&p.scrive)crSegna($("m-tel"),p.mod_tel?"Manca il cellulare: senza numero questa persona non può scrivere su WhatsApp.":"Manca il cellulare: senza numero non può scrivere su WhatsApp. Per metterlo togli la persona dal cantiere e aggiungila con il numero.");
+  if(!$("m-mail").value.trim()&&p.riceve_diario)crSegna($("m-mail"),"Manca l'email: serve per ricevere il diario ogni sera.");
+  if(!$("m-imp").value.trim())crSegna($("m-imp"),"Manca l'impresa della persona.");}
+function apriModifica(p){MODP=p;$("form-mod").reset();$("m-err").hidden=true;$("m-titolo").textContent=p.nome||"";
+  $("m-nome").value=p.nome||"";if(p.ruolo&&RUOLI[p.ruolo])$("m-ruolo").value=p.ruolo;if(p.tipo_rapporto)$("m-rapp").value=p.tipo_rapporto;
+  telImposta("m-tel",p.telefono||"");$("m-mail").value=p.email||"";$("m-imp").value=p.impresa||"";
+  var tel=$("m-tel"),pb=tel.parentNode.querySelector(".tel-paese");tel.readOnly=!p.mod_tel;if(pb)pb.disabled=!p.mod_tel;
+  $("m-tel-nota").textContent=p.stato==="attivato"?"Il cellulare non si cambia: la persona è già attiva in TIX con questo numero. Se ha cambiato numero, togli la persona dal cantiere e aggiungila con il numero nuovo."
+    :p.mod_tel?"Se cambi il cellulare, manda di nuovo l'invito: i messaggi di TIX arrivano solo al numero nuovo."
+    :"Per ora il cellulare non si cambia da qui: togli la persona dal cantiere e aggiungila con il numero giusto.";
+  $("velo-mod").hidden=false;modMancanti(p);try{$("m-nome").focus({preventScroll:true});}catch(e){}}
+$("form-mod").addEventListener("submit",function(e){e.preventDefault();if(!MODP)return;
+  if(!crControlla([{el:$("m-nome"),testo:"Scrivi nome e cognome (almeno 2 lettere).",ok:function(el){return el.value.trim().length>=2;}}]))return;
+  var dati={nome:$("m-nome").value,ruolo:$("m-ruolo").value,email:$("m-mail").value,impresa:$("m-imp").value,tipo_rapporto:$("m-rapp").value};
+  if(MODP.mod_tel)dati.telefono=telValore("m-tel");
+  var ok=$("m-ok"),prima=MODP;ok.disabled=true;$("m-err").hidden=true;
+  chiama("modifica",{id:prima.id,dati:dati}).then(function(r){ok.disabled=false;
+    if(r&&r.esito==="ok"){var nuovoTel=prima.mod_tel&&(r.persona.telefono||"")!==(prima.telefono||"");$("velo-mod").hidden=true;sostituisci(r.persona);
+      if(nuovoTel&&r.persona.invito){toast("Salvato: manda l'invito al numero nuovo");mostraInvito(r.persona);}else toast("Modifiche salvate");}
+    else{$("m-err").textContent=(r&&r.messaggio)||"Non salvato: riprova.";$("m-err").hidden=false;
+      var f=r&&r.campo&&$({nome:"m-nome",telefono:"m-tel",email:"m-mail"}[r.campo]);if(f){crSegna(f,r.messaggio);f.focus();}}})
+  .catch(function(){ok.disabled=false;$("m-err").textContent="Connessione assente: riprova.";$("m-err").hidden=false;});});
+`;
 
 // Accesso professionisti (03/11/2026, chat 02A, src/professionisti.js). Per DL, CSE, strutturista, committente e PM con partita IVA
 // che hanno «Vede l'area riservata»: riquadro con lo stato dell'accesso ai documenti (sola lettura), «Dai l'accesso e manda
