@@ -770,7 +770,7 @@ function disegna(){
  h+='</div>';
  // revisioni
  if((D.revisioni||[]).length){h+='<div class="pv-voci"><h3>Revisioni mandate</h3><ul class="pv-revs">'+D.revisioni.map(function(r){
-  return '<li><b>Rev. '+r.revisione+'</b> · mandata il '+dt(r.mandato_il)+(r.mandato_da?' da '+es(r.mandato_da):'')+' · '+euro(r.totale)+' + IVA · impronta <code>'+es(String(r.sha256).slice(0,12))+'…</code> · '+
+  return '<li><b>Rev. '+r.revisione+'</b> · mandata il '+dt(r.mandato_il)+(r.mandato_da?' da '+es(r.mandato_da):'')+' · '+euro(r.totale)+' + IVA · codice di controllo <code>'+es(String(r.sha256).slice(0,12))+'…</code> · '+
    '<a href="'+es(CFG.stampa+'?t='+CFG.t+'&id='+F.id+'&rev='+r.revisione)+'" target="_blank" rel="noopener">Stampa o PDF</a> · <a href="'+es(CFG.excel+'?t='+CFG.t+'&id='+F.id+'&rev='+r.revisione)+'">Excel</a></li>';}).join('')+'</ul></div>';}
  h+='</section>';
  // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al DL
@@ -789,7 +789,7 @@ function disegna(){
   controlliHtml(D.controlli)+
   '<div class="pv-bott"><div class="riga"><a class="pv-b" href="'+es(CFG.stampa+'?t='+CFG.t+'&id='+F.id)+'" target="_blank" rel="noopener">'+(bozza?'Anteprima':'Stampa o PDF')+'</a><a class="pv-b pv-xl" href="'+es(CFG.excel+'?t='+CFG.t+'&id='+F.id)+'">Scarica Excel</a></div>'+
   (bozza?'<button type="button" class="pv-b pv-pr" data-az="manda">Segna come mandato</button>':'')+'</div>'+
-  (bozza?'<p class="pv-avviso">Quando lo segni come mandato, questa revisione resta così, con la sua impronta. Se poi cambi qualcosa, nasce la <b>Rev. '+(F.revisione+1)+'</b>.</p>':'')+
+  (bozza?'<p class="pv-avviso">Quando lo segni come mandato, questa revisione resta così, con il suo codice di controllo. Se poi cambi qualcosa, nasce la <b>Rev. '+(F.revisione+1)+'</b>.</p>':'')+
   '<p class="pv-msg" id="pv-az-msg" aria-live="polite"></p></section></div>';
  $('pv-app').innerHTML=h;
  lega();
@@ -914,7 +914,7 @@ function azione(az,b){var m=$('pv-az-msg');
   $('pv-es-data').value=oggiIso();$('pv-es-data').max=oggiIso();$('pv-es-chi').value=az==='accettato'?((F.cliente&&F.cliente.nome)||''):'';$('pv-es-c-chi').hidden=az!=='accettato';
   $('pv-es-nota').value='';msg($('pv-es-msg'),'');velo('pv-v-esito',true);return;}
  if(az==='firmato'){$('pv-file').value='';$('pv-file').click();return;}
- var dom={manda:'Segnarlo come mandato? Da quel momento la Rev. '+F.revisione+' non si cambia più.',revisione:'Fare la Rev. '+(F.revisione+1)+'? La Rev. '+F.revisione+' resta com\'era, con la sua impronta.',
+ var dom={manda:'Segnarlo come mandato? Da quel momento la Rev. '+F.revisione+' non si cambia più.',revisione:'Fare la Rev. '+(F.revisione+1)+'? La Rev. '+F.revisione+' resta com\'era, con il suo codice di controllo.',
   elimina:'Eliminare questa bozza? Non è mai stata mandata.',annulla_esito:'Togliere l\'esito e tornare a «Mandato»?'}[az];
  if(dom&&!confirm(dom))return;
  if(b)b.disabled=true;if(m){m.textContent='Un momento…';m.className='pv-msg';}
@@ -1084,7 +1084,7 @@ function esitoIa(l){var r=l.riepilogo||{},ap=r.profondita==='approfondita';if(r.
   (r.extra_tolte?' · '+pl(r.extra_tolte,'voce in più non aggiunta perché già presente','voci in più non aggiunte perché già presenti'):'')+' · costo '+usd(l.costo_usd)+' $ + IVA</p>';
  if((l.da_chiarire||[]).length)h+='<div class="pv-ia-chiarire"><b>Da chiarire con il cliente</b><ol>'+l.da_chiarire.map(function(x){return '<li>'+es(x)+'</li>';}).join('')+'</ol></div>';
  h+='<details class="pv-ia-letti"><summary>File letti</summary>'+(l.file||[]).map(function(f){return '<div>'+es(f.nome)+(f.pagine?' · '+f.pagine+' pag.':'')+(f.voci?' · '+f.voci+' voci':'')+
-  (f.sha256?' · impronta <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file caricati restano 3 giorni dopo la lettura, poi si cancellano da soli: resta questo elenco, con le impronte. I link restano salvati.</small></details></div>';
+  (f.sha256?' · codice di controllo <code>'+es(String(f.sha256).slice(0,8))+'…</code>':'')+(f.messaggio?' · '+es(f.messaggio):'')+'</div>';}).join('')+'<small>I file caricati restano 3 giorni dopo la lettura, poi si cancellano da soli: resta questo elenco, con i codici di controllo. I link restano salvati.</small></details></div>';
  return h;}
 function azIa(az,d,b){if(b)b.disabled=true;msgIa('Un momento…');d=d||{};d.id=CFG.id;
  return api('ia_'+az,d).then(function(r){if(b)b.disabled=false;if(r&&r.esito==='ok'){msgIa('');caricaIa();}else msgIa(msgErr(r),'ko');return r;});}
@@ -1428,7 +1428,7 @@ function foglio(base, h, tok, d) {
       (imp.referente ? "<div>Il referente di cantiere<br><b>" + e(imp.referente) + "</b><small>firma</small></div>" : "") +
       "<div>Per accettazione<br><b>il committente</b><small>data, timbro e firma</small></div></div>" +
     '<div class="piede"><span>' + e(imp.nome || "") + " · Preventivo " + e(f.codice) + " · Rev. " + e(f.revisione) + (data ? " del " + data : " · bozza") + "</span><span>" +
-      (foto && sha ? "Impronta SHA-256 " + e(sha.slice(0, 8)) + "…" + e(sha.slice(-4)) + " · " : "") + "Preparato con TIX™ · www.tixcantiere.it " + LOGO_TIX + "</span></div>" +
+      (foto && sha ? "Codice di controllo " + e(sha.slice(0, 8)) + "…" + e(sha.slice(-4)) + " · " : "") + "Preparato con TIX™ · www.tixcantiere.it " + LOGO_TIX + "</span></div>" +
     "</div></body></html>";
 }
 
@@ -1991,7 +1991,7 @@ export function xlsxPreventivo(d) {
   unisci(R, rr, 1, rr, 2, "timbro e firma", ff); unisci(R, rr, 4, rr, 5, "data, timbro e firma", ff);
   rr += 2;
   const sha = String(d.sha256 || "");
-  unisci(R, rr, 1, rr, 5, "Il dettaglio delle voci è nel foglio «Computo».   " + (foto && sha ? "Impronta SHA-256 " + sha.slice(0, 8) + "…" + sha.slice(-4) + " · " : "") +
+  unisci(R, rr, 1, rr, 5, "Il dettaglio delle voci è nel foglio «Computo».   " + (foto && sha ? "Codice di controllo " + sha.slice(0, 8) + "…" + sha.slice(-4) + " · " : "") +
     "Preparato con TIX™ · www.tixcantiere.it", S({ i: 1, sz: 8, c: XL.grigio, h: "center" }));
   const ultimaR = rr;
 
