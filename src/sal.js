@@ -264,8 +264,8 @@ async function documento(request, env, base, inUrl, h) {
     (r.stato !== "bozza" ? '<a href="' + e(base + "/sal/documento?t=" + tok + "&id=" + id + "&originale=1") + '">Scarica l’originale</a>' : "") +
     (r.stato === "sostituito" && succ ? '<p class="sd-av">Questa versione è stata sostituita. <a href="' + e(base + "/sal/documento?t=" + tok + "&id=" + succ) + '">Apri la versione successiva</a>.</p>' : "") +
     (r.stato === "annullato" ? '<p class="sd-av">Questo SAL è stato annullato.</p>' : "") +
-    (r.stato === "bozza" ? '<p class="sd-av">Anteprima della bozza: non ha ancora numero definitivo né impronta.</p>'
-      : '<p class="sd-nota">Impronta SHA-256 registrata: <code>' + e(r.impronta || "") + "</code></p>") + "</div>";
+    (r.stato === "bozza" ? '<p class="sd-av">Anteprima della bozza: non ha ancora numero definitivo né codice di controllo.</p>'
+      : '<p class="sd-nota">Codice di controllo registrato: <code>' + e(r.impronta || "") + "</code></p>") + "</div>";
   const stile = '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">' +
     "<title>" + e(nome.replace(/\.html$/, "").replace(/-/g, " ")) + "</title><style>" +
     '.sd-barra{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#F6F0FF;border:1px solid #DCC8F5;border-radius:10px;padding:10px 12px;margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px}' +
@@ -694,7 +694,7 @@ export function salPdf(d) {
   nuova();
   if (bozza) {
     fondo(M, y - 16, W - 2 * M, 16, "1 0.95 0.9 rg");
-    testo(M + 6, y - 11.5, "BOZZA — non ancora emessa: non ha numero definitivo né impronta, non va firmata.", 8.5, true, "0.6 0.2 0 rg");
+    testo(M + 6, y - 11.5, "BOZZA — non ancora emessa: non ha numero definitivo né codice di controllo, non va firmata.", 8.5, true, "0.6 0.2 0 rg");
     y -= 24;
   }
   for (const r of aCapo(titolo, W - 2 * M, 15, true)) { testo(M, y - 14, r, 15, true, "0.24 0.1 0.43 rg"); y -= 19; }
@@ -866,7 +866,7 @@ export function salPdf(d) {
   y -= 90;
 
   // ---- piede di ogni pagina
-  const imp = bozza ? "Bozza: l’impronta SHA-256 si registra all’emissione." : sal.sha ? "Impronta SHA-256 del documento registrato in TIX: " + sal.sha : "";
+  const imp = bozza ? "Bozza: il codice di controllo si registra all’emissione." : sal.sha ? "Codice di controllo del documento in TIX: " + sal.sha : "";
   pagine.forEach((pg, i) => {
     p = pg;
     linea(M, M + 22, W - M, M + 22, 0.4, "0.8 G");
@@ -1153,7 +1153,7 @@ export function salXlsx(d) {
   T.c(2, 1, "Solo i SAL in vigore (emessi, firmati o vistati). Le versioni sostituite e i SAL annullati non contano.", S.NOTA);
   T.unioni.push("A2:N2");
   ["SAL n.", "Versione", "Stato", "Dal", "Al", "Emesso il", "Lavori a oggi", "Netto a oggi", "Ritenuta", "Recupero anticipazione", "Spettanza a oggi",
-   "Altre voci del SAL", "Importo del SAL (+ IVA)", "Impronta SHA-256 del documento"].forEach((t, i) => T.c(4, i + 1, t, S.HDR));
+   "Altre voci del SAL", "Importo del SAL (+ IVA)", "Codice di controllo del documento"].forEach((t, i) => T.c(4, i + 1, t, S.HDR));
   T.alte.set(4, 30);
   T.blocco = 4;
   let rt = 5;
@@ -1181,7 +1181,7 @@ export function salXlsx(d) {
     .concat(tipo === "finale" ? [["Fine dei lavori", seriale(sal.data_fine_lavori), S.DATA]] : [])
     .concat(tipo === "svincolo" ? [[sal.collaudo_tipo === "cre" ? "Certificato di regolare esecuzione" : "Collaudo", seriale(sal.data_collaudo), S.DATA]] : [])
     .concat([["Emesso", sal.emesso_il ? sal.emesso_il + (sal.emesso_da ? " da " + sal.emesso_da : "") : "non ancora", S.TXT],
-    ["Impronta SHA-256 del documento del SAL", sal.sha || "si assegna all’emissione", S.TXT],
+    ["Codice di controllo del documento del SAL", sal.sha || "si assegna all’emissione", S.TXT],
     ].concat(tipo === "sub"
       ? [["Subappaltatore", ca.impresa || "", S.TXT], ["Impresa appaltatrice", ca.committente || "", S.TXT]]
       : [["Committente", ca.committente || "", S.TXT], ["Direzione Lavori", ca.dl || "", S.TXT]]));
@@ -1990,7 +1990,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       function(){return salvando(api('stato',{id:b0.id,dati:{azione:'scarta'}})).then(function(r){if(r)avviso('Bozza scartata.');});},true);return;}
   if(t.id==='b-emetti'){var b1=D.bozza,tp1=b1.tipo||'sal',nm1=tp1==='finale'?'il conto finale':tp1==='svincolo'?'lo svincolo delle ritenute':'il SAL n. '+b1.numero;salvaBozza().then(function(ok){if(!ok)return;var co=CO||{};
       finestra('Emettere '+nm1+'?','Importo: '+eur(co.dovuto)+' € + IVA'+(tp1==='finale'?' · lavori finiti il '+di(D.bozza.data_fine_lavori):tp1==='svincolo'?'':' · lavori fino al '+di(D.bozza.periodo_a)),
-        '<p class="nota" style="margin:0">Con l’emissione il SAL riceve l’impronta SHA-256 e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
+        '<p class="nota" style="margin:0">Con l’emissione il SAL riceve il codice di controllo e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
         '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti',
         function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso(tp1==='finale'?'Conto finale emesso.':tp1==='svincolo'?'Svincolo emesso.':'SAL emesso.');});});});return;}
   if(t.hasAttribute('data-pconf')||t.hasAttribute('data-pcorr')){var pr=proposta(t.getAttribute('data-pconf')||t.getAttribute('data-pcorr'));if(!pr)return;
@@ -2018,7 +2018,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
         (az==='visto'?'<label>Nota della DL <small>(facoltativa)</small><input type="text" id="f-nota" maxlength="600"></label>':''),'Salva',
         function(){var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});}
     else{finestra(az==='riemetti'?'Riemettere «'+nn+'» con correzioni?':'Annullare «'+nn+'»?',
-        az==='riemetti'?'Nasce la versione successiva in bozza, con le stesse misure da correggere. La versione di prima resta archiviata con la sua impronta.':'Il SAL resta archiviato come annullato; le sue misure tornano libere per il prossimo SAL.',
+        az==='riemetti'?'Nasce la versione successiva in bozza, con le stesse misure da correggere. La versione di prima resta archiviata con il suo codice di controllo.':'Il SAL resta archiviato come annullato; le sue misure tornano libere per il prossimo SAL.',
         '<label>Motivo<textarea id="r-mot" maxlength="600" placeholder="es. la DL ha chiesto di rimisurare la voce 12"></textarea></label><label>Chi lo fa <small>(nome e cognome)</small><input type="text" id="r-nome" maxlength="120" value="'+es(ls('sal_autore'))+'"></label>',
         az==='riemetti'?'Riemetti':'Annulla',function(){return salvando(api('stato',{id:sid,dati:{azione:az,motivo:$('#r-mot').value,nome:$('#r-nome').value}})).then(function(r){if(r){avviso(az==='riemetti'?'Versione nuova pronta in bozza.':'SAL annullato.');}});},az==='annulla');}
     return;}

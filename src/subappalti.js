@@ -796,7 +796,7 @@ function scriviFirma(doc,nome,cv){return Promise.all([libPdf(),fetch(C.u+'/firma
     pg.drawText(wa(String(K.impresa_nome||'')).slice(0,46),{x:x0+8,y:y0+H-21,size:8.2,font:f[1],color:terr});
     var s=Math.min((W-16)/im.width,44/im.height);pg.drawImage(im,{x:x0+8,y:y0+26,width:im.width*s,height:im.height*s});}
     pg.drawText(wa(nome).slice(0,50),{x:x0+8,y:y0+16,size:7.2,font:f[1],color:nero});pg.drawText(wa(ora()),{x:x0+8,y:y0+9,size:6.3,font:f[0],color:gr});
-    pg.drawText(wa('Impronta del documento '+String(doc.sha256).slice(0,16)+'...'),{x:x0+8,y:y0+3,size:5,font:f[0],color:gr});
+    pg.drawText(wa('Codice di controllo '+String(doc.sha256).slice(0,12)+'...'),{x:x0+8,y:y0+3,size:5,font:f[0],color:gr});
     if(mk){var hm=9,lm=mk.width*(hm/mk.height);pg.drawImage(mk,{x:x0+W-6-lm,y:y0+3,width:lm,height:hm});}
     return out.save({useObjectStreams:false});});});});}
 function mandaFirma(bytes,tipo,doc,nome){var dd={id:FI.id,tipo:tipo,sha256_originale:String(doc.sha256||''),nome:nome};
@@ -1185,7 +1185,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       dopo(api('misura',{id:id,dati:{azione:'osservazione',testo:$('#so-t').value,autore:chi}}),'Osservazione scritta.');});return;}
   if(a==='tutte'){var n=(k.misure||[]).filter(function(m){return m.stato==='inviata';}).length;dlg('Accettare tutte le righe da decidere?',n+(n===1?' riga':' righe')+' di '+k.impresa_nome+'.','','Accetta tutte',function(){
       dopo(api('misura',{id:id,dati:{azione:'accetta_tutte',autore:chi}}),'Righe accettate.');});return;}
-  if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e l’impronta SHA-256 e non cambia più.',
+  if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e il codice di controllo e non cambia più.',
       '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){
       var nm=$('#se-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{periodo_a:$('#se-a').value,autore:nm}}),'Contabilità approvata.');});return;}
   // S3b (11/11/2026): firma dell'impresa con il firmatore comune (tipo 'sal', rif_id 'sub:<id>')
@@ -1202,7 +1202,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       '<label>Approvata da <small>(nome e cognome)</small><input type="text" id="sf-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva la contabilità finale',function(){
       var nm=$('#sf-chi').value,sv=(document.querySelector('input[name=sf-sv]:checked')||{}).value||'si';ls('sal_autore',nm);
       dopo(api('emetti',{id:id,dati:{tipo:'finale',svincola:sv,periodo_a:$('#sf-a').value,autore:nm}}),'Contabilità finale approvata: il subappalto è chiuso.');});return;}
-  if(a==='svincolo'){var fz=k.finale||{};dlg('Svincolare le ritenute di '+k.impresa_nome+'?','Le ritenute a garanzia trattenute fino alla contabilità finale n. '+fz.numero+' diventano da pagare. È un documento a sé, con numero e impronta.',
+  if(a==='svincolo'){var fz=k.finale||{};dlg('Svincolare le ritenute di '+k.impresa_nome+'?','Le ritenute a garanzia trattenute fino alla contabilità finale n. '+fz.numero+' diventano da pagare. È un documento a sé, con numero e codice di controllo.',
       '<p style="margin:0 0 10px"><b>Ritenute da svincolare: '+eur(fz.ritenuta)+' € + IVA</b></p><label>Approvato da <small>(nome e cognome)</small><input type="text" id="sv-chi" maxlength="120" value="'+es(chi)+'"></label>','Svincola le ritenute',function(){
       var nm=$('#sv-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{tipo:'svincolo',autore:nm}}),'Ritenute svincolate.');});return;}
   if(a==='pagata'){var o2=SD.oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento. TIX controlla il DURC del sub alla data del pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){
