@@ -181,7 +181,7 @@ async function carica(request, env, h) {
   if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
   const troppo = "Il file è troppo grande: in TIX una tavola arriva fino a " + Math.round(max / 1048576) + " MB.";
   if (dichiarati > max) return json({ esito: "grande", messaggio: troppo }, 413);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file: ricarica la pagina e riprova." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
   if (bytes.length > max) return json({ esito: "grande", messaggio: troppo }, 413);
@@ -426,7 +426,7 @@ function pagina(base, h, p, d, torna) {
   const form = chiuso ? "" :
     '<section class="pg-form" id="carica"><h3><span class="pg-mini">' + SVG.su + '</span>Carica tavole</h3>' +
     '<p class="pg-sotto">Puoi scegliere più file insieme. TIX prova a leggere codice, titolo e revisione dal nome del file: controlla e correggi prima di salvare.</p>' +
-    '<label class="pg-drop" id="pg-drop"><span class="pg-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
+    '<label class="pg-drop" id="pg-drop"><span class="pg-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · il codice di controllo lo calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli i file</span><input type="file" id="pg-file" accept="application/pdf,.pdf,.p7m" multiple hidden></label>' +
     (lottoModo ? '<div class="pg-chi pg-lotto-box" id="pg-lotto-box" hidden><label for="pg-lotto">Fabbricato / lotto <small>facoltativo, vale per tutti i file di questo caricamento</small></label>' +
       '<input id="pg-lotto" maxlength="60" list="pg-lotti-elenco" placeholder="es. Palazzina B, Lotto 2 — lascia vuoto se il cantiere è uno solo"></div>' : "") +
@@ -501,7 +501,7 @@ function pagina(base, h, p, d, torna) {
       '<p class="pg-msg" id="pg-sp-msg" role="status"></p>' +
       '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-sp-si">Sposta</button></div></form></dialog>' : "") +
     (sposta ? '<dialog class="pg-dlg" id="pg-md-dlg"><form method="dialog"><h3 id="pg-md-tit">Modifica i dati</h3>' +
-      '<p>Correggi i dati scritti male. Il file, l\'impronta e l\'archivio restano uguali, e resta scritto chi ha corretto e cosa.</p>' +
+      '<p>Correggi i dati scritti male. Il file, il codice di controllo e l\'archivio restano uguali, e resta scritto chi ha corretto e cosa.</p>' +
       '<label for="pg-md-titolo">Titolo</label><input id="pg-md-titolo" maxlength="200">' +
       '<label for="pg-md-codice">Codice</label><input id="pg-md-codice" maxlength="60" class="mono">' +
       '<label for="pg-md-rev">Revisione</label><input id="pg-md-rev" maxlength="30" class="mono">' +
@@ -541,7 +541,7 @@ function riga(e, qui, p, x, chiuso, sposta, scegli) {
     meta.push("dati corretti da <b>" + e(md.chi || "") + "</b> il " + e(quando(md.il)) + (cosa.length ? " (" + cosa.join(", ") + ")" : ""));
   }
   meta.push(e(mb(x.byte)));
-  const imp = '<span class="pg-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
+  const imp = '<span class="pg-imp" title="Codice di controllo del file: ' + e(x.sha256 || "") + '">codice di controllo ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>' +
     (x.drive && x.impronta_drive === "uguale" ? ' <span class="pg-ok">verificata sull\'archivio Drive</span>'
       : x.archivio === "errore" ? ' <span class="pg-ko">archivio da controllare</span>'
       : x.drive ? ' <span class="pg-ok">archiviata su Drive</span>' : ' · in archiviazione su Drive') +

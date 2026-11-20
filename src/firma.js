@@ -145,7 +145,7 @@ async function immagineCarica(request, env, h) {
   const ctl = await h.rpc(env, "firma_immagine_controlla", { p_token: tok, p_commessa: c, p_dati: { byte, mime } }, 10000).catch(() => null);
   if (!ctl || typeof ctl !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 502);
   if (ctl.esito !== "ok") return json(ctl, ctl.esito === "gettone" ? 403 : 200);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta dell'immagine: ricarica la pagina." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo dell'immagine: ricarica la pagina." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.length || bytes.length !== byte || bytes.length > Number(ctl.max_byte || 1048576)) return json({ esito: "incompleto", messaggio: "L'immagine non è arrivata intera: riprova." }, 400);
   const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
@@ -205,7 +205,7 @@ async function salva(request, env, h) {
     p_dati: { tipo: d.tipo, rif_id: testo(d.rif_id, 80), byte, qualificata: qual } }, 10000).catch(() => null);
   if (!ctl || typeof ctl !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 502);
   if (ctl.esito !== "ok") return json(ctl, ctl.esito === "gettone" ? 403 : 200);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file firmato: riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file firmato: riprova." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.length || bytes.length !== byte || bytes.length > Number(ctl.max_byte || 0)) return json({ esito: "incompleto", messaggio: "Il file non è arrivato intero: riprova." }, 400);
   const testa = String.fromCharCode.apply(null, Array.from(bytes.subarray(0, 1024)));
@@ -514,7 +514,7 @@ var y=H-30;if(d.nota){righe(fR,6.3,'Osservazioni: '+d.nota,larg,2).forEach(funct
 if(ifi){var s2=Math.min(larg/ifi.width,Math.max(14,y-24)/ifi.height,1);pg.drawImage(ifi,{x:x0,y:24,width:ifi.width*s2,height:ifi.height*s2});}
 pg.drawText(righe(fB,7.2,d.firmatario,larg,1)[0]||'',{x:x0,y:16,size:7.2,font:fB,color:L.rgb(0.1,0.1,0.1)});pg.drawText(wa(ora()),{x:x0,y:9,size:6.3,font:fR,color:gr});
 if(im){var hm=9,lm=im.width*(hm/im.height);pg.drawImage(im,{x:W-6-lm,y:3,width:lm,height:hm});}
-pg.drawText(wa('Impronta originale '+String(doc.sha256||'').slice(0,16)+'…'+(im?'':' · TIX')),{x:x0,y:3,size:5,font:fR,color:gr});
+pg.drawText(wa('Codice di controllo originale '+String(doc.sha256||'').slice(0,12)+'…'+(im?'':' · TIX')),{x:x0,y:3,size:5,font:fR,color:gr});
 return st.save().then(function(sb){return out.embedPdf(sb);}).then(function(e){var p=out.getPage(stato.sel.pag-1);p.drawPage(e[0],{x:stato.sel.x,y:stato.sel.y,width:W,height:H,rotate:L.degrees(stato.sel.rot||0)});return out.save({useObjectStreams:false});});});});}
 function invia(bytes,d,qual,nome){return crypto.subtle.digest('SHA-256',bytes).then(function(h){
 var dd={t:o.t,c:o.c,tipo:o.tipo,rif_id:o.rif_id,firmatario_id:d.firmatario_id,esito:d.esito,nota:d.nota,qualificata:qual,sha256_originale:String(doc.sha256||'').toLowerCase(),sha256:esa(h),byte:bytes.byteLength,nome:nome,

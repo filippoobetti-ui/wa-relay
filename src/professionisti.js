@@ -221,7 +221,7 @@ function sicurezza(base, c, d, e) {
     if (vecchi.length) h += '<details class="vecchi"><summary>Versioni precedenti (' + vecchi.length + ')</summary>' + vecchi.map((x) => riga(base, c, x, e)).join("") + "</details>";
     h += "</div>";
   }
-  h += '<p class="nota">TIX conserva i documenti caricati dall\'impresa con la loro impronta e non ne controlla il contenuto. «Visto dal CSE» è un\'etichetta messa dall\'impresa, non una firma.</p>';
+  h += '<p class="nota">TIX conserva i documenti caricati dall\'impresa con il loro codice di controllo e non ne controlla il contenuto. «Visto dal CSE» è un\'etichetta messa dall\'impresa, non una firma.</p>';
   return h + "</section>";
 }
 
@@ -238,7 +238,7 @@ function riga(base, c, x, e) {
   return '<article class="doc"><div class="riga"><div class="nome">' + e(x.impresa || "") + (x.impresa && x.titolo ? " · " : "") + e(x.titolo || "") + (!x.impresa && !x.titolo ? e(x.file_nome || "Documento") : "") + "</div>" +
     (st[0] ? '<span class="chip ' + st[1] + '">' + st[0] + "</span>" : "") + "</div>" +
     '<div class="sub">' + meta + "</div>" + (scad ? '<div class="chips">' + scad + "</div>" : "") +
-    (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
+    (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Codice di controllo: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
 }
 
 // ---------------------------------------------------------------------------- DDT e documenti (P2a, 04/11/2026)
@@ -348,7 +348,7 @@ function progetti(base, c, d, e) {
     }
     h += '<div class="gruppo"><h3>' + nome + " (" + qui.length + ")</h3>" + qui.map((x) => rigaTavola(base, c, x, e)).join("") + "</div>";
   }
-  h += '<p class="nota">Sono le tavole caricate dall\'impresa, con la loro impronta. Quando arriva una revisione nuova, qui trovi solo quella. ' +
+  h += '<p class="nota">Sono le tavole caricate dall\'impresa, con il loro codice di controllo. Quando arriva una revisione nuova, qui trovi solo quella. ' +
     'TIX non controlla il contenuto dei disegni: in caso di dubbio fa fede la tavola firmata.</p>';
   return h + "</section>";
 }
@@ -365,7 +365,7 @@ function rigaTavola(base, c, x, e) {
   const chips = (x.revisione ? '<span class="chip pro">Rev. ' + e(x.revisione) + "</span>" : "") +
     (x.variante ? '<span class="chip st-am">Variante</span>' : "") +
     (x.sostituisce ? '<span class="chip">sostituisce la rev. ' + e(x.sostituisce) + "</span>" : "") +
-    (x.verificata ? '<span class="chip st-ok" title="La copia nell\'archivio ha la stessa impronta del file caricato">Copia d\'archivio verificata</span>' : "");
+    (x.verificata ? '<span class="chip st-ok" title="La copia nell\'archivio ha lo stesso codice di controllo del file caricato">Copia d\'archivio verificata</span>' : "");
   const meta = ["caricata il " + quando(x.caricato_il), x.byte ? mb(x.byte) : "", x.nome ? e(x.nome) : ""].filter(Boolean).join(" · ");
   const url = base + "/studio/tavola?c=" + c + "&d=" + x.id;
   const p7m = /\.p7m$/i.test(String(x.nome || ""));
@@ -373,7 +373,7 @@ function rigaTavola(base, c, x, e) {
     '<a class="btn' + (p7m ? " pr" : "") + '" href="' + e(url + "&scarica=1") + '">Scarica</a>' + (p7m ? '<span class="sub">firmata digitalmente (.p7m): si apre con il programma di firma</span>' : "") + "</div>";
   return '<article class="doc"><div class="nome">' + titolo + "</div>" + (chips ? '<div class="chips">' + chips + "</div>" : "") +
     '<div class="sub">' + meta + "</div>" +
-    (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
+    (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Codice di controllo: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + "</article>";
 }
 function mb(n) { const v = Number(n) || 0; return v >= 1048576 ? (v / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(v / 1024)) + " kB"; }
 
@@ -478,7 +478,7 @@ function vistiRiquadro(base, c, d, e, inUrl) {
       '<button class="btn" type="submit" name="esito" value="osservazioni">Invia osservazioni</button></div></form>';
     h += '<article class="doc" id="v-' + e(x.id) + '"><div class="nome">' + titolo + "</div>" + '<div class="chips">' + chips + "</div>" +
       '<div class="sub">' + meta + "</div>" +
-      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
+      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Codice di controllo: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
       (x.modificabile === false ? "" : x.esito ? '<details class="cambia"><summary>Cambia la risposta</summary>' + modulo + "</details>" : modulo) + "</article>";
   }
   h += '<p class="nota">La risposta resta registrata con il tuo nome, la data e l\'ora, e l\'impresa la vede prima di firmare. ' +
@@ -588,7 +588,7 @@ function schedeRiquadro(base, c, d, e, inUrl) {
       '<button class="btn" type="submit" name="esito" value="non_approvata">Non approvata</button></div></form>';
     h += '<article class="doc" id="s-' + e(x.id) + '"><div class="nome">' + e(x.titolo || x.nome || "Scheda tecnica") + "</div>" +
       '<div class="chips">' + chips + "</div>" + '<div class="sub">' + meta + "</div>" +
-      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Impronta SHA-256: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
+      (x.sha256 ? '<div class="impronta" title="' + e(x.sha256) + '">Codice di controllo: ' + e(String(x.sha256).slice(0, 16)) + "…</div>" : "") + apri + risposta +
       (x.esito ? '<details class="cambia"><summary>Cambia la risposta</summary>' + modulo + "</details>" : modulo) + "</article>";
   }
   h += '<p class="nota">La risposta resta registrata con il tuo nome, la data e l\'ora, e l\'impresa la vede subito. ' +

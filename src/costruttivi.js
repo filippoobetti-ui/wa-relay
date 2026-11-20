@@ -184,7 +184,7 @@ async function carica(request, env, h) {
   if (ctl.cartella !== cartella || !est || !max) return json({ esito: "errore", messaggio: "Richiesta non valida: ricarica la pagina." }, 502);
   const troppo = "Il file è troppo grande: in TIX un costruttivo arriva fino a " + Math.round(max / 1048576) + " MB.";
   if (dichiarati > max) return json({ esito: "grande", messaggio: troppo }, 413);
-  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca l'impronta del file: ricarica la pagina e riprova." }, 400);
+  if (!/^[0-9a-f]{64}$/.test(sha)) return json({ esito: "errore", messaggio: "Manca il codice di controllo del file: ricarica la pagina e riprova." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
   if (bytes.length > max) return json({ esito: "grande", messaggio: troppo }, 413);
@@ -413,7 +413,7 @@ function pagina(base, h, p, d, torna) {
     'Per i costruttivi che riguardano le strutture, la firma richiede il visto dello strutturista e della Direzione Lavori' +
     (vistoAttivo ? ': chiedilo con «Chiedi il visto». Lo vedono nella loro Area professionisti e rispondono «Visto» oppure «Osservazioni».' : ".") +
     (firmaAttiva ? ' Poi lo firmi con «Firma per approvazione»: TIX mette firma e timbro dell\'impresa nel punto che tocchi e conserva l\'originale e la copia firmata, ' +
-      'ognuno con la sua impronta; dopo la firma li copia anche su Drive, nella cartella «Costruttivi dei fornitori» del cantiere. ' +
+      'ognuno con il suo codice di controllo; dopo la firma li copia anche su Drive, nella cartella «Costruttivi dei fornitori» del cantiere. ' +
       'Chi può firmare lo indichi in <a href="' + e(impostazioniFirma) + '">«Firme e timbro»</a>. ' +
       'Dopo «Approvato» o «Approvato con osservazioni» chi lavora nel cantiere può chiederlo a TIX su WhatsApp, per esempio «costruttivo COP-01», ' +
       'e riceve la copia firmata. Le richieste restano nel registro «Le tavole su WhatsApp» della pagina Progetti.' : "") + '</div></div>';
@@ -436,7 +436,7 @@ function pagina(base, h, p, d, torna) {
     '<section class="cs-form" id="carica"><h3><span class="cs-mini">' + SVG.su + '</span>Carica costruttivi</h3>' +
     '<p class="cs-sotto">Puoi scegliere più file dello stesso fornitore insieme. TIX prova a leggere codice, titolo e revisione dal nome del file: controlla e correggi prima di salvare.</p>' +
     '<div class="cs-chi cs-forn"><label for="cs-forn">Fornitore</label><input id="cs-forn" maxlength="120" list="cs-fornitori" autocomplete="off" placeholder="Scegli dalla Rubrica o scrivi il nome della ditta"></div>' +
-    '<label class="cs-drop" id="cs-drop"><span class="cs-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · l\'impronta la calcola il tuo telefono o computer</small></span></span>' +
+    '<label class="cs-drop" id="cs-drop"><span class="cs-scegli">' + SVG.file + '<span>Trascina qui i PDF o tocca per sceglierli<small>PDF o PDF firmato (.p7m), fino a ' + maxMb + ' MB l\'uno · il codice di controllo lo calcola il tuo telefono o computer</small></span></span>' +
     '<span class="btn sm sec">Scegli i file</span><input type="file" id="cs-file" accept="application/pdf,.pdf,.p7m" multiple hidden></label>' +
     '<div class="cs-tutte" id="cs-tutte" hidden><label for="cs-rev-tutte">Stessa revisione per tutti</label><input id="cs-rev-tutte" maxlength="30" placeholder="es. A">' +
     '<button type="button" class="btn sm sec" id="cs-rev-applica">Applica a tutti</button></div>' +
@@ -519,7 +519,7 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo)
   meta.push("caricato da <b>" + e(x.caricato_da || "") + "</b> il " + e(quando(x.caricato_il)));
   if (x.approvazione !== "da_approvare" && x.approvato_da) meta.push("firmato da <b>" + e(x.approvato_da) + "</b> il " + e(quando(x.approvato_il)));
   meta.push(e(mb(x.byte)));
-  const imp = (x.firma ? "originale: " : "") + '<span class="cs-imp" title="Impronta SHA-256 del file: ' + e(x.sha256 || "") + '">impronta ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
+  const imp = (x.firma ? "originale: " : "") + '<span class="cs-imp" title="Codice di controllo del file: ' + e(x.sha256 || "") + '">codice di controllo ' + e(String(x.sha256 || "").slice(0, 8)) + '…</span>';
   const nota = x.nota ? '<p class="cs-nota"><b>' + (x.approvazione === "da_rivedere" ? "Da rivedere:" : "Osservazioni:") + '</b> ' + e(x.nota) + '</p>' : "";
   // C3a: firma per approvazione (spenta finché manca il visto delle strutture) e copia firmata
   const fm = x.firma && typeof x.firma === "object" ? x.firma : null;
@@ -528,7 +528,7 @@ function riga(e, qui, p, x, chiuso, vistoAttivo, firmaAttiva, base, mandaAttivo)
   const bFirma = firmaAttiva && !chiuso && x.approvazione === "da_approvare"
     ? (senzaVisto ? '<button type="button" class="btn sm pr" disabled title="Si firma dopo il visto di strutturista e DL">Firma per approvazione</button>'
       : '<button type="button" class="btn sm pr" data-firma="' + e(x.id) + '">Firma per approvazione</button>') : "";
-  if (fm) meta.push('copia firmata: <span class="cs-imp" title="Impronta SHA-256 della copia firmata: ' + e(fm.sha256 || "") + '">impronta ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
+  if (fm) meta.push('copia firmata: <span class="cs-imp" title="Codice di controllo della copia firmata: ' + e(fm.sha256 || "") + '">codice di controllo ' + e(String(fm.sha256 || "").slice(0, 8)) + '…</span>' +
     (fm.qualificata ? " · file firmato digitalmente" : ""));
   // costruttivi-5: copia su Drive di originale e copia firmata (cartella «Costruttivi dei fornitori» del cantiere)
   const dv = x.drive && typeof x.drive === "object" ? x.drive : null;
