@@ -298,12 +298,12 @@ function dataPiu(s, n) {
   return d.toISOString().slice(0, 10);
 }
 function diario(base, c, d, e) {
-  let h = '<section class="scheda"><div class="riga"><h2 class="sz"><span class="ic-dia" aria-hidden="true">&#128221;</span>Diario di cantiere</h2><span class="chip">Sola lettura</span></div>';
+  let h = '<section class="scheda" id="diario"><div class="riga"><h2 class="sz"><span class="ic-dia" aria-hidden="true">&#128221;</span>Diario di cantiere</h2><span class="chip">Sola lettura</span></div>';
   if (!d) return h + '<p class="nota">Il servizio non risponde in questo momento. Riprova tra qualche minuto.</p></section>';
   if (d.esito !== "ok") return h + '<p class="nota">Il diario di questo cantiere non è disponibile in questo momento.</p></section>';
   const dal = String(d.dal || ""), al = String(d.al || ""), oggi = String(d.oggi || ""), inizio = String(d.inizio || "");
   const giorni = Math.round((Date.parse(al) - Date.parse(dal)) / 86400000) + 1 || 7;
-  const url = (a, b) => base + "/studio/cantiere?c=" + c + "&s=diario&dal=" + a + "&al=" + b;
+  const url = (a, b) => base + "/studio/cantiere?c=" + c + "&s=diario&dal=" + a + "&al=" + b + "#diario";
   const primaAl = dataPiu(dal, -1), primaDal = dataPiu(dal, -giorni);
   const dopoDal = dataPiu(al, 1), dopoAl = dataPiu(al, giorni) > oggi ? oggi : dataPiu(al, giorni);
   const prima = inizio && primaAl < inizio ? '<span class="btn off" aria-disabled="true">&larr; Prima</span>'
@@ -311,9 +311,9 @@ function diario(base, c, d, e) {
   const dopo = al >= oggi ? '<span class="btn off" aria-disabled="true">Dopo &rarr;</span>'
     : '<a class="btn" href="' + e(url(dopoDal, dopoAl)) + '">Dopo &rarr;</a>';
   h += '<div class="dia-nav">' + prima + '<span class="dia-per">dal ' + giorno(dal) + ' al ' + giorno(al) + '</span>' + dopo +
-    (al < oggi ? '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "&s=diario") + '">Oggi</a>' : "") +
+    (al < oggi ? '<a class="btn" href="' + e(base + "/studio/cantiere?c=" + c + "&s=diario#diario") + '">Oggi</a>' : "") +
     '<button class="btn" type="button" id="stampa">Stampa</button></div>' +
-    '<form class="dia-scegli" method="get" action="' + e(base + "/studio/cantiere") + '"><input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="s" value="diario">' +
+    '<form class="dia-scegli" method="get" action="' + e(base + "/studio/cantiere#diario") + '"><input type="hidden" name="c" value="' + e(c) + '"><input type="hidden" name="s" value="diario">' +
     '<label>Dal <input type="date" name="dal" value="' + e(dal) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
     '<label>al <input type="date" name="al" value="' + e(al) + '"' + (inizio ? ' min="' + e(inizio) + '"' : "") + ' max="' + e(oggi) + '"></label>' +
     '<button class="btn" type="submit">Mostra</button><span class="sub">al massimo 31 giorni per volta</span></form>' +
@@ -892,13 +892,13 @@ const STILE = "[hidden]{display:none!important}" +
   ".ic-vis{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;color:#fff;background:linear-gradient(135deg,#B79CF0,#6D3FC0 45%,#3E1F7A)}" +
   ".visti .msg{border-radius:10px;padding:8px 12px;margin:10px 0 0;font-weight:600}.visti .msg.ok{background:var(--sic-f);color:var(--sic-s)}.visti .msg.err{background:var(--ro-f);color:var(--ro)}" +
   ".risposta{margin-top:10px;border-left:3px solid #6D3FC0;padding:4px 0 4px 10px;font-size:.92rem}.testo-oss{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}" +
-  ".vmod{margin-top:10px}.vmod label{display:block;font-weight:600;font-size:.9rem;margin:0 0 4px}" +
-  ".vmod textarea{width:100%;font:inherit;border:1px solid var(--l);border-radius:10px;padding:8px 10px;background:var(--carta);color:var(--t);resize:vertical;min-height:72px}" +
+  ".vmod,.smod{margin-top:10px}.vmod label,.smod label{display:block;font-weight:600;font-size:.9rem;margin:0 0 4px}" +
+  ".vmod textarea,.smod textarea{width:100%;font:inherit;border:1px solid var(--l);border-radius:10px;padding:8px 10px;background:var(--carta);color:var(--t);resize:vertical;min-height:72px}" +
   // lo stile premium dà a tutti i .btn lo sfondo chiaro sfumato: qui il verde del «Visto» deve vincere
   ".btn.ok{background:linear-gradient(135deg,#12B886,#0CA678)!important;border-color:#0CA678!important;color:#fff!important}button.btn{cursor:pointer}" +
   ".err-oss{color:var(--ro);font-weight:600;font-size:.9rem;margin:6px 0 0}" +
   ".cambia{margin-top:8px}.cambia summary{cursor:pointer;color:var(--s);font-size:.9rem;padding:4px 0}" +
-  "@media print{.vmod,.cambia{display:none}}" +
+  "@media print{.vmod,.smod,.cambia{display:none}}" +
   // fabbricato / lotto accanto al titolo della tavola (09/11/2026)
   ".lotto{display:inline-block;vertical-align:middle;margin-left:6px;padding:1px 9px;border-radius:6px;border:1px solid var(--navy);color:var(--navy);font-size:.78rem;font-weight:700;max-width:100%;overflow-wrap:anywhere}" +
   "@media (prefers-color-scheme:dark){.lotto{border-color:#C9D6E5;color:#C9D6E5}}" +
