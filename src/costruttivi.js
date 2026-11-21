@@ -26,6 +26,7 @@
 // ============================================================================
 
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b1-1: regola di Filippo del 14/11
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";   // salva-rubrica-b1-1: regola di Filippo del 21/11
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
 
@@ -453,7 +454,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Costruttivi dei fornitori - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + "</style></head><body><main>" +
     '<a class="cs-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="cs-card">' +
     '<div class="cs-testa"><div>' + (d.cantiere ? '<p class="cs-cant">' + e(d.cantiere) + '</p>' : "") +
@@ -486,7 +487,7 @@ function pagina(base, h, p, d, torna) {
       '<label for="cs-md-chi">Il tuo nome</label><input id="cs-md-chi" maxlength="120" autocomplete="name">' +
       '<p class="cs-msg" id="cs-md-msg" role="status"></p>' +
       '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cs-md-si">Manda</button></div></form></dialog>' : "") +
-    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SCRIPT + "</script></body></html>";
+    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SALVA_RUBRICA_JS + SCRIPT + "</script></body></html>";
 }
 
 // C2: riquadro del visto di strutturista e DL sul costruttivo delle strutture
@@ -757,6 +758,9 @@ if($('cs-annulla'))$('cs-annulla').addEventListener('click',function(){FILE=[];d
 function manda(f,chi,fornitore){return f.file.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){
 var dati={t:CFG.t,c:CFG.c,fornitore:fornitore,codice:String(f.codice||'').trim(),titolo:String(f.titolo||'').trim(),revisione:String(f.revisione||'').trim(),strutture:!!f.strutture,autore:chi,nome:f.file.name,byte:buf.byteLength,sha256:esa(h)};
 return fetch(CFG.u+'/carica',{method:'POST',headers:{'X-Costruttivi-Dati':b64url(JSON.stringify(dati)),'Content-Type':'application/octet-stream'},body:buf}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});});});});}
+// «Salva in Rubrica» (21/11/2026, salva-rubrica-b1-1): fornitore scritto a mano che non è nella Rubrica
+function csInRubrica(x){x=srNorm(x);return Array.prototype.some.call(D.querySelectorAll('#cs-fornitori option'),function(o){return srNorm(o.value)===x;});}
+if(typeof srAggancia==='function'&&forn)srAggancia({campo:forn,base:CFG.b,sezione:'costruttivi',t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'fornitore',dopoDi:forn.closest('.cs-forn')||forn,conosciuto:csInRubrica,dopo:function(k){var dl=$('cs-fornitori');if(!dl){dl=D.createElement('datalist');dl.id='cs-fornitori';D.body.appendChild(dl);forn.setAttribute('list','cs-fornitori');}var o=D.createElement('option');o.value=k.impresa||k.nome||forn.value.trim();dl.appendChild(o);}});
 var salvati=0;
 if($('cs-salva'))$('cs-salva').addEventListener('click',function(){var b=$('cs-salva'),m=$('cs-msg'),chi=$('cs-chi').value.trim(),fornitore=forn?forn.value.trim():'';
 if(!fornitore){m.textContent='Scegli o scrivi il fornitore: è la ditta che ti ha mandato i costruttivi.';if(forn){forn.classList.add('manca');rosso(forn,'Scegli dalla Rubrica o scrivi il nome della ditta');}return;}
@@ -788,7 +792,7 @@ D.querySelectorAll('[data-manda]').forEach(function(b){b.addEventListener('click
 $('cs-md-dest').innerHTML='<p class="cs-sotto">Carico i contatti…</p>';$('cs-md-altri').value='';$('cs-md-msg-t').value='';$('cs-md-rr').textContent='';$('cs-md-rr').className='cs-md-rr';$('cs-md-prima').textContent='';
 $('cs-md-chi').value=leggiChi();$('cs-md-msg').textContent='';$('cs-md-si').disabled=true;if(typeof mdlg.showModal==='function')mdlg.showModal();else mdlg.setAttribute('open','');
 chiamaA('manda_prepara',{id:mdId}).then(function(r){if(!r||r.esito!=='ok'){$('cs-md-dest').innerHTML='';$('cs-md-msg').textContent=(r&&r.messaggio)||'Non riesco a preparare l\'invio: riprova.';return;}
-$('cs-md-tit').textContent='Manda '+r.codice+' rev. '+r.revisione+' a '+r.fornitore;var ds=r.destinatari||[];
+window.csFornMd=r.fornitore||'';$('cs-md-tit').textContent='Manda '+r.codice+' rev. '+r.revisione+' a '+r.fornitore;var ds=r.destinatari||[];
 $('cs-md-dest').innerHTML=ds.length?ds.map(function(x){return '<label><input type="checkbox" checked value="'+esc(x.email)+'"> '+esc(x.nome||x.email)+' <em>'+esc(x.email)+(x.ruolo?' · '+esc(x.ruolo):'')+'</em></label>';}).join(''):
 '<p class="cs-sotto">Nella Rubrica non c\'è nessuno di '+esc(r.fornitore)+' con un\'email: scrivi l\'indirizzo qui sotto.</p>';
 var rr=$('cs-md-rr');if(r.rispondi_a){rr.textContent='Le risposte del fornitore arrivano a '+r.rispondi_a+'.';}else{rr.className='cs-md-rr av';rr.textContent='Nei dati dell\'impresa manca l\'email di riferimento: le risposte del fornitore arriveranno a info@tixcantiere.it.';}
@@ -802,6 +806,8 @@ if(!a.length){m.textContent='Scegli o scrivi almeno un indirizzo email.';rosso($
 if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.';rosso($('cs-md-chi'),'Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.');return;}scriviChi(chi);var self=this;self.disabled=true;
 chiamaA('manda',{id:mdId,firma_id:mdF,dati:{a:a,messaggio:$('cs-md-msg-t').value,chi:chi}}).then(function(r){if(r&&r.esito==='ok'){m.style.color='#146C43';m.textContent=(r.mandate===1?'Email preparata':'Email preparate: '+r.mandate)+'. Partono tra pochi secondi.';setTimeout(function(){location.reload();},1400);return;}
 self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// «Salva in Rubrica» (21/11/2026, salva-rubrica-b1-1): indirizzi scritti a mano in «Manda al fornitore» che non sono nella Rubrica
+if(typeof srAggancia==='function'&&$('cs-md-altri')){var srMd=srAggancia({campo:$('cs-md-altri'),base:CFG.b,sezione:'costruttivi',t:CFG.t,c:CFG.c,modo:'email',multi:true,rapporto:'fornitore',impresa:function(){return window.csFornMd||'';},conosciuto:function(x){x=srNorm(x);return Array.prototype.some.call(D.querySelectorAll('#cs-md-dest input'),function(i){return srNorm(i.value)===x;});}});if(srMd&&mdlg)mdlg.addEventListener('close',function(){srMd.chiudi();});}
 // ---- chiedi il visto di strutturista e DL (costruttivi-2, fase C2)
 var vdlg=$('cs-vs-dlg'),vId='';
 D.querySelectorAll('[data-visto]').forEach(function(b){b.addEventListener('click',function(){if(!vdlg)return;vId=b.getAttribute('data-visto');$('cs-vs-cod').textContent=b.getAttribute('data-cod')||'';$('cs-vs-chi').value=leggiChi();$('cs-vs-msg').textContent='';$('cs-vs-si').disabled=false;

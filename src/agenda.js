@@ -29,6 +29,7 @@ import { cestinoIniezione } from "./cestino.js";
 // Campi mancanti in rosso (14/11/2026, regola di Filippo per tutti i moduli; modulo comune della B3): in prova solo per l'accesso
 // «Tutte le aziende» (d.filippo); lo script si mette solo lì, le funzioni della pagina controllano che esista
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";   // salva-rubrica-b1-1: regola di Filippo del 21/11
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -237,6 +238,18 @@ function contattoBreve(p, email) {
   return { id: Number(p.id) || 0, nome: String(p.nome || ""), email: String(email == null ? p.email || "" : email).trim(), impresa: String(p.impresa || "") };
 }
 async function contattoNuovo(env, h, tok, c, b) {
+  // «Salva in Rubrica» (21/11/2026, salva-rubrica-b1-1, regola di Filippo): da Agenda, Progetti e Costruttivi il contatto scritto a mano
+  // si salva con rubrica_da_sezione, la funzione unica di tutte le sezioni (accesso, doppioni per nome, email o cellulare, rubrica_salva)
+  if (b.da_salva === true) {
+    const sez = ["agenda", "progetti", "costruttivi"].indexOf(String(b.sezione || "")) >= 0 ? String(b.sezione) : "agenda";
+    const x = b.dati && typeof b.dati === "object" ? b.dati : {};
+    const t = (k, n) => String(x[k] == null ? "" : x[k]).trim().slice(0, n);
+    const dati = { impresa: t("impresa", 120), nome: t("nome", 120), tipo_rapporto: t("tipo_rapporto", 20).toLowerCase(), telefono: t("telefono", 40),
+      email: t("email", 160).toLowerCase(), partita_iva: t("partita_iva", 20), note: t("note", 500) };
+    const r = await h.rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: c, p_sezione: sez, p_azione: "salva", p_dati: dati }, 15000).catch(() => null);
+    if (!r) return { esito: "incerto" };
+    return r;
+  }
   const d = b.dati && typeof b.dati === "object" ? b.dati : {};
   const s = (k, n) => String(d[k] == null ? "" : d[k]).trim().slice(0, n);
   const nome = s("nome", 120), email = s("email", 120).toLowerCase(), impresa = s("impresa", 120), ruolo = s("ruolo", 20).toLowerCase();
@@ -631,7 +644,7 @@ export function paginaAgenda(base, tok, c, d, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Agenda - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1 title="Doppio clic: mese intero">Agenda</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + torna + '">&larr; Torna al cantiere</a>' +
@@ -723,7 +736,7 @@ export function paginaAgenda(base, tok, c, d, h) {
       '<p class="piccolo nc-nota">Lo ritrovi nella Rubrica, dove puoi completarlo o eliminarlo.</p><p class="msg" id="nc-msg" aria-live="polite"></p></div>' +
       '<div class="dl-b"><button type="button" class="no" id="nc-no">Annulla</button><button type="submit" class="si" id="nc-si">Salva e invita</button></div>' +
       "</form></dialog>" : "") +
-    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CAMPI_ROSSI_JS + CALENDARIO + SCRIPT + "</script></body></html>";
+    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CAMPI_ROSSI_JS + SALVA_RUBRICA_JS + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
 // Telefono con bandierina e prefisso del paese, Italia di base (30/10/2026, telefono-paese-1): copia del blocco TEL_JS di
@@ -1141,6 +1154,9 @@ function m(cl,t){msg.className='msg '+cl;msg.textContent=t;}
 function mostra(id,v){var el=document.getElementById(id);if(el)el.style.display=v?'':'none';}
 function post(p,corpo){return fetch(D.base+'/agenda/'+p,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(corpo)}).then(function(r){return r.json();});}
 /* Inviti (30/10/2026): contatti della Rubrica con email; i scelti restano sempre in cima all'elenco */
+/* «Salva in Rubrica» (21/11/2026, salva-rubrica-b1-1): le altre squadre o imprese scritte a mano che non sono nella Rubrica */
+var srChi=(typeof srAggancia==='function'&&document.getElementById('f-chi'))?srAggancia({campo:document.getElementById('f-chi'),base:D.base,t:D.t,c:D.c,sezione:'agenda',modo:'ditta',multi:true,rapporto:'subappaltatore',conosciuto:function(x){x=srNorm(x);return (D.rubrica||[]).some(function(k){return srNorm(k.i)===x||srNorm(k.n)===x;});}}):null;
+if(srChi&&dlg)dlg.addEventListener('close',function(){srChi.chiudi();});
 var RUB=D.rubrica||[],invSel={},invL=document.getElementById('f-inv'),invQ=document.getElementById('f-inv-q'),invS=document.getElementById('f-inv-sel');
 function invRender(){if(!invL)return;var vu=document.getElementById('f-inv-vuota');if(vu){vu.hidden=RUB.length>0;invL.hidden=!RUB.length;invQ.hidden=!RUB.length;}
  var q=(invQ.value||'').toLowerCase().trim(),h='',n=0,lista=RUB.slice().sort(function(a,b){return (invSel[b.id]?1:0)-(invSel[a.id]?1:0);});

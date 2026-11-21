@@ -24,6 +24,7 @@
 // ============================================================================
 
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b1-1: regola di Filippo del 14/11
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";   // salva-rubrica-b1-1: regola di Filippo del 21/11
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
 const LINK_SECONDI = 2592000;           // collegamento firmato di 30 giorni per l'archivio
@@ -468,12 +469,12 @@ function pagina(base, h, p, d, torna) {
     '<input id="pg-dest-email" type="email" maxlength="200" placeholder="oppure scrivi un\'email" aria-label="Email"><input id="pg-dest-nome" maxlength="120" placeholder="Nome (facoltativo)" aria-label="Nome">' +
     '<button type="button" class="btn sm sec" id="pg-dest-si">Aggiungi</button></div><p class="pg-msg" id="pg-dest-msg" role="status"></p></section>';
 
-  const cfg = JSON.stringify({ u: qui, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ u: qui, b: base, t: p.tok, c: p.c, max: maxMb * 1048576, maxMb }).replace(/</g, "\\u003c");
 
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Progetti del cantiere - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + "</style></head><body><main>" +
     '<a class="pg-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="pg-card">' +
     '<div class="pg-testa"><div>' + (d.cantiere ? '<p class="pg-cant">' + e(d.cantiere) + '</p>' : "") +
@@ -518,7 +519,7 @@ function pagina(base, h, p, d, torna) {
       '<label for="pg-lt-chi">Il tuo nome</label><input id="pg-lt-chi" maxlength="120" autocomplete="name">' +
       '<p class="pg-msg" id="pg-lt-msg" role="status"></p>' +
       '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-lt-si">Salva</button></div></form></dialog>' : "") +
-    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SCRIPT + "</script></body></html>";
+    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SALVA_RUBRICA_JS + SCRIPT + "</script></body></html>";
 }
 
 const NOME_TIPO = Object.fromEntries(TIPI);
@@ -793,6 +794,8 @@ if($('pg-dest-sug'))$('pg-dest-sug').addEventListener('change',function(){var s=
 if($('pg-dest-si'))$('pg-dest-si').addEventListener('click',function(){var m=$('pg-dest-msg'),em=$('pg-dest-email').value.trim();m.textContent='';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){m.textContent='Scrivi un\'email valida.';rosso($('pg-dest-email'),'Scrivi un\'email valida.');return;}
 var b=this;b.disabled=true;chiamaD('destinatario_aggiungi',{email:em,nome:$('pg-dest-nome').value.trim(),ruolo:$('pg-dest-nome')._ruolo||'',chi:leggiChi()}).then(function(r){b.disabled=false;
 if(r&&r.esito==='ok'){$('pg-dest-email').value='';$('pg-dest-nome').value='';$('pg-dest-nome')._ruolo='';$('pg-dest-sug').value='';caricaD();}else m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){b.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
+// ---- «Salva in Rubrica» (21/11/2026, salva-rubrica-b1-1): email scritta a mano che non è nella Rubrica
+if(typeof srAggancia==='function'&&$('pg-dest-email')&&CFG.b)srAggancia({campo:$('pg-dest-email'),base:CFG.b,sezione:'progetti',t:CFG.t,c:CFG.c,modo:'email',rapporto:'professionista',dopoDi:$('pg-dest-email').closest('.pg-dest-agg')||$('pg-dest-email'),nome:function(){return $('pg-dest-nome').value.trim();},conosciuto:function(x){x=srNorm(x);var s=$('pg-dest-sug');return ((s&&s._sug)||[]).some(function(k){return srNorm(k.email)===x;});},dopo:function(k){if(k&&k.nome&&!$('pg-dest-nome').value.trim())$('pg-dest-nome').value=k.nome;}});
 // ---- togli
 var dlg=$('pg-dlg'),corr=null;
 D.querySelectorAll('[data-togli]').forEach(function(b){b.addEventListener('click',function(){corr=b.getAttribute('data-togli');$('pg-dlg-cod').textContent=b.getAttribute('data-cod')||'';$('pg-dlg-chi').value=leggiChi();$('pg-dlg-mot').value='';$('pg-dlg-msg').textContent='';
