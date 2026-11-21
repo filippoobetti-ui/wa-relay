@@ -23,6 +23,7 @@
 
 import { leggiFatturaFornitore } from "./lettore-offerte.js";
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b13-1: regola di Filippo del 14/11
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";   // rubrica-b13-1: «Salva in Rubrica», regola di Filippo del 21/11
 import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";   // costi-6: «Scarica in Excel» con i due loghi (file della 02)
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -50,6 +51,34 @@ function json(o, stato) {
     "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } });
 }
 function lista(a) { return Array.isArray(a) ? a : []; }
+
+// rubrica-b13-1 (21/11/2026): nomi già nella Rubrica dell'impresa del cantiere, per «… non è nella Rubrica» (database: rubrica_da_sezione,
+// azione 'elenco'). In caso di errore: elenco vuoto, la pagina si apre lo stesso e il server riconosce comunque i doppioni.
+async function nomiRubrica(env, h, sezione, tok, c) {
+  const r = await h.rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: c, p_sezione: sezione, p_azione: "elenco", p_dati: {} }, 8000).catch(() => null);
+  if (!r || r.esito !== "ok" || !Array.isArray(r.nomi)) return [];
+  return r.nomi.map((x) => String(x || "").trim().slice(0, 120)).filter(Boolean).slice(0, 3000);
+}
+// rubrica-b13-1: POST …/rubrica {t, c, dati:{impresa, nome, tipo_rapporto, telefono, email, partita_iva, note}} → rubrica_da_sezione 'salva'
+// (stessa funzione che usa /agenda/contatto della B1: controlli di rubrica_salva e doppioni → esito «gia»)
+async function salvaRubrica(request, env, h, sezione) {
+  if (request.method !== "POST") return json({ esito: "metodo_non_consentito" }, 405);
+  if (Number(request.headers.get("Content-Length") || 0) > 8000) return json({ esito: "richiesta_non_valida" }, 413);
+  let d = null;
+  try { d = await request.json(); } catch (e) { d = null; }
+  if (!d || typeof d !== "object") return json({ esito: "richiesta_non_valida" }, 400);
+  const tok = /^[0-9a-fA-F]{64}$/.test(String(d.t || "")) ? String(d.t).toLowerCase() : "";
+  const c = String(d.c || "").toLowerCase();
+  if (!tok) return json({ esito: "gettone" }, 403);
+  if (!UUID.test(c)) return json({ esito: "richiesta_non_valida" }, 400);
+  const x = d.dati && typeof d.dati === "object" && !Array.isArray(d.dati) ? d.dati : {};
+  const t = (v, n) => String(v == null ? "" : v).replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, n);
+  const dati = { impresa: t(x.impresa, 120), nome: t(x.nome, 120), tipo_rapporto: t(x.tipo_rapporto, 20), telefono: t(x.telefono, 40),
+    email: t(x.email, 200), partita_iva: t(x.partita_iva, 20), note: t(x.note, 500) };
+  const r = await h.rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: c, p_sezione: sezione, p_azione: "salva", p_dati: dati }, 15000).catch(() => null);
+  if (!r || typeof r !== "object") return json({ esito: "incerto", messaggio: "Il servizio non risponde: riprova tra un minuto." }, 503);
+  return json(r, r.esito === "gettone" ? 403 : 200);
+}
 function ogg(o) { return o && typeof o === "object" && !Array.isArray(o) ? o : {}; }
 function testo(x, max) { return String(x == null ? "" : x).replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max); }
 function parametri(inUrl) {
@@ -273,6 +302,7 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (sotto === "/costi/leggi-fattura") return leggiFattura(request, env, h);
   if (sotto === "/costi/file") return apriFattura(request, env, base, inUrl, h);
   if (sotto === "/costi/excel") return excelCosti(request, env, base, inUrl, h);
+  if (sotto === "/costi/rubrica") return salvaRubrica(request, env, h, "costi");   // rubrica-b13-1: «Salva in Rubrica»
   if (sotto !== "/costi") return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const p = parametri(inUrl);
@@ -293,6 +323,7 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (!d || typeof d !== "object") return h.risposta(h.foglio(base, "Costi e margine", "Il servizio non risponde in questo momento. Riprova tra qualche minuto.", indietro), 503);
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Costi e margine", "Questa pagina non è disponibile per questo cantiere.", indietro), 404);
+  d.rubrica_nomi = d.chiuso ? [] : await nomiRubrica(env, h, "costi", p.tok, p.c);   // rubrica-b13-1
   return h.risposta(pagina(base, h, p, d, torna, elenco));
 }
 
@@ -546,7 +577,7 @@ async function apriFattura(request, env, base, inUrl, h) {
 function testaHtml(h, base, titolo, moderna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + CAMPI_ROSSI_CSS + ".cm-campi span.cr-msg{color:#B3261E;font-size:.8rem}" + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
+    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + CAMPI_ROSSI_CSS + ".cm-campi span.cr-msg{color:#B3261E;font-size:.8rem}" + SALVA_RUBRICA_CSS + ".cm-campi .sr-box{grid-column:1/-1}" + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
 }
 // costi-3 (MG3): pagina del cantiere nello stile scelto da Filippo il 10/11 (lo stesso del riepilogo «versione moderna»)
 const svI = (d) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";
@@ -850,7 +881,20 @@ function pagina(base, h, p, d, torna, elenco) {
     '<label for="cm-t-chi">Il tuo nome</label><input id="cm-t-chi" maxlength="120" autocomplete="name">' +
     '<label for="cm-t-mot">Perché (facoltativo)</label><input id="cm-t-mot" maxlength="300" placeholder="Per esempio: scritto due volte">' +
     '<p class="cm-msg" id="cm-t-msg" role="status"></p><div class="cm-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="cm-t-si">Togli</button></div></form></dialog>' +
-    "<script>" + CAMPI_ROSSI_JS + "</script><script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
+    "<script>" + CAMPI_ROSSI_JS + "</script><script>var CFG=" + cfg + ";" + SCRIPT + "</script>" +
+    // rubrica-b13-1 (21/11/2026): «Salva in Rubrica» per il fornitore scritto a mano (regola di Filippo del 21/11), modulo comune della B1
+    (d.chiuso ? "" : "<script>" + SALVA_RUBRICA_JS + "</script><script>(function(){var N=" + JSON.stringify(lista(d.rubrica_nomi)).replace(/</g, "\\u003c") +
+      ";function no(s){return String(s||'').toLowerCase().replace(/\\s+/g,' ').trim();}function conosciuto(x){var n=no(x);for(var i=0;i<N.length;i++){if(no(N[i])===n)return true;}return false;}" +
+      "var T=[];" + "[{id:'cm-f-forn'},{id:'cm-x-forn',piva:'cm-x-piva'}]" + ".forEach(function(k){var el=document.getElementById(k.id);if(!el||typeof srAggancia!=='function')return;" +
+      "var o=srAggancia({campo:el,dopoDi:el.closest('label')||el,base:" + JSON.stringify(base) + ",t:" + JSON.stringify(p.tok) + ",c:" + JSON.stringify(p.c) + "," +
+      "modo:'ditta',rapporto:'fornitore',sezione:'costi',conosciuto:conosciuto,piva:function(){var e=k.piva&&document.getElementById(k.piva);return e?String(e.value||''):'';}," +
+      "salva:function(dati){return fetch(" + JSON.stringify(base + "/costi/rubrica") + ",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:" + JSON.stringify(p.tok) + ",c:" + JSON.stringify(p.c) + ",dati:dati})})" +
+      ".then(function(r){return r.json().catch(function(){return{esito:'errore'};});});},dopo:function(c){var nome=c&&(c.impresa||c.nome);if(nome){N.push(nome);el.value=nome;el.classList.remove('manca');" +
+      "if(k.piva&&c.partita_iva){var pv=document.getElementById(k.piva);if(pv&&!pv.value.trim())pv.value=c.partita_iva;}" +
+      "if(k.lista){var l=document.getElementById(k.lista);if(l){var op=document.createElement('option');op.value=nome;l.appendChild(op);}}}}});if(o)T.push(o);});" +
+      "var Z=document.getElementById('cm-x-ia');if(Z&&window.MutationObserver)new MutationObserver(function(){setTimeout(function(){T.forEach(function(o){o.aggiorna();});},300);}).observe(Z,{childList:true,subtree:true,characterData:true,attributes:true});" +
+      "})();</script>") +
+    "</body></html>";
 }
 function addGiorno(iso) {
   const t = Date.parse(String(iso || "") + "T00:00:00Z");
