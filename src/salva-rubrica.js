@@ -13,6 +13,7 @@
 //                rapporto: 'fornitore',                   // rapporto proposto
 //                conosciuto: function (testo) { ... },    // true se è già nella Rubrica
 //                impresa: function () { ... },            // ragione sociale proposta (modo 'email')
+//                piva: function () { ... },               // partita IVA proposta (per esempio letta dalla fattura)
 //                dopo: function (contatto) { ... },       // collega il contatto salvato a ciò che si compila
 //                salva: function (dati) { ... } })        // facoltativo: salvataggio della pagina (es. preventivo senza cantiere),
 //                                                         // promessa con la stessa risposta di /agenda/contatto
@@ -44,7 +45,7 @@ function srAggiorna(o){var box=o._box;if(box.dataset.aperto==='1')return;var x=s
   ' <small>con i suoi dati: la prossima volta lo scegli dall\'elenco</small>';}
 function srForm(o){var box=o._box,x=o._x||'',em=o.modo==='email';box.dataset.aperto='1';box.classList.remove('sr-ok');box.hidden=false;
  var rp=o.rapporto||(o.modo==='ditta'?'fornitore':'professionista');
- var imp=em?(o.impresa?o.impresa()||'':''):(o.modo==='ditta'?x:'');var nome=o.modo==='persona'?x:(o.nome?o.nome()||'':'');var mail=em?x:'';
+ var imp=em?(o.impresa?o.impresa()||'':''):(o.modo==='ditta'?x:'');var nome=o.modo==='persona'?x:(o.nome?o.nome()||'':'');var piva=o.piva?String(o.piva()||'').replace(/[^0-9]/g,''):'';var mail=em?x:'';
  box.innerHTML='<b>Salva in Rubrica</b> <small>per una ditta serve la ragione sociale, per una persona nome e cognome; il resto lo puoi completare anche dopo, dalla Rubrica</small>'+
   '<div class="sr-grid">'+
   '<label>Ragione sociale<input type="text" data-sf="impresa" maxlength="120" value="'+srEsc(imp)+'"></label>'+
@@ -52,7 +53,7 @@ function srForm(o){var box=o._box,x=o._x||'',em=o.modo==='email';box.dataset.ape
   '<label>Referente o nome e cognome<input type="text" data-sf="nome" maxlength="120" value="'+srEsc(nome)+'"></label>'+
   '<label>Cellulare<input type="tel" data-sf="telefono" maxlength="40" placeholder="+39 333 123 4567"></label>'+
   '<label>Email<input type="email" data-sf="email" maxlength="160" value="'+srEsc(mail)+'"></label>'+
-  '<label>Partita IVA<input type="text" data-sf="partita_iva" maxlength="20" inputmode="numeric"></label>'+
+  '<label>Partita IVA<input type="text" data-sf="partita_iva" maxlength="20" inputmode="numeric" value="'+srEsc(piva)+'"></label>'+
   '<label class="sr-larga">Note<input type="text" data-sf="note" maxlength="500"></label></div>'+
   '<div><button type="button" class="sr-btn sr-pr" data-sr="salva">Salva in Rubrica</button><button type="button" class="sr-btn" data-sr="no">Non adesso</button></div>'+
   '<p class="sr-msg" aria-live="polite"></p>';
