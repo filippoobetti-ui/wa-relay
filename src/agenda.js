@@ -739,95 +739,12 @@ export function paginaAgenda(base, tok, c, d, h) {
     "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CAMPI_ROSSI_JS + SALVA_RUBRICA_JS + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
-// Telefono con bandierina e prefisso del paese, Italia di base (30/10/2026, telefono-paese-1): copia del blocco TEL_JS di
-// src/persone-cantiere.js (stesso elenco dei paesi e stesse regole di Rubrica e Persone del cantiere), chiusa in GL_TEL per
-// non lasciare nomi globali. Se cambia l'elenco dei paesi là, va cambiato anche qui (02/11/2026, agenda-contatti-1).
-const TEL_JS = "var GL_TEL=(function(){" + String.raw`
-var TEL_PAESI=[
-["it","Italia","39","v:#009246,#fff,#ce2b37"],
-["al","Albania","355","s:#e41e20",'<path d="M15 4l3.5 4-1.5 1 2 3-4 4-4-4 2-3-1.5-1z" fill="#000"/>'],
-["dz","Algeria","213","v:#006233,#fff",'<circle cx="15" cy="10" r="4.5" fill="#d21034"/><circle cx="16.4" cy="10" r="3.7" fill="#fff"/>'],
-["at","Austria","43","h:#ed2939,#fff,#ed2939"],
-["bd","Bangladesh","880","s:#006a4e",'<circle cx="13" cy="10" r="6" fill="#f42a41"/>'],
-["be","Belgio","32","v:#000,#fdda24,#ef3340"],
-["ba","Bosnia ed Erzegovina","387","s:#002395",'<path d="M9 0h12v20z" fill="#fecb00"/>'],
-["br","Brasile","55","s:#009c3b",'<path d="M15 2l13 8-13 8L2 10z" fill="#ffdf00"/><circle cx="15" cy="10" r="4.5" fill="#002776"/>'],
-["bg","Bulgaria","359","h:#fff,#00966e,#d62612"],
-["cn","Cina","86","s:#de2910","*6,6,3.5,#ffde00"],
-["ci","Costa d'Avorio","225","v:#f77f00,#fff,#009e60"],
-["hr","Croazia","385","h:#ff0000,#fff,#171796"],
-["ec","Ecuador","593","h:#ffdd00,#ffdd00,#034ea2,#ed1c24"],
-["eg","Egitto","20","h:#ce1126,#fff,#000"],
-["ph","Filippine","63","h:#0038a8,#ce1126",'<path d="M0 0l17.3 10L0 20z" fill="#fff"/><circle cx="5.5" cy="10" r="2" fill="#fcd116"/>'],
-["fr","Francia","33","v:#0055a4,#fff,#ef4135"],
-["gm","Gambia","220","h:#ce1126,#0c1c8c,#3a7728",'<rect y="6.2" width="30" height="1" fill="#fff"/><rect y="12.8" width="30" height="1" fill="#fff"/>'],
-["ge","Georgia","995","s:#fff",'<rect x="13" width="4" height="20" fill="#f00"/><rect y="8" width="30" height="4" fill="#f00"/>'],
-["de","Germania","49","h:#000,#dd0000,#ffce00"],
-["gh","Ghana","233","h:#ce1126,#fcd116,#006b3f","*15,10,3.2,#000"],
-["in","India","91","h:#ff9933,#fff,#138808",'<circle cx="15" cy="10" r="2.5" fill="none" stroke="#000080" stroke-width=".8"/>'],
-["xk","Kosovo","383","s:#244aa5",'<path d="M11 8h8l-1 6h-6z" fill="#d0a650"/>'],
-["mk","Macedonia del Nord","389","s:#d20000",'<circle cx="15" cy="10" r="3.5" fill="#ffe600"/>'],
-["ml","Mali","223","v:#14b53a,#fcd116,#ce1126"],
-["ma","Marocco","212","s:#c1272d","o15,10,4,#006233"],
-["md","Moldavia","373","v:#0046ae,#ffd200,#cc092f"],
-["ng","Nigeria","234","v:#008751,#fff,#008751"],
-["nl","Paesi Bassi","31","h:#ae1c28,#fff,#21468b"],
-["pk","Pakistan","92","s:#01411c",'<rect width="7.5" height="20" fill="#fff"/><circle cx="18" cy="10" r="5" fill="#fff"/><circle cx="19.6" cy="8.8" r="4.3" fill="#01411c"/>'],
-["pe","Perù","51","v:#d91023,#fff,#d91023"],
-["pl","Polonia","48","h:#fff,#dc143c"],
-["pt","Portogallo","351","s:#f00",'<rect width="12" height="20" fill="#060"/><circle cx="12" cy="10" r="3.5" fill="#fc0"/>'],
-["gb","Regno Unito","44","s:#012169",'<path d="M0 0l30 20M30 0L0 20" stroke="#fff" stroke-width="4"/><path d="M0 0l30 20M30 0L0 20" stroke="#c8102e" stroke-width="1.4"/><path d="M15 0v20M0 10h30" stroke="#fff" stroke-width="6"/><path d="M15 0v20M0 10h30" stroke="#c8102e" stroke-width="3.4"/>'],
-["ro","Romania","40","v:#002b7f,#fcd116,#ce1126"],
-["ru","Russia","7","h:#fff,#0039a6,#d52b1e"],
-["sm","San Marino","378","h:#fff,#5eb6e4"],
-["sn","Senegal","221","v:#00853f,#fdef42,#e31b23","*15,10,3,#00853f"],
-["rs","Serbia","381","h:#c6363c,#0c4076,#fff"],
-["es","Spagna","34","h:#aa151b,#f1bf00,#f1bf00,#aa151b"],
-["lk","Sri Lanka","94","s:#ffb700",'<rect x="11" y="1.5" width="17.5" height="17" fill="#8d153a"/><rect x="1.5" y="1.5" width="4" height="17" fill="#00534e"/><rect x="6" y="1.5" width="4" height="17" fill="#eb7400"/>'],
-["ch","Svizzera","41","s:#da291c",'<path d="M13 4h4v4h4v4h-4v4h-4v-4H9V8h4z" fill="#fff"/>'],
-["tn","Tunisia","216","s:#e70013",'<circle cx="15" cy="10" r="5" fill="#fff"/><circle cx="15.6" cy="10" r="3.6" fill="#e70013"/><circle cx="16.7" cy="10" r="2.9" fill="#fff"/>'],
-["tr","Turchia","90","s:#e30a17",'<circle cx="12" cy="10" r="5" fill="#fff"/><circle cx="13.3" cy="10" r="4" fill="#e30a17"/>',"*18.6,10,2,#fff"],
-["ua","Ucraina","380","h:#0057b7,#ffd700"],
-["hu","Ungheria","36","h:#ce2939,#fff,#477050"],
-["xx","Altro paese (scrivi il numero con +)","","s:#e5e7eb",'<circle cx="15" cy="10" r="6" fill="none" stroke="#6b7280" stroke-width="1.2"/><path d="M9 10h12M15 4c-3 3-3 9 0 12M15 4c3 3 3 9 0 12" fill="none" stroke="#6b7280" stroke-width="1"/>']
-];
-function telStella(cx,cy,r,col,vuota){var p=[];for(var i=0;i<10;i++){var a=Math.PI/5*i-Math.PI/2,rr=i%2?r*.4:r;p.push((cx+rr*Math.cos(a)).toFixed(2)+","+(cy+rr*Math.sin(a)).toFixed(2));}
-  return '<polygon points="'+p.join(" ")+'" '+(vuota?'fill="none" stroke="'+col+'" stroke-width=".9"':'fill="'+col+'"')+'/>';}
-function telBandiera(pa){var s='<svg viewBox="0 0 30 20" aria-hidden="true" focusable="false">',spec=pa[3],t=spec.charAt(0),c=spec.slice(2).split(",");
-  if(t==="s")s+='<rect width="30" height="20" fill="'+c[0]+'"/>';
-  else c.forEach(function(col,i){var n=c.length;s+=t==="v"?'<rect x="'+(30/n*i)+'" width="'+(30/n+.05)+'" height="20" fill="'+col+'"/>':'<rect y="'+(20/n*i)+'" width="30" height="'+(20/n+.05)+'" fill="'+col+'"/>';});
-  pa.slice(4).forEach(function(x){if(x.charAt(0)==="*"||x.charAt(0)==="o"){var q=x.slice(1).split(",");s+=telStella(+q[0],+q[1],+q[2],q[3],x.charAt(0)==="o");}else s+=x;});
-  return s+'</svg>';}
-function telPaese(cod){for(var i=0;i<TEL_PAESI.length;i++)if(TEL_PAESI[i][0]===cod)return TEL_PAESI[i];return TEL_PAESI[0];}
-function telScegli(inp,cod){var pa=telPaese(cod);inp.dataset.paese=pa[0];var b=inp.parentNode.querySelector(".tel-paese");
-  b.innerHTML=telBandiera(pa)+'<span>'+(pa[2]?"+"+pa[2]:"+")+'</span>';b.setAttribute("aria-label","Paese del numero: "+pa[1]+(pa[2]?", prefisso +"+pa[2]:"")+". Tocca per cambiarlo");
-  inp.placeholder=pa[2]==="39"?"333 123 4567":(pa[2]?"numero senza prefisso":"+ prefisso e numero");}
-function telImposta(id,num){var inp=document.getElementById(id);if(!inp)return;num=String(num||"").replace(/[^0-9]/g,"");var cod="it",resto=num;
-  if(num){var m=null;TEL_PAESI.forEach(function(pa){if(pa[2]&&num.indexOf(pa[2])===0&&num.length>pa[2].length+5&&(!m||pa[2].length>m[2].length))m=pa;});
-    if(m){cod=m[0];resto=num.slice(m[2].length);}else{cod="xx";resto="+"+num;}}
-  telScegli(inp,cod);inp.value=resto;}
-function telValore(id){var inp=document.getElementById(id);if(!inp)return "";var v=inp.value.trim();if(!v)return "";
-  if(v.charAt(0)==="+"||v.indexOf("00")===0)return v;var pa=telPaese(inp.dataset.paese||"it");if(!pa[2])return v;
-  var n=v.replace(/[^0-9]/g,"");if(pa[2]!=="39")n=n.replace(/^0+/,"");return "+"+pa[2]+n;}
-function telMonta(id){var inp=document.getElementById(id);if(!inp||inp.parentNode.classList.contains("tel-box"))return;
-  var box=document.createElement("div");box.className="tel-box";inp.parentNode.insertBefore(box,inp);
-  var b=document.createElement("button");b.type="button";b.className="tel-paese";b.setAttribute("aria-haspopup","listbox");b.setAttribute("aria-expanded","false");
-  box.appendChild(b);box.appendChild(inp);var lista=null;
-  function chiudi(){if(lista){lista.remove();lista=null;b.setAttribute("aria-expanded","false");document.removeEventListener("mousedown",fuori,true);}}
-  function fuori(e){if(!box.contains(e.target))chiudi();}
-  function disegna(q){var h="";q=(q||"").toLowerCase();TEL_PAESI.forEach(function(pa){if(q&&(pa[1].toLowerCase().indexOf(q)<0&&("+"+pa[2]).indexOf(q)<0))return;
-    h+='<button type="button" class="tel-op" role="option" data-c="'+pa[0]+'" aria-selected="'+(pa[0]===inp.dataset.paese)+'">'+telBandiera(pa)+'<span>'+pa[1]+'</span><b>'+(pa[2]?"+"+pa[2]:"")+'</b></button>';});
-    lista.querySelector(".tel-ops").innerHTML=h||'<p style="margin:6px;opacity:.7">Nessun paese trovato</p>';}
-  b.addEventListener("click",function(){if(lista){chiudi();return;}
-    lista=document.createElement("div");lista.className="tel-lista";lista.setAttribute("role","listbox");lista.setAttribute("aria-label","Paese del numero");
-    lista.innerHTML='<input type="search" placeholder="Cerca il paese" aria-label="Cerca il paese"><div class="tel-ops"></div>';box.appendChild(lista);disegna("");
-    b.setAttribute("aria-expanded","true");var c=lista.querySelector("input");c.addEventListener("input",function(){disegna(c.value);});
-    lista.addEventListener("click",function(e){var o=e.target.closest(".tel-op");if(!o)return;var vecchio=inp.value;telScegli(inp,o.getAttribute("data-c"));
-      if(o.getAttribute("data-c")==="xx"&&vecchio&&vecchio.charAt(0)!=="+")inp.value="+"+vecchio;chiudi();inp.focus();});
-    lista.addEventListener("keydown",function(e){if(e.key==="Escape"){e.stopPropagation();chiudi();b.focus();}});
-    document.addEventListener("mousedown",fuori,true);var sel=lista.querySelector('[aria-selected="true"]');if(sel)sel.scrollIntoView({block:"nearest"});c.focus();});
-  telScegli(inp,"it");}
-` + "return{monta:telMonta,imposta:telImposta,valore:telValore};})();";
+// Telefono con bandierina e prefisso (21/11/2026, salva-rubrica-b1-4): l'Agenda usa srTelefono del modulo comune
+// src/salva-rubrica.js (Italia +39 di base, tutti i paesi). GL_TEL resta con gli stessi nomi per lo script della pagina:
+// la casella nc-tel è quella che si legge e si salva (+39…), srTelefono la nasconde e mostra bandierina e numero.
+const TEL_JS = "var GL_TEL={monta:function(id){var e=document.getElementById(id);if(e&&typeof srTelefono==='function')srTelefono(e);}," +
+  "imposta:function(id,v){var e=document.getElementById(id);if(e)e.value=v==null?'':String(v);}," +
+  "valore:function(id){var e=document.getElementById(id);return e?String(e.value||'').trim():'';}};";
 
 const STILE =
   ":root{--accento:#0A7D48;--bordo:#d5dcd8;--sfondo:#F4F6F5;--ar:#C27A12;--ar-s:#8A4A06;--ar-c:#FFF7EA;--ar-b:#F1D7AE}" +

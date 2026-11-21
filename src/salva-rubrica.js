@@ -14,6 +14,7 @@
 //                conosciuto: function (testo) { ... },    // true se è già nella Rubrica
 //                impresa: function () { ... },            // ragione sociale proposta (modo 'email')
 //                piva: function () { ... },               // partita IVA proposta (per esempio letta dalla fattura)
+//                propria: ['Nome impresa', …] o function, // nomi della propria impresa: per questi il riquadro non compare
 //                dopo: function (contatto) { ... },       // collega il contatto salvato a ciò che si compila
 //                salva: function (dati) { ... } })        // facoltativo: salvataggio della pagina (es. preventivo senza cantiere),
 //                                                         // promessa con la stessa risposta di /agenda/contatto
@@ -45,7 +46,9 @@ function srNorm(s){return String(s||'').toLowerCase().replace(/\s+/g,' ').trim()
 function srEmailOk(s){return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());}
 function srParti(o){var v=String(o.campo.value||'');var a=o.multi?v.split(o.modo==='email'?/[,;\s]+/:/[,;]+/):[v];
  return a.map(function(x){return x.trim();}).filter(function(x){return x.length>=2&&(o.modo!=='email'||srEmailOk(x));});}
-function srManca(o){var ps=srParti(o);for(var i=0;i<ps.length;i++){var x=ps[i];if(o._fatti[srNorm(x)])continue;if(o.conosciuto&&o.conosciuto(x))continue;return x;}return '';}
+function srPropria(o,x){var p=typeof o.propria==='function'?o.propria():o.propria;if(!p)return false;x=srNorm(x);
+ return [].concat(p).some(function(n){return n&&srNorm(n)===x;});}
+function srManca(o){var ps=srParti(o);for(var i=0;i<ps.length;i++){var x=ps[i];if(o._fatti[srNorm(x)])continue;if(srPropria(o,x))continue;if(o.conosciuto&&o.conosciuto(x))continue;return x;}return '';}
 function srAggiorna(o){var box=o._box;if(box.dataset.aperto==='1')return;var x=srManca(o);
  if(!x){if(!box.classList.contains('sr-ok')){box.hidden=true;box.innerHTML='';}return;}
  box.classList.remove('sr-ok');box.hidden=false;o._x=x;
