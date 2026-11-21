@@ -41,7 +41,11 @@ export async function portaleRubricaB2(request, env, h) {
     dati = { impresa: s("impresa", 120), nome: s("nome", 120), tipo_rapporto: s("tipo_rapporto", 20).toLowerCase(), telefono: s("telefono", 40),
       email: s("email", 160).toLowerCase(), partita_iva: s("partita_iva", 20), note: s("note", 500) };
   }
-  const r = await h.rpc(env, "rubrica_da_sezione", { p_token: t, p_commessa: c, p_sezione: "agenda", p_azione: azione, p_dati: dati }, 15000).catch(() => null);
+  // 21/11/2026 (salva-rubrica-b2-2, ok di Filippo): l'elenco porta anche i nomi dell'impresa stessa («propria»), così il riquadro
+  // non compare quando si scrive la propria impresa (rubrica_b2_elenco chiama rubrica_da_sezione e aggiunge i nomi).
+  const r = azione === "elenco"
+    ? await h.rpc(env, "rubrica_b2_elenco", { p_token: t, p_commessa: c }, 15000).catch(() => null)
+    : await h.rpc(env, "rubrica_da_sezione", { p_token: t, p_commessa: c, p_sezione: "agenda", p_azione: azione, p_dati: dati }, 15000).catch(() => null);
   if (r === null || typeof r !== "object") return jsonRisposta({ esito: "incerto" }, 502);
   return jsonRisposta(r, r.esito === "gettone" ? 403 : 200);
 }
@@ -49,10 +53,12 @@ export async function portaleRubricaB2(request, env, h) {
 // Una sola volta per pagina (il Diario ha più finestre di sezioni diverse): stile in fondo al body, modulo comune, aiuto b2Aggancia.
 const AIUTO_JS = String.raw`
 window.b2Rubrica=function(base,t,c){if(!window._b2R)window._b2R=fetch(base+'/giornale/rubrica',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:t,c:c,azione:'elenco'})})
- .then(function(r){return r.json();}).then(function(r){var s={};if(r&&r.esito==='ok')(r.nomi||[]).forEach(function(x){s[srNorm(x)]=1;});else s=null;return s;}).catch(function(){return null;});return window._b2R;};
+ .then(function(r){return r.json();}).then(function(r){var s={};if(r&&r.esito==='ok'){(r.nomi||[]).concat(r.propria||[],r.email||[]).forEach(function(x){s[srNorm(x)]=1;});window._b2P=r.propria||[];}else s=null;return s;}).catch(function(){return null;});return window._b2R;};
+// la propria impresa: per ora anche in «conosciuto»; con l'opzione «propria» del modulo comune della B1 (salva-rubrica-b1-4) il controllo passa a lei
 window.b2Aggancia=function(o){if(typeof srAggancia!=='function'||!o||!o.campo)return null;
  var noto={},pronto=false;
- var a=srAggancia({campo:o.campo,base:o.base,t:o.t,c:o.c,sezione:'agenda',modo:o.modo||'ditta',rapporto:o.rapporto||'fornitore',dopoDi:o.dopoDi,
+ var a=srAggancia({campo:o.campo,base:o.base,t:o.t,c:o.c,sezione:'agenda',modo:o.modo||'ditta',rapporto:o.rapporto||'fornitore',dopoDi:o.dopoDi,multi:!!o.multi,impresa:o.impresa,nome:o.nome,
+  propria:function(){return window._b2P||[];},
   conosciuto:function(x){if(!pronto)return true;var n=srNorm(x);return !!noto[n]||(o.anche&&o.anche(n));},
   salva:function(d){return fetch(o.base+'/giornale/rubrica',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:o.t,c:o.c,azione:'salva',dati:d})}).then(function(r){return r.json().catch(function(){return{esito:'errore'};});});},
   dopo:function(k,es){[k&&k.impresa,k&&k.nome].forEach(function(x){if(x)noto[srNorm(x)]=1;});if(o.dopo)try{o.dopo(k,es);}catch(e){}}});

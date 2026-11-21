@@ -21,6 +21,8 @@
 // Impresa) ciò che manca si segna in rosso con la riga che dice cosa fare (modulo comune src/campi-rossi.js).
 // ============================================================================
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-2): «… non è nella Rubrica» e «Salva in Rubrica» sull'impresa scritta a mano (src/rubrica-b2.js).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 // 17/11/2026 (sicurezza-elimina-1): la copia su Drive di un documento eliminato va nel cestino di Drive
 import { driveCestino } from "./google.js";
 
@@ -582,7 +584,7 @@ function pagina(base, h, p, d, torna) {
 
   // ---- dati per lo script della pagina (moduli e finestre)
   const cfg = JSON.stringify({
-    u: base + "/sicurezza", t: p.tok, c: p.c, max: maxMb, oggi: d.oggi || "", cse: cant.cse || "", chiuso,
+    u: base + "/sicurezza", b: base, t: p.tok, c: p.c, max: maxMb, oggi: d.oggi || "", cse: cant.cse || "", chiuso,
     tipi: lista(d.tipi).map((t) => ({ k: t.chiave, e: t.etichetta, b: t.breve, pi: !!t.per_impresa, fa: !!t.impresa_facoltativa, sg: t.scadenza_giorni || 0 })),
     imprese: imprese.map((i) => ({ k: i.chiave, n: i.nome, r: i.ruolo, p: i.pos, a: !!i.attiva, l: i.lavorazione || "" })),
     docs: Object.fromEntries(vivi.map((x) => [x.id, { n: titoloDoc(T, x), tipo: x.tipo, ik: x.impresa_chiave || "", imp: x.impresa || "", tit: x.titolo || "",
@@ -607,7 +609,7 @@ function pagina(base, h, p, d, torna) {
     "TIX conserva i documenti, li tiene in ordine e ti ricorda le scadenze; il contenuto lo valuta chi li riceve. «Visto dal CSE» è un'etichetta che mette la tua impresa: non è la firma del CSE.</p>" +
     "</div></main>" + finestre(ctx) +
     '<div class="sc-toast" id="sc-toast" role="status" hidden></div>' +
-    "<script>" + CAMPI_ROSSI_JS + "</script>" +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" + rubricaB2Iniezione() +
     "<script>" + SCRIPT.replace("__CFG__", cfg) + "</script></body></html>";
 }
 
@@ -1084,6 +1086,8 @@ if($('de-si'))$('de-si').addEventListener('click',function(){salva('de','elimina
 if($('di-si'))$('di-si').addEventListener('click',function(){var n=$('di-nome').value.trim();
  var pos='';D.querySelectorAll('input[name=di-pos]').forEach(function(r){if(r.checked)pos=r.value;});
  salva('di','impresa_salva',{chiave:corr||'',nome:n,ruolo:$('di-ruolo').value,lavorazione:$('di-lav').value.trim(),pos:pos},[{el:$('di-nome'),testo:'Scrivi il nome dell\'impresa.'}]);});
+// 21/11/2026 (salva-rubrica-b2-2): «Salva in Rubrica» sull'impresa scritta a mano («+ Altra impresa» nel caricamento e nella modifica, «Aggiungi un'impresa»)
+if(window.b2Aggancia){[['f-altra-nome','f-altra'],['dm-altra-nome','dm-altra'],['di-nome','di-nome']].forEach(function(x){var e=$(x[0]);if(e)window.b2Aggancia({campo:e,base:CFG.b,t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'subappaltatore',dopoDi:$(x[1])||e});});}
 if($('di-togli'))$('di-togli').addEventListener('click',function(){var i=IMP[corr];if(!i||!confirm('Togli «'+i.n+'» dall\'elenco delle imprese del cantiere? I suoi documenti restano.'))return;
  var b=$('di-togli');b.disabled=true;chiama('impresa_togli',null,{chiave:corr}).then(function(r){esito(r,b,$('di-msg'),'');});});
 // ---- dopo un salvataggio: torna al documento

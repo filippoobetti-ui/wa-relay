@@ -17,6 +17,8 @@
 // avviso quando si accende (anche per le foto); in fondo alla pagina condivisa «non inoltrare il link», titolare e informativa;
 // nell'elenco «dati di apertura cancellati» dopo 12 mesi (cron nel database).
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-2): «Salva in Rubrica» sulle email scritte a mano (src/rubrica-b2.js).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GETTONE = /^[0-9a-f]{48}$/;
@@ -110,7 +112,7 @@ async function paginaEsterni(request, env, h, base, resto) {
 
 // Stile e script iniettati nella pagina del cantiere (area riservata), solo se la funzione è accesa per questo accesso.
 export function diarioCondividiIniezione(base, token, commessa, prova) {
-  const cfg = JSON.stringify({ u: base + "/diario/condividi", t: token, c: commessa, prova: prova === true });
+  const cfg = JSON.stringify({ u: base + "/diario/condividi", b: base, t: token, c: commessa, prova: prova === true });
   const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-dc-b{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;min-height:46px;margin:0 0 12px;border:1px solid #1B2F4A;border-radius:12px;background:#fff;color:#1B2F4A;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;letter-spacing:normal;text-transform:none;box-shadow:none}" +
     ".gl-dc-b:hover,.gl-dc-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
@@ -146,7 +148,7 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     ".gl-dc-bx input[type=date],.gl-dc-bx input[type=email],.gl-dc-bx input[type=text],.gl-dc-bx textarea{background:#111513;color:#eef2f0;border-color:#3a4540}" +
     ".gl-dc-az button,.gl-dc-man button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-dc-ch span,.gl-dc-st .d span,.gl-dc-sc button{background:#232b27;color:#eef2f0}}" +
     "</style>";
-  const script = (CAMPI_ROSSI_JS ? "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" : "") +
+  const script = rubricaB2Iniezione() + (CAMPI_ROSSI_JS ? "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" : "") +
     "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
     "function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}\n" +
     "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}\n" +
@@ -179,9 +181,12 @@ export function diarioCondividiIniezione(base, token, commessa, prova) {
     "  function avvisi(){var a=[];if(q('#gl-dc-o').checked)a.push('Mostrerai nomi e ore dei lavoratori a persone esterne all’impresa.');if(q('#gl-dc-f').checked)a.push('Mostrerai le foto, con le persone riprese, a persone esterne all’impresa.');q('#gl-dc-avv').innerHTML=a.map(function(x){return '&#9888; '+esc(x);}).join('<br>');}\n" +
     "  q('#gl-dc-o').onchange=avvisi;q('#gl-dc-f').onchange=avvisi;avvisi();\n" +
     "  function interno(em){var d=(String(em||'').toLowerCase().split('@')[1])||'';return d!==''&&(K.domini_impresa||[]).indexOf(d)!==-1;}\n" +
-    "  function chips(){var c=q('#gl-dc-ch');c.innerHTML='';scelti.forEach(function(x,i){var s=el('span','',esc(x.email));var b=el('button','','&times;');b.type='button';b.title='Togli';b.onclick=function(){scelti.splice(i,1);chips();};s.appendChild(b);c.appendChild(s);});}\n" +
+    "  function chips(){var c=q('#gl-dc-ch');c.innerHTML='';scelti.forEach(function(x,i){var s=el('span','',esc(x.email));var b=el('button','','&times;');b.type='button';b.title='Togli';b.onclick=function(){scelti.splice(i,1);chips();};s.appendChild(b);c.appendChild(s);});var hv=q('#gl-dc-sr');if(hv){hv.value=scelti.map(function(x){return x.email;}).join(',');if(hv._b2)hv._b2.aggiorna();}}\n" +
     "  q('#gl-dc-piu').onclick=function(){var v=q('#gl-dc-em').value.trim();if(!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)){window.crSegna(q('#gl-dc-em'),'Questa email non sembra giusta');return;}q('#gl-dc-es').innerHTML='';if(!scelti.some(function(x){return x.email.toLowerCase()===v.toLowerCase();}))scelti.push({nome:'',email:v});q('#gl-dc-em').value='';chips();};\n" +
     "  q('#gl-dc-em').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();q('#gl-dc-piu').click();}});\n" +
+    "  (function(){var ch=q('#gl-dc-ch'),hv=document.createElement('input');hv.type='hidden';hv.id='gl-dc-sr';ch.parentNode.insertBefore(hv,ch.nextSibling);\n" +
+    "   if(window.b2Aggancia)hv._b2=window.b2Aggancia({campo:hv,base:CFG.b,t:CFG.t,c:CFG.c,modo:'email',multi:true,rapporto:'esterno',dopoDi:ch,\n" +
+    "    anche:function(n){return K.contatti.some(function(x){return srNorm(x.email)===n;});}});})();\n" +
     "  q('#gl-dc-no').onclick=chiudi;\n" +
     "  q('#gl-dc-si').onclick=function(){var dest=scelti.slice();bx.querySelectorAll('.gl-dc-el input:checked').forEach(function(i){var x=K.contatti[+i.getAttribute('data-i')];if(x&&!dest.some(function(y){return y.email.toLowerCase()===x.email.toLowerCase();}))dest.push({nome:x.nome||'',email:x.email});});\n" +
     "   var v=q('#gl-dc-em').value.trim();if(v&&/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v)&&!dest.some(function(y){return y.email.toLowerCase()===v.toLowerCase();}))dest.push({nome:'',email:v});\n" +
