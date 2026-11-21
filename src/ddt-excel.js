@@ -11,6 +11,8 @@
 
 // 14/11/2026 (campi-rossi, regola di Filippo per tutti i moduli): i campi che mancano si segnano in rosso (src/campi-rossi.js).
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-1): «… non è nella Rubrica» con «Salva in Rubrica» sul fornitore scritto a mano (src/rubrica-b2.js).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -60,7 +62,7 @@ export async function portaleDdtExcel(request, env, h) {
 }
 
 export function ddtExcelIniezione(base, token, commessa) {
-  const cfg = JSON.stringify({ u: base + "/ddt/excel", t: token, c: commessa });
+  const cfg = JSON.stringify({ u: base + "/ddt/excel", b: base, t: token, c: commessa });
   const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-dx-b{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;min-height:46px;margin:0 0 12px;border:1px solid #1B2F4A;border-radius:12px;background:#fff;color:#1B2F4A;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;letter-spacing:normal;text-transform:none;box-shadow:none}" +
     ".gl-dx-b:hover,.gl-dx-b:focus-visible{background:#1B2F4A;color:#fff;outline:none}" +
@@ -90,7 +92,7 @@ export function ddtExcelIniezione(base, token, commessa) {
   // fornitore (il file è tutto di un fornitore) e scrivono il cantiere come indirizzo. Ora: più nomi di colonna riconosciuti; se
   // numero e data si trovano, niente schermata delle colonne; se manca il fornitore lo si chiede una volta sola per tutto il file
   // (proposto dal titolo del file o del foglio); i cantieri non riconosciuti vanno nel cantiere della pagina, cambiabile per gruppo.
-  const script = "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" +
+  const script = rubricaB2Iniezione() + "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS + "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" +
     "<script>(function(){try{\nvar CFG=" + cfg + ";\n" +
     "var XLSXURL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';\n" +
     "function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}\n" +
@@ -138,7 +140,7 @@ export function ddtExcelIniezione(base, token, commessa) {
     " function passoForn(){bx.innerHTML='<h3>Importa DDT da Excel</h3><p><b>'+esc(F.nome)+'</b></p><p>Nel file non c’è la colonna del fornitore: di solito vuol dire che tutti i DDT sono dello stesso fornitore. <b>Di quale fornitore sono?</b></p>'+\n" +
     "   '<input type=\"text\" id=\"gl-dx-fo\" maxlength=\"160\" placeholder=\"Nome del fornitore\" value=\"'+esc(F.prop)+'\"><div id=\"gl-dx-es\"></div>'+\n" +
     "   '<div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-col\">Scegli le colonne a mano</button><button type=\"button\" class=\"pr\" id=\"gl-dx-av\">Avanti</button></div>';\n" +
-    "  var i=bx.querySelector('#gl-dx-fo');i.focus();i.addEventListener('keydown',function(e){if(e.key==='Enter')bx.querySelector('#gl-dx-av').click();});\n" +
+    "  var i=bx.querySelector('#gl-dx-fo');i.focus();if(window.b2Aggancia)window.b2Aggancia({campo:i,base:CFG.b,t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'fornitore'});i.addEventListener('keydown',function(e){if(e.key==='Enter')bx.querySelector('#gl-dx-av').click();});\n" +
     "  bx.querySelector('#gl-dx-col').onclick=passo2;\n" +
     "  bx.querySelector('#gl-dx-av').onclick=function(){var v=i.value.trim();if(!window.crControlla([{el:i,testo:'Scrivi il nome del fornitore'}]))return;F.forn=v;controlla();};}\n" +
     " function elenco(){post('elenco').then(function(r){var c=bx.querySelector('#gl-dx-el');if(!c)return;var l=r&&r.importazioni||[];if(!l.length){c.innerHTML='<p class=\"gl-dx-nota\">Nessuna importazione per ora.</p>';return;}\n" +
@@ -151,6 +153,7 @@ export function ddtExcelIniezione(base, token, commessa) {
     "   '<div id=\"gl-dx-es\"></div><div class=\"gl-dx-az\"><button type=\"button\" id=\"gl-dx-ind\">Cambia file</button><button type=\"button\" class=\"pr\" id=\"gl-dx-va\">Controlla le righe</button></div>';\n" +
     "  CAMPI.forEach(function(c){var s=bx.querySelector('#gl-dx-c-'+c.k);s.value=String(F.m[c.k]==null?-1:F.m[c.k]);s.onchange=function(){s.parentNode.className='';};});\n" +
     "  bx.querySelector('#gl-dx-ind').onclick=function(){passo1('');};\n" +
+    "  if(window.b2Aggancia)window.b2Aggancia({campo:bx.querySelector('#gl-dx-fo2'),base:CFG.b,t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'fornitore'});\n" +
     "  bx.querySelector('#gl-dx-va').onclick=function(){var m={};CAMPI.forEach(function(c){var v=+bx.querySelector('#gl-dx-c-'+c.k).value;if(v>=0)m[c.k]=v;});var fo=bx.querySelector('#gl-dx-fo2').value.trim(),es=bx.querySelector('#gl-dx-es');\n" +
     "   if(!window.crControlla([{el:bx.querySelector('#gl-dx-c-numero'),ok:function(){return m.numero!=null;},testo:'Scegli la colonna del numero del DDT'},\n" +
     "     {el:bx.querySelector('#gl-dx-c-data'),ok:function(){return m.data!=null;},testo:'Scegli la colonna della data del DDT'},\n" +

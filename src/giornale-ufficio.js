@@ -31,6 +31,8 @@
 // se il database risponde con «campo», si segna quel campo.
 // ---------------------------------------------------------------------------
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-1): «Salva in Rubrica» su impresa subappaltatrice (Economie) e fornitore (Aggiungi a questo giorno).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 
 const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AZIONI = ["stato", "leggi", "correggi", "aggiungi"];
@@ -316,7 +318,7 @@ export async function portaleGiornaleUfficio(request, env, h, base, inUrl) {
 // Stile e script iniettati nella pagina del cantiere (area riservata). base = "" oppure "/portale".
 // aggiunte = false con AGGIUNTE_GIORNI = "off": niente «Aggiungi a questo giorno» (le integrazioni già fatte restano visibili).
 export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
-  const cfg = JSON.stringify({ u: base + "/giornale/ufficio", f: base + "/giornale/ufficio/file", v: base + "/giornale/integrazione",
+  const cfg = JSON.stringify({ u: base + "/giornale/ufficio", f: base + "/giornale/ufficio/file", v: base + "/giornale/integrazione", b: base,
     t: token, c: commessa, ag: aggiunte !== false });
   const stile = "<style>" + CAMPI_ROSSI_CSS +
     ".gl-gu-b{display:inline-flex;align-items:center;gap:6px;margin:8px 8px 0 0;padding:0 14px;min-height:36px;border:1px solid #c62828;border-radius:8px;background:#fdecec;color:#c62828;font:inherit;font-size:.9rem;font-weight:700;cursor:pointer;vertical-align:middle}" +
@@ -386,7 +388,7 @@ export function giornaleUfficioIniezione(base, token, commessa, aggiunte) {
     ".gl-gu-bx input[type=date]{display:block;width:100%;box-sizing:border-box;margin:4px 0 0;padding:9px 10px;border:1px solid #c9d1cd;border-radius:10px;font:inherit}" +
     "@media (prefers-color-scheme:dark){.gl-ag-lista li{border-color:#3a4540}.gl-gu-bx label.gl-ag-sc{background:#3a2f12;color:#f3e2bd}.gl-gu-bx .gl-ag-lista button{background:#232b27;color:#eef2f0;border-color:#3a4540}.gl-ag-pr{color:#cfe0ff}.gl-gu-bx .gl-ag-fac{color:#a9b3ae}}" +
     "</style>";
-  const script = "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS +
+  const script = rubricaB2Iniezione() + "<script>if(!window.crControlla){" + CAMPI_ROSSI_JS +
     "\nwindow.crControlla=crControlla;window.crSegna=crSegna;window.crPulisci=crPulisci;}</script>" +
     "<script>" + String.raw`(function(){try{
 var CFG=` + cfg + String.raw`,STATO=null;
@@ -555,6 +557,7 @@ function economia(g,mid){
    '<label for="gl-ec-a">Inserita da <span class="gl-ag-fac">(nome e cognome)</span></label><input type="text" id="gl-ec-a" maxlength="120" autocomplete="name">'+
    '<div class="gl-gu-err" style="display:none"></div><div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="pr">'+(mid?'Salva la correzione':'Aggiungi l’economia')+'</button></div>';
   var q=function(x){return bx.querySelector(x);},imp=q('.gl-ec-imp'),mz=q('.gl-ec-mz'),err=q('.gl-gu-err'),pr=q('.pr');
+  if(window.b2Aggancia)window.b2Aggancia({campo:q('#gl-ec-i'),base:CFG.b,t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'subappaltatore'});
   function per(){var p=q('input[name="gl-ec-p"]:checked');return p?p.value:'committente';}
   function riga(id,qt){var d=el('div','gl-ec-r');d.innerHTML='<select>'+opz+'</select><input type="number" min="0" max="999" step="0.5" inputmode="decimal" placeholder="quantità"><button type="button" title="Togli" aria-label="Togli il mezzo">&times;</button>';
    d.querySelector('select').value=id||'';d.querySelector('input').value=qt==null?'':qt;d.querySelector('button').onclick=function(){d.parentNode.removeChild(d);};mz.appendChild(d);}
@@ -627,6 +630,7 @@ function aggiungiGiorno(g){
   '<div class="gl-gu-az"><button type="button" class="an">Annulla</button><button type="button" class="ag">Aggiungi al diario</button></div>';
  var s=bx.querySelector('#gl-ag-s'),dd=bx.querySelector('.gl-ag-ddt'),fo=bx.querySelector('#gl-ag-for'),nu=bx.querySelector('#gl-ag-num'),t=bx.querySelector('#gl-ag-t'),fi=bx.querySelector('#gl-ag-f'),ul=bx.querySelector('.gl-ag-lista'),m=bx.querySelector('#gl-ag-m'),a=bx.querySelector('#gl-ag-a'),pr=bx.querySelector('.gl-ag-pr'),err=bx.querySelector('.gl-gu-err'),ag=bx.querySelector('.ag'),an=bx.querySelector('.an');
  a.value=autore();
+ if(window.b2Aggancia)window.b2Aggancia({campo:fo,base:CFG.b,t:CFG.t,c:CFG.c,modo:'ditta',rapporto:'fornitore'});
  function no(x){err.textContent=x;err.style.display='block';}
  function sezione(){if(s.value==='ECO'){esci();economia(g,null);return;}var d=s.value==='DDT';dd.hidden=!d;t.placeholder=d?'es. Consegna di 12 m³ di calcestruzzo C25/30 per il solaio del piano 1':'es. Getto del solaio del piano 1 completato';}
  s.addEventListener('change',sezione);sezione();

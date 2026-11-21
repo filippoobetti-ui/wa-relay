@@ -11,6 +11,8 @@
 // 14/11/2026 (campi-rossi-b2, regola di Filippo): ciò che manca nel modulo e nell'annullamento si segna in rosso sul campo.
 // ============================================================================
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-1): «Salva in Rubrica» su «Squadra o impresa» di ogni riga della manodopera (src/rubrica-b2.js).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -246,7 +248,7 @@ export function paginaRapportino(base, tok, c, d, g, h) {
     '<p class="msg" id="an-msg" aria-live="polite"></p></div>' +
     '<div class="dl-b"><button type="button" class="no" id="an-no">Indietro</button><button type="submit" class="si rosso" id="an-si">Annulla il rapportino</button></div>' +
     "</form></dialog>" +
-    "<script>" + CAMPI_ROSSI_JS + "</script>" +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" + rubricaB2Iniezione() +
     "<script>var GL_RP=" + dati + ";" + SCRIPT + "</script></body></html>";
 }
 
@@ -389,8 +391,9 @@ for(var i=0;i<gg.length;i++)gg[i].addEventListener('click',function(ev){if(stato
 function nuovaRiga(r){var n=tpl.content.firstElementChild.cloneNode(true);
  if(r){n.querySelector('.m-sq').value=r.squadra||'';n.querySelector('.m-q').value=r.qualifica||'';n.querySelector('.m-op').value=r.operai==null?'':r.operai;n.querySelector('.m-ore').value=r.ore==null?'':String(r.ore).replace('.',',');n.querySelector('.m-e').value=(r.economia==='si'||r.economia==='sub')?r.economia:'no';}
  if(r&&(r.fonte==='whatsapp'||r.fonte==='timbrature')){n.setAttribute('data-fonte',r.fonte);n.title=r.fonte==='whatsapp'?'Riga presa da WhatsApp':'Riga presa da ENTRO / ESCO';}var se=n.querySelector('.m-e');function colore(){se.className='m-e'+(se.value==='no'?'':' e-'+se.value);}se.addEventListener('change',function(){colore();stato.sporco=true;});colore();
- n.querySelector('.m-x').addEventListener('click',function(){n.parentNode.removeChild(n);if(!fmano.children.length)nuovaRiga();totale();stato.sporco=true;});
- fmano.appendChild(n);}
+ n.querySelector('.m-x').addEventListener('click',function(){n.parentNode.removeChild(n);if(n._sr&&n._sr._box&&n._sr._box.parentNode)n._sr._box.parentNode.removeChild(n._sr._box);if(!fmano.querySelector('.riga-m'))nuovaRiga();totale();stato.sporco=true;});
+ fmano.appendChild(n);
+ n._sr=window.b2Aggancia?window.b2Aggancia({campo:n.querySelector('.m-sq'),base:D.base,t:D.t,c:D.c,modo:'ditta',rapporto:'subappaltatore',dopoDi:n}):null;}
 function righe(){var a=[],rr=fmano.querySelectorAll('.riga-m');for(var i=0;i<rr.length;i++){var r=rr[i];
  var o={squadra:r.querySelector('.m-sq').value.trim(),qualifica:r.querySelector('.m-q').value,operai:r.querySelector('.m-op').value.trim(),ore:r.querySelector('.m-ore').value.trim(),economia:r.querySelector('.m-e').value};if(r.getAttribute('data-fonte'))o.fonte=r.getAttribute('data-fonte');
  if(o.squadra||o.operai||o.ore)a.push(o);}return a;}
