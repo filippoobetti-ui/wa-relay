@@ -723,7 +723,7 @@ export function paginaAgenda(base, tok, c, d, h) {
       '<p class="piccolo nc-nota">Lo ritrovi nella Rubrica, dove puoi completarlo o eliminarlo.</p><p class="msg" id="nc-msg" aria-live="polite"></p></div>' +
       '<div class="dl-b"><button type="button" class="no" id="nc-no">Annulla</button><button type="submit" class="si" id="nc-si">Salva e invita</button></div>' +
       "</form></dialog>" : "") +
-    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + (d.filippo === true ? CAMPI_ROSSI_JS : "") + CALENDARIO + SCRIPT + "</script></body></html>";
+    "<script>var GL_AG=" + dati + ";" + (nuovoOk ? TEL_JS : "") + CAMPI_ROSSI_JS + CALENDARIO + SCRIPT + "</script></body></html>";
 }
 
 // Telefono con bandierina e prefisso del paese, Italia di base (30/10/2026, telefono-paese-1): copia del blocco TEL_JS di

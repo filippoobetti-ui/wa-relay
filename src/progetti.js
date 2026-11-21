@@ -23,6 +23,7 @@
 // Email (progetti_email_attive) e tavola su WhatsApp (P2): non in questo file.
 // ============================================================================
 
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b1-1: regola di Filippo del 14/11
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
 const LINK_SECONDI = 2592000;           // collegamento firmato di 30 giorni per l'archivio
@@ -472,7 +473,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Progetti del cantiere - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="pg-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="pg-card">' +
     '<div class="pg-testa"><div>' + (d.cantiere ? '<p class="pg-cant">' + e(d.cantiere) + '</p>' : "") +
@@ -517,7 +518,7 @@ function pagina(base, h, p, d, torna) {
       '<label for="pg-lt-chi">Il tuo nome</label><input id="pg-lt-chi" maxlength="120" autocomplete="name">' +
       '<p class="pg-msg" id="pg-lt-msg" role="status"></p>' +
       '<div class="pg-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="pg-lt-si">Salva</button></div></form></dialog>' : "") +
-    "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
+    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SCRIPT + "</script></body></html>";
 }
 
 const NOME_TIPO = Object.fromEntries(TIPI);
@@ -697,6 +698,7 @@ const STILE =
 
 const SCRIPT = String.raw`(function(){try{
 var D=document;function $(i){return D.getElementById(i);}
+function rosso(el,t){if(!el)return;if(typeof crSegna==='function')crSegna(el,t);try{el.focus();}catch(e){}}D.querySelectorAll('dialog').forEach(function(g){g.addEventListener('close',function(){if(typeof crPulisci==='function')crPulisci(g);});});
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function leggiChi(){try{return localStorage.getItem('tix_pg_chi')||'';}catch(e){return '';}}
 function scriviChi(v){try{if(v)localStorage.setItem('tix_pg_chi',v);}catch(e){}}
@@ -770,7 +772,7 @@ var dati={t:CFG.t,c:CFG.c,tipo:f.tipo,codice:String(f.codice||'').trim(),titolo:
 return fetch(CFG.u+'/carica',{method:'POST',headers:{'X-Progetti-Dati':b64url(JSON.stringify(dati)),'Content-Type':'application/octet-stream'},body:buf}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});});});});}
 var salvati=0;
 if($('pg-salva'))$('pg-salva').addEventListener('click',function(){var b=$('pg-salva'),m=$('pg-msg'),chi=$('pg-chi').value.trim();
-if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha caricato le tavole.';$('pg-chi').focus();return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha caricato le tavole.';rosso($('pg-chi'),'Scrivi il tuo nome: resta scritto chi ha caricato le tavole.');return;}
 var da=FILE.filter(function(f){return !f.no&&!f.ok;});
 if(mancano()){m.textContent='Prima di salvare scrivi codice e revisione nei campi in rosso (vedi il riquadro sopra l\'elenco).';var pr=righe.querySelector('input.manca');if(pr)pr.focus();return;}
 scriviChi(chi);b.disabled=true;m.textContent='';var i=0;
@@ -788,14 +790,14 @@ function caricaD(){if(!dBox)return;chiamaD('destinatari').then(disegnaD).catch(f
 caricaD();
 if(dBox)dBox.addEventListener('click',function(ev){var b=ev.target.closest('[data-dt]');if(!b)return;b.disabled=true;chiamaD('destinatario_togli',{id:b.getAttribute('data-dt')}).then(caricaD).catch(caricaD);});
 if($('pg-dest-sug'))$('pg-dest-sug').addEventListener('change',function(){var s=this,k=(s._sug||[])[+s.value];if(!k)return;$('pg-dest-email').value=k.email||'';$('pg-dest-nome').value=k.nome||'';$('pg-dest-nome')._ruolo=k.ruolo||'';});
-if($('pg-dest-si'))$('pg-dest-si').addEventListener('click',function(){var m=$('pg-dest-msg'),em=$('pg-dest-email').value.trim();m.textContent='';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){m.textContent='Scrivi un\'email valida.';return;}
+if($('pg-dest-si'))$('pg-dest-si').addEventListener('click',function(){var m=$('pg-dest-msg'),em=$('pg-dest-email').value.trim();m.textContent='';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){m.textContent='Scrivi un\'email valida.';rosso($('pg-dest-email'),'Scrivi un\'email valida.');return;}
 var b=this;b.disabled=true;chiamaD('destinatario_aggiungi',{email:em,nome:$('pg-dest-nome').value.trim(),ruolo:$('pg-dest-nome')._ruolo||'',chi:leggiChi()}).then(function(r){b.disabled=false;
 if(r&&r.esito==='ok'){$('pg-dest-email').value='';$('pg-dest-nome').value='';$('pg-dest-nome')._ruolo='';$('pg-dest-sug').value='';caricaD();}else m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){b.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- togli
 var dlg=$('pg-dlg'),corr=null;
 D.querySelectorAll('[data-togli]').forEach(function(b){b.addEventListener('click',function(){corr=b.getAttribute('data-togli');$('pg-dlg-cod').textContent=b.getAttribute('data-cod')||'';$('pg-dlg-chi').value=leggiChi();$('pg-dlg-mot').value='';$('pg-dlg-msg').textContent='';
 if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else if(dlg)dlg.setAttribute('open','');});});
-if($('pg-dlg-si'))$('pg-dlg-si').addEventListener('click',function(){var chi=$('pg-dlg-chi').value.trim(),m=$('pg-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
+if($('pg-dlg-si'))$('pg-dlg-si').addEventListener('click',function(){var chi=$('pg-dlg-chi').value.trim(),m=$('pg-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';rosso($('pg-dlg-chi'),'Scrivi il tuo nome.');return;}scriviChi(chi);
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('pg-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- sposta (09/11/2026, sposta-1): una tavola dal suo pulsante, oppure le selezionate dalla barra in basso
@@ -813,7 +815,7 @@ D.querySelectorAll('[data-sposta]').forEach(function(b){b.addEventListener('clic
 if($('pg-sel-sposta'))$('pg-sel-sposta').addEventListener('click',function(){var ids=selezionate();if(!ids.length)return;apriSposta(ids,'',ids.length===1?'Sposta 1 tavola':'Sposta '+ids.length+' tavole');});
 if($('pg-sel-via'))$('pg-sel-via').addEventListener('click',function(){D.querySelectorAll('[data-sel]:checked').forEach(function(x){x.checked=false;});D.querySelectorAll('[data-sel-sez]').forEach(function(b){b.textContent='Seleziona tutte';});barra();});
 if($('pg-sp-si'))$('pg-sp-si').addEventListener('click',function(){var m=$('pg-sp-msg'),tipo=$('pg-sp-tipo').value,chi=$('pg-sp-chi').value.trim();m.textContent='';
-if(!tipo){m.textContent='Scegli la categoria.';$('pg-sp-tipo').focus();return;}if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha spostato le tavole.';$('pg-sp-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+if(!tipo){m.textContent='Scegli la categoria.';rosso($('pg-sp-tipo'),'Scegli la categoria.');return;}if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha spostato le tavole.';rosso($('pg-sp-chi'),'Scrivi il tuo nome: resta scritto chi ha spostato le tavole.');return;}scriviChi(chi);var self=this;self.disabled=true;
 fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'sposta',dati:{ids:sIds,tipo:tipo,chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
 m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Lo spostamento delle tavole non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
@@ -825,8 +827,8 @@ $('pg-md-titolo').value=b.getAttribute('data-m-tit')||'';$('pg-md-codice').value
 $('pg-md-codice').disabled=fisso;$('pg-md-rev').disabled=fisso;$('pg-md-nota').hidden=!fisso;$('pg-md-chi').value=leggiChi();$('pg-md-msg').textContent='';$('pg-md-si').disabled=false;
 if(typeof mdlg.showModal==='function')mdlg.showModal();else mdlg.setAttribute('open','');});});
 if($('pg-md-si'))$('pg-md-si').addEventListener('click',function(){var m=$('pg-md-msg'),chi=$('pg-md-chi').value.trim(),cod=$('pg-md-codice').value.trim(),rev=$('pg-md-rev').value.trim();m.textContent='';
-if(!cod){m.textContent='Scrivi il codice della tavola.';$('pg-md-codice').focus();return;}if(!rev){m.textContent='Scrivi la revisione.';$('pg-md-rev').focus();return;}
-if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha corretto la tavola.';$('pg-md-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+if(!cod){m.textContent='Scrivi il codice della tavola.';rosso($('pg-md-codice'),'Scrivi il codice della tavola.');return;}if(!rev){m.textContent='Scrivi la revisione.';rosso($('pg-md-rev'),'Scrivi la revisione.');return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha corretto la tavola.';rosso($('pg-md-chi'),'Scrivi il tuo nome: resta scritto chi ha corretto la tavola.');return;}scriviChi(chi);var self=this;self.disabled=true;
 fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'modifica',id:mId,dati:{titolo:$('pg-md-titolo').value.trim(),codice:cod,revisione:rev,chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
 m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'La modifica dei dati non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
@@ -838,7 +840,7 @@ var vals=ids.map(function(id){var c=D.querySelector('[data-sel="'+id+'"]');var t
 $('pg-lt-val').value=vals.every(function(v){return v===vals[0];})?vals[0]:'';$('pg-lt-chi').value=leggiChi();$('pg-lt-msg').textContent='';$('pg-lt-si').disabled=false;
 if(typeof ldlg.showModal==='function')ldlg.showModal();else ldlg.setAttribute('open','');});
 if($('pg-lt-si'))$('pg-lt-si').addEventListener('click',function(){var m=$('pg-lt-msg'),val=$('pg-lt-val').value.trim(),chi=$('pg-lt-chi').value.trim();m.textContent='';
-if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha cambiato le tavole.';$('pg-lt-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha cambiato le tavole.';rosso($('pg-lt-chi'),'Scrivi il tuo nome: resta scritto chi ha cambiato le tavole.');return;}scriviChi(chi);var self=this;self.disabled=true;
 fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'lotto',dati:{ids:lIds,lotto:val,chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;
 m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Il fabbricato / lotto non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});

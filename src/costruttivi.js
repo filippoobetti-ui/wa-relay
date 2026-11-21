@@ -25,6 +25,7 @@
 // Interruttori: impostazioni.costruttivi_attiva (no / prova = solo l'accesso «Tutte le aziende» / si) e COSTRUTTIVI = "off".
 // ============================================================================
 
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b1-1: regola di Filippo del 14/11
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
 
@@ -452,7 +453,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Costruttivi dei fornitori - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="cs-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="cs-card">' +
     '<div class="cs-testa"><div>' + (d.cantiere ? '<p class="cs-cant">' + e(d.cantiere) + '</p>' : "") +
@@ -485,7 +486,7 @@ function pagina(base, h, p, d, torna) {
       '<label for="cs-md-chi">Il tuo nome</label><input id="cs-md-chi" maxlength="120" autocomplete="name">' +
       '<p class="cs-msg" id="cs-md-msg" role="status"></p>' +
       '<div class="cs-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn pr" id="cs-md-si">Manda</button></div></form></dialog>' : "") +
-    "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
+    "<script>var CFG=" + cfg + ";" + CAMPI_ROSSI_JS + SCRIPT + "</script></body></html>";
 }
 
 // C2: riquadro del visto di strutturista e DL sul costruttivo delle strutture
@@ -693,6 +694,7 @@ const STILE =
 
 const SCRIPT = String.raw`(function(){try{
 var D=document;function $(i){return D.getElementById(i);}
+function rosso(el,t){if(!el)return;if(typeof crSegna==='function')crSegna(el,t);try{el.focus();}catch(e){}}D.querySelectorAll('dialog').forEach(function(g){g.addEventListener('close',function(){if(typeof crPulisci==='function')crPulisci(g);});});
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function leggiChi(){try{return localStorage.getItem('tix_pg_chi')||'';}catch(e){return '';}}
 function scriviChi(v){try{if(v)localStorage.setItem('tix_pg_chi',v);}catch(e){}}
@@ -757,8 +759,8 @@ var dati={t:CFG.t,c:CFG.c,fornitore:fornitore,codice:String(f.codice||'').trim()
 return fetch(CFG.u+'/carica',{method:'POST',headers:{'X-Costruttivi-Dati':b64url(JSON.stringify(dati)),'Content-Type':'application/octet-stream'},body:buf}).then(function(r){return r.json().catch(function(){return {esito:'errore'};});});});});}
 var salvati=0;
 if($('cs-salva'))$('cs-salva').addEventListener('click',function(){var b=$('cs-salva'),m=$('cs-msg'),chi=$('cs-chi').value.trim(),fornitore=forn?forn.value.trim():'';
-if(!fornitore){m.textContent='Scegli o scrivi il fornitore: è la ditta che ti ha mandato i costruttivi.';if(forn){forn.classList.add('manca');forn.focus();}return;}
-if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha caricato i costruttivi.';$('cs-chi').focus();return;}
+if(!fornitore){m.textContent='Scegli o scrivi il fornitore: è la ditta che ti ha mandato i costruttivi.';if(forn){forn.classList.add('manca');rosso(forn,'Scegli dalla Rubrica o scrivi il nome della ditta');}return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha caricato i costruttivi.';rosso($('cs-chi'),'Scrivi il tuo nome: resta scritto chi ha caricato i costruttivi.');return;}
 var da=FILE.filter(function(f){return !f.no&&!f.ok;});
 if(mancano()){m.textContent='Prima di salvare scrivi codice e revisione nei campi in rosso (vedi il riquadro sopra l\'elenco).';var pr=righe.querySelector('input.manca');if(pr)pr.focus();return;}
 scriviChi(chi);b.disabled=true;m.textContent='';var i=0;
@@ -770,7 +772,7 @@ else f.err=(r&&r.messaggio)||'Non si è salvato: riprova.';}).catch(function(){f
 var dlg=$('cs-dlg'),corr=null;
 D.querySelectorAll('[data-togli]').forEach(function(b){b.addEventListener('click',function(){corr=b.getAttribute('data-togli');$('cs-dlg-cod').textContent=b.getAttribute('data-cod')||'';$('cs-dlg-chi').value=leggiChi();$('cs-dlg-mot').value='';$('cs-dlg-msg').textContent='';$('cs-dlg-si').disabled=false;
 if(dlg&&typeof dlg.showModal==='function')dlg.showModal();else if(dlg)dlg.setAttribute('open','');});});
-if($('cs-dlg-si'))$('cs-dlg-si').addEventListener('click',function(){var chi=$('cs-dlg-chi').value.trim(),m=$('cs-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
+if($('cs-dlg-si'))$('cs-dlg-si').addEventListener('click',function(){var chi=$('cs-dlg-chi').value.trim(),m=$('cs-dlg-msg');if(!chi){m.textContent='Scrivi il tuo nome.';rosso($('cs-dlg-chi'),'Scrivi il tuo nome.');return;}scriviChi(chi);
 this.disabled=true;var self=this;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'annulla',id:corr,dati:{chi:chi,motivo:$('cs-dlg-mot').value.trim()}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- firma per approvazione (costruttivi-3, fase C3a): il firmatore comune si carica solo quando serve
@@ -796,15 +798,15 @@ if($('cs-md-si'))$('cs-md-si').addEventListener('click',function(){var m=$('cs-m
 var a=Array.prototype.map.call(D.querySelectorAll('#cs-md-dest input:checked'),function(x){return x.value;});
 ($('cs-md-altri').value||'').split(/[,;\s]+/).forEach(function(x){x=x.trim();if(x)a.push(x);});
 var brutti=a.filter(function(x){return !/^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$/.test(x);});
-if(!a.length){m.textContent='Scegli o scrivi almeno un indirizzo email.';return;}if(brutti.length){m.textContent='Questo indirizzo non è valido: '+brutti[0];return;}if(a.length>5){m.textContent='Al massimo 5 indirizzi per volta.';return;}
-if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.';$('cs-md-chi').focus();return;}scriviChi(chi);var self=this;self.disabled=true;
+if(!a.length){m.textContent='Scegli o scrivi almeno un indirizzo email.';rosso($('cs-md-altri'),'Scegli o scrivi almeno un indirizzo email');return;}if(brutti.length){m.textContent='Questo indirizzo non è valido: '+brutti[0];rosso($('cs-md-altri'),'Questo indirizzo non è valido: '+brutti[0]);return;}if(a.length>5){m.textContent='Al massimo 5 indirizzi per volta.';return;}
+if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.';rosso($('cs-md-chi'),'Scrivi il tuo nome: resta scritto chi ha mandato il costruttivo.');return;}scriviChi(chi);var self=this;self.disabled=true;
 chiamaA('manda',{id:mdId,firma_id:mdF,dati:{a:a,messaggio:$('cs-md-msg-t').value,chi:chi}}).then(function(r){if(r&&r.esito==='ok'){m.style.color='#146C43';m.textContent=(r.mandate===1?'Email preparata':'Email preparate: '+r.mandate)+'. Partono tra pochi secondi.';setTimeout(function(){location.reload();},1400);return;}
 self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- chiedi il visto di strutturista e DL (costruttivi-2, fase C2)
 var vdlg=$('cs-vs-dlg'),vId='';
 D.querySelectorAll('[data-visto]').forEach(function(b){b.addEventListener('click',function(){if(!vdlg)return;vId=b.getAttribute('data-visto');$('cs-vs-cod').textContent=b.getAttribute('data-cod')||'';$('cs-vs-chi').value=leggiChi();$('cs-vs-msg').textContent='';$('cs-vs-si').disabled=false;
 if(typeof vdlg.showModal==='function')vdlg.showModal();else vdlg.setAttribute('open','');});});
-if($('cs-vs-si'))$('cs-vs-si').addEventListener('click',function(){var chi=$('cs-vs-chi').value.trim(),m=$('cs-vs-msg');m.textContent='';if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha chiesto il visto.';$('cs-vs-chi').focus();return;}scriviChi(chi);
+if($('cs-vs-si'))$('cs-vs-si').addEventListener('click',function(){var chi=$('cs-vs-chi').value.trim(),m=$('cs-vs-msg');m.textContent='';if(!chi){m.textContent='Scrivi il tuo nome: resta scritto chi ha chiesto il visto.';rosso($('cs-vs-chi'),'Scrivi il tuo nome: resta scritto chi ha chiesto il visto.');return;}scriviChi(chi);
 var self=this;self.disabled=true;fetch(CFG.u+'/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:'visto_chiedi',id:vId,dati:{chi:chi}})})
 .then(function(r){return r.json();}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||(r&&r.esito==='spento'?'Il visto non è disponibile.':'Non è andata: riprova.');}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;
