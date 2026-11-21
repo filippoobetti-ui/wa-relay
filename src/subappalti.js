@@ -168,6 +168,19 @@ export async function portaleSub(request, env, base, inUrl, h, fn) {
   return new Response("Not Found", { status: 404 });
 }
 
+// salva-rubrica-sal-1 (21/11/2026, regola di Filippo del 21/11): «Salva in Rubrica» dalle pagine SAL e Subappaltatori.
+// azione 'rubrica' di POST /sal/api e /sal/sub/api, dati {azione:'elenco'|'salva', …} → rubrica_da_sezione della B13
+// (accesso della sezione, doppioni per nome, email o cellulare, rubrica_salva con i suoi controlli). Il relay non conserva nulla.
+export async function rubricaSezione(env, h, tok, c, sezione, grezzi) {
+  const x = grezzi && typeof grezzi === "object" ? grezzi : {};
+  const azione = String(x.azione || "");
+  if (azione !== "elenco" && azione !== "salva") return { esito: "errore" };
+  const t = (k, n) => String(x[k] == null ? "" : x[k]).trim().slice(0, n);
+  const dati = azione === "salva" ? { impresa: t("impresa", 120), nome: t("nome", 120), tipo_rapporto: t("tipo_rapporto", 20).toLowerCase(),
+    telefono: t("telefono", 40), email: t("email", 160).toLowerCase(), partita_iva: t("partita_iva", 20), note: t("note", 500) } : {};
+  return await h.rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: c, p_sezione: sezione, p_azione: azione, p_dati: dati }, 15000).catch(() => null);
+}
+
 // ---------------------------------------------------------------------------- lato impresa
 async function apiImpresa(request, env, base, inUrl, h, fn) {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
@@ -211,6 +224,8 @@ async function apiImpresa(request, env, base, inUrl, h, fn) {
       () => chiama("sub_doc_dati", { p_token: tok, p_commessa: c, p_contratto: kid, p_sal: id }),
       (d) => chiama("sub_sal_pdf_registra", { p_token: tok, p_commessa: c, p_sal: id, p_dati: d }));
     if (r && r.esito === "ok") r = { esito: "ok", rif_id: "sub:" + id, pdf: base + "/sal/sub/firma-file?t=" + tok + "&c=" + c + "&id=" + id + "&cosa=impresa" };
+  } else if (az === "rubrica") {
+    r = await rubricaSezione(env, h, tok, c, "subappalti", b.dati);   // salva-rubrica-sal-1
   } else {
     return json({ esito: "errore" }, 400);
   }
@@ -1152,6 +1167,42 @@ function dlg(t,s,c,etich,fn,largo){var d=dlgEl();$('#sb-dlg-t').textContent=t;$(
 function chiudi(){var d=document.getElementById('sb-dlg');if(!d)return;if(d.close)d.close();else d.removeAttribute('open');}
 function msg(t){$('#sb-dlg-m').textContent=t;}
 function dopo(p,ok){var b=$('#sb-dlg-si');if(b)b.disabled=true;return p.then(function(r){if(b)b.disabled=false;if(r&&r.esito==='ok'){chiudi();if(ok)avv(ok);carica();return r;}msg(errore(r));return null;});}
+// salva-rubrica-sal-1 (21/11/2026, regola di Filippo del 21/11): chi si scrive a mano e non è nella Rubrica dell'impresa si salva con «Salva in Rubrica»
+var SR_EL=null,SR_CODA=null;
+function srTesto(x){return typeof x==='string'?x:(x&&(x.nome||x.impresa||x.email))||'';}
+function srImpara(k){if(!SR_EL||!k)return;[k.nome,k.impresa].forEach(function(x){if(x)SR_EL.n[srNorm(x)]=1;});if(k.email)SR_EL.e[srNorm(k.email)]=1;}
+function srElenco(fn){if(SR_EL){fn();return;}if(SR_CODA){SR_CODA.push(fn);return;}SR_CODA=[fn];
+  api('rubrica',{dati:{azione:'elenco'}}).then(function(r){var q=SR_CODA||[];SR_CODA=null;if(!r||r.esito!=='ok')return;SR_EL={n:{},e:{}};
+    (r.nomi||[]).forEach(function(x){x=srTesto(x);if(x)SR_EL.n[srNorm(x)]=1;});(r.email||[]).forEach(function(x){x=srTesto(x);if(x)SR_EL.e[srNorm(x)]=1;});
+    q.forEach(function(f){try{f();}catch(e){}});});}
+function srSalvaApi(d){var x={azione:'salva'};for(var k in d)x[k]=d[k];return api('rubrica',{dati:x});}
+function srExtra(o,prima,valori){var b=o._box;
+  b.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('[data-sr]'):null;if(!t)return;var a=t.getAttribute('data-sr');
+    if(a==='apri'&&prima)prima();
+    if(a==='salva'){var g=function(k){var e=b.querySelector('[data-sf="'+k+'"]');return e?String(e.value||'').trim():'';};o._scritti={telefono:g('telefono'),email:g('email'),nome:g('nome'),impresa:g('impresa')};}},true);
+  b.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('[data-sr="apri"]'):null;if(!t||!valori)return;var v=valori()||{};
+    for(var k in v){var e=b.querySelector('[data-sf="'+k+'"]');if(e&&v[k]&&!String(e.value||'').trim())e.value=v[k];}});
+  b.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&ev.target&&ev.target.tagName==='INPUT')ev.preventDefault();});}
+function srSub(imp){if(typeof srAggancia!=='function')return;var ni=$('#sk-nome'),nr=$('#sk-ref'),ne=$('#sk-em'),nt=$('#sk-tel');if(!ni||!nr)return;
+  var base=C.u.replace(/\/sal$/,''),oD=null,oR=null;
+  // conosciuto = nella Rubrica (elenco di rubrica_da_sezione) oppure tra le imprese della Rubrica che la pagina ha già (SD.imprese)
+  var dentro=function(campo,x){x=srNorm(x);if(!SR_EL||!x)return true;if(SR_EL.n[x])return true;return imp.some(function(i){return srNorm(i[campo])===x;});};
+  var unisci=function(k,o){var s=o._scritti||{},nm=k.impresa||'';srImpara(k);
+    // il contatto salvato entra tra le imprese della pagina: al salvataggio il contratto prende il suo rubrica_id (come una scelta dall'elenco)
+    if(nm&&k.id&&!imp.some(function(i){return srNorm(i.impresa)===srNorm(nm);})){imp.push({id:k.id,impresa:nm,nome:k.nome||'',email:k.email||'',telefono:s.telefono||''});
+      var dl=document.getElementById('sb-imp');if(dl){var op=document.createElement('option');op.value=nm;dl.appendChild(op);}}
+    if(ne&&!ne.value&&(k.email||s.email))ne.value=k.email||s.email;if(nt&&!nt.value&&s.telefono)nt.value=s.telefono;};
+  oD=srAggancia({campo:ni,base:base,t:C.t,c:C.c,sezione:'subappalti',modo:'ditta',rapporto:'subappaltatore',dopoDi:ni.parentNode,
+    conosciuto:function(x){return dentro('impresa',x);},nome:function(){return nr.value;},salva:srSalvaApi,
+    dopo:function(k){k=k||{};if(k.impresa||k.nome)ni.value=k.impresa||k.nome;if(!nr.value&&k.nome&&k.nome!==k.impresa)nr.value=k.nome;unisci(k,oD);if(oR)oR.aggiorna();}});
+  oR=srAggancia({campo:nr,base:base,t:C.t,c:C.c,sezione:'subappalti',modo:'persona',rapporto:'subappaltatore',dopoDi:nr.parentNode,
+    conosciuto:function(x){var em=ne?srNorm(ne.value):'';if(SR_EL&&em&&SR_EL.e[em])return true;return dentro('nome',x);},salva:srSalvaApi,
+    dopo:function(k){k=k||{};if(k.nome)nr.value=k.nome;if(!ni.value&&k.impresa)ni.value=k.impresa;unisci(k,oR);if(oD)oD.aggiorna();}});
+  if(oD)srExtra(oD,null,function(){return {nome:nr.value,email:ne?ne.value:'',telefono:nt?nt.value:''};});
+  if(oR)srExtra(oR,function(){oR.rapporto=String(ni.value||'').trim()?'subappaltatore':'esterno';},function(){return {impresa:ni.value,email:ne?ne.value:'',telefono:nt?nt.value:''};});
+  ni.addEventListener('change',function(){if(oR)oR.aggiorna();});if(ne)ne.addEventListener('change',function(){if(oR)oR.aggiorna();});
+  srElenco(function(){if(oD)oD.aggiorna();if(oR)oR.aggiorna();});
+  var dd=document.getElementById('sb-dlg');if(dd)dd.addEventListener('close',function(){if(oD)oD.chiudi();if(oR)oR.chiudi();},{once:true});}
 // ---- contratto del sub
 function rigaV(v){v=v||{};var n=function(x){return vuoto(x)?'':String(x).replace('.',',');};
   return '<div class="sb-vr" data-id="'+es(v.id||'')+'"><label>Tariffa<input type="text" class="v-t" maxlength="40" value="'+es(v.tariffa||'')+'"></label>'+
@@ -1195,7 +1246,7 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
   var r0=document.querySelectorAll('input[name=sk-reg]');[].forEach.call(r0,function(x){x.addEventListener('change',function(){$('#sk-l-soglia').hidden=this.value!=='soglia';});});
   var so=$('#sk-of');if(so)so.addEventListener('change',function(){$('#sk-voci').hidden=!!this.value;$('#sk-vagg').hidden=!!this.value;});
   var ni=$('#sk-nome');if(ni)ni.addEventListener('change',function(){var x=imp.filter(function(i){return i.impresa.toLowerCase()===ni.value.trim().toLowerCase();})[0];
-    if(x){if(!$('#sk-ref').value)$('#sk-ref').value=x.nome||'';if(!$('#sk-em').value)$('#sk-em').value=x.email||'';if(!$('#sk-tel').value)$('#sk-tel').value=x.telefono||'';}});}
+    if(x){if(!$('#sk-ref').value)$('#sk-ref').value=x.nome||'';if(!$('#sk-em').value)$('#sk-em').value=x.email||'';if(!$('#sk-tel').value)$('#sk-tel').value=x.telefono||'';}});srSub(imp);}
 function mostraLink(k,r,prima){var u=r.url,cn=(SD&&SD.cantiere_nome)||(((window.SAL_D||{}).cantiere||{}).nome)||'',testo='Ciao, questo è il tuo link personale per scrivere le misure '+(cn?'del cantiere «'+cn+'» ':'')+'in TIX: '+u;
   dlg('Link per '+k.impresa_nome,'Valido fino al '+di(r.scade_il)+'. Mandalo solo al referente del sub: chi ha il link entra.'+(prima?' Il link di prima non vale più.':''),
     '<label>Link<input type="text" id="sl-u" readonly value="'+es(u)+'"></label><div class="riga-b"><button type="button" class="b sb-pr" id="sl-copia">Copia il link</button>'+

@@ -13,7 +13,8 @@
 // Il database decide tutto: chi entra (impostazioni.sal_attivo), calcolo, numeri, impronta, versioni.
 // Il relay non conserva nulla. Si spegne anche con la variabile del Worker SAL = "off".
 // ============================================================================
-import { portaleSub, SUB_APP, SUB_STILE } from "./subappalti.js";
+import { portaleSub, SUB_APP, SUB_STILE, rubricaSezione } from "./subappalti.js";
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";   // salva-rubrica-sal-1: regola di Filippo del 21/11
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-sal-sub-1: regola di Filippo del 14/11
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -229,6 +230,9 @@ async function api(request, env, h) {
     if (az === "computo_stato") r = await chiama("computo_import_stato", { p_token: tok, p_commessa: c, p_id: n });
     else r = await chiama("computo_import_azione", { p_token: tok, p_commessa: c, p_id: n, p_azione: az === "computo_conferma" ? "conferma" : "annulla",
       p_autore: dati.autore || null, p_dati: az === "computo_conferma" ? dati : null });
+  } else if (az === "rubrica") {
+    if (!UUID.test(c)) return json({ esito: "errore" }, 400);
+    r = await rubricaSezione(env, h, tok, c, "sal", b.dati);   // salva-rubrica-sal-1
   } else {
     return json({ esito: "errore" }, 400);
   }
@@ -1350,7 +1354,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>SAL - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + "</style></head><body>" +
+    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + ".campi>.sr-box{grid-column:1/-1}" + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>SAL</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -1368,7 +1372,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<div class="dl-c" id="dlg-c"></div><p class="msg" id="dlg-m" aria-live="polite"></p>' +
     '<div class="dl-b"><button type="button" class="no" id="dlg-no">Chiudi</button><button type="submit" class="si" id="dlg-si">Salva</button></div></form></dialog>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
-    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
+    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SALVA_RUBRICA_JS + "</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
 }
 
 // ---------------------------------------------------------------------------- pagina «Subappaltatori» (10/11/2026)
@@ -1408,7 +1412,7 @@ function paginaSubappaltatori(base, tok, c, d, h) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Subappaltatori - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     // colore dei subappalti (terracotta) al posto del viola del SAL
-    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + ":root{--sal:#B5523B;--sal-s:#8A3A27;--sal-c:#FBF0EC;--sal-b:#EBC9BE}</style></head><body>" +
+    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + ".campi>.sr-box{grid-column:1/-1}" + ":root{--sal:#B5523B;--sal-s:#8A3A27;--sal-c:#FBF0EC;--sal-b:#EBC9BE}</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Subappaltatori</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -1418,7 +1422,7 @@ function paginaSubappaltatori(base, tok, c, d, h) {
     'TIX non manda niente a nessuno: il link lo mandi tu.</p>' +
     '<noscript><p class="nota"><b>Per usare questa pagina serve JavaScript attivo nel browser.</b></p></noscript></main>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
-    "<script>window.SAL_C=" + cfg + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SUB_APP + "</script></body></html>";
+    "<script>window.SAL_C=" + cfg + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SALVA_RUBRICA_JS + "</script><script>" + SUB_APP + "</script></body></html>";
 }
 
 const STILE =
@@ -1546,6 +1550,28 @@ var scheda=C.s||ls('sal_scheda')||'avanzamento';if(scheda==='subappalti')scheda=
 var IMP=null,impId=D.import?D.import.id:null,impTutte=false,impTimer=null,impGiri=0;
 var filtro='tutte',cerca='';
 var chiusi={};
+// salva-rubrica-sal-1 (21/11/2026, regola di Filippo del 21/11): chi si scrive a mano e non è nella Rubrica dell'impresa si salva con «Salva in Rubrica»
+var SR_EL=null,SR_CODA=null;
+function srTesto(x){return typeof x==='string'?x:(x&&(x.nome||x.impresa||x.email))||'';}
+function srImpara(k){if(!SR_EL||!k)return;[k.nome,k.impresa].forEach(function(x){if(x)SR_EL.n[srNorm(x)]=1;});if(k.email)SR_EL.e[srNorm(k.email)]=1;}
+function srElenco(fn){if(SR_EL){fn();return;}if(SR_CODA){SR_CODA.push(fn);return;}SR_CODA=[fn];
+  api('rubrica',{dati:{azione:'elenco'}}).then(function(r){var q=SR_CODA||[];SR_CODA=null;if(!r||r.esito!=='ok')return;SR_EL={n:{},e:{}};
+    (r.nomi||[]).forEach(function(x){x=srTesto(x);if(x)SR_EL.n[srNorm(x)]=1;});(r.email||[]).forEach(function(x){x=srTesto(x);if(x)SR_EL.e[srNorm(x)]=1;});
+    q.forEach(function(f){try{f();}catch(e){}});});}
+function srSalvaApi(d){var x={azione:'salva'};for(var k in d)x[k]=d[k];return api('rubrica',{dati:x});}
+function srExtra(o,prima,valori){var b=o._box;
+  b.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('[data-sr]'):null;if(!t)return;var a=t.getAttribute('data-sr');
+    if(a==='apri'&&prima)prima();
+    if(a==='salva'){var g=function(k){var e=b.querySelector('[data-sf="'+k+'"]');return e?String(e.value||'').trim():'';};o._scritti={telefono:g('telefono'),email:g('email'),nome:g('nome'),impresa:g('impresa')};}},true);
+  b.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('[data-sr="apri"]'):null;if(!t||!valori)return;var v=valori()||{};
+    for(var k in v){var e=b.querySelector('[data-sf="'+k+'"]');if(e&&v[k]&&!String(e.value||'').trim())e.value=v[k];}});
+  b.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&ev.target&&ev.target.tagName==='INPUT')ev.preventDefault();});}
+function srDL(){if(typeof srAggancia!=='function')return;var el=$('#f-nome');if(!el)return;
+  var o=srAggancia({campo:el,base:C.u.replace(/\/sal$/,''),t:C.t,c:C.c,sezione:'sal',modo:'persona',rapporto:'professionista',dopoDi:el.parentNode,
+    conosciuto:function(x){return !SR_EL||!!SR_EL.n[srNorm(x)];},salva:srSalvaApi,
+    dopo:function(k){k=k||{};if(k.nome)el.value=k.nome;srImpara(k);}});
+  if(!o)return;srExtra(o,null,null);srElenco(function(){o.aggiorna();});
+  var d=$('#dlg');if(d)d.addEventListener('close',function(){o.chiudi();},{once:true});}
 // campi-rossi-sal-sub-1 (21/11/2026, regola di Filippo del 14/11): ciò che manca si segna in rosso con la spiegazione
 function crN(s){var t=String(s==null?'':s).replace(/[\s€]/g,'');if(t==='')return null;if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3}){2,}$/.test(t))t=t.replace(/\./g,'');var n=Number(t);return isFinite(n)?n:NaN;}
 function cr1(el,fn){if(!el||el.disabled)return null;var t=fn(String(el.value==null?'':el.value).trim(),el)||'';return {el:el,ok:function(){return !t;},testo:t};}
@@ -2059,7 +2085,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
     if(az==='firmato'||az==='visto'){finestra(az==='firmato'?nn+': firmato dall’impresa':nn+': visto dalla Direzione Lavori','Si segna solo nell’area riservata: TIX non manda niente.',
         '<label>'+(az==='firmato'?'Firmato da':'Nome del Direttore dei Lavori')+'<input type="text" id="f-nome" maxlength="120"></label><label>Il giorno<input type="date" id="f-data" max="'+es(D.oggi)+'" value="'+es(D.oggi)+'"></label>'+
         (az==='visto'?'<label>Nota della DL <small>(facoltativa)</small><input type="text" id="f-nota" maxlength="600"></label>':''),'Salva',
-        function(){if(!crTutti([crNome($('#f-nome'),az==='firmato'?'Scrivi il nome di chi ha firmato':'Scrivi il nome del Direttore dei Lavori'),cr1($('#f-data'),crData(false,''))],$('#dlg-m')))return;var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});}
+        function(){if(!crTutti([crNome($('#f-nome'),az==='firmato'?'Scrivi il nome di chi ha firmato':'Scrivi il nome del Direttore dei Lavori'),cr1($('#f-data'),crData(false,''))],$('#dlg-m')))return;var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});if(az==='visto')srDL();}
     else{finestra(az==='riemetti'?'Riemettere «'+nn+'» con correzioni?':'Annullare «'+nn+'»?',
         az==='riemetti'?'Nasce la versione successiva in bozza, con le stesse misure da correggere. La versione di prima resta archiviata con il suo codice di controllo.':'Il SAL resta archiviato come annullato; le sue misure tornano libere per il prossimo SAL.',
         '<label>Motivo<textarea id="r-mot" maxlength="600" placeholder="es. la DL ha chiesto di rimisurare la voce 12"></textarea></label><label>Chi lo fa <small>(nome e cognome)</small><input type="text" id="r-nome" maxlength="120" value="'+es(ls('sal_autore'))+'"></label>',
