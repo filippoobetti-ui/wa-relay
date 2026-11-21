@@ -52,7 +52,9 @@ export const NC_RUBRICA_CSS =
   "#modulo-nc .srt-paese{display:flex;align-items:center;gap:6px;flex:0 0 auto;width:auto;min-height:44px;margin:0;padding:0 10px;border:1px solid #c9d1cc;border-radius:10px;background:#fff;color:#23302A;font-size:.95rem;font-weight:600;cursor:pointer}" +
   "#modulo-nc .srt-box input{flex:1 1 auto;width:auto;min-width:0;margin:0}" +
   "#modulo-nc .srt-op{display:flex;align-items:center;gap:10px;width:100%;margin:0;padding:8px;border:0;border-radius:8px;background:none;color:inherit;font-size:.92rem;font-weight:400;text-align:left}" +
-  "#modulo-nc .srt-lista input{width:100%;margin:0 0 6px}";
+  "#modulo-nc .srt-lista input{width:100%;margin:0 0 6px}" +
+  // nuovo-cantiere-consenso-1 (controllo B17, K27): la frase dell'informativa resta un paragrafo, anche sul telefono
+  "#modulo-nc p.consenso{display:block}";
 
 // Nel browser, dopo SALVA_RUBRICA_JS e dopo lo script del modulo (PORTALE_NC_SCRIPT). Serve GL_NC_RUB = {base, t, a}.
 // Se l'elenco della Rubrica non arriva (rotta spenta, sezione non disponibile) il modulo resta esattamente com'era.
