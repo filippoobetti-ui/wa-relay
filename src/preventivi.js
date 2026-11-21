@@ -2702,6 +2702,7 @@ function disegnaOf(){
  esitiSchede();
  var sel=document.getElementById('of-rub');
  rubAggancia('of');
+ var rtel=document.getElementById('of-reft');if(rtel&&typeof srTelefono==='function')srTelefono(rtel); // 21/11/2026 (telefono-preventivi-1): bandierina col prefisso
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
 // 17/11/2026 (rdo-allegati-1): file allegati alla richiesta (schede tecniche, disegni, foto)
