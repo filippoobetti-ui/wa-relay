@@ -12,6 +12,8 @@
 // male si segna in rosso con la riga che dice cosa scrivere (modulo comune src/campi-rossi.js).
 // ============================================================================
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+// 21/11/2026 (salva-rubrica-b2-3): «… non è nella Rubrica» e «Salva in Rubrica» sul noleggiatore scritto a mano (src/rubrica-b2.js).
+import { rubricaB2Iniezione } from "./rubrica-b2.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -103,7 +105,7 @@ function pagina(base, h, tok, a, d, torna) {
       imprese.map((x) => '<option value="' + e(x.id) + '"' + (az && az.id === x.id ? " selected" : "") + ">" + e(x.nome) + "</option>").join("") +
       "</select></label></form>"
     : "";
-  const cfg = JSON.stringify({ u: base + "/mezzi/api", t: tok, a: az ? az.id : "", d: az ? d : null }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ u: base + "/mezzi/api", b: base, t: tok, a: az ? az.id : "", d: az ? d : null }).replace(/</g, "\\u003c");
   const icona = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M2.5 18.5h10"/><circle cx="5" cy="18.5" r="1.6"/><circle cx="10" cy="18.5" r="1.6"/><path d="M3.5 15.5v-4h5.5l2 4"/>' +
     '<path d="M11 11.5l4.5-6 5 3.5-2.5 3"/><path d="M20.5 9l.5 4.5h-3"/></svg>';
@@ -134,7 +136,7 @@ function pagina(base, h, tok, a, d, torna) {
     '<p class="mz-piede">Su WhatsApp operai e capocantiere non vedono mai i prezzi. Le ore dei mezzi in economia si scrivono nel Registro delle economie di ogni cantiere.</p>' +
     "</main>" +
     MODULO + (az ? CARICA_HTML : "") +
-    "<script>" + CAMPI_ROSSI_JS + "</script>" +
+    "<script>" + CAMPI_ROSSI_JS + "</script>" + (az ? rubricaB2Iniezione() : "") +
     "<script>" + SCRIPT.replace("__CFG__", cfg).replace("__CARICA__", az ? CARICA_JS : "") + "</script></body></html>";
 }
 
@@ -497,6 +499,8 @@ function aggiorna(){var sch=valore('scheda'),att=sch==='attrezzatura';
 Array.prototype.forEach.call(document.querySelectorAll('.mz-scelta'),function(w){w.addEventListener('click',function(ev){var b=ev.target.closest('button');if(!b)return;
  var c=w.getAttribute('data-campo');scelta(c,b.getAttribute('data-v'));if(c==='scheda'&&!corr)scelta('tariffa',b.getAttribute('data-v')==='mezzo'?'ora_con':'giorno_senza');aggiorna();});});
 $('f-cat').addEventListener('input',aggiorna);
+// 21/11/2026 (salva-rubrica-b2-3): «Salva in Rubrica» sul noleggiatore (rapporto proposto: noleggio); conta solo quando il mezzo è «A noleggio»
+if(window.b2Aggancia&&$('f-nol'))window.b2Aggancia({campo:$('f-nol'),base:C.b,t:C.t,a:C.a,modo:'ditta',rapporto:'noleggio',dopoDi:$('c-nol'),anche:function(){return $('c-nol').hidden;}});
 var CAMPI={'f-cat':'categoria','f-sotto':'sottocategoria','f-num':'numero_aziendale','f-nome':'nome','f-mm':'marca_modello','f-matr':'matricola','f-targa':'targa','f-anno':'anno',
  'f-descr':'descrizione','f-nol':'noleggiatore','f-acq':'data_acquisto','f-cesp':'cespite','f-emiss':'classe_emissione','f-rev':'revisione_scadenza','f-freq':'revisione_frequenza',
  'f-revn':'revisione_nota','f-bollo':'bollo_scadenza','f-crono':'cronotachigrafo','f-cc':'luogo_cc','f-tel':'telepass','f-cart':'cartella','f-doc':'documenti','f-note':'note','f-motivo':'stato_motivo'};
