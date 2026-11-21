@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";
+import { SALVA_RUBRICA_CSS, SALVA_RUBRICA_JS } from "./salva-rubrica.js";
 
 const COOKIE = "tix_disp";
 const ESA64 = /^[0-9a-f]{64}$/;
@@ -249,6 +250,12 @@ export async function portaleAccessi(request, env, base, sotto, inUrl, h) {
     const tok = String(b.t || "").toLowerCase();
     const j = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" } });
     if (!ESA64.test(tok)) return j({ esito: "no" }, 400);
+    // accessi-rubrica-1 (21/11, regola di Filippo «Salva in Rubrica»): elenco e salvataggio passano da rubrica_da_sezione (sezione 'accessi')
+    if (b.azione === "rubrica_elenco" || b.azione === "rubrica_salva") {
+      const d = b.dati && typeof b.dati === "object" ? b.dati : {};
+      const rr = await rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: null, p_sezione: "accessi", p_azione: b.azione === "rubrica_salva" ? "salva" : "elenco", p_dati: d }, 15000);
+      return j(rr || { esito: "errore", messaggio: "Il servizio non risponde: riprova tra poco." });
+    }
     const r = await rpc(env, "accessi_azione", { p_token: tok, p_azione: String(b.azione || "").slice(0, 30), p_dati: b.dati || {}, p_base: inUrl.origin + base }, 15000);
     return j(r || { esito: "servizio" });
   }
@@ -279,6 +286,32 @@ const EVENTI = { entrata: "Entrata", dispositivo_nuovo: "Dispositivo nuovo", cod
   contemporaneo: "Usato da due dispositivi insieme", scaduta: "Sessione scaduta", codice_servirebbe: "Dispositivo nuovo (codice non ancora chiesto: prova)",
   senza_gettone: "Richiesta senza gettone (controllo tecnico)", sessione_chiusa: "Sessione chiusa", esci_tutti: "Uscita da tutti i dispositivi",
   accesso_tolto: "Accesso tolto", accesso_riattivato: "Accesso riattivato", non_verificato: "Dispositivo da confermare", dispositivo_chiuso_: "" };
+
+// accessi-rubrica-1 (21/11/2026, regola di Filippo «Salva in Rubrica», modulo comune src/salva-rubrica.js della B1):
+// sotto «Nome e cognome» di «Invita una persona» e di /crea-accesso, se la persona non è nella Rubrica dell'impresa compare
+// «… non è nella Rubrica» con «Salva in Rubrica». Rapporto proposto: dipendente; l'email scritta nel modulo passa nella scheda.
+const ACCESSI_RUBRICA_JS = String.raw`
+function accRubrica(o){var noti={};
+ function post(az,d){d=d||{};if(o.a)d.azienda_id=o.a;return fetch(o.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:o.t,azione:az,dati:d})}).then(function(r){return r.json().catch(function(){return{esito:'errore'};});});}
+ var s=srAggancia({campo:o.nome,base:'',t:o.t,c:'',sezione:'accessi',modo:'persona',rapporto:'dipendente',
+  conosciuto:function(x){return !!noti[srNorm(x)];},
+  salva:function(d){if(!d.email&&o.email)d.email=String(o.email.value||'').trim();return post('rubrica_salva',d);},
+  dopo:function(k){if(k&&k.email&&o.email&&!String(o.email.value||'').trim())o.email.value=k.email;}});
+ if(!s)return;
+ s._box.addEventListener('click',function(ev){var b=ev.target.closest&&ev.target.closest('[data-sr="apri"]');if(!b)return;
+  var sel=s._box.querySelector('[data-sf="tipo_rapporto"]');
+  if(sel&&!sel.querySelector('option[value="dipendente"]')){var op=document.createElement('option');op.value='dipendente';op.textContent='Dipendente dell\'impresa';sel.insertBefore(op,sel.firstChild);}
+  if(sel)sel.value='dipendente';
+  var em=s._box.querySelector('[data-sf="email"]');if(em&&!em.value&&o.email)em.value=String(o.email.value||'').trim();});
+ post('rubrica_elenco',{}).then(function(r){if(r&&r.esito==='ok'){(r.nomi||[]).forEach(function(n){noti[srNorm(n)]=1;});s.aggiorna();}}).catch(function(){});}
+`;
+
+// Per /crea-accesso (src/index.js): stile e script di «Salva in Rubrica» sotto «Nome e cognome» (campo id="no", email id="em").
+export function accessiRubricaCrea(base, tok) {
+  const cfg = JSON.stringify({ u: base + "/accessi/azione", t: tok }).replace(/</g, "\\u003c");
+  return '<style>' + SALVA_RUBRICA_CSS + '</style><script>' + SALVA_RUBRICA_JS + ACCESSI_RUBRICA_JS +
+    '(function(){var C=' + cfg + ';var n=document.getElementById("no");if(n)accRubrica({nome:n,email:document.getElementById("em"),u:C.u,t:C.t});})();</script>';
+}
 
 function paginaAccessi(base, tok, p, h) {
   const e = h.esc;
@@ -354,11 +387,12 @@ function paginaAccessi(base, tok, p, h) {
     '.az{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.az select{width:auto}.disp,.reg{margin:6px 0 0;padding-left:18px;color:var(--s);font-size:.9rem}.disp li{margin:4px 0}' +
     'table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:6px 4px;border-top:1px solid var(--l)}' +
     '.ok{color:var(--v);font-weight:600}.tot{margin:0 0 6px}.riga{max-width:420px}a{color:var(--v);font-weight:600}' +
-    CAMPI_ROSSI_CSS + '</style></head><body><main>' +
+    CAMPI_ROSSI_CSS + SALVA_RUBRICA_CSS + '</style></head><body><main>' +
     '<p><a href="' + base + '/?t=' + tok + '">&larr; Torna ai cantieri</a></p>' +
     '<h1>Accessi e numeri' + (imp ? ' · ' + e(imp.nome) : '') + '</h1>' +
     '<p class="sub">Chi entra nell\'app, da quali dispositivi, e chi conta come persona nel canone.</p>' + avviso + scelta + corpo +
-    '</main><script>' + CAMPI_ROSSI_JS + '</script><script>(function(){var C=' + cfg + ';' +
+    '</main><script>' + CAMPI_ROSSI_JS + '</script><script>' + SALVA_RUBRICA_JS + ACCESSI_RUBRICA_JS + '</script><script>(function(){var C=' + cfg + ';' +
+    'if(document.getElementById("in-n"))accRubrica({nome:document.getElementById("in-n"),email:document.getElementById("in-e"),u:C.u,t:C.t,a:C.a});' +
     'function chiama(az,dati){dati=dati||{};if(C.a)dati.azienda=C.a;return fetch(C.u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({t:C.t,azione:az,dati:dati})}).then(function(r){return r.json();});}' +
     'var ERR={email:"Scrivi un\'email giusta",nome:"Scrivi nome e cognome",altra:"Questa email è già usata per un\'altra impresa",professionista:"Questa email è già un accesso da professionista",senza_portale:"L\'impresa non ha ancora l\'area riservata",permesso:"Non hai il permesso per questa azione",te_stesso:"Non puoi togliere il tuo accesso",servizio:"Il servizio non risponde: riprova",accesso:"Entra di nuovo con email e password"};' +
     'var f=document.getElementById("inv");if(f)f.addEventListener("submit",function(ev){ev.preventDefault();var n=document.getElementById("in-n"),e=document.getElementById("in-e"),ru=document.getElementById("in-r");' +
