@@ -131,12 +131,12 @@ function dataIa(x) {
   const t = Date.parse(s + "T00:00:00Z");
   return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === s ? s : "";
 }
-function vociAttese(a) {
-  return lista(a).slice(0, 200).map((v) => ({ id: testo(v && v.id, 64), descrizione: testo(v && v.descrizione, 300), unita: testo(v && v.unita, 20),
+function vociAttese(a, max) {
+  return lista(a).slice(0, Math.min(Number(max) || 200, 800)).map((v) => ({ id: testo(v && v.id, 64), descrizione: testo(v && v.descrizione, 300), unita: testo(v && v.unita, 20),
     quantita: testo(v && v.quantita, 40) })).filter((v) => v.id && v.descrizione);
 }
 
-export function pulisciPropostaOfferta(p, fornitori, materiali, righeAttese) {
+export function pulisciPropostaOfferta(p, fornitori, materiali, righeAttese, maxRighe) {
   const o = p && typeof p === "object" ? p : {};
   const forn = fornitoreRubrica(o.fornitore, fornitori);
   const data = dataIa(o.data);
@@ -147,9 +147,9 @@ export function pulisciPropostaOfferta(p, fornitori, materiali, righeAttese) {
   let mat = testo(o.materiale, 80);
   const usato = lista(materiali).find((m) => String(m).toLowerCase() === mat.toLowerCase());
   if (usato) mat = testo(usato, 80);
-  const ids = new Set(vociAttese(righeAttese).map((v) => v.id));
+  const ids = new Set(vociAttese(righeAttese, 800).map((v) => v.id));
   const presi = new Set();
-  const righe = lista(o.righe).slice(0, 60).map((r) => {
+  const righe = lista(o.righe).slice(0, Math.min(Number(maxRighe) || 60, 200)).map((r) => {
     const x = r && typeof r === "object" ? r : {};
     const note = [testo(x.quantita, 120) ? "quantità: " + testo(x.quantita, 120) : "", testo(x.note, 200)].filter(Boolean).join("; ");
     let voce = testo(x.voce, 64);
@@ -183,20 +183,33 @@ export async function leggiOffertaFornitore(env, o) {
   const vuoto = { token_in: 0, token_out: 0, ms: 0, modello };
   if (!env || !env.ANTHROPIC_API_KEY) return Object.assign(vuoto, { esito: "spento", messaggio: "La lettura automatica non è disponibile: compila i campi a mano." });
   const bytes = opz.bytes instanceof Uint8Array ? opz.bytes : null;
-  const tipo = tipoFile(bytes);
-  if (tipo === "p7m") return Object.assign(vuoto, { esito: "formato", messaggio: "Il PDF firmato (.p7m) non si legge in automatico: compila i campi a mano." });
-  if (!MIME[tipo]) return Object.assign(vuoto, { esito: "formato", messaggio: "Questo file non si legge in automatico: compila i campi a mano." });
-  if (tipo === "pdf" ? bytes.length > LETTORE_MAX_PDF : bytes.length > LETTORE_MAX_FOTO) {
-    return Object.assign(vuoto, { esito: "grande", messaggio: "Il file è troppo grande per la lettura automatica: compila i campi a mano." });
+  // 21/11/2026 (offerta-tutte-voci-1, chat B3): testoFile = il testo di un Excel, CSV, ODS o Word, estratto nel browser
+  const testoFile = typeof opz.testoFile === "string" ? opz.testoFile.slice(0, 300000).trim() : "";
+  const maxRighe = Math.min(Number(opz.maxRighe) || 60, 200);
+  const voci = vociAttese(opz.righeAttese, opz.maxVoci);
+  let doc;
+  if (testoFile) {
+    doc = { type: "text", text: "Contenuto del file «" + testo(opz.nome, 120) + "» (foglio di calcolo o documento di testo trasformato in testo; " +
+      "nei fogli di calcolo le colonne sono separate da « | »):\n" + testoFile };
+  } else {
+    const tipo = tipoFile(bytes);
+    if (tipo === "p7m") return Object.assign(vuoto, { esito: "formato", messaggio: "Il PDF firmato (.p7m) non si legge in automatico: compila i campi a mano." });
+    if (!MIME[tipo]) return Object.assign(vuoto, { esito: "formato", messaggio: "Questo file non si legge in automatico: compila i campi a mano." });
+    if (tipo === "pdf" ? bytes.length > LETTORE_MAX_PDF : bytes.length > LETTORE_MAX_FOTO) {
+      return Object.assign(vuoto, { esito: "grande", messaggio: "Il file è troppo grande per la lettura automatica: compila i campi a mano." });
+    }
+    const mime = MIME[tipo];
+    doc = tipo === "pdf"
+      ? { type: "document", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } }
+      : { type: "image", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } };
   }
-  const mime = MIME[tipo];
-  const voci = vociAttese(opz.righeAttese);
-  const doc = tipo === "pdf"
-    ? { type: "document", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } }
-    : { type: "image", source: { type: "base64", media_type: mime, data: b64DaByte(bytes) } };
   let contesto = "File: " + testo(opz.nome, 120) + "\n" +
     "Fornitori già nella Rubrica dell'impresa (se è uno di questi, scrivilo uguale): " + lista(opz.fornitori).slice(0, 400).map((x) => testo(x, 120)).join(" · ") + "\n" +
     "Materiali già usati dall'impresa: " + lista(opz.materiali).slice(0, 120).map((x) => testo(x, 80)).join(" · ") + "\n";
+  if (voci.length && opz.tutteVoci) {
+    contesto += "Le voci qui sotto sono TUTTE quelle del preventivo dell'impresa: molte non saranno nell'offerta, collega solo le righe dell'offerta " +
+      "che corrispondono con sicurezza. Ricopia comunque tutte le righe dell'offerta che hanno un prezzo, anche quelle che non corrispondono a nessuna voce.\n";
+  }
   if (voci.length) {
     contesto += "Voci della richiesta di offerta (codice | descrizione | unità | quantità):\n" +
       voci.map((v) => v.id + " | " + v.descrizione + " | " + (v.unita || "-") + " | " + (v.quantita || "-")).join("\n") + "\n";
@@ -204,7 +217,7 @@ export async function leggiOffertaFornitore(env, o) {
   contesto += "Ricopia i dati dell'offerta nel modulo.";
   const effort = ["low", "medium", "high"].indexOf(opz.effort) !== -1 ? opz.effort : "low";
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 110000);
+  const timer = setTimeout(() => ctrl.abort(), maxRighe > 60 ? 170000 : 110000);
   const inizio = Date.now();
   let r = null, j = null;
   try {
@@ -213,7 +226,7 @@ export async function leggiOffertaFornitore(env, o) {
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2026-10-21", "anthropic-beta": "server-side-fallback-2026-07-01",
         "content-type": "application/json" },
       body: JSON.stringify({
-        model: modello, max_tokens: 16000, system: SISTEMA + (voci.length ? SISTEMA_VOCI : ""), fallbacks: "default",
+        model: modello, max_tokens: maxRighe > 60 ? 32000 : 16000, system: SISTEMA + (voci.length ? SISTEMA_VOCI : ""), fallbacks: "default",
         output_config: { effort, format: { type: "json_schema", schema: schema(voci.length > 0) } },
         messages: [{ role: "user", content: [doc, { type: "text", text: contesto }] }]
       })
@@ -240,7 +253,7 @@ export async function leggiOffertaFornitore(env, o) {
   let p = null;
   try { p = blocco ? JSON.parse(blocco.text) : null; } catch (e) { p = null; }
   if (!p || typeof p !== "object") return Object.assign(base, { esito: "errore", errore: "risposta non in JSON", messaggio: no });
-  const proposta = pulisciPropostaOfferta(p, opz.fornitori, opz.materiali, voci);
+  const proposta = pulisciPropostaOfferta(p, opz.fornitori, opz.materiali, voci, maxRighe);
   if (!proposta.fornitore && !proposta.righe.length && !proposta.numero) {
     return Object.assign(base, { esito: "vuota", proposta,
       messaggio: "Nel file non ho trovato i dati di un'offerta: controlla di aver scelto il file giusto, oppure compila a mano." });

@@ -778,7 +778,7 @@ function disegna(){
    '<a href="'+es(CFG.stampa+'?t='+CFG.t+'&id='+F.id+'&rev='+r.revisione)+'" target="_blank" rel="noopener">Stampa o PDF</a> · <a href="'+es(CFG.excel+'?t='+CFG.t+'&id='+F.id+'&rev='+r.revisione)+'">Excel</a></li>';}).join('')+'</ul></div>';}
  h+='</section>';
  // 08/11/2026 (preventivi-offerte-1): richieste di offerta ed email al DL
- h+='<section class="pv-card pv-of"><h2>Fornitori e Direttore dei Lavori</h2><p>Chiedi i prezzi delle voci da quotare a fornitori e subappaltatori, e manda al DL le cose da chiarire.</p><button type="button" class="pv-b pv-pr" data-ofapri>Richieste di offerta</button><button type="button" class="pv-b" data-chapri>Email al Direttore dei Lavori</button></section>';
+ h+='<section class="pv-card pv-of"><h2>Fornitori e Direttore dei Lavori</h2><p>Chiedi i prezzi delle voci da quotare a fornitori e subappaltatori, e manda al DL le cose da chiarire.</p><button type="button" class="pv-b pv-pr" data-ofapri>Richieste di offerta</button><button type="button" class="pv-b" data-ofvoce="">Allega l\'offerta di un fornitore</button><button type="button" class="pv-b" data-chapri>Email al Direttore dei Lavori</button></section>';
  // totale
  h+='<section class="pv-card pv-riep"><h2>Totale</h2>'+
   '<div class="pv-rr"><span>Voci con il ribasso</span><b>'+euro(T.soggetto)+'</b></div>'+
@@ -2420,72 +2420,125 @@ function azionePo(az,el){var pid=el.dataset.p;
   api('po_sposta',d).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}(CH?caricaCh():caricaOf());});return;}
  if(az==='usa'){if(!confirm('Mettere il testo di questa email come risposta del DL?'))return;el.disabled=true;
   api('po_usa_risposta',{posta_id:pid}).then(function(r){el.disabled=false;if(r.esito!=='ok'){alert(errore(r));return;}caricaCh();});}}
-// 21/11/2026 (maggiorazioni-1, chat B3): «Offerta del fornitore» direttamente su una voce del preventivo (offerta arrivata
-// per email, al telefono o a mano). Crea o riprende la richiesta «diretta» (of_diretta), legge il file con /of/leggi, poi
-// «Salva l'offerta» (of_offerta) e «Usa questo prezzo» (of_scegli): nel preventivo va il costo + spese generali + utile.
+// 21/11/2026 (maggiorazioni-1, chat B3): «Offerta del fornitore» direttamente nel preventivo (offerta arrivata per email, al
+// telefono o a mano). 21/11/2026 (offerta-tutte-voci-1): allegando il file TIX legge TUTTE le righe dell'offerta e le collega alle
+// voci del preventivo (si controllano, si spuntano e vanno nel preventivo insieme); si leggono anche Excel, CSV, ODS e Word (.docx),
+// trasformati in testo nel browser (SheetJS e mammoth da cdnjs, come la Rubrica e i DDT). Il prezzo a mano serve solo senza file.
+// Sequenza: of_diretta (richiesta «diretta» del fornitore) → /of/leggi → of_offerta (tutte le righe scelte) → of_scegli voce per voce.
 var OV=null;
+var OF_XLSX='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',OF_DOCX='https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+var OF_ACC='.pdf,.jpg,.jpeg,.png,.xlsx,.xlsm,.xls,.ods,.csv,.docx,.txt,application/pdf,image/jpeg,image/png';
+var OF_TIPI='PDF, foto (JPG, PNG), Excel (.xlsx, .xls, .ods, .csv) o Word (.docx)';
+function ofLib(u,g){return window[g]?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=u;s.onload=ok;s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}
+function ofFileOk(f){return /\.(pdf|jpe?g|png|xlsx|xlsm|xls|ods|csv|docx|txt)$/i.test(f.name);}
+// il corpo da mandare a /of/leggi: PDF e foto così come sono; Excel, CSV, ODS, Word e testo → FormData con il file e il suo testo
+function ofCorpo(f){if(/\.(pdf|jpe?g|png)$/i.test(f.name))return Promise.resolve(f);
+ var t;
+ if(/\.docx$/i.test(f.name))t=ofLib(OF_DOCX,'mammoth').then(function(){return f.arrayBuffer();}).then(function(b){return window.mammoth.extractRawText({arrayBuffer:b});}).then(function(x){return x&&x.value||'';});
+ else if(/\.txt$/i.test(f.name))t=f.text();
+ else t=Promise.all([ofLib(OF_XLSX,'XLSX'),f.arrayBuffer()]).then(function(x){var wb=window.XLSX.read(x[1],/\.csv$/i.test(f.name)?{type:'array',raw:true}:{type:'array'});
+  return wb.SheetNames.map(function(nm){return 'Foglio «'+nm+'»\n'+window.XLSX.utils.sheet_to_csv(wb.Sheets[nm],{FS:' | ',blankrows:false});}).join('\n\n');});
+ return t.then(function(s){s=String(s||'').replace(/( \| ?)+$/gm,'').replace(/\n{3,}/g,'\n\n').trim();if(!s)throw new Error('vuoto');
+  var fd=new FormData();fd.append('file',f,f.name);fd.append('testo',s.slice(0,300000));return fd;});}
+function ofLeggiFile(rid,f){return ofCorpo(f).then(function(corpo){
+  return fetch(CFG.u.replace(/\/api$/,'/of/leggi')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:corpo})
+   .then(function(x){return x.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};});},
+  function(){return {esito:'formato',messaggio:'Non riesco ad aprire il file '+f.name+': salvalo di nuovo (Excel in .xlsx, Word in .docx) oppure allega il PDF.'};});}
 function pcT(x){var n=Number(x);return isFinite(n)?String(n).replace('.',','):'0';}
 function maggiora(c){var n=Number(c),sg=Number(OF&&OF.spese_generali_pct||0),ut=Number(OF&&OF.utile_pct||0);return isFinite(n)?Math.round(n*(1+sg/100)*(1+ut/100)*100+1e-9)/100:NaN;}
 function numIt(s){var t=String(s||'').trim().replace(/\s/g,'').replace(/€/g,'');if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t))t=t.replace(/\./g,'');t=t.replace(',','.');return /^\d{1,8}(\.\d{1,4})?$/.test(t)?t:'';}
+function ovVoci(){return (OF&&OF.voci||[]).filter(function(x){return x.stato!=='esclusa';});}
 function apriOv(vid){finestra('<p>Un momento…</p>');api('of_elenco').then(function(r){if(!r||r.esito!=='ok'){finestra(testa('Offerta del fornitore','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;
- var v=(r.voci||[]).filter(function(x){return String(x.id)===String(vid);})[0];
- if(!v){finestra(testa('Offerta del fornitore','')+'<p class="pv-msg err">Voce non trovata: ricarica la pagina.</p>');return;}
- OV={voce:v,rdo:null,dest:''};disegnaOv();});}
+ var v=vid?(r.voci||[]).filter(function(x){return String(x.id)===String(vid);})[0]:null;
+ if(vid&&!v){finestra(testa('Offerta del fornitore','')+'<p class="pv-msg err">Voce non trovata: ricarica la pagina.</p>');return;}
+ OV={voce:v||null,rdo:null,dest:'',righe:[]};disegnaOv();});}
 function disegnaOv(){var v=OV.voce,rub=OF.rubrica||[];
- var h=testa('Offerta del fornitore','Voce <b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+'</small>')+
-  '<p class="pv-ofnota">Per un\'offerta arrivata per email, al telefono o a mano. Allega il file e TIX legge il prezzo, oppure scrivilo tu. Nel preventivo va il prezzo del fornitore più le spese generali (<b>'+pcT(OF.spese_generali_pct)+' %</b>) e l\'utile d\'impresa (<b>'+pcT(OF.utile_pct)+' %</b>) di questo preventivo: le cambi in alto, nei dati del preventivo. Il cliente vede solo il prezzo finale.</p>'+
+ var h=testa('Offerta del fornitore',v?'Aperta dalla voce <b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+'</small>':'Allega l\'offerta: TIX legge tutte le voci e le collega a quelle del preventivo.')+
+  '<p class="pv-ofnota">Per un\'offerta arrivata per email, al telefono o a mano. Allega il file: TIX legge <b>tutte le voci dell\'offerta</b> e le collega alle voci del preventivo; tu controlli e scegli quali mettere. Nel preventivo va il prezzo del fornitore più le spese generali (<b>'+pcT(OF.spese_generali_pct)+' %</b>) e l\'utile d\'impresa (<b>'+pcT(OF.utile_pct)+' %</b>) di questo preventivo: le cambi in alto, nei dati del preventivo. Il cliente vede solo il prezzo finale.</p>'+
   '<label><span>Fornitore dalla Rubrica</span><select id="ov-rub"><option value="">— scegli, oppure scrivi il nome qui sotto —</option>'+rub.map(function(k,i){return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio',laboratorio:'Laboratorio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
   '<label><span>Nome del fornitore</span><input type="text" id="ov-dest" maxlength="200"></label>'+
-  (OF.lettura_attiva?'<div class="pv-ofbt"><label class="pv-b" style="cursor:pointer">Allega l\'offerta e leggi il prezzo<input type="file" id="ov-file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none"></label></div>':'<p class="sotto">La lettura automatica non è accesa: scrivi il prezzo qui sotto.</p>')+
-  '<div class="pv-ofnota" id="ov-let" hidden></div>'+
-  '<div style="display:flex;gap:10px;flex-wrap:wrap"><label style="flex:0 0 230px"><span>Prezzo del fornitore + IVA'+(v.unita?' (€ per '+es(v.unita)+')':' (€)')+'</span><input type="text" inputmode="decimal" id="ov-pr" maxlength="20"></label>'+
-  '<label style="flex:0 0 190px"><span>Data dell\'offerta</span><input type="date" id="ov-data"></label>'+
-  '<label style="flex:1 1 220px"><span>Note <small>facoltative</small></span><input type="text" id="ov-nota" maxlength="500"></label></div>'+
-  '<p class="pv-ofnota" id="ov-calc">Scrivi il prezzo del fornitore: qui vedi il prezzo che va nel preventivo.</p>'+
+  (OF.lettura_attiva?'<div class="pv-ofbt"><label class="pv-b pv-pr" style="cursor:pointer">Allega l\'offerta e leggi tutte le voci<input type="file" id="ov-file" accept="'+OF_ACC+'" style="display:none"></label></div><p class="sotto">Si leggono '+OF_TIPI+'.</p>':'<p class="sotto">La lettura automatica non è accesa: scrivi il prezzo qui sotto.</p>')+
+  '<div class="pv-ofnota" id="ov-let" hidden></div><div id="ov-righe"></div>'+
+  '<div style="display:flex;gap:10px;flex-wrap:wrap"><label style="flex:0 0 190px"><span>Data dell\'offerta</span><input type="date" id="ov-data"></label></div>'+
+  (v?'<details id="ov-mano"'+(OF.lettura_attiva?'':' open')+'><summary><b>Senza file: scrivi tu il prezzo di questa voce</b></summary>'+
+   '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"><label style="flex:0 0 230px"><span>Prezzo del fornitore + IVA'+(v.unita?' (€ per '+es(v.unita)+')':' (€)')+'</span><input type="text" inputmode="decimal" id="ov-pr" maxlength="20"></label>'+
+   '<label style="flex:1 1 220px"><span>Note <small>facoltative</small></span><input type="text" id="ov-nota" maxlength="500"></label></div>'+
+   '<p class="pv-ofnota" id="ov-calc">Scrivi il prezzo del fornitore: qui vedi il prezzo che va nel preventivo.</p></details>':'')+
   '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="ov_usa">Metti nel preventivo</button></div><p class="pv-msg" id="ov-msg" aria-live="polite"></p>';
  finestra(h);
  var sel=document.getElementById('ov-rub');sel.onchange=function(){var k=rub[Number(sel.value)];if(!sel.value||!k){sel.dataset.cid='';sel.dataset.tipo='';return;}document.getElementById('ov-dest').value=k.impresa||k.nome||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo||'';};
- document.getElementById('ov-pr').oninput=ovCalc;
+ var pr=document.getElementById('ov-pr');if(pr)pr.oninput=ovCalc;
  var fi=document.getElementById('ov-file');if(fi)fi.onchange=function(){ovLeggi(fi);};}
-function ovCalc(){var c=numIt(document.getElementById('ov-pr').value),el=document.getElementById('ov-calc');if(!el)return;
+function ovCalc(){var pi=document.getElementById('ov-pr'),el=document.getElementById('ov-calc');if(!pi||!el)return;var c=numIt(pi.value);
  if(!c){el.textContent='Scrivi il prezzo del fornitore: qui vedi il prezzo che va nel preventivo.';return;}
- el.innerHTML='Costo del fornitore <b>'+eur(c)+'</b> + spese generali '+pcT(OF.spese_generali_pct)+' % + utile '+pcT(OF.utile_pct)+' % = <b>'+eur(maggiora(c))+'</b> nel preventivo'+(OV.voce.unita?' (per '+es(OV.voce.unita)+')':'')+'.';}
+ el.innerHTML='Costo del fornitore <b>'+eur(c)+'</b> + spese generali '+pcT(OF.spese_generali_pct)+' % + utile '+pcT(OF.utile_pct)+' % = <b>'+eur(maggiora(c))+'</b> nel preventivo'+(OV.voce&&OV.voce.unita?' (per '+es(OV.voce.unita)+')':'')+'.';}
 function ovDest(){var d=document.getElementById('ov-dest');if(!d)return '';
  var ok=crControlla([{el:d,ok:function(x){return x.value.trim().length>=1;},testo:'Scrivi il nome del fornitore'}]);return ok?d.value.trim():'';}
 function ovRdo(dest){var sel=document.getElementById('ov-rub');if(OV.rdo&&OV.dest===dest)return Promise.resolve({esito:'ok',rdo_id:OV.rdo});
- return api('of_diretta',{voce_id:String(OV.voce.id),destinatario:dest,contatto_id:sel&&sel.dataset.cid||'',tipo:sel&&sel.dataset.tipo||''}).then(function(r){if(r&&r.esito==='ok'){OV.rdo=r.rdo_id;OV.dest=dest;}return r;});}
+ return api('of_diretta',{voce_id:OV.voce?String(OV.voce.id):'',destinatario:dest,contatto_id:sel&&sel.dataset.cid||'',tipo:sel&&sel.dataset.tipo||''}).then(function(r){if(r&&r.esito==='ok'){OV.rdo=r.rdo_id;OV.dest=dest;}return r;});}
 function ovLeggi(inp){var f=inp.files&&inp.files[0],nb=document.getElementById('ov-let');if(!f||!nb)return;
  var dest=ovDest();if(!dest){inp.value='';nota('ov-msg','Scrivi prima il nome del fornitore.','err');return;}
- if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){nb.hidden=false;nb.innerHTML='<b>Si leggono PDF, JPG e PNG.</b> Per gli altri file scrivi il prezzo a mano.';inp.value='';return;}
- nb.hidden=false;nb.innerHTML='Leggo l\'offerta con l\'intelligenza artificiale… può servire fino a un minuto.';inp.disabled=true;
- ovRdo(dest).then(function(r){if(!r||r.esito!=='ok'){inp.disabled=false;inp.value='';nb.innerHTML='<b>'+es(errore(r))+'</b>';return null;}
-  return fetch(CFG.u.replace(/\/api$/,'/of/leggi')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+OV.rdo+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f})
-   .then(function(x){return x.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};});})
+ if(!ofFileOk(f)){nb.hidden=false;nb.innerHTML='<b>Si leggono '+OF_TIPI+'.</b> Salva il file in uno di questi formati, oppure scrivi i prezzi a mano.';inp.value='';return;}
+ nb.hidden=false;nb.innerHTML='Leggo tutta l\'offerta con l\'intelligenza artificiale… può servire fino a due minuti.';inp.disabled=true;
+ ovRdo(dest).then(function(r){if(!r||r.esito!=='ok'){inp.disabled=false;inp.value='';nb.innerHTML='<b>'+es(errore(r))+'</b>';return null;}return ofLeggiFile(OV.rdo,f);})
  .then(function(r){if(r===null)return;inp.disabled=false;inp.value='';
   if(!r||r.esito!=='ok'){nb.innerHTML='<b>'+es(r&&r.messaggio||errore(r))+'</b>';return;}
-  var p=r.proposta||{},g=(p.righe||[]).filter(function(x){return String(x.voce_id)===String(OV.voce.id)&&x.prezzo!=null&&x.prezzo!=='';})[0],h='';
-  if(g){document.getElementById('ov-pr').value=String(g.prezzo).replace('.',',');var no=document.getElementById('ov-nota');if(no&&g.note&&!no.value)no.value=String(g.note).slice(0,500);
-   h='<b>Prezzo letto: '+eur(g.prezzo)+'.</b> Controllalo e premi «Metti nel preventivo»: finché non lo premi non cambia niente.';}
-  else h='<b>Nel file non ho trovato il prezzo di questa voce:</b> scrivilo tu qui sotto.';
+  var p=r.proposta||{},h='';
+  OV.righe=(p.righe||[]).map(function(g){return {descrizione:g.descrizione||'',unita:g.unita||'',prezzo:g.prezzo==null?'':String(g.prezzo),note:g.note||'',voce_id:g.voce_id?String(g.voce_id):''};});
+  var col=OV.righe.filter(function(g){return g.voce_id&&g.prezzo!=='';}).length;
+  h='<b>Ho letto '+OV.righe.length+(OV.righe.length===1?' voce':' voci')+' nell\'offerta: '+col+' collegat'+(col===1?'a':'e')+' a voci del preventivo.</b> Controlla qui sotto il collegamento e il prezzo, togli la spunta a quelle che non vuoi e premi «Metti nel preventivo»: finché non lo premi non cambia niente.';
   var d=document.getElementById('ov-data');if(d&&p.data&&/^\d{4}-\d{2}-\d{2}$/.test(p.data))d.value=p.data;
-  if(p.iva==='inclusa')h+='<p style="color:#B3261E;font-weight:700;margin:6px 0 0">Il prezzo sembra IVA compresa: togli l\'IVA prima di metterlo nel preventivo (il campo è sempre + IVA).</p>';
+  if(p.iva==='inclusa')h+='<p style="color:#B3261E;font-weight:700;margin:6px 0 0">I prezzi sembrano IVA compresa: togli l\'IVA prima di metterli nel preventivo (i prezzi sono sempre + IVA).</p>';
   if(p.numero||p.valida_fino)h+='<p style="margin:6px 0 0">'+(p.numero?'Offerta n. '+es(p.numero):'')+(p.valida_fino?' · valida fino al '+es(dt(p.valida_fino)):'')+'</p>';
   if((p.dubbi||[]).length)h+='<p style="margin:6px 0 0"><b>Dubbi:</b> '+p.dubbi.map(es).join(' · ')+'</p>';
+  if(OV.voce&&!OV.righe.some(function(g){return g.voce_id===String(OV.voce.id);}))h+='<p style="margin:6px 0 0">La voce <b>'+OV.voce.ordine+'</b> da cui sei partito non l\'ho trovata nell\'offerta: se c\'è, collegala tu a una riga qui sotto.</p>';
   if(r.ricarica_eur)h+='<p style="margin:6px 0 0">Per questa lettura TIX ha usato 1 credito per l\'intelligenza artificiale.</p>';
   if(r.salvato)h+='<p style="margin:6px 0 0">Il file dell\'offerta resta salvato nella richiesta di offerta di '+es(OV.dest)+'.</p>';
-  nb.innerHTML=h;ovCalc();});}
-function ovUsa(b){var dest=ovDest(),pi=document.getElementById('ov-pr');if(!pi)return;
- var okP=crControlla([{el:pi,ok:function(x){return !!numIt(x.value);},testo:'Scrivi il prezzo del fornitore, per esempio 85,50'}]);
- if(!dest||!okP){nota('ov-msg','Completa i campi segnati in rosso.','err');return;}
- var c=numIt(pi.value),data=(document.getElementById('ov-data')||{}).value||'',nt=(document.getElementById('ov-nota')||{}).value||'';
+  nb.innerHTML=h;var m=document.getElementById('ov-mano');if(m&&OV.righe.length)m.open=false;disegnaOvRighe();});}
+function disegnaOvRighe(){var box=document.getElementById('ov-righe');if(!box)return;
+ if(!OV.righe.length){box.innerHTML='';return;}
+ var opz='<option value="">— non metterla nel preventivo —</option>'+ovVoci().map(function(x){var t=String(x.descrizione||'');return '<option value="'+es(x.id)+'">'+es(x.ordine+'. '+(t.length>80?t.slice(0,80)+'…':t)+(x.unita?' ('+x.unita+')':''))+'</option>';}).join('');
+ box.innerHTML='<h3>Voci lette nell\'offerta</h3>'+OV.righe.map(function(g,i){var on=!!(g.voce_id&&g.prezzo!=='');
+  return '<div class="pv-ofr" data-ovr="'+i+'"><div class="tt"><label style="display:flex;gap:8px;align-items:flex-start;margin:0"><input type="checkbox" data-ovck="'+i+'"'+(on?' checked':'')+' style="width:auto;margin-top:3px"><b>'+es(g.descrizione)+'</b></label>'+
+   '<span class="sotto">'+es([g.unita,g.note].filter(Boolean).join(' · '))+'</span></div>'+
+   '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"><label style="flex:1 1 320px"><span>Voce del preventivo</span><select data-ovv="'+i+'">'+opz+'</select></label>'+
+   '<label style="flex:0 0 170px"><span>Prezzo del fornitore + IVA</span><input type="text" inputmode="decimal" data-ovp="'+i+'" maxlength="20" value="'+es(g.prezzo?String(g.prezzo).replace('.',','):'')+'"></label></div>'+
+   '<p class="sotto" data-ovc="'+i+'" style="margin:4px 0 0"></p></div>';}).join('');
+ OV.righe.forEach(function(g,i){var s=box.querySelector('[data-ovv="'+i+'"]');if(s)s.value=g.voce_id||'';ovRigaCalc(i);});
+ box.oninput=box.onchange=function(e){var x=e.target,i=x.getAttribute('data-ovv')||x.getAttribute('data-ovp')||x.getAttribute('data-ovck');if(i==null)return;i=Number(i);
+  if(x.hasAttribute('data-ovv')){OV.righe[i].voce_id=x.value;var ck=box.querySelector('[data-ovck="'+i+'"]');if(ck&&e.type==='change')ck.checked=!!x.value;}
+  if(x.hasAttribute('data-ovp'))OV.righe[i].prezzo=x.value;ovRigaCalc(i);};}
+function ovRigaCalc(i){var el=document.querySelector('[data-ovc="'+i+'"]'),g=OV.righe[i];if(!el||!g)return;var c=numIt(g.prezzo);
+ if(!g.voce_id){el.textContent='Non collegata: scegli la voce del preventivo, oppure lasciala fuori.';return;}
+ el.innerHTML=c?'Nel preventivo: <b>'+eur(maggiora(c))+'</b> ('+eur(c)+' + spese generali '+pcT(OF.spese_generali_pct)+' % + utile '+pcT(OF.utile_pct)+' %)':'Scrivi il prezzo del fornitore.';}
+function ovUsa(b){var dest=ovDest(),box=document.getElementById('ov-righe'),scelte=[],ctrl=[],usate={};
+ OV.righe.forEach(function(g,i){var ck=box&&box.querySelector('[data-ovck="'+i+'"]');if(!ck||!ck.checked)return;
+  var s=box.querySelector('[data-ovv="'+i+'"]'),p=box.querySelector('[data-ovp="'+i+'"]'),dop=!!(s.value&&usate[s.value]);
+  ctrl.push({el:s,ok:function(x){return !!x.value&&!dop;},testo:dop?'Due righe sulla stessa voce: tienine una sola':'Scegli la voce del preventivo, oppure togli la spunta'});
+  ctrl.push({el:p,ok:function(x){return !!numIt(x.value);},testo:'Scrivi il prezzo del fornitore, per esempio 85,50'});
+  if(s.value)usate[s.value]=1;
+  if(s.value&&numIt(p.value)&&!dop)scelte.push({voce_id:s.value,prezzo:numIt(p.value),note:String(g.note||'').slice(0,500)});});
+ var pi=document.getElementById('ov-pr'),mano=pi&&pi.value.trim();
+ if(OV.voce&&mano){ctrl.push({el:pi,ok:function(x){return !!numIt(x.value)&&!usate[String(OV.voce.id)];},testo:usate[String(OV.voce.id)]?'Questa voce ha già un prezzo dall\'offerta letta: svuota questo campo':'Scrivi il prezzo del fornitore, per esempio 85,50'});
+  if(numIt(pi.value)&&!usate[String(OV.voce.id)])scelte.push({voce_id:String(OV.voce.id),prezzo:numIt(pi.value),note:((document.getElementById('ov-nota')||{}).value||'').slice(0,500)});}
+ var okC=crControlla(ctrl);
+ if(!dest||!okC){nota('ov-msg','Completa i campi segnati in rosso.','err');return;}
+ if(!scelte.length){if(OV.voce&&pi&&!OV.righe.length){var m=document.getElementById('ov-mano');if(m)m.open=true;crControlla([{el:pi,ok:function(){return false;},testo:'Allega l\'offerta del fornitore, oppure scrivi qui il prezzo, per esempio 85,50'}]);}
+  nota('ov-msg',OV.righe.length?'Spunta almeno una voce da mettere nel preventivo.':'Allega l\'offerta del fornitore: TIX legge tutte le voci.','err');return;}
+ var data=(document.getElementById('ov-data')||{}).value||'',fatte=[];
  b.disabled=true;nota('ov-msg','Un momento…');
  ovRdo(dest).then(function(r){if(!r||r.esito!=='ok')return r;
-  return api('of_offerta',{rdo_id:OV.rdo,data:data,prezzi:[{voce_id:String(OV.voce.id),prezzo:c,note:nt}]}).then(function(r2){if(!r2||r2.esito!=='ok')return r2;
-   return api('of_scegli',{rdo_id:OV.rdo,voce_id:String(OV.voce.id)});});})
- .then(function(r){b.disabled=false;if(!r||r.esito!=='ok'){nota('ov-msg',errore(r),'err');return;}
-  if(OF)OF.cambiato=true;
-  var el=document.getElementById('ov-calc');if(el)el.innerHTML='<b>Fatto.</b> Nel preventivo la voce costa ora <b>'+eur(r.prezzo)+'</b> (costo del fornitore '+eur(r.costo)+' + spese generali e utile). Premi «Chiudi» per vedere il preventivo aggiornato.';
-  nota('ov-msg','Prezzo messo nel preventivo.','ok');});}
+  return api('of_offerta',{rdo_id:OV.rdo,data:data,prezzi:scelte}).then(function(r2){if(!r2||r2.esito!=='ok')return r2;var i=0;
+   function una(){if(i>=scelte.length)return Promise.resolve({esito:'ok'});var s=scelte[i++];
+    return api('of_scegli',{rdo_id:OV.rdo,voce_id:s.voce_id}).then(function(r3){if(!r3||r3.esito!=='ok')return r3;fatte.push({v:s.voce_id,costo:r3.costo,prezzo:r3.prezzo});return una();});}
+   return una();});})
+ .then(function(r){b.disabled=false;if(fatte.length&&OF)OF.cambiato=true;
+  var nomi={};(OF.voci||[]).forEach(function(x){nomi[String(x.id)]=x.ordine;});
+  var el=document.getElementById('ov-let');
+  if(fatte.length&&el){el.hidden=false;el.innerHTML='<b>Fatto: '+fatte.length+(fatte.length===1?' voce aggiornata':' voci aggiornate')+' nel preventivo.</b><p style="margin:6px 0 0">'+fatte.map(function(f){return 'voce '+es(nomi[f.v]||'')+': '+eur(f.costo)+' → <b>'+eur(f.prezzo)+'</b>';}).join(' · ')+'</p><p style="margin:6px 0 0">Premi «Chiudi» per vedere il preventivo aggiornato.</p>';}
+  if(!r||r.esito!=='ok'){nota('ov-msg',(fatte.length?'Alcune voci sono state messe, poi: ':'')+errore(r),'err');return;}
+  var bx=document.getElementById('ov-righe');if(bx)bx.innerHTML='';OV.righe=[];
+  nota('ov-msg',fatte.length===1?'Prezzo messo nel preventivo.':'Prezzi messi nel preventivo.','ok');});}
 function caricaOf(){CH=null;return Promise.all([api('of_elenco'),caricaPosta(),api('el_cerca',{solo_stato:true})]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;OF.elenco=!!(x[2]&&x[2].esito==='ok');disegnaOf();});}
 // 10/11/2026 (elenco-1, chat 02B): «Cerca nell'elenco TIX» — fornitori e subappaltatori iscritti all'elenco di TIX, per tipo, parola e provincia
 var EL=[],EL_TIPO='';
@@ -2551,7 +2604,7 @@ function disegnaOf(){
      '<td><input type="text" inputmode="decimal" data-voce="'+g.voce_id+'" value="'+(g.prezzo==null?'':String(g.prezzo).replace('.',','))+'">'+(g.prezzo_prima!=null&&Number(g.prezzo_prima)!==Number(g.prezzo)?'<small style="display:block">prima offerta '+eur(g.prezzo_prima)+'</small>':'')+'</td><td><input type="text" data-nota="'+g.voce_id+'" maxlength="500" value="'+es(g.note||'')+'" style="width:100%"></td></tr>';}).join('')+'</table>'+
     '<label><span>Data dell\'offerta</span><input type="date" data-k="data" value="'+es(q.offerta_data||'')+'" style="max-width:200px"></label>'+
     '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="offerta">Salva l\'offerta</button>'+(q.diretta?'':'<button type="button" class="pv-b" data-ofx="copia">Copia di nuovo il testo</button>')+
-    (OF.lettura_attiva?'<label class="pv-b" style="cursor:pointer">Leggi l\'offerta del fornitore<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-ofleggi="'+q.id+'" style="display:none"></label>':'')+
+    (OF.lettura_attiva?'<label class="pv-b" style="cursor:pointer">Leggi l\'offerta del fornitore<input type="file" accept="'+OF_ACC+'" data-ofleggi="'+q.id+'" style="display:none"></label>':'')+
     (q.offerta_file?'<a class="pv-b" target="_blank" rel="noopener" href="'+es(CFG.u.replace(/\/api$/,'/of/file')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+q.id)+'">Apri l\'offerta</a>':'')+'</div>'+
     '<div class="pv-ofnota" data-oflet="'+q.id+'" hidden></div>'+schedeHtml(q)+scontoHtml(q);
   }
@@ -2624,10 +2677,9 @@ function caricaAllegati(inp){var F=Array.prototype.slice.call(inp.files||[]),rid
 document.addEventListener('change',function(e){var x=e.target;if(x&&x.getAttribute&&x.getAttribute('data-ofall'))caricaAllegati(x);});
 // 10/11/2026 (rdo-lettura-1): «Leggi l'offerta del fornitore» → i prezzi letti vanno nei campi, da controllare e salvare
 function leggiOfferta(inp){var f=inp.files&&inp.files[0],rid=inp.getAttribute('data-ofleggi'),box=document.querySelector('[data-rdo="'+rid+'"]'),nb=box?box.querySelector('[data-oflet]'):null;if(!f||!box||!nb)return;
- if(!/\.(pdf|jpe?g|png)$/i.test(f.name)){nb.hidden=false;nb.innerHTML='<b>Si leggono PDF, JPG e PNG.</b> Per gli altri file inserisci i prezzi a mano.';inp.value='';return;}
+ if(!ofFileOk(f)){nb.hidden=false;nb.innerHTML='<b>Si leggono '+OF_TIPI+'.</b> Per gli altri file inserisci i prezzi a mano.';inp.value='';return;}
  nb.hidden=false;nb.innerHTML='Leggo l\'offerta con l\'intelligenza artificiale… può servire fino a un minuto.';inp.disabled=true;
- fetch(CFG.u.replace(/\/api$/,'/of/leggi')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:f})
- .then(function(r){return r.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};}).then(function(r){inp.disabled=false;inp.value='';
+ ofLeggiFile(rid,f).then(function(r){inp.disabled=false;inp.value='';
   if(!r||r.esito!=='ok'){nb.innerHTML='<b>'+es(r&&r.messaggio||errore(r))+'</b>';return;}
   var p=r.proposta||{},n=0,tot=box.querySelectorAll('[data-voce]').length;
   (p.righe||[]).forEach(function(g){if(!g.voce_id||g.prezzo==null||g.prezzo==='')return;var i=box.querySelector('[data-voce="'+g.voce_id+'"]');if(!i)return;
@@ -3359,15 +3411,29 @@ async function leggiOffertaRdo(request, env, inUrl, h) {
   const nome = String(inUrl.searchParams.get("nome") || "").replace(/[^A-Za-z0-9 ._()\-àèéìòùÀÈÉÌÒÙ]+/g, " ").trim().slice(0, 160) || "offerta";
   if (!tok) return json({ esito: "gettone" }, 403);
   if (!id || !rdo) return json({ esito: "errore" }, 400);
-  if (Number(request.headers.get("Content-Length") || 0) > LETTORE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
-  let est = "";
-  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
-  else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
-  else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
-  if (!est) return json({ esito: "formato", messaggio: "Si leggono PDF, JPG e PNG: per gli altri file inserisci i prezzi a mano." }, 400);
-  if (bytes.length > (est === "pdf" ? LETTORE_MAX_PDF : LETTORE_MAX_FOTO)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  if (Number(request.headers.get("Content-Length") || 0) > LETTORE_MAX_PDF + 2097152) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF ed Excel fino a 20 MB, foto fino a 5 MB." }, 413);
+  // 21/11/2026 (offerta-tutte-voci-1, chat B3): Excel, CSV, ODS, Word e testo arrivano come FormData con il file e il suo testo,
+  // estratto nel browser (SheetJS / mammoth); PDF e foto arrivano come prima, così come sono.
+  let bytes = null, est = "", testoFile = "";
+  if (/^multipart\/form-data/i.test(String(request.headers.get("Content-Type") || ""))) {
+    const fd = await request.formData().catch(() => null);
+    const f = fd ? fd.get("file") : null;
+    testoFile = fd ? String(fd.get("testo") || "").slice(0, 300000) : "";
+    const e = (String(nome).match(/\.([A-Za-z0-9]{2,5})$/) || ["", ""])[1].toLowerCase();
+    if (!f || typeof f.arrayBuffer !== "function" || !testoFile.trim()) return json({ esito: "vuoto", messaggio: "Il file è vuoto o non si apre: allega il PDF dell'offerta." }, 400);
+    if (["xlsx", "xlsm", "xls", "ods", "csv", "docx", "txt"].indexOf(e) < 0) return json({ esito: "formato", messaggio: "Si leggono PDF, foto, Excel e Word: per gli altri file inserisci i prezzi a mano." }, 400);
+    bytes = new Uint8Array(await f.arrayBuffer());
+    est = e;
+    if (bytes.length > LETTORE_MAX_PDF) return json({ esito: "grande", messaggio: "Il file è troppo grande: al massimo 20 MB." }, 413);
+  } else {
+    bytes = new Uint8Array(await request.arrayBuffer());
+    if (!bytes.length) return json({ esito: "vuoto", messaggio: "Il file è vuoto." }, 400);
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) est = "pdf";
+    else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) est = "jpg";
+    else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) est = "png";
+    if (!est) return json({ esito: "formato", messaggio: "Si leggono PDF, foto, Excel e Word: per gli altri file inserisci i prezzi a mano." }, 400);
+    if (bytes.length > (est === "pdf" ? LETTORE_MAX_PDF : LETTORE_MAX_FOTO)) return json({ esito: "grande", messaggio: "Il file è troppo grande: PDF fino a 20 MB, foto fino a 5 MB." }, 413);
+  }
   const info = await h.rpc(env, "preventivo_rdo_lettura", { p_token: tok, p_id: id, p_azione: "info", p_dati: { rdo_id: rdo } }, 15000).catch(() => null);
   if (!info) return json({ esito: "incerto" }, 503);
   if (info.esito !== "ok") return json({ esito: String(info.esito), messaggio: info.messaggio || "" });
@@ -3376,11 +3442,13 @@ async function leggiOffertaRdo(request, env, inUrl, h) {
     percorso = String(info.cartella) + "offerta-" + Date.now() + "-" + casuale() + "." + est;
     const up = await fetch(supabaseUrl(env) + "/storage/v1/object/wa-media/" + percorso, { method: "POST",
       headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY,
-        "Content-Type": est === "pdf" ? "application/pdf" : est === "png" ? "image/png" : "image/jpeg", "x-upsert": "false" }, body: bytes }).catch(() => null);
+        "Content-Type": TIPO_OFFERTA[est] || "application/octet-stream", "x-upsert": "false" }, body: bytes }).catch(() => null);
     salvato = !!(up && up.ok);
   }
-  const l = await leggiOffertaFornitore(env, { bytes, nome, modello: info.modello, effort: info.effort,
-    fornitori: [String(info.destinatario || "")], righeAttese: Array.isArray(info.voci) ? info.voci : [] });
+  const tutte = info.diretta === true;   // richiesta «diretta»: all'IA vanno tutte le voci del preventivo
+  const l = await leggiOffertaFornitore(env, { bytes, nome, modello: info.modello, effort: info.effort, testoFile,
+    fornitori: [String(info.destinatario || "")], righeAttese: Array.isArray(info.voci) ? info.voci : [],
+    tutteVoci: tutte, maxVoci: tutte ? 800 : 200, maxRighe: tutte ? 200 : 60 });
   const p = l && l.proposta ? l.proposta : null;
   const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (x) => x.toString(16).padStart(2, "0")).join("");
   await h.rpc(env, "preventivo_rdo_lettura", { p_token: tok, p_id: id, p_azione: "fine", p_dati: { rdo_id: rdo,
@@ -3391,6 +3459,11 @@ async function leggiOffertaRdo(request, env, inUrl, h) {
   return json({ esito: String(l && l.esito || "errore"), messaggio: String(l && l.messaggio || ""), proposta: p, salvato,
     ricarica_eur: info.ricarica_eur == null ? null : info.ricarica_eur });
 }
+// 21/11/2026 (offerta-tutte-voci-1): tipo del file salvato dell'offerta (anche per «Apri l'offerta»)
+const TIPO_OFFERTA = { pdf: "application/pdf", jpg: "image/jpeg", png: "image/png",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
+  xls: "application/vnd.ms-excel", ods: "application/vnd.oasis.opendocument.spreadsheet", csv: "text/csv; charset=UTF-8",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", txt: "text/plain; charset=UTF-8" };
 
 // 17/11/2026 (rdo-allegati-1, chat B3): file allegati alla richiesta di offerta (prima dell'invio). PDF, JPG o PNG; 5 file e 10 MB in tutto.
 async function caricaAllegatoRdo(request, env, inUrl, h) {
@@ -3505,9 +3578,10 @@ async function scaricaOffertaRdo(request, env, base, inUrl, h) {
     headers: { Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, apikey: env.SUPABASE_SERVICE_KEY } }).catch(() => null);
   if (!f || !f.ok) return h.risposta(h.foglio(base, "Preventivo", "", '<p class="err">Il file non si legge dall\u2019archivio: riprova tra un minuto.</p>'), 502);
   const p = String(info.path), nome = String(info.nome || "offerta");
+  const estF = (p.match(/\.([a-z0-9]{2,5})$/) || ["", "jpg"])[1];
   return new Response(request.method === "HEAD" ? null : f.body, { status: 200, headers: {
-    "Content-Type": p.endsWith(".pdf") ? "application/pdf" : p.endsWith(".png") ? "image/png" : "image/jpeg",
-    "Content-Disposition": 'inline; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
+    "Content-Type": TIPO_OFFERTA[estF] || "application/octet-stream",
+    "Content-Disposition": (["pdf", "jpg", "png", "txt"].indexOf(estF) >= 0 ? "inline" : "attachment") + '; filename="' + nome.replace(/[^\x20-\x7e]+/g, "_").replace(/["\\]/g, "_") + '"',
     "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" } });
 }
 
