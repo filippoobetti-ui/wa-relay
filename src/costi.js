@@ -546,7 +546,7 @@ async function apriFattura(request, env, base, inUrl, h) {
 function testaHtml(h, base, titolo, moderna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + CAMPI_ROSSI_CSS + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
+    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + CAMPI_ROSSI_CSS + ".cm-campi span.cr-msg{color:#B3261E;font-size:.8rem}" + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
 }
 // costi-3 (MG3): pagina del cantiere nello stile scelto da Filippo il 10/11 (lo stesso del riepilogo «versione moderna»)
 const svI = (d) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";

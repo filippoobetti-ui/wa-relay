@@ -532,7 +532,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Chiedi un preventivo - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + ".of-campi span.cr-msg{color:#B3261E;font-size:.8rem}" + "</style></head><body><main>" +
     '<a class="of-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="of-card">' +
     '<div class="of-testa"><div>' + (d.cantiere ? '<p class="of-cant">' + e(d.cantiere) + '</p>' : "") +
