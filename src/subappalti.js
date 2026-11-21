@@ -1246,7 +1246,7 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
   var r0=document.querySelectorAll('input[name=sk-reg]');[].forEach.call(r0,function(x){x.addEventListener('change',function(){$('#sk-l-soglia').hidden=this.value!=='soglia';});});
   var so=$('#sk-of');if(so)so.addEventListener('change',function(){$('#sk-voci').hidden=!!this.value;$('#sk-vagg').hidden=!!this.value;});
   var ni=$('#sk-nome');if(ni)ni.addEventListener('change',function(){var x=imp.filter(function(i){return i.impresa.toLowerCase()===ni.value.trim().toLowerCase();})[0];
-    if(x){if(!$('#sk-ref').value)$('#sk-ref').value=x.nome||'';if(!$('#sk-em').value)$('#sk-em').value=x.email||'';if(!$('#sk-tel').value)$('#sk-tel').value=x.telefono||'';}});srSub(imp);}
+    if(x){if(!$('#sk-ref').value)$('#sk-ref').value=x.nome||'';if(!$('#sk-em').value)$('#sk-em').value=x.email||'';if(!$('#sk-tel').value)$('#sk-tel').value=x.telefono||'';}});if(typeof srTelefono==='function'&&$('#sk-tel'))srTelefono($('#sk-tel'));srSub(imp);}
 function mostraLink(k,r,prima){var u=r.url,cn=(SD&&SD.cantiere_nome)||(((window.SAL_D||{}).cantiere||{}).nome)||'',testo='Ciao, questo è il tuo link personale per scrivere le misure '+(cn?'del cantiere «'+cn+'» ':'')+'in TIX: '+u;
   dlg('Link per '+k.impresa_nome,'Valido fino al '+di(r.scade_il)+'. Mandalo solo al referente del sub: chi ha il link entra.'+(prima?' Il link di prima non vale più.':''),
     '<label>Link<input type="text" id="sl-u" readonly value="'+es(u)+'"></label><div class="riga-b"><button type="button" class="b sb-pr" id="sl-copia">Copia il link</button>'+
