@@ -19,6 +19,8 @@
 // Si spegne anche con la variabile del Worker SUBAPPALTI = "off".
 // ============================================================================
 
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-sal-sub-1: regola di Filippo del 14/11
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
 const MAX_FOTO = 8 * 1024 * 1024;
@@ -601,14 +603,14 @@ function paginaPorta(base, d, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Contabilità del subappalto - " + e(k.impresa_nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE_PORTA + "</style></head><body>" +
+    "<style>" + STILE_PORTA + CAMPI_ROSSI_CSS + "</style></head><body>" +
     '<header><div class="marchio">TIX</div><div class="centro"><h1>Contabilità del subappalto</h1><p>' + e(k.impresa_nome || "") + "</p></div></header>" +
     '<main id="sp-corpo"></main>' +
     '<dialog id="sp-dlg" aria-labelledby="sp-dlg-t"><form method="dialog" novalidate><div class="dl-t"><h2 id="sp-dlg-t"></h2><p id="sp-dlg-s"></p></div>' +
     '<div class="dl-c" id="sp-dlg-c"></div><p class="msg" id="sp-dlg-m" aria-live="polite"></p>' +
     '<div class="dl-b"><button type="button" class="no" id="sp-dlg-no">Chiudi</button><button type="button" class="si" id="sp-dlg-si">Salva</button></div></form></dialog>' +
     '<div id="sp-toast" class="toast" role="status" hidden></div>' +
-    "<script>window.SP_C=" + cfg + ";window.SP_D=" + dati + ";</script><script>" + PORTA_APP + "</script></body></html>";
+    "<script>window.SP_C=" + cfg + ";window.SP_D=" + dati + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + PORTA_APP + "</script></body></html>";
 }
 
 const STILE_PORTA =
@@ -715,6 +717,20 @@ function disegna(){
     '<p class="nota">I prezzi li ha scritti l’impresa nel contratto: tu scegli la voce e scrivi la quantità. Importi in euro, IVA esclusa.</p></div>';
   h+='<p class="nota">TIX™ registra le tue misure, le foto e ogni accesso per l’impresa che ti ha incaricato. TIX non manda niente a nessuno.</p>';
   $('#sp-corpo').innerHTML=h;}
+// campi-rossi-sal-sub-1 (21/11/2026, regola di Filippo del 14/11): ciò che manca si segna in rosso con la spiegazione
+function crN(s){var t=String(s==null?'':s).replace(/[\s€]/g,'');if(t==='')return null;if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3}){2,}$/.test(t))t=t.replace(/\./g,'');var n=Number(t);return isFinite(n)?n:NaN;}
+function cr1(el,fn){if(!el||el.disabled)return null;var t=fn(String(el.value==null?'':el.value).trim(),el)||'';return {el:el,ok:function(){return !t;},testo:t};}
+function crNum(obbl,testo,male,cond){return function(v){var x=crN(v);if(x===null)return obbl?testo:'';if(isNaN(x))return male;return cond?(cond(x)||''):'';};}
+function crNome(el,testo){return cr1(el,function(t){return t?'':testo;});}
+function crTutti(rr){if(crControlla(rr.filter(Boolean)))return true;$('#sp-dlg-m').textContent='Completa i campi segnati in rosso.';return false;}
+function crData(obbl,testo){return function(v){if(!v)return obbl?testo:'';if(D.oggi&&v>D.oggi)return 'Il giorno non può essere nel futuro';return '';};}
+function crMisura(){var rr=[],dd=['m-pu','m-l','m-w','m-h'].map(function(i){return $('#'+i);}),una=false;
+  rr.push({el:$('#m-v'),testo:'Scegli la voce dell’elenco prezzi'});
+  rr.push(cr1($('#m-d'),crData(true,'Scegli il giorno della misura')));
+  dd.forEach(function(x){if(x&&crN(x.value)!==null)una=true;rr.push(cr1(x,crNum(false,'','Scrivi un numero, per esempio 2,50')));});
+  if(!una)rr.push(cr1($('#m-q'),crNum(true,'Scrivi le misure oppure la quantità, per esempio 12,50','Scrivi un numero, per esempio 12,50',function(x){return x===0?'La quantità non può essere zero':'';})));else crTogli($('#m-q'));
+  var meno=!!($('#m-meno')&&$('#m-meno').checked);rr.push(cr1($('#m-ds'),function(t){return meno&&t.length<5?'Per una misura in meno scrivi il motivo, per esempio «misurata due volte»':'';}));
+  return crTutti(rr);}
 function dlg(t,s,c,etich,fn){$('#sp-dlg-t').textContent=t;$('#sp-dlg-s').textContent=s||'';$('#sp-dlg-c').innerHTML=c;$('#sp-dlg-m').textContent='';var b=$('#sp-dlg-si');b.textContent=etich||'Salva';b.disabled=false;b.hidden=!fn;dlg.fn=fn;var d=$('#sp-dlg');if(d.showModal)d.showModal();else d.setAttribute('open','');}
 function chiudi(){var d=$('#sp-dlg');if(d.close)d.close();else d.removeAttribute('open');}
 function calcola(){var x=['m-pu','m-l','m-w','m-h'].map(function(i){return nu(($('#'+i)||{}).value);}),uno=x.some(function(v){return v!==null&&!isNaN(v);}),t=1;
@@ -748,7 +764,7 @@ function modulo(m){m=m||{};FOTO=(m.foto||[]).slice();INVIO=0;var voci=(K.voci||[
     '<button type="button" class="fb" id="m-wa">&#128242; Foto mandate su WhatsApp</button></div><div class="wag" id="m-wag" hidden></div><div class="ft" id="m-ft"></div>'+
     '<label>Chi scrive <small>(nome e cognome)</small><input type="text" id="m-chi" maxlength="120" autocomplete="name" value="'+es(ls('sp_chi'))+'"></label>';
   dlg(m.id?(m.stato==='osservazione'?'Correggi la misura':'Modifica la misura'):'Nuova misura',m.osservazione&&m.stato==='osservazione'?'Osservazione: '+m.osservazione:'',c,'Salva',function(){
-    if(INVIO){$('#sp-dlg-m').textContent='Aspetta la fine dell’invio delle foto.';return;}
+    if(INVIO){$('#sp-dlg-m').textContent='Aspetta la fine dell’invio delle foto.';return;}if(!crMisura())return;
     var d={id:m.id||'',voce_id:$('#m-v').value,data:$('#m-d').value,lotto:$('#m-lotto').value,piano:$('#m-piano').value,zona:$('#m-zona').value,
       pu:$('#m-pu').value,l:$('#m-l').value,w:$('#m-w').value,h:$('#m-h').value,quantita:$('#m-q').disabled?'':$('#m-q').value,meno:$('#m-meno').checked,
       descrizione:$('#m-ds').value,foto:FOTO,autore:$('#m-chi').value};
@@ -764,7 +780,7 @@ function ora(){var d=new Date(),p=function(n){return ('0'+n).slice(-2);};return 
 function libPdf(){return window.PDFLib?Promise.resolve():new Promise(function(ok,ko){var s=document.createElement('script');s.src=PDFLIB;s.onload=ok;s.onerror=function(){ko(new Error('lib'));};document.head.appendChild(s);});}
 function pad(cv){var x=cv.getContext('2d'),giu=false;FI.vuoto=true;x.lineWidth=4;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#1b2a6b';
   function pt(e){var r=cv.getBoundingClientRect();return [(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height];}
-  cv.addEventListener('pointerdown',function(e){giu=true;FI.vuoto=false;var p=pt(e);x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(p[0]+0.1,p[1]+0.1);x.stroke();try{cv.setPointerCapture(e.pointerId);}catch(er){}e.preventDefault();});
+  cv.addEventListener('pointerdown',function(e){giu=true;FI.vuoto=false;crTogli(cv);var p=pt(e);x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(p[0]+0.1,p[1]+0.1);x.stroke();try{cv.setPointerCapture(e.pointerId);}catch(er){}e.preventDefault();});
   cv.addEventListener('pointermove',function(e){if(!giu)return;var p=pt(e);x.lineTo(p[0],p[1]);x.stroke();e.preventDefault();});
   ['pointerup','pointercancel'].forEach(function(n){cv.addEventListener(n,function(){giu=false;});});
   FI.pulisci=function(){x.clearRect(0,0,cv.width,cv.height);FI.vuoto=true;};}
@@ -807,7 +823,7 @@ function firma(id){var s=(K.sal||[]).filter(function(x){return x.id===id;})[0];i
   dlg('Firma: '+tit,'Preparo il documento…','<p class="nota">Un momento…</p>','Firma e salva',function(){
     var nome=($('#fi-nome')||{}).value||'',m=$('#sp-dlg-m'),b=$('#sp-dlg-si');nome=nome.trim();
     if(!FI.doc){m.textContent='Il documento non è ancora pronto: aspetta un momento.';return;}
-    if(nome.length<3){m.textContent='Scrivi nome e cognome di chi firma.';return;}ls('sp_chi',nome);
+    var rf=[cr1($('#fi-nome'),function(x){return x.length<3?'Scrivi nome e cognome di chi firma':'';})];if(FI.modo==='d')rf.push({el:$('#fi-file'),ok:function(el){return !!(el.files&&el.files[0]);},testo:'Scegli il file firmato'});else rf.push({el:$('#fi-pad'),ok:function(){return !FI.vuoto;},testo:'Firma nel riquadro con il dito'});if(!crTutti(rf))return;if(nome.length<3){m.textContent='Scrivi nome e cognome di chi firma.';return;}ls('sp_chi',nome);
     var fine=function(r){b.disabled=false;if(r&&r.esito==='ok'){chiudi();avviso('Contabilità firmata.');ricarica();}else m.textContent=errore(r);};
     if(FI.modo==='d'){var f=$('#fi-file').files&&$('#fi-file').files[0];if(!f){m.textContent='Scegli il file firmato.';return;}b.disabled=true;m.textContent='Carico il file firmato…';
       f.arrayBuffer().then(function(buf){return mandaFirma(buf,'digitale',FI.doc,nome);}).then(fine).catch(function(){fine(null);});return;}
@@ -874,7 +890,7 @@ function anteprima(file,x){if(x.err){dlg('Misure da Excel',file.name,'<p class="
     (R.length>200?'<tr><td class="t" colspan="5"><small>… e altre '+(R.length-200)+' righe</small></td></tr>':'')+'</tbody></table></div>'+
     '<p class="nota">Le righe vanno all’impresa come «in attesa», come quelle scritte a mano: puoi correggerle o toglierle finché non le accetta. Con le misure (parti uguali, lunghezza, larghezza, altezza) TIX calcola la quantità.</p>';
   dlg('Misure da Excel',file.name+(x.foglio?' · foglio «'+x.foglio+'»':''),c,ok.length?'Manda '+ok.length+(ok.length===1?' riga':' righe')+' all’impresa':'',ok.length?mandaImport:null);}
-function mandaImport(){var dd=$('#xi-d').value,chi=$('#xi-chi').value.trim(),m=$('#sp-dlg-m'),b=$('#sp-dlg-si');if(chi.length<3){m.textContent='Scrivi chi carica (nome e cognome).';return;}
+function mandaImport(){var dd=$('#xi-d').value,chi=$('#xi-chi').value.trim(),m=$('#sp-dlg-m'),b=$('#sp-dlg-si');if(!crTutti([cr1($('#xi-d'),crData(true,'Scegli il giorno per le righe senza data')),cr1($('#xi-chi'),function(x){return x.length<3?'Scrivi chi carica (nome e cognome)':'';})]))return;if(chi.length<3){m.textContent='Scrivi chi carica (nome e cognome).';return;}
   if(!dd){m.textContent='Scegli il giorno per le righe senza data.';return;}ls('sp_chi',chi);
   var n=function(x){return x===null||isNaN(x)?'':String(x);};
   var righe=IMP.righe.filter(function(r){return !r.motivo;}).map(function(r){var o={riga:r.riga,voce_id:r.voce.id,data:r.data||dd,lotto:r.lotto,piano:r.piano,zona:r.zona,descrizione:r.note};
@@ -905,7 +921,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   // S3b: firma
   if(t.hasAttribute('data-fi')){firma(t.getAttribute('data-fi'));return;}
   if(t.hasAttribute('data-tm')){FI.modo=t.getAttribute('data-tm');[].forEach.call(document.querySelectorAll('[data-tm]'),function(x){x.classList.toggle('on',x===t);});
-    var df=$('[data-f]'),dd=$('[data-d]');if(df)df.hidden=FI.modo!=='f';if(dd)dd.hidden=FI.modo!=='d';$('#sp-dlg-m').textContent='';return;}
+    var df=$('[data-f]'),dd=$('[data-d]');if(df)df.hidden=FI.modo!=='f';if(dd)dd.hidden=FI.modo!=='d';$('#sp-dlg-m').textContent='';crPulisci($('#sp-dlg-c'));return;}
   if(t.id==='fi-pulisci'){if(FI.pulisci)FI.pulisci();return;}
   if(t.hasAttribute('data-fx')){FOTO.splice(Number(t.getAttribute('data-fx')),1);fotoLista();return;}
   if(t.hasAttribute('data-mod')){var id=t.getAttribute('data-mod'),m=(K.misure||[]).filter(function(x){return x.id===id;})[0];if(m)modulo(m);return;}
@@ -951,6 +967,27 @@ function api(azione,extra){var b={t:C.t,c:C.c,azione:azione};extra=extra||{};for
   return fetch(C.u+'/sub/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
     .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};});}
 function errore(r){if(!r)return 'Il servizio non risponde: riprova.';if(r.esito==='chiuso')return 'Il cantiere è chiuso.';if(r.esito==='incerto')return 'Non sappiamo se è andata a buon fine: ricarica la pagina e controlla.';return r.messaggio||'Non è stato possibile salvare.';}
+// campi-rossi-sal-sub-1 (21/11/2026, regola di Filippo del 14/11): ciò che manca si segna in rosso con la spiegazione
+function crN(s){var t=String(s==null?'':s).replace(/[\s€]/g,'');if(t==='')return null;if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3}){2,}$/.test(t))t=t.replace(/\./g,'');var n=Number(t);return isFinite(n)?n:NaN;}
+function cr1(el,fn){if(!el||el.disabled)return null;var t=fn(String(el.value==null?'':el.value).trim(),el)||'';return {el:el,ok:function(){return !t;},testo:t};}
+function crNum(obbl,testo,male,cond){return function(v){var x=crN(v);if(x===null)return obbl?testo:'';if(isNaN(x))return male;return cond?(cond(x)||''):'';};}
+function crNome(el,testo){return cr1(el,function(t){return t?'':testo;});}
+function crData(obbl,testo){return function(v){if(!v)return obbl?testo:'';if(SD&&SD.oggi&&v>SD.oggi)return 'Il giorno non può essere nel futuro';return '';};}
+function crTutti(rr){if(crControlla(rr.filter(Boolean)))return true;msg('Completa i campi segnati in rosso.');return false;}
+function crSub(){var rr=[],reg=(document.querySelector('input[name=sk-reg]:checked')||{}).value||'mensile',ini=($('#sk-ini')||{}).value||'';
+  rr.push(crNome($('#sk-nome'),'Scrivi il nome dell’impresa subappaltatrice'));
+  rr.push(cr1($('#sk-fine'),function(v){return v&&ini&&v<ini?'La fine prevista è prima dell’inizio':'';}));
+  rr.push(cr1($('#sk-rit'),crNum(false,'','Scrivi un numero, per esempio 5 oppure 2,5',function(x){return x<0||x>20?'La ritenuta va da 0 a 20':'';})));
+  rr.push(cr1($('#sk-peco'),crNum(false,'','Scrivi il prezzo dell’ora in numeri, per esempio 32,50',function(x){return x<0||x>10000?'Controlla il prezzo dell’ora, per esempio 32,50':'';})));
+  if(reg==='soglia')rr.push(cr1($('#sk-soglia'),crNum(true,'Scrivi la soglia in euro, per esempio 15.000,00','Scrivi la soglia in numeri, per esempio 15.000,00',function(x){return x<=0?'La soglia deve essere maggiore di zero':'';})));
+  var of=$('#sk-of');if(!(of&&of.value)){var n=0;
+    [].forEach.call(document.querySelectorAll('#sk-voci .sb-vr'),function(r){var d=$('.v-d',r),pz=$('.v-p',r);if(!(d.value||pz.value))return;n++;
+      rr.push(crNome(d,'Scrivi la descrizione della voce'));
+      rr.push(cr1(pz,crNum(true,'Scrivi il prezzo, per esempio 1.234,50','Scrivi il prezzo in numeri, per esempio 1.234,50',function(x){return x<0?'Scrivi il prezzo senza segno':'';})));
+      rr.push(cr1($('.v-q',r),crNum(false,'','Scrivi la quantità in numeri, per esempio 120 oppure 2,5')));
+      rr.push(cr1($('.v-c',r),function(t){return t&&!/^[0-9]{1,9}$/.test(t)?'Scrivi solo il numero della voce del computo, per esempio 12':'';}));});
+    rr.push({el:$('#sk-voci'),ok:function(){return n>0;},testo:'Scrivi almeno una voce con la descrizione e il prezzo'});}else crTogli($('#sk-voci'));
+  return crTutti(rr);}
 function attiva(){if(C.solo)return true;var b=document.querySelector('.sal-tab button[data-s=subappalti]');return b&&b.getAttribute('aria-selected')==='true';}
 function carica(){return api('contesto').then(function(r){SD=r||{esito:'incerto'};var t=document.getElementById('tab-sub');if(t)t.hidden=!(SD.esito==='ok');if(EL&&attiva())EL.innerHTML=pagina();});}
 window.SUB_MOSTRA=function(el){EL=el;el.innerHTML=pagina();if(!carico){carico=true;carica();}};
@@ -1144,7 +1181,7 @@ function contratto(k){var nuovo=!k;k=k||{regola:'mensile',ritenuta_pct:0,voci:[{
     '<p class="nota" style="margin-top:0">Il sub vede queste voci e questi prezzi, e non li può cambiare. «Voce computo» (facoltativa) collega la voce al tuo computo verso il committente: serve per i controlli.</p>'+
     '<div id="sk-voci">'+(k.voci||[]).filter(function(v){return !v.tolta;}).map(rigaV).join('')+'</div><button type="button" class="b" id="sk-vagg">+ Aggiungi una voce</button>'+
     '<label style="margin-top:10px">Chi lo scrive <small>(nome e cognome)</small><input type="text" id="sk-chi" maxlength="120" value="'+es(ls('sal_autore'))+'"></label>';
-  dlg(nuovo?'Nuovo subappalto':'Contratto del sub: '+k.impresa_nome,'Prezzi senza IVA. Il sub non vede mai i prezzi verso il committente.',c,'Salva il contratto',function(){
+  dlg(nuovo?'Nuovo subappalto':'Contratto del sub: '+k.impresa_nome,'Prezzi senza IVA. Il sub non vede mai i prezzi verso il committente.',c,'Salva il contratto',function(){if(!crSub())return;
     var d={id:k.id||'',impresa_nome:$('#sk-nome').value,referente_nome:$('#sk-ref').value,referente_email:$('#sk-em').value,referente_telefono:$('#sk-tel').value,
       oggetto:$('#sk-ogg').value,inizio:$('#sk-ini').value,fine_prevista:$('#sk-fine').value,ritenuta_pct:$('#sk-rit').value,
       regola:(document.querySelector('input[name=sk-reg]:checked')||{}).value||'mensile',soglia_importo:$('#sk-soglia').value,autore:$('#sk-chi').value,
@@ -1181,12 +1218,12 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(a==='allunga'){t.disabled=true;api('allunga',{id:id,dati:{autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Link allungato fino al '+di(r.scade_il)+'.');carica();}else avv(errore(r));});return;}
   if(a==='spegni'){dlg('Spegnere il link?','Il sub non entra più finché non gli mandi un link nuovo.','','Spegni',function(){dopo(api('spegni',{id:id,dati:{autore:chi}}),'Link spento.');});return;}
   if(a==='accetta'||a==='riapri'){t.disabled=true;api('misura',{id:id,dati:{azione:a,autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv(a==='accetta'?'Riga accettata.':'Riga riaperta.');carica();}else avv(errore(r));});return;}
-  if(a==='oss'){dlg('Osservazione per il sub','Il sub la vede nella sua pagina, corregge la riga e te la rimanda.','<label>Osservazione<textarea id="so-t" maxlength="600" placeholder="es. il Diario segna 30 m², ricontrolla"></textarea></label>','Manda al sub',function(){
+  if(a==='oss'){dlg('Osservazione per il sub','Il sub la vede nella sua pagina, corregge la riga e te la rimanda.','<label>Osservazione<textarea id="so-t" maxlength="600" placeholder="es. il Diario segna 30 m², ricontrolla"></textarea></label>','Manda al sub',function(){if(!crTutti([cr1($('#so-t'),function(x){return x.length<3?'Scrivi l’osservazione per il sub, per esempio «il Diario segna 30 m², ricontrolla»':'';})]))return;
       dopo(api('misura',{id:id,dati:{azione:'osservazione',testo:$('#so-t').value,autore:chi}}),'Osservazione scritta.');});return;}
   if(a==='tutte'){var n=(k.misure||[]).filter(function(m){return m.stato==='inviata';}).length;dlg('Accettare tutte le righe da decidere?',n+(n===1?' riga':' righe')+' di '+k.impresa_nome+'.','','Accetta tutte',function(){
       dopo(api('misura',{id:id,dati:{azione:'accetta_tutte',autore:chi}}),'Righe accettate.');});return;}
   if(a==='emetti'){var oggi=SD.oggi||'';dlg('Approvare la contabilità del sub?','Entrano le righe accettate e le ore in economia fino al giorno che scegli. Con l’approvazione riceve il numero e il codice di controllo e non cambia più.',
-      '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){
+      '<label>Righe fino al<input type="date" id="se-a" max="'+es(oggi)+'" value="'+es(oggi)+'"></label><label>Approvata da <small>(nome e cognome)</small><input type="text" id="se-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva',function(){if(!crTutti([cr1($('#se-a'),crData(false,'')),crNome($('#se-chi'),'Scrivi chi approva la contabilità (nome e cognome)')]))return;
       var nm=$('#se-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{periodo_a:$('#se-a').value,autore:nm}}),'Contabilità approvata.');});return;}
   // S3b (11/11/2026): firma dell'impresa con il firmatore comune (tipo 'sal', rif_id 'sub:<id>')
   if(a==='firma'){t.disabled=true;api('firma_prepara',{id:id,k:t.getAttribute('data-k')}).then(function(r){t.disabled=false;
@@ -1199,17 +1236,17 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       '<label>Righe fino al<input type="date" id="sf-a" max="'+es(of)+'" value="'+es(of)+'"></label>'+
       (rf||Number(k.ritenuta_pct)?'<h3>Ritenute a garanzia</h3><div class="scelte"><label><input type="radio" name="sf-sv" value="si" checked> Restituiscile con questa contabilità finale ('+eur(rf)+' € a oggi)</label>'+
         '<label><input type="radio" name="sf-sv" value="no"> Trattienile ancora: le restituisci dopo con «Svincola le ritenute»</label></div>':'')+
-      '<label>Approvata da <small>(nome e cognome)</small><input type="text" id="sf-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva la contabilità finale',function(){
+      '<label>Approvata da <small>(nome e cognome)</small><input type="text" id="sf-chi" maxlength="120" value="'+es(chi)+'"></label>','Approva la contabilità finale',function(){if(!crTutti([cr1($('#sf-a'),crData(false,'')),crNome($('#sf-chi'),'Scrivi chi approva la contabilità (nome e cognome)')]))return;
       var nm=$('#sf-chi').value,sv=(document.querySelector('input[name=sf-sv]:checked')||{}).value||'si';ls('sal_autore',nm);
       dopo(api('emetti',{id:id,dati:{tipo:'finale',svincola:sv,periodo_a:$('#sf-a').value,autore:nm}}),'Contabilità finale approvata: il subappalto è chiuso.');});return;}
   if(a==='svincolo'){var fz=k.finale||{};dlg('Svincolare le ritenute di '+k.impresa_nome+'?','Le ritenute a garanzia trattenute fino alla contabilità finale n. '+fz.numero+' diventano da pagare. È un documento a sé, con numero e codice di controllo.',
-      '<p style="margin:0 0 10px"><b>Ritenute da svincolare: '+eur(fz.ritenuta)+' € + IVA</b></p><label>Approvato da <small>(nome e cognome)</small><input type="text" id="sv-chi" maxlength="120" value="'+es(chi)+'"></label>','Svincola le ritenute',function(){
+      '<p style="margin:0 0 10px"><b>Ritenute da svincolare: '+eur(fz.ritenuta)+' € + IVA</b></p><label>Approvato da <small>(nome e cognome)</small><input type="text" id="sv-chi" maxlength="120" value="'+es(chi)+'"></label>','Svincola le ritenute',function(){if(!crTutti([crNome($('#sv-chi'),'Scrivi chi approva lo svincolo (nome e cognome)')]))return;
       var nm=$('#sv-chi').value;ls('sal_autore',nm);dopo(api('emetti',{id:id,dati:{tipo:'svincolo',autore:nm}}),'Ritenute svincolate.');});return;}
-  if(a==='pagata'){var o2=SD.oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento. TIX controlla il DURC del sub alla data del pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){
+  if(a==='pagata'){var o2=SD.oggi||'';dlg('Segnare pagata?','Si segna solo in TIX: non parte nessun pagamento. TIX controlla il DURC del sub alla data del pagamento.','<label>Pagata il<input type="date" id="sp-d" max="'+es(o2)+'" value="'+es(o2)+'"></label><label>Nota <small>(facoltativa, es. bonifico)</small><input type="text" id="sp-n" maxlength="300"></label>','Segna pagata',function(){if(!crTutti([cr1($('#sp-d'),crData(false,''))]))return;
       var dd={azione:'pagato',data:$('#sp-d').value,nota:$('#sp-n').value,autore:chi},b=$('#sb-dlg-si');b.disabled=true;
       api('sal_stato',{id:id,dati:dd}).then(function(r){b.disabled=false;if(r&&r.esito==='durc'){chiediDurc(id,dd,r);return;}if(r&&r.esito==='ok'){chiudi();avv('Segnata pagata.');carica();}else msg(errore(r));});});return;}
   if(a==='nonpagata'){t.disabled=true;api('sal_stato',{id:id,dati:{azione:'non_pagato',autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Tolto «pagata».');carica();}else avv(errore(r));});return;}
-  if(a==='annulla'){dlg('Annullare la contabilità?','Le sue righe tornano accettate e libere per la prossima. Il numero non si riusa. Se è la contabilità finale, il subappalto si riapre.','<label>Motivo<textarea id="sa-m" maxlength="300"></textarea></label>','Annulla la contabilità',function(){
+  if(a==='annulla'){dlg('Annullare la contabilità?','Le sue righe tornano accettate e libere per la prossima. Il numero non si riusa. Se è la contabilità finale, il subappalto si riapre.','<label>Motivo<textarea id="sa-m" maxlength="300"></textarea></label>','Annulla la contabilità',function(){if(!crTutti([cr1($('#sa-m'),function(x){return x.length<3?'Scrivi il motivo dell’annullamento':'';})]))return;
       dopo(api('sal_stato',{id:id,dati:{azione:'annulla',motivo:$('#sa-m').value,autore:chi}}),'Contabilità annullata.');});return;}
   if(a==='chiudi'){dlg('Chiudere il subappalto?','Il sub potrà solo guardare e scaricare le sue contabilità. Si può riaprire.','','Chiudi il subappalto',function(){dopo(api('chiudi',{id:id,dati:{autore:chi}}),'Subappalto chiuso.');});return;}
   if(a==='riapri_k'){t.disabled=true;api('riapri',{id:id,dati:{autore:chi}}).then(function(r){t.disabled=false;if(r&&r.esito==='ok'){avv('Subappalto riaperto.');carica();}else avv(errore(r));});return;}

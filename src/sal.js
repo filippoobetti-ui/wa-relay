@@ -14,6 +14,7 @@
 // Il relay non conserva nulla. Si spegne anche con la variabile del Worker SAL = "off".
 // ============================================================================
 import { portaleSub, SUB_APP, SUB_STILE } from "./subappalti.js";
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-sal-sub-1: regola di Filippo del 14/11
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GETTONE = /^[0-9a-f]{64}$/;
@@ -1349,7 +1350,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>SAL - " + e(cant.nome || "") + "</title>" + h.testa(base) +
-    "<style>" + STILE + SUB_STILE + "</style></head><body>" +
+    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + "</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>SAL</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -1367,7 +1368,7 @@ export function paginaSal(base, tok, c, d, scheda, h) {
     '<div class="dl-c" id="dlg-c"></div><p class="msg" id="dlg-m" aria-live="polite"></p>' +
     '<div class="dl-b"><button type="button" class="no" id="dlg-no">Chiudi</button><button type="submit" class="si" id="dlg-si">Salva</button></div></form></dialog>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
-    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
+    "<script>window.SAL_C=" + cfg + ";window.SAL_D=" + dati + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SUB_APP + "</script><script>" + APP + "</script></body></html>";
 }
 
 // ---------------------------------------------------------------------------- pagina «Subappaltatori» (10/11/2026)
@@ -1407,7 +1408,7 @@ function paginaSubappaltatori(base, tok, c, d, h) {
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">' +
     "<title>Subappaltatori - " + e(cant.nome || "") + "</title>" + h.testa(base) +
     // colore dei subappalti (terracotta) al posto del viola del SAL
-    "<style>" + STILE + SUB_STILE + ":root{--sal:#B5523B;--sal-s:#8A3A27;--sal-c:#FBF0EC;--sal-b:#EBC9BE}</style></head><body>" +
+    "<style>" + STILE + SUB_STILE + CAMPI_ROSSI_CSS + ":root{--sal:#B5523B;--sal-s:#8A3A27;--sal-c:#FBF0EC;--sal-b:#EBC9BE}</style></head><body>" +
     "<header>" + (d.logo_html || '<div class="marchio">TIX · Diario di cantiere</div>') +
     '<div class="centro"><h1>Subappaltatori</h1><p>' + e(cant.nome || "") + (cant.ubicazione ? " &middot; " + e(cant.ubicazione) : "") + "</p></div>" + logoImpresa + "</header>" +
     '<main><a class="indietro" href="' + e(torna) + '">&larr; Torna al cantiere</a>' +
@@ -1417,7 +1418,7 @@ function paginaSubappaltatori(base, tok, c, d, h) {
     'TIX non manda niente a nessuno: il link lo mandi tu.</p>' +
     '<noscript><p class="nota"><b>Per usare questa pagina serve JavaScript attivo nel browser.</b></p></noscript></main>' +
     '<div id="sal-avviso" class="sal-toast" role="status" hidden></div>' +
-    "<script>window.SAL_C=" + cfg + ";</script><script>" + SUB_APP + "</script></body></html>";
+    "<script>window.SAL_C=" + cfg + ";</script><script>" + CAMPI_ROSSI_JS + "</script><script>" + SUB_APP + "</script></body></html>";
 }
 
 const STILE =
@@ -1545,6 +1546,48 @@ var scheda=C.s||ls('sal_scheda')||'avanzamento';if(scheda==='subappalti')scheda=
 var IMP=null,impId=D.import?D.import.id:null,impTutte=false,impTimer=null,impGiri=0;
 var filtro='tutte',cerca='';
 var chiusi={};
+// campi-rossi-sal-sub-1 (21/11/2026, regola di Filippo del 14/11): ciò che manca si segna in rosso con la spiegazione
+function crN(s){var t=String(s==null?'':s).replace(/[\s€]/g,'');if(t==='')return null;if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3}){2,}$/.test(t))t=t.replace(/\./g,'');var n=Number(t);return isFinite(n)?n:NaN;}
+function cr1(el,fn){if(!el||el.disabled)return null;var t=fn(String(el.value==null?'':el.value).trim(),el)||'';return {el:el,ok:function(){return !t;},testo:t};}
+function crNum(obbl,testo,male,cond){return function(v){var x=crN(v);if(x===null)return obbl?testo:'';if(isNaN(x))return male;return cond?(cond(x)||''):'';};}
+function crNome(el,testo){return cr1(el,function(t){return t?'':testo;});}
+function crData(obbl,testo){return function(v){if(!v)return obbl?testo:'';if(D.oggi&&v>D.oggi)return 'Il giorno non può essere nel futuro';return '';};}
+function crTutti(rr,dove){if(crControlla(rr.filter(Boolean)))return true;if(dove)dove.textContent='Completa i campi segnati in rosso.';else avviso('Completa i campi segnati in rosso.');return false;}
+function crMisura(v,prop){var rr=[],meno=false,pe=$('#m-pct');
+  rr.push(cr1($('#m-data'),crData(!prop,'Scegli il giorno della misura')));
+  if(pe){rr.push(cr1(pe,crNum(true,'Scrivi la percentuale fatta a oggi, per esempio 40','Scrivi un numero, per esempio 40 oppure 37,5',function(x){return x<0?'La percentuale non può essere sotto zero':'';})));
+    var px=crN(pe.value);if(px!==null&&!isNaN(px)&&Number(v.qc)>0&&Number(v.qc)*px/100-(Number(v.qt)||0)<-1e-9)meno=true;}
+  else{meno=!!($('#m-meno')&&$('#m-meno').checked);var md=document.querySelector('input[name=m-modo]:checked');
+    if(md&&md.value==='d'){var dd=['m-pu','m-l','m-w','m-h'].map(function(i){return $('#'+i);}),una=dd.some(function(x){return x&&crN(x.value)!==null;});
+      rr.push({el:$('#m-ld'),ok:function(){return una;},testo:'Scrivi almeno una misura: parti uguali, lunghezza, larghezza o H / peso'});
+      dd.forEach(function(x){rr.push(cr1(x,crNum(false,'','Scrivi un numero, per esempio 2,50',function(n){return n<=0?'Scrivi la misura senza segno: per togliere quantità usa «Misura in meno»':'';})));});}
+    else rr.push(cr1($('#m-q'),crNum(true,'Scrivi la quantità, per esempio 12,50','Scrivi un numero, per esempio 1.234,50',function(n){return n<=0?'Scrivi la quantità senza segno: per togliere quantità usa «Misura in meno»':'';})));}
+  rr.push(cr1($('#m-descr'),function(t){return meno&&t.length<5?'Per una misura in meno scrivi il motivo, per esempio «misurata due volte»':'';}));
+  return crTutti(rr,$('#dlg-m'));}
+function crBozza(){var tp=(D.bozza&&D.bozza.tipo)||'sal',rr=[];
+  if(tp==='sal')rr.push(cr1($('#b-a'),crData(true,'Scegli fino a che giorno vanno i lavori di questo SAL')));
+  if(tp==='finale')rr.push(cr1($('#b-fine'),crData(true,'Scrivi il giorno in cui sono finiti i lavori')));
+  if(tp==='svincolo')rr.push(cr1($('#b-dc'),crData(true,'Scrivi la data del collaudo (o del certificato di regolare esecuzione)')));
+  [].forEach.call(document.querySelectorAll('#b-av .av-r'),function(r){var d=$('.a-d',r),q=$('.a-q',r),pz=$('.a-p',r);if(!(d.value||q.value||pz.value))return;
+    rr.push(crNome(d,'Scrivi la descrizione, per esempio «ore di autogrù»'));
+    rr.push(cr1(q,crNum(true,'Scrivi la quantità, per esempio 8 oppure 2,5','Scrivi un numero, per esempio 8 oppure 2,5',function(x){return x===0?'La quantità non può essere zero':'';})));
+    rr.push(cr1(pz,crNum(true,'Scrivi il prezzo, per esempio 1.234,50','Scrivi un numero, per esempio 1.234,50',function(x){return x<0?'Scrivi il prezzo senza segno':'';})));});
+  return crTutti(rr,null);}
+function crContratto(){var rr=[],cad=(document.querySelector('input[name=c-cad]:checked')||{}).value||'',sm=($('#c-smodo')||{}).value||'',dc=($('#c-dc')||{}).value||'';
+  var pct=function(nome,max){return crNum(false,'','Scrivi un numero, per esempio 5 oppure 2,5',function(x){return x<0||x>max?nome+' va da 0 a '+(max===100?'100':'99,99'):'';});};
+  rr.push(cr1($('#c-imp'),crNum(false,'','Scrivi l’importo in numeri, per esempio 163.070,00',function(x){return x<=0?'L’importo del contratto deve essere maggiore di zero':'';})));
+  rr.push(cr1($('#c-rib'),crNum(false,'','Scrivi un numero, per esempio 12,5',function(x){return x<0||x>=100?'Il ribasso va da 0 a 99,99':'';})));
+  rr.push(cr1($('#c-rit'),pct('La ritenuta',100)));
+  rr.push(cr1($('#c-ant'),pct('L’anticipazione',100)));
+  rr.push(cr1($('#c-sic'),crNum(sm==='proporzionale','Scrivi l’importo degli oneri della sicurezza, per esempio 6.500,00','Scrivi l’importo in numeri, per esempio 6.500,00',
+    function(x){return x<0?'Gli oneri non possono essere sotto zero':sm==='proporzionale'&&x<=0?'Scrivi l’importo degli oneri della sicurezza, per esempio 6.500,00':'';})));
+  rr.push(cr1($('#c-tu'),function(v){return v&&dc&&v<dc?'Il termine dei lavori non può venire prima della data del contratto':'';}));
+  if(cad==='soglia')rr.push(cr1($('#c-soglia'),crNum(true,'Scrivi la soglia d’importo che fa scattare il SAL, per esempio 50.000,00','Scrivi la soglia in numeri, per esempio 50.000,00',function(x){return x<=0?'La soglia deve essere maggiore di zero':'';})));
+  [].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){var n=$('.t-n',r),pp=$('.t-p',r),m=$('.t-m',r);if(!(n.value||pp.value))return;var perc=m&&m.value==='percentuale';
+    rr.push(crNome(n,'Scrivi il nome del traguardo, per esempio «fine strutture»'));
+    rr.push(cr1(pp,crNum(perc,'Scrivi la percentuale del contratto, per esempio 20','Scrivi un numero, per esempio 20 oppure 12,5',function(x){return perc&&(x<=0||x>100)?'La percentuale va da 0 a 100':'';})));
+    rr.push(cr1($('.t-r',r),crData(false,'')));});
+  return crTutti(rr,$('#c-msg'));}
 
 function tutto(){K=D.computo||null;CL=D.calcolo||null;CO=CL?CL.conto:null;testa();schede();corpo();}
 
@@ -1677,7 +1720,7 @@ function misura(v,m,prop){
   c+='<label>Luogo <small>(facoltativo)</small><input type="text" id="m-luogo" maxlength="160" placeholder="es. plinti asse B, piano terra" value="'+es(m.luogo||'')+'"></label>'+
     '<label>Descrizione o motivo <small>(obbligatorio per una misura in meno)</small><input type="text" id="m-descr" maxlength="300" value="'+es(m.descrizione||'')+'"></label>'+
     '<label>Scritta da <small>(nome e cognome)</small><input type="text" id="m-autore" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>';
-  finestra((prop?'Conferma la proposta · ':(m.id?'Modifica misura · ':'Nuova misura · '))+v.nr+' '+v.d,v.oltre?'Attenzione: questa voce è già oltre il computo.':'',c,prop?'Conferma la misura':'Salva la misura',function(){
+  finestra((prop?'Conferma la proposta · ':(m.id?'Modifica misura · ':'Nuova misura · '))+v.nr+' '+v.d,v.oltre?'Attenzione: questa voce è già oltre il computo.':'',c,prop?'Conferma la misura':'Salva la misura',function(){if(!crMisura(v,prop))return;
     var d={voce_id:v.id,data:$('#m-data').value,luogo:$('#m-luogo').value,descrizione:$('#m-descr').value,autore:$('#m-autore').value};
     if(m.id)d.id=m.id;ls('sal_autore',d.autore);
     if($('#m-pct')){d.pct=$('#m-pct').value;}
@@ -1788,7 +1831,7 @@ function datiBozza(){var tp=(D.bozza&&D.bozza.tipo)||'sal',d={note:$('#b-note').
     [].forEach.call(document.querySelectorAll('#b-av .av-r'),function(r){var x={tipo:$('.a-t',r).value,descrizione:$('.a-d',r).value,unita:$('.a-u',r).value,quantita:$('.a-q',r).value,prezzo:$('.a-p',r).value};
       if(x.descrizione||x.quantita||x.prezzo)d.altre_voci.push(x);});}
   return d;}
-function salvaBozza(){return api('bozza',{dati:datiBozza()}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza salvata.');return ricarica().then(function(){return true;});}avviso(errore(r));return false;});}
+function salvaBozza(){if(!crBozza())return Promise.resolve(false);return api('bozza',{dati:datiBozza()}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza salvata.');return ricarica().then(function(){return true;});}avviso(errore(r));return false;});}
 
 // ---------------- contratto
 function contratto(){
@@ -1830,7 +1873,7 @@ function diff(){var k=K||{},s=CO?Number(CO.importo_computo):Number(k.importo_com
   return '<span class="ko-v">Differenza di '+eur(d)+' € ('+pc(s?d/s*100:0)+')</span>: computo '+eur(s)+' €, contratto '+eur(ct)+' €. Non blocca niente, ma conviene scrivere da cosa dipende.';}
 function legaContratto(){
   [].forEach.call(document.querySelectorAll('input[name=c-cad]'),function(r){r.addEventListener('change',function(){$('#c-l-soglia').hidden=this.value!=='soglia';if(this.value==='traguardi')$('#c-trag').hidden=false;});});}
-function salvaContratto(){var d={tipo_contratto:$('#c-tipo').value,importo_contratto:$('#c-imp').value,ribasso_pct:$('#c-rib').value,ritenuta_pct:$('#c-rit').value,anticipazione_pct:$('#c-ant').value,
+function salvaContratto(){if(!crContratto())return;var d={tipo_contratto:$('#c-tipo').value,importo_contratto:$('#c-imp').value,ribasso_pct:$('#c-rib').value,ritenuta_pct:$('#c-rit').value,anticipazione_pct:$('#c-ant').value,
   oneri_sicurezza:$('#c-sic').value,sicurezza_modo:$('#c-smodo').value,data_contratto:$('#c-dc').value,termine_ultimazione:$('#c-tu').value,nota_differenza:$('#c-nota').value,
   cadenza_sal:(document.querySelector('input[name=c-cad]:checked')||{}).value||'',soglia_sal_importo:$('#c-soglia').value,traguardi:[]};
   [].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){var t={id:r.getAttribute('data-id'),nome:$('.t-n',r).value,modo:$('.t-m',r).value,percentuale:$('.t-p',r).value,data_prevista:$('.t-dp',r).value,raggiunto_il:$('.t-r',r).value,
@@ -1943,9 +1986,9 @@ function impCarica(f){
 document.addEventListener('change',function(ev){if(ev.target.id!=='k-file')return;var f=ev.target.files&&ev.target.files[0];ev.target.value='';impCarica(f);});
 // copia firmata del SAL (PDF firmato a mano e scansionato, o firmato digitalmente: .pdf o .p7m)
 document.addEventListener('change',function(ev){var i=ev.target;if(!i.classList||!i.classList.contains('f-firm'))return;var f=i.files&&i.files[0],id=i.getAttribute('data-id');i.value='';if(!f)return;
-  if(!/\.(pdf|p7m)$/i.test(f.name)){avviso('Carica il SAL firmato in PDF (.pdf o .p7m).');return;}
-  if(f.size>18*1024*1024){avviso('Il file è troppo grande (massimo 18 MB).');return;}
-  avviso('Invio della copia firmata…');
+  if(!/\.(pdf|p7m)$/i.test(f.name)){crSegna(i.parentNode,'Scegli il SAL firmato in PDF (.pdf o .p7m)');avviso('Carica il SAL firmato in PDF (.pdf o .p7m).');return;}
+  if(f.size>18*1024*1024){crSegna(i.parentNode,'Il file è troppo grande: al massimo 18 MB');avviso('Il file è troppo grande (massimo 18 MB).');return;}
+  crTogli(i.parentNode);avviso('Invio della copia firmata…');
   fetch(C.u+'/firmato/carica?t='+encodeURIComponent(C.t)+'&id='+encodeURIComponent(id)+'&nome='+encodeURIComponent(f.name)+'&chi='+encodeURIComponent(ls('sal_autore')),{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream'},body:f})
     .then(function(r){return r.json();}).catch(function(){return {esito:'incerto'};})
     .then(function(r){if(r&&r.esito==='ok'){avviso('Copia firmata salvata.');ricarica();}else avviso((r&&r.messaggio)||errore(r));});});
@@ -1967,9 +2010,9 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
   if(t.id==='b-salva'){salvaBozza();return;}
   if(t.id==='b-av-agg'){$('#b-av').insertAdjacentHTML('beforeend',rigaAv({}));return;}
   if(t.hasAttribute('data-avx')){t.parentNode.parentNode.removeChild(t.parentNode);return;}
-  if(t.id==='b-finale'){t.disabled=true;api('bozza',{dati:{tipo:'finale',data_fine_lavori:$('#f-fine').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza del conto finale pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
-  if(t.id==='b-svincolo'){t.disabled=true;api('bozza',{dati:{tipo:'svincolo',data_collaudo:$('#s-dc').value,collaudo_tipo:$('#s-ct').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza dello svincolo pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
-  if(t.hasAttribute('data-tgr')){t.disabled=true;api('traguardo_raggiunto',{id:t.getAttribute('data-tgr'),dati:{data:($('#tgr-d')||{}).value||''}}).then(function(r){if(r&&r.esito==='ok'){avviso('Traguardo segnato raggiunto.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.id==='b-finale'){if(!crTutti([cr1($('#f-fine'),crData(true,'Scrivi il giorno in cui sono finiti i lavori'))],null))return;t.disabled=true;api('bozza',{dati:{tipo:'finale',data_fine_lavori:$('#f-fine').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza del conto finale pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.id==='b-svincolo'){if(!crTutti([cr1($('#s-dc'),crData(true,'Scrivi la data del collaudo (o del certificato di regolare esecuzione)'))],null))return;t.disabled=true;api('bozza',{dati:{tipo:'svincolo',data_collaudo:$('#s-dc').value,collaudo_tipo:$('#s-ct').value}}).then(function(r){if(r&&r.esito==='ok'){avviso('Bozza dello svincolo pronta.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
+  if(t.hasAttribute('data-tgr')){if(!crTutti([cr1($('#tgr-d'),crData(false,''))],null))return;t.disabled=true;api('traguardo_raggiunto',{id:t.getAttribute('data-tgr'),dati:{data:($('#tgr-d')||{}).value||''}}).then(function(r){if(r&&r.esito==='ok'){avviso('Traguardo segnato raggiunto.');ricarica();}else{t.disabled=false;avviso(errore(r));}});return;}
   if(t.hasAttribute('data-tgset')){var rg=t.closest('.tg');if(rg){$('.t-r',rg).value=t.getAttribute('data-tgset');avviso('Data messa: salva la scheda contratto.');}return;}
   if(t.id==='c-tg-crono'){var gia={};[].forEach.call(document.querySelectorAll('#c-tg .tg'),function(r){gia[r.getAttribute('data-crono')]=1;});
     var lista=(D.cardini||[]).filter(function(c){return !gia[c.id];});
@@ -1992,7 +2035,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       finestra('Emettere '+nm1+'?','Importo: '+eur(co.dovuto)+' € + IVA'+(tp1==='finale'?' · lavori finiti il '+di(D.bozza.data_fine_lavori):tp1==='svincolo'?'':' · lavori fino al '+di(D.bozza.periodo_a)),
         '<p class="nota" style="margin:0">Con l’emissione il SAL riceve il codice di controllo e non si modifica più. Se la DL chiede correzioni prima del visto, si riemette come versione 2; dopo il visto le correzioni vanno nel SAL successivo. TIX non manda niente a nessuno: il documento lo consegni tu.</p>'+
         '<label>Emesso da <small>(nome e cognome)</small><input type="text" id="e-nome" maxlength="120" autocomplete="name" value="'+es(ls('sal_autore'))+'"></label>','Emetti',
-        function(){var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso(tp1==='finale'?'Conto finale emesso.':tp1==='svincolo'?'Svincolo emesso.':'SAL emesso.');});});});return;}
+        function(){if(!crTutti([crNome($('#e-nome'),'Scrivi chi lo emette (nome e cognome)')],$('#dlg-m')))return;var nm=$('#e-nome').value;ls('sal_autore',nm);return salvando(api('emetti',{id:D.bozza.id,dati:{autore:nm}})).then(function(r){if(r)avviso(tp1==='finale'?'Conto finale emesso.':tp1==='svincolo'?'Svincolo emesso.':'SAL emesso.');});});});return;}
   if(t.hasAttribute('data-pconf')||t.hasAttribute('data-pcorr')){var pr=proposta(t.getAttribute('data-pconf')||t.getAttribute('data-pcorr'));if(!pr)return;
     var pv=voce(pr.voce_id)||(CL.voci||[])[0];
     if(t.hasAttribute('data-pcorr')||(pr.q==null&&pr.pct==null)){if(pv)misura(pv,null,pr);return;}
@@ -2003,7 +2046,7 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
       function(){return salvando(api('proposta',{id:ps,dati:{azione:'scarta',motivo:$('#ps-mot').value,autore:ls('sal_autore')}})).then(function(r){if(r)avviso('Proposta scartata.');});},true);return;}
   if(t.id==='cu-rifai'){ev.preventDefault();api('curva_prepara',{dati:{rifai:true}}).then(function(r){if(r&&r.esito==='ok'){avviso('Collegamento in corso: meno di un minuto.');curvaGiri=0;ricarica().then(function(){setTimeout(curvaAttendi,20000);});}else avviso(errore(r));});return;}
   if(t.id==='k-tutte'){impTutte=true;corpo();return;}
-  if(t.id==='k-conferma'||t.id==='k-annulla'){var conf=t.id==='k-conferma',chi=$('#k-chi')?$('#k-chi').value:'';if(conf&&chi)ls('sal_autore',chi);t.disabled=true;
+  if(t.id==='k-conferma'||t.id==='k-annulla'){var conf=t.id==='k-conferma',chi=$('#k-chi')?$('#k-chi').value:'';if(conf&&$('#k-vd')&&!crTutti([cr1($('#k-vd'),function(x){return x.length<3?'Scrivi l’atto della variante, per esempio «Perizia di variante n. 1»':'';}),cr1($('#k-vdata'),crData(false,'')),cr1($('#k-vimp'),crNum(false,'','Scrivi l’importo in numeri, per esempio 163.070,00',function(x){return x<=0?'Il nuovo importo del contratto deve essere maggiore di zero':'';}))],null))return;if(conf&&chi)ls('sal_autore',chi);t.disabled=true;
     var dk={autore:chi};if(conf&&$('#k-vd')){dk.variante_descrizione=$('#k-vd').value;dk.variante_data=$('#k-vdata').value;dk.importo_contratto=$('#k-vimp').value;}
     api(conf?'computo_conferma':'computo_annulla',{id:impId,dati:dk}).then(function(r){
       if(r&&r.esito==='ok'){clearTimeout(impTimer);IMP=null;impId=null;impTutte=false;
@@ -2016,11 +2059,11 @@ document.addEventListener('click',function(ev){var t=ev.target.closest?ev.target
     if(az==='firmato'||az==='visto'){finestra(az==='firmato'?nn+': firmato dall’impresa':nn+': visto dalla Direzione Lavori','Si segna solo nell’area riservata: TIX non manda niente.',
         '<label>'+(az==='firmato'?'Firmato da':'Nome del Direttore dei Lavori')+'<input type="text" id="f-nome" maxlength="120"></label><label>Il giorno<input type="date" id="f-data" max="'+es(D.oggi)+'" value="'+es(D.oggi)+'"></label>'+
         (az==='visto'?'<label>Nota della DL <small>(facoltativa)</small><input type="text" id="f-nota" maxlength="600"></label>':''),'Salva',
-        function(){var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});}
+        function(){if(!crTutti([crNome($('#f-nome'),az==='firmato'?'Scrivi il nome di chi ha firmato':'Scrivi il nome del Direttore dei Lavori'),cr1($('#f-data'),crData(false,''))],$('#dlg-m')))return;var d={azione:az,nome:$('#f-nome').value,data:$('#f-data').value};if($('#f-nota'))d.nota=$('#f-nota').value;return salvando(api('stato',{id:sid,dati:d})).then(function(r){if(r)avviso('Salvato.');});});}
     else{finestra(az==='riemetti'?'Riemettere «'+nn+'» con correzioni?':'Annullare «'+nn+'»?',
         az==='riemetti'?'Nasce la versione successiva in bozza, con le stesse misure da correggere. La versione di prima resta archiviata con il suo codice di controllo.':'Il SAL resta archiviato come annullato; le sue misure tornano libere per il prossimo SAL.',
         '<label>Motivo<textarea id="r-mot" maxlength="600" placeholder="es. la DL ha chiesto di rimisurare la voce 12"></textarea></label><label>Chi lo fa <small>(nome e cognome)</small><input type="text" id="r-nome" maxlength="120" value="'+es(ls('sal_autore'))+'"></label>',
-        az==='riemetti'?'Riemetti':'Annulla',function(){return salvando(api('stato',{id:sid,dati:{azione:az,motivo:$('#r-mot').value,nome:$('#r-nome').value}})).then(function(r){if(r){avviso(az==='riemetti'?'Versione nuova pronta in bozza.':'SAL annullato.');}});},az==='annulla');}
+        az==='riemetti'?'Riemetti':'Annulla',function(){if(!crTutti([cr1($('#r-mot'),function(x){return x.length<5?'Scrivi il motivo, per esempio «la DL ha chiesto di rimisurare la voce 12»':'';}),crNome($('#r-nome'),'Scrivi chi lo fa (nome e cognome)')],$('#dlg-m')))return;return salvando(api('stato',{id:sid,dati:{azione:az,motivo:$('#r-mot').value,nome:$('#r-nome').value}})).then(function(r){if(r){avviso(az==='riemetti'?'Versione nuova pronta in bozza.':'SAL annullato.');}});},az==='annulla');}
     return;}
 });
 document.addEventListener('submit',function(ev){if(ev.target.id!=='dlg-f')return;ev.preventDefault();if(dlgAzione)dlgAzione();});
