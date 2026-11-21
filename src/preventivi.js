@@ -72,7 +72,8 @@ function pulisciOf(d) {
   const testi = { id: 36, rdo_id: 36, ch_id: 36, riga_id: 20, contatto_id: 20, destinatario: 200, tipo: 20, email_a: 2200, email_cc: 2200,
     email_impresa: 1200, oggetto: 200, testo: 30000, note: 2000, data: 10, n: 6, posta_id: 36,
     allegato_id: 36, scheda_id: 36, referente_nome: 120, referente_telefono: 40, referente_email: 160, consegna: 10, consegna_data: 10, // 17/11/2026 (consegna-1): referente del cantiere e consegna
-    descrizione: 6000, unita: 20, quantita: 20, voce_id: 20 }; // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
+    descrizione: 6000, unita: 20, quantita: 20, voce_id: 20, // 13/11/2026 (rdo-cantiere-1): righe scritte a mano
+    spese_generali_pct: 8, utile_pct: 8, impresa: 120, nome: 120, tipo_rapporto: 20, telefono: 40, email: 200, partita_iva: 20 }; // 21/11/2026 (offerta-fornitore-2)
   for (const k of Object.keys(testi)) if (k in x) o[k] = testo(x[k], testi[k]);
   if (Array.isArray(x.voci)) o.voci = x.voci.slice(0, 200).map((v) => testo(v, 36)); // 13/11/2026: anche gli id (uuid) del computo del SAL
   // 13/11/2026 (prove-1): prove scelte dall'elenco, con la quantità
@@ -723,7 +724,7 @@ function disegna(){
   (c?'<label class="pv-c"><span class="pv-et">Ribasso del contratto <small>'+(k?cifra(rib,2)+' %':'nessun contratto nel SAL')+'</small></span><span class="pv-interr"><input type="checkbox" data-c="ribasso_applicato"'+(F.ribasso_applicato?' checked':'')+(bozza&&k?'':' disabled')+'>'+(F.ribasso_applicato&&k?'Applicato':'Non applicato')+'</span></label>':'')+
   campo('oneri_sicurezza','Oneri della sicurezza + IVA (€)',txt2(D.oneri_sicurezza),'',16)+campo('sconto','Sconto (€)',txt2(D.sconto),'',16)+
   campo('spese_generali_pct','Spese generali (%)',pcT2(MG().spese_generali_pct),'',6)+campo('utile_pct','Utile d\'impresa (%)',pcT2(MG().utile_pct),'',6)+
-  '<p class="pv-c tutta" style="margin:0;font-size:.84rem;color:var(--s)">Spese generali e utile si aggiungono ai prezzi presi dalle offerte dei fornitori: prezzo nel preventivo = costo del fornitore × (1 + spese generali) × (1 + utile). Il cliente vede solo il prezzo finale. Se le cambi e premi «Salva i dati», le voci con il costo del fornitore si ricalcolano.</p>'+
+  '<p class="pv-c tutta" style="margin:0;font-size:.84rem;color:var(--s)"><b>Spese generali e utile d\'impresa: scrivi tu le percentuali di questo preventivo</b> (TIX non ne mette nessuna da solo). Servono per i prezzi presi dalle offerte dei fornitori: prezzo nel preventivo = costo del fornitore × (1 + spese generali) × (1 + utile). Il cliente vede solo il prezzo finale. Se le cambi e premi «Salva i dati», le voci con il costo del fornitore si ricalcolano.</p>'+
   '<label class="pv-c tutta"><span class="pv-et">Note per il cliente <small>facoltative, vanno nel preventivo</small></span><textarea data-c="note" rows="2" maxlength="2000"'+(bozza?'':' disabled')+'>'+es(F.note||'')+'</textarea></label></div>'+
   (bozza?'<div class="pv-az"><button type="button" class="pv-b sm pv-pr" id="pv-salva-int">Salva i dati</button><span class="pv-msg" id="pv-int-msg"></span></div>':'');
  if(c&&!k)h+='<p class="pv-info">Nel cantiere non c\'è un computo caricato nella sezione SAL: le voci si prendono dal prezzario o si scrivono a mano.</p>';
@@ -801,9 +802,9 @@ function disegna(){
  if(bozza&&ULTIMA)cerca();
 }
 // 21/11/2026 (maggiorazioni-1, chat B3): spese generali e utile del preventivo
-function MG(){return D.maggiorazioni||{spese_generali_pct:15,utile_pct:10};}
-function pcT2(x){var n=num(x);return String(n).replace('.',',');}
-function okPct(x){var t=x.value.trim().replace(',','.');return /^\d{1,3}(\.\d{1,2})?$/.test(t)&&Number(t)<=100;}
+function MG(){return D.maggiorazioni||{spese_generali_pct:null,utile_pct:null};}
+function pcT2(x){if(x==null||x==='')return '';var n=num(x);return String(n).replace('.',',');}
+function okPct(x){var t=x.value.trim().replace(',','.');if(!t)return true;return /^\d{1,3}(\.\d{1,2})?$/.test(t)&&Number(t)<=100;}
 function nomePrezzario(){var z=(D.prezzari||[]).filter(function(x){return Number(x.id)===Number(D.prezzario_id);})[0];return z?z.titolo:'Prezzario';}
 function campo(k,et,v,cl,max){var bozza=D.stato==='bozza';return '<label class="pv-c'+(cl?' '+cl:'')+'"><span class="pv-et">'+es(et)+'</span><input data-c="'+k+'" maxlength="'+max+'" value="'+es(v==null?'':v)+'"'+(bozza?'':' disabled')+'></label>';}
 function fchip(v,t){return '<button type="button" class="pv-chip'+(FONTE===v?' on':'')+'" data-fonte="'+v+'">'+es(t)+'</button>';}
@@ -845,7 +846,7 @@ function lega(){
   api('ia_'+az,{id:F.id}).then(function(r){if(r&&r.esito==='ok')carica();else{b.disabled=false;alert(msgErr(r));}});};});
 }
 function salvaInt(){var sgI=document.querySelector('#pv-app [data-c="spese_generali_pct"]'),utI=document.querySelector('#pv-app [data-c="utile_pct"]');
- if(sgI&&utI&&!crControlla([{el:sgI,ok:okPct,testo:'Spese generali: una percentuale da 0 a 100, per esempio 15'},{el:utI,ok:okPct,testo:'Utile d\'impresa: una percentuale da 0 a 100, per esempio 10'}])){var m0=$('pv-int-msg');if(m0){m0.textContent='Completa i campi segnati in rosso.';m0.className='pv-msg ko';}return;}
+ if(sgI&&utI&&!crControlla([{el:sgI,ok:okPct,testo:'Spese generali: una percentuale da 0 a 100'},{el:utI,ok:okPct,testo:'Utile d\'impresa: una percentuale da 0 a 100'}])){var m0=$('pv-int-msg');if(m0){m0.textContent='Completa i campi segnati in rosso.';m0.className='pv-msg ko';}return;}
  var d={id:F.id};Array.prototype.forEach.call(document.querySelectorAll('#pv-app [data-c]'),function(x){var k=x.getAttribute('data-c');d[k]=x.type==='checkbox'?x.checked:x.value;});
  var m=$('pv-int-msg');if(m){m.textContent='Un momento…';m.className='pv-msg';}
  api('intestazione',d).then(function(r){if(r&&r.esito==='ok'){carica();}else{if(m){m.textContent=msgErr(r);m.className='pv-msg ko';}else alert(msgErr(r));}});}
@@ -2444,8 +2445,52 @@ function ofLeggiFile(rid,f){return ofCorpo(f).then(function(corpo){
   return fetch(CFG.u.replace(/\/api$/,'/of/leggi')+'?t='+encodeURIComponent(CFG.t)+'&id='+CFG.id+'&rdo='+rid+'&nome='+encodeURIComponent(f.name),{method:'POST',body:corpo})
    .then(function(x){return x.json().catch(function(){return {esito:'errore'};});}).catch(function(){return {esito:'rete'};});},
   function(){return {esito:'formato',messaggio:'Non riesco ad aprire il file '+f.name+': salvalo di nuovo (Excel in .xlsx, Word in .docx) oppure allega il PDF.'};});}
-function pcT(x){var n=Number(x);return isFinite(n)?String(n).replace('.',','):'0';}
-function maggiora(c){var n=Number(c),sg=Number(OF&&OF.spese_generali_pct||0),ut=Number(OF&&OF.utile_pct||0);return isFinite(n)?Math.round(n*(1+sg/100)*(1+ut/100)*100+1e-9)/100:NaN;}
+// 21/11/2026 (maggiorazioni-2): spese generali e utile NON automatici: vuoti finché l'impresa non li scrive
+function pcT(x){if(x==null||x==='')return '—';var n=Number(x);return isFinite(n)?String(n).replace('.',','):'—';}
+function pctNum(s){var t=String(s==null?'':s).trim().replace(',','.');return /^\d{1,3}(\.\d{1,2})?$/.test(t)&&Number(t)<=100?Number(t):null;}
+function ovPct(){var a=document.getElementById('ov-sg'),b=document.getElementById('ov-ut');
+ if(a&&b)return {sg:pctNum(a.value),ut:pctNum(b.value)};
+ return {sg:OF&&OF.spese_generali_pct!=null?Number(OF.spese_generali_pct):null,ut:OF&&OF.utile_pct!=null?Number(OF.utile_pct):null};}
+function maggiora(c){var n=Number(c),q=ovPct();if(q.sg==null||q.ut==null||!isFinite(n))return NaN;return Math.round(n*(1+q.sg/100)*(1+q.ut/100)*100+1e-9)/100;}
+function pctTesto(){var q=ovPct();return 'spese generali '+pcT(q.sg)+' % + utile '+pcT(q.ut)+' %';}
+// 21/11/2026 (rubrica-dal-preventivo-1, chat B3): fornitore scritto a mano → «Salva in Rubrica» con i suoi dati (regola di Filippo:
+// in TIX chi si scrive a mano e non è in Rubrica si può sempre salvare in Rubrica). pre = 'ov' (Offerta del fornitore) o 'of' (Nuova richiesta).
+function rubNorm(s){return String(s||'').toLowerCase().replace(/\s+/g,' ').trim();}
+function rubTrova(t){t=rubNorm(t);return t?(OF&&OF.rubrica||[]).filter(function(k){return rubNorm(k.impresa)===t||rubNorm(k.nome)===t;})[0]:null;}
+function rubAggancia(pre){var d=document.getElementById(pre+'-dest');if(!d||document.getElementById(pre+'-rn'))return;
+ var box=document.createElement('div');box.className='pv-ofnota';box.id=pre+'-rn';box.hidden=true;var lab=d.closest('label')||d;lab.parentNode.insertBefore(box,lab.nextSibling);
+ d.addEventListener('input',function(){var s=document.getElementById(pre+'-rub');if(s&&s.value){var k=(OF.rubrica||[])[Number(s.value)];if(!k||rubNorm(k.impresa||k.nome)!==rubNorm(d.value)){s.value='';s.dataset.cid='';s.dataset.tipo='';}}rubAggiorna(pre);});
+ var s=document.getElementById(pre+'-rub');if(s)s.addEventListener('change',function(){rubAggiorna(pre);});rubAggiorna(pre);}
+function rubAggiorna(pre){var box=document.getElementById(pre+'-rn'),d=document.getElementById(pre+'-dest'),s=document.getElementById(pre+'-rub');if(!box||!d||box.dataset.aperto==='1')return;
+ var t=d.value.trim();if(!t||(s&&s.value)||rubTrova(t)){box.hidden=true;box.innerHTML='';return;}
+ box.hidden=false;box.innerHTML='<b>«'+es(t)+'» non è nella Rubrica.</b> <button type="button" class="pv-b sm pv-pr" data-rubx="apri" data-pre="'+pre+'">Salva in Rubrica</button> <small>con i suoi dati: la prossima volta lo scegli dall\'elenco</small>';}
+function rubForm(pre){var box=document.getElementById(pre+'-rn'),d=document.getElementById(pre+'-dest'),ea=document.getElementById(pre+'-ea');if(!box||!d)return;box.dataset.aperto='1';box.hidden=false;
+ var tp=(document.getElementById(pre+'-tipo')||{}).value;if(['fornitore','subappaltatore','noleggio','laboratorio'].indexOf(tp)<0)tp='fornitore';
+ box.innerHTML='<b>Salva in Rubrica</b> <small>serve la ragione sociale; gli altri dati li puoi completare anche dopo, dalla Rubrica</small>'+
+  '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">'+
+  '<label style="flex:1 1 240px"><span>Ragione sociale</span><input type="text" id="'+pre+'-rn-imp" maxlength="120" value="'+es(d.value.trim())+'"></label>'+
+  '<label style="flex:0 0 240px"><span>Rapporto</span><select id="'+pre+'-rn-tipo">'+[['fornitore','Fornitore di materiali'],['subappaltatore','Impresa subappaltatrice'],['noleggio','Noleggio di mezzi e attrezzature'],['laboratorio','Laboratorio prove sui materiali']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===tp?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select></label>'+
+  '<label style="flex:1 1 200px"><span>Referente (nome e cognome)</span><input type="text" id="'+pre+'-rn-nome" maxlength="120"></label>'+
+  '<label style="flex:0 0 190px"><span>Cellulare</span><input type="tel" id="'+pre+'-rn-tel" maxlength="40" placeholder="+39 333 123 4567"></label>'+
+  '<label style="flex:1 1 220px"><span>Email</span><input type="email" id="'+pre+'-rn-mail" maxlength="160" value="'+es(ea?String(ea.value||'').split(',')[0].trim():'')+'"></label>'+
+  '<label style="flex:0 0 170px"><span>Partita IVA</span><input type="text" id="'+pre+'-rn-piva" maxlength="20" inputmode="numeric"></label>'+
+  '<label style="flex:1 1 100%"><span>Note</span><input type="text" id="'+pre+'-rn-note" maxlength="500"></label></div>'+
+  '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-rubx="salva" data-pre="'+pre+'">Salva in Rubrica</button><button type="button" class="pv-b" data-rubx="annulla" data-pre="'+pre+'">Non adesso</button></div><p class="pv-msg" id="'+pre+'-rn-msg" aria-live="polite"></p>';}
+function rubSalva(pre,b){var g=function(x){return document.getElementById(pre+'-rn-'+x);};
+ var ok=crControlla([{el:g('imp'),ok:function(x){return x.value.trim().length>=2;},testo:'Scrivi la ragione sociale della ditta'},
+  {el:g('mail'),ok:function(x){var v=x.value.trim();return !v||/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);},testo:'L\'email non sembra giusta'},
+  {el:g('piva'),ok:function(x){return !x.value.trim()||x.value.replace(/\D/g,'').length===11;},testo:'La partita IVA ha 11 cifre'}]);
+ if(!ok){nota(pre+'-rn-msg','Completa i campi segnati in rosso.','err');return;}
+ b.disabled=true;nota(pre+'-rn-msg','Un momento…');
+ api('of_rubrica_nuovo',{impresa:g('imp').value.trim(),nome:g('nome').value.trim(),tipo_rapporto:g('tipo').value,telefono:g('tel').value.trim(),email:g('mail').value.trim(),partita_iva:g('piva').value.trim(),note:g('note').value.trim()}).then(function(r){b.disabled=false;
+  if(!r||r.esito!=='ok'){var m={impresa:'imp',nome:'nome',telefono:'tel',email:'mail',partita_iva:'piva'}[r&&r.campo];if(m&&g(m))crControlla([{el:g(m),ok:function(){return false;},testo:errore(r)}]);nota(pre+'-rn-msg',errore(r),'err');return;}
+  var k=r.contatto||{};OF.rubrica=OF.rubrica||[];OF.rubrica.push(k);var i=OF.rubrica.length-1,s=document.getElementById(pre+'-rub'),box=document.getElementById(pre+'-rn');
+  if(box)box.dataset.aperto='';
+  if(s){var o=document.createElement('option');o.value=String(i);o.textContent=(({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio',laboratorio:'Laboratorio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome&&k.nome!==k.impresa?' ('+k.nome+')':'');s.appendChild(o);s.value=String(i);s.dispatchEvent(new Event('change'));}
+  var d=document.getElementById(pre+'-dest');if(d)d.value=k.impresa||k.nome||'';var ea=document.getElementById(pre+'-ea');if(ea&&!ea.value.trim()&&k.email)ea.value=k.email;
+  if(box){box.hidden=false;box.innerHTML='<b>✓ «'+es(k.impresa||k.nome||'')+'» è salvato in Rubrica.</b> <small>Gli altri dati li completi quando vuoi, dalla Rubrica.</small>';}});}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-rubx]');if(!b)return;var pre=b.getAttribute('data-pre'),a=b.getAttribute('data-rubx');
+ if(a==='apri')rubForm(pre);else if(a==='salva')rubSalva(pre,b);else if(a==='annulla'){var box=document.getElementById(pre+'-rn');if(box){box.dataset.aperto='';rubAggiorna(pre);}}});
 function numIt(s){var t=String(s||'').trim().replace(/\s/g,'').replace(/€/g,'');if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t))t=t.replace(/\./g,'');t=t.replace(',','.');return /^\d{1,8}(\.\d{1,4})?$/.test(t)?t:'';}
 function ovVoci(){return (OF&&OF.voci||[]).filter(function(x){return x.stato!=='esclusa';});}
 function apriOv(vid){finestra('<p>Un momento…</p>');api('of_elenco').then(function(r){if(!r||r.esito!=='ok'){finestra(testa('Offerta del fornitore','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;
@@ -2454,7 +2499,10 @@ function apriOv(vid){finestra('<p>Un momento…</p>');api('of_elenco').then(func
  OV={voce:v||null,rdo:null,dest:'',righe:[]};disegnaOv();});}
 function disegnaOv(){var v=OV.voce,rub=OF.rubrica||[];
  var h=testa('Offerta del fornitore',v?'Aperta dalla voce <b>'+v.ordine+'.</b> '+es(v.descrizione)+' <small>· '+es(v.unita||'')+' '+String(v.quantita==null?'':v.quantita).replace('.',',')+'</small>':'Allega l\'offerta: TIX legge tutte le voci e le collega a quelle del preventivo.')+
-  '<p class="pv-ofnota">Per un\'offerta arrivata per email, al telefono o a mano. Allega il file: TIX legge <b>tutte le voci dell\'offerta</b> e le collega alle voci del preventivo; tu controlli e scegli quali mettere. Nel preventivo va il prezzo del fornitore più le spese generali (<b>'+pcT(OF.spese_generali_pct)+' %</b>) e l\'utile d\'impresa (<b>'+pcT(OF.utile_pct)+' %</b>) di questo preventivo: le cambi in alto, nei dati del preventivo. Il cliente vede solo il prezzo finale.</p>'+
+  '<p class="pv-ofnota">Per un\'offerta arrivata per email, al telefono o a mano. Allega il file: TIX legge <b>tutte le voci dell\'offerta</b> e le collega alle voci del preventivo; tu controlli e scegli quali mettere. Il cliente vede solo il prezzo finale.</p>'+
+  '<div class="pv-ofnota"><b>Spese generali e utile d\'impresa di questo preventivo</b><br><small>Scrivi tu le percentuali: TIX non ne mette nessuna da solo. Nel preventivo va il prezzo del fornitore più queste due percentuali; valgono per tutto il preventivo e le puoi cambiare quando vuoi (anche in alto, nei dati del preventivo).</small>'+
+   '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"><label style="flex:0 0 180px"><span>Spese generali (%)</span><input type="text" inputmode="decimal" id="ov-sg" maxlength="6" value="'+(OF.spese_generali_pct==null?'':pcT(OF.spese_generali_pct))+'"></label>'+
+   '<label style="flex:0 0 180px"><span>Utile d\'impresa (%)</span><input type="text" inputmode="decimal" id="ov-ut" maxlength="6" value="'+(OF.utile_pct==null?'':pcT(OF.utile_pct))+'"></label></div></div>'+
   '<label><span>Fornitore dalla Rubrica</span><select id="ov-rub"><option value="">— scegli, oppure scrivi il nome qui sotto —</option>'+rub.map(function(k,i){return '<option value="'+i+'">'+es((({fornitore:'Fornitore',subappaltatore:'Subappaltatore',noleggio:'Noleggio',laboratorio:'Laboratorio'})[k.tipo]||'Ditta')+' · '+(k.impresa||k.nome)+(k.impresa&&k.nome?' ('+k.nome+')':''))+'</option>';}).join('')+'</select></label>'+
   '<label><span>Nome del fornitore</span><input type="text" id="ov-dest" maxlength="200"></label>'+
   (OF.lettura_attiva?'<div class="pv-ofbt"><label class="pv-b pv-pr" style="cursor:pointer">Allega l\'offerta e leggi tutte le voci<input type="file" id="ov-file" accept="'+OF_ACC+'" style="display:none"></label></div><p class="sotto">Si leggono '+OF_TIPI+'.</p>':'<p class="sotto">La lettura automatica non è accesa: scrivi il prezzo qui sotto.</p>')+
@@ -2464,14 +2512,17 @@ function disegnaOv(){var v=OV.voce,rub=OF.rubrica||[];
    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"><label style="flex:0 0 230px"><span>Prezzo del fornitore + IVA'+(v.unita?' (€ per '+es(v.unita)+')':' (€)')+'</span><input type="text" inputmode="decimal" id="ov-pr" maxlength="20"></label>'+
    '<label style="flex:1 1 220px"><span>Note <small>facoltative</small></span><input type="text" id="ov-nota" maxlength="500"></label></div>'+
    '<p class="pv-ofnota" id="ov-calc">Scrivi il prezzo del fornitore: qui vedi il prezzo che va nel preventivo.</p></details>':'')+
-  '<div class="pv-ofbt"><button type="button" class="pv-b pv-pr" data-ofx="ov_usa">Metti nel preventivo</button></div><p class="pv-msg" id="ov-msg" aria-live="polite"></p>';
+  '<div class="pv-ofbt" id="ov-bt"><button type="button" class="pv-b pv-pr" data-ofx="ov_usa">Metti nel preventivo</button></div><p class="pv-msg" id="ov-msg" aria-live="polite"></p>';
  finestra(h);
- var sel=document.getElementById('ov-rub');sel.onchange=function(){var k=rub[Number(sel.value)];if(!sel.value||!k){sel.dataset.cid='';sel.dataset.tipo='';return;}document.getElementById('ov-dest').value=k.impresa||k.nome||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo||'';};
+ var sel=document.getElementById('ov-rub');sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!sel.value||!k){sel.dataset.cid='';sel.dataset.tipo='';return;}document.getElementById('ov-dest').value=k.impresa||k.nome||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo||'';};
+ rubAggancia('ov');
  var pr=document.getElementById('ov-pr');if(pr)pr.oninput=ovCalc;
+ ['ov-sg','ov-ut'].forEach(function(x){var e=document.getElementById(x);if(e)e.oninput=function(){ovCalc();OV.righe.forEach(function(g,i){ovRigaCalc(i);});};});
  var fi=document.getElementById('ov-file');if(fi)fi.onchange=function(){ovLeggi(fi);};}
 function ovCalc(){var pi=document.getElementById('ov-pr'),el=document.getElementById('ov-calc');if(!pi||!el)return;var c=numIt(pi.value);
  if(!c){el.textContent='Scrivi il prezzo del fornitore: qui vedi il prezzo che va nel preventivo.';return;}
- el.innerHTML='Costo del fornitore <b>'+eur(c)+'</b> + spese generali '+pcT(OF.spese_generali_pct)+' % + utile '+pcT(OF.utile_pct)+' % = <b>'+eur(maggiora(c))+'</b> nel preventivo'+(OV.voce&&OV.voce.unita?' (per '+es(OV.voce.unita)+')':'')+'.';}
+ var m=maggiora(c);if(!isFinite(m)){el.textContent='Scrivi in alto le spese generali e l\'utile d\'impresa: qui vedi il prezzo che va nel preventivo.';return;}
+ el.innerHTML='Costo del fornitore <b>'+eur(c)+'</b> + '+pctTesto()+' = <b>'+eur(m)+'</b> nel preventivo'+(OV.voce&&OV.voce.unita?' (per '+es(OV.voce.unita)+')':'')+'.';}
 function ovDest(){var d=document.getElementById('ov-dest');if(!d)return '';
  var ok=crControlla([{el:d,ok:function(x){return x.value.trim().length>=1;},testo:'Scrivi il nome del fornitore'}]);return ok?d.value.trim():'';}
 function ovRdo(dest){var sel=document.getElementById('ov-rub');if(OV.rdo&&OV.dest===dest)return Promise.resolve({esito:'ok',rdo_id:OV.rdo});
@@ -2495,50 +2546,87 @@ function ovLeggi(inp){var f=inp.files&&inp.files[0],nb=document.getElementById('
   if(r.ricarica_eur)h+='<p style="margin:6px 0 0">Per questa lettura TIX ha usato 1 credito per l\'intelligenza artificiale.</p>';
   if(r.salvato)h+='<p style="margin:6px 0 0">Il file dell\'offerta resta salvato nella richiesta di offerta di '+es(OV.dest)+'.</p>';
   nb.innerHTML=h;var m=document.getElementById('ov-mano');if(m&&OV.righe.length)m.open=false;disegnaOvRighe();});}
+// 21/11/2026 (offerta-fornitore-2): più righe dell'offerta sulla stessa voce (per esempio un'analisi dei costi per una voce «a corpo»)
+// → TIX le somma: costo della voce = somma di prezzo × quantità di ogni riga spuntata. Una riga sola su una voce: il suo prezzo e basta.
+function ovQta(g){var m=String(g.note||'').match(/quantità:\s*([0-9.,]+)/i),q=m?numIt(m[1]):'';return q&&Number(q)>0?String(q).replace('.',','):'1';}
+function ovGruppo(v){var L=[];OV.righe.forEach(function(g,i){if(g.ck&&g.voce_id&&g.voce_id===v)L.push(i);});return L;}
+function ovCostoGruppo(L){var t=0,ok=true;L.forEach(function(i){var g=OV.righe[i],p=numIt(g.prezzo),q=numIt(g.qta);if(!p||!q||!(Number(q)>0))ok=false;else t+=Number(p)*Number(q);});return ok?Math.round(t*10000)/10000:NaN;}
 function disegnaOvRighe(){var box=document.getElementById('ov-righe');if(!box)return;
  if(!OV.righe.length){box.innerHTML='';return;}
  var opz='<option value="">— non metterla nel preventivo —</option>'+ovVoci().map(function(x){var t=String(x.descrizione||'');return '<option value="'+es(x.id)+'">'+es(x.ordine+'. '+(t.length>80?t.slice(0,80)+'…':t)+(x.unita?' ('+x.unita+')':''))+'</option>';}).join('');
- box.innerHTML='<h3>Voci lette nell\'offerta</h3>'+OV.righe.map(function(g,i){var on=!!(g.voce_id&&g.prezzo!=='');
-  return '<div class="pv-ofr" data-ovr="'+i+'"><div class="tt"><label style="display:flex;gap:8px;align-items:flex-start;margin:0"><input type="checkbox" data-ovck="'+i+'"'+(on?' checked':'')+' style="width:auto;margin-top:3px"><b>'+es(g.descrizione)+'</b></label>'+
+ OV.righe.forEach(function(g){if(g.ck==null)g.ck=!!(g.voce_id&&g.prezzo!=='');if(g.qta==null)g.qta=ovQta(g);});
+ box.innerHTML='<h3>Voci lette nell\'offerta</h3><p class="sotto">Puoi collegare più righe alla stessa voce del preventivo (per esempio i pezzi di un prezzo «a corpo»): TIX le somma, prezzo × quantità di ogni riga.</p>'+OV.righe.map(function(g,i){
+  return '<div class="pv-ofr" data-ovr="'+i+'"><div class="tt"><label style="display:flex;gap:8px;align-items:flex-start;margin:0"><input type="checkbox" data-ovck="'+i+'"'+(g.ck?' checked':'')+' style="width:auto;margin-top:3px"><b>'+es(g.descrizione)+'</b></label>'+
    '<span class="sotto">'+es([g.unita,g.note].filter(Boolean).join(' · '))+'</span></div>'+
    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"><label style="flex:1 1 320px"><span>Voce del preventivo</span><select data-ovv="'+i+'">'+opz+'</select></label>'+
-   '<label style="flex:0 0 170px"><span>Prezzo del fornitore + IVA</span><input type="text" inputmode="decimal" data-ovp="'+i+'" maxlength="20" value="'+es(g.prezzo?String(g.prezzo).replace('.',','):'')+'"></label></div>'+
+   '<label style="flex:0 0 170px"><span>Prezzo del fornitore + IVA</span><input type="text" inputmode="decimal" data-ovp="'+i+'" maxlength="20" value="'+es(g.prezzo?String(g.prezzo).replace('.',','):'')+'"></label>'+
+   '<label style="flex:0 0 120px" data-ovql="'+i+'" hidden><span>Quantità</span><input type="text" inputmode="decimal" data-ovq="'+i+'" maxlength="12" value="'+es(g.qta)+'"></label></div>'+
    '<p class="sotto" data-ovc="'+i+'" style="margin:4px 0 0"></p></div>';}).join('');
- OV.righe.forEach(function(g,i){var s=box.querySelector('[data-ovv="'+i+'"]');if(s)s.value=g.voce_id||'';ovRigaCalc(i);});
- box.oninput=box.onchange=function(e){var x=e.target,i=x.getAttribute('data-ovv')||x.getAttribute('data-ovp')||x.getAttribute('data-ovck');if(i==null)return;i=Number(i);
-  if(x.hasAttribute('data-ovv')){OV.righe[i].voce_id=x.value;var ck=box.querySelector('[data-ovck="'+i+'"]');if(ck&&e.type==='change')ck.checked=!!x.value;}
-  if(x.hasAttribute('data-ovp'))OV.righe[i].prezzo=x.value;ovRigaCalc(i);};}
-function ovRigaCalc(i){var el=document.querySelector('[data-ovc="'+i+'"]'),g=OV.righe[i];if(!el||!g)return;var c=numIt(g.prezzo);
+ OV.righe.forEach(function(g,i){var s=box.querySelector('[data-ovv="'+i+'"]');if(s)s.value=g.voce_id||'';});ovTutte();
+ box.oninput=box.onchange=function(e){var x=e.target,i=x.getAttribute('data-ovv')||x.getAttribute('data-ovp')||x.getAttribute('data-ovck')||x.getAttribute('data-ovq');if(i==null)return;i=Number(i);var g=OV.righe[i];
+  if(x.hasAttribute('data-ovv')){g.voce_id=x.value;var ck=box.querySelector('[data-ovck="'+i+'"]');if(ck&&e.type==='change'){ck.checked=!!x.value;g.ck=!!x.value;}}
+  if(x.hasAttribute('data-ovck'))g.ck=x.checked;
+  if(x.hasAttribute('data-ovp'))g.prezzo=x.value;
+  if(x.hasAttribute('data-ovq'))g.qta=x.value;
+  OV.righe.forEach(function(r){if(r.voce_id===g.voce_id)r.fatto=false;});g.fatto=false;ovTutte();};}
+function ovTutte(){OV.righe.forEach(function(g,i){ovRigaCalc(i);});}
+function ovRigaCalc(i){var el=document.querySelector('[data-ovc="'+i+'"]'),g=OV.righe[i];if(!el||!g)return;var c=numIt(g.prezzo),L=g.voce_id&&g.ck?ovGruppo(g.voce_id):[];
+ var ql=document.querySelector('[data-ovql="'+i+'"]');if(ql)ql.hidden=L.length<2;
  if(!g.voce_id){el.textContent='Non collegata: scegli la voce del preventivo, oppure lasciala fuori.';return;}
- el.innerHTML=c?'Nel preventivo: <b>'+eur(maggiora(c))+'</b> ('+eur(c)+' + spese generali '+pcT(OF.spese_generali_pct)+' % + utile '+pcT(OF.utile_pct)+' %)':'Scrivi il prezzo del fornitore.';}
+ if(!g.ck){el.textContent='Non spuntata: resta fuori dal preventivo.';return;}
+ if(!c){el.textContent='Scrivi il prezzo del fornitore.';return;}
+ if(L.length>1){var v=(OF.voci||[]).filter(function(x){return String(x.id)===g.voce_id;})[0],n=v?v.ordine:'';
+  if(L[0]!==i){el.innerHTML='Sommata nella voce '+es(n)+' (il totale è sotto la prima riga della voce).';return;}
+  var t=ovCostoGruppo(L),m=maggiora(t);
+  if(!isFinite(t)){el.textContent='Voce '+n+': '+L.length+' righe da sommare. Scrivi prezzo e quantità di ognuna.';return;}
+  el.innerHTML=(g.fatto?'<b>✓ Nel preventivo</b> — ':'')+'Voce '+es(n)+': somma di '+L.length+' righe = <b>'+eur(t)+'</b>'+(isFinite(m)?' → nel preventivo <b>'+eur(m)+'</b> (+ '+pctTesto()+')':' · scrivi in alto spese generali e utile per vedere il prezzo nel preventivo');return;}
+ var m1=maggiora(c);
+ el.innerHTML=isFinite(m1)?(g.fatto?'<b>✓ Nel preventivo</b>: ':'Nel preventivo: ')+'<b>'+eur(m1)+'</b> ('+eur(c)+' + '+pctTesto()+')':'Scrivi in alto le spese generali e l\'utile d\'impresa per vedere il prezzo nel preventivo.';}
+// «Metti nel preventivo»: prima le percentuali (scritte dall'impresa, of_maggiorazioni se cambiate), poi of_offerta e of_scegli voce per voce.
+// L'elenco letto resta lì: si può correggere e rimettere; «Conferma» chiude e torna al preventivo aggiornato.
 function ovUsa(b){var dest=ovDest(),box=document.getElementById('ov-righe'),scelte=[],ctrl=[],usate={};
- OV.righe.forEach(function(g,i){var ck=box&&box.querySelector('[data-ovck="'+i+'"]');if(!ck||!ck.checked)return;
-  var s=box.querySelector('[data-ovv="'+i+'"]'),p=box.querySelector('[data-ovp="'+i+'"]'),dop=!!(s.value&&usate[s.value]);
-  ctrl.push({el:s,ok:function(x){return !!x.value&&!dop;},testo:dop?'Due righe sulla stessa voce: tienine una sola':'Scegli la voce del preventivo, oppure togli la spunta'});
+ var sgI=document.getElementById('ov-sg'),utI=document.getElementById('ov-ut');
+ ctrl.push({el:sgI,ok:function(x){return pctNum(x.value)!=null;},testo:'Scrivi le spese generali di questo preventivo, in percentuale da 0 a 100'});
+ ctrl.push({el:utI,ok:function(x){return pctNum(x.value)!=null;},testo:'Scrivi l\'utile d\'impresa di questo preventivo, in percentuale da 0 a 100'});
+ // più righe sulla stessa voce: si sommano (prezzo × quantità), una riga sola: il suo prezzo
+ OV.righe.forEach(function(g,i){if(!g.ck)return;var s=box.querySelector('[data-ovv="'+i+'"]'),p=box.querySelector('[data-ovp="'+i+'"]'),qq=box.querySelector('[data-ovq="'+i+'"]');
+  ctrl.push({el:s,ok:function(x){return !!x.value;},testo:'Scegli la voce del preventivo, oppure togli la spunta'});
   ctrl.push({el:p,ok:function(x){return !!numIt(x.value);},testo:'Scrivi il prezzo del fornitore, per esempio 85,50'});
-  if(s.value)usate[s.value]=1;
-  if(s.value&&numIt(p.value)&&!dop)scelte.push({voce_id:s.value,prezzo:numIt(p.value),note:String(g.note||'').slice(0,500)});});
+  if(g.voce_id&&ovGruppo(g.voce_id).length>1&&qq)ctrl.push({el:qq,ok:function(x){var q=numIt(x.value);return !!q&&Number(q)>0;},testo:'Scrivi la quantità di questa riga, per esempio 1'});
+  if(!g.voce_id||usate[g.voce_id])return;usate[g.voce_id]=1;
+  var L=ovGruppo(g.voce_id);
+  if(L.length===1){if(numIt(g.prezzo))scelte.push({ii:[i],voce_id:g.voce_id,prezzo:numIt(g.prezzo),note:String(g.note||'').slice(0,500)});return;}
+  var t=ovCostoGruppo(L);if(!isFinite(t))return;
+  var nt='Somma di '+L.length+' righe dell\'offerta: '+L.map(function(k){var r=OV.righe[k];return String(r.descrizione||'').slice(0,60)+' ('+String(numIt(r.prezzo)).replace('.',',')+' × '+String(numIt(r.qta)).replace('.',',')+')';}).join('; ');
+  scelte.push({ii:L,voce_id:g.voce_id,prezzo:String(t),note:nt.slice(0,500)});});
  var pi=document.getElementById('ov-pr'),mano=pi&&pi.value.trim();
  if(OV.voce&&mano){ctrl.push({el:pi,ok:function(x){return !!numIt(x.value)&&!usate[String(OV.voce.id)];},testo:usate[String(OV.voce.id)]?'Questa voce ha già un prezzo dall\'offerta letta: svuota questo campo':'Scrivi il prezzo del fornitore, per esempio 85,50'});
-  if(numIt(pi.value)&&!usate[String(OV.voce.id)])scelte.push({voce_id:String(OV.voce.id),prezzo:numIt(pi.value),note:((document.getElementById('ov-nota')||{}).value||'').slice(0,500)});}
+  if(numIt(pi.value)&&!usate[String(OV.voce.id)])scelte.push({ii:[],voce_id:String(OV.voce.id),prezzo:numIt(pi.value),note:((document.getElementById('ov-nota')||{}).value||'').slice(0,500)});}
  var okC=crControlla(ctrl);
  if(!dest||!okC){nota('ov-msg','Completa i campi segnati in rosso.','err');return;}
  if(!scelte.length){if(OV.voce&&pi&&!OV.righe.length){var m=document.getElementById('ov-mano');if(m)m.open=true;crControlla([{el:pi,ok:function(){return false;},testo:'Allega l\'offerta del fornitore, oppure scrivi qui il prezzo, per esempio 85,50'}]);}
   nota('ov-msg',OV.righe.length?'Spunta almeno una voce da mettere nel preventivo.':'Allega l\'offerta del fornitore: TIX legge tutte le voci.','err');return;}
- var data=(document.getElementById('ov-data')||{}).value||'',fatte=[];
+ var data=(document.getElementById('ov-data')||{}).value||'',fatte=[],sg=pctNum(sgI.value),ut=pctNum(utI.value);
+ var cambiate=OF.spese_generali_pct==null||OF.utile_pct==null||Number(OF.spese_generali_pct)!==sg||Number(OF.utile_pct)!==ut;
  b.disabled=true;nota('ov-msg','Un momento…');
- ovRdo(dest).then(function(r){if(!r||r.esito!=='ok')return r;
-  return api('of_offerta',{rdo_id:OV.rdo,data:data,prezzi:scelte}).then(function(r2){if(!r2||r2.esito!=='ok')return r2;var i=0;
+ (cambiate?api('of_maggiorazioni',{spese_generali_pct:String(sg),utile_pct:String(ut)}).then(function(r){if(r&&r.esito==='ok'){OF.spese_generali_pct=r.spese_generali_pct;OF.utile_pct=r.utile_pct;OF.cambiato=true;}return r;}):Promise.resolve({esito:'ok'}))
+ .then(function(r0){if(!r0||r0.esito!=='ok')return r0;return ovRdo(dest);})
+ .then(function(r){if(!r||r.esito!=='ok')return r;
+  return api('of_offerta',{rdo_id:OV.rdo,data:data,prezzi:scelte.map(function(s){return {voce_id:s.voce_id,prezzo:String(Math.round(Number(s.prezzo)*10000)/10000),note:s.note};})}).then(function(r2){if(!r2||r2.esito!=='ok')return r2;var i=0;
    function una(){if(i>=scelte.length)return Promise.resolve({esito:'ok'});var s=scelte[i++];
-    return api('of_scegli',{rdo_id:OV.rdo,voce_id:s.voce_id}).then(function(r3){if(!r3||r3.esito!=='ok')return r3;fatte.push({v:s.voce_id,costo:r3.costo,prezzo:r3.prezzo});return una();});}
+    return api('of_scegli',{rdo_id:OV.rdo,voce_id:s.voce_id}).then(function(r3){if(!r3||r3.esito!=='ok')return r3;fatte.push({v:s.voce_id,ii:s.ii,costo:r3.costo,prezzo:r3.prezzo});return una();});}
    return una();});})
  .then(function(r){b.disabled=false;if(fatte.length&&OF)OF.cambiato=true;
+  fatte.forEach(function(f){(f.ii||[]).forEach(function(k){if(OV.righe[k])OV.righe[k].fatto=true;});});ovTutte();
   var nomi={};(OF.voci||[]).forEach(function(x){nomi[String(x.id)]=x.ordine;});
   var el=document.getElementById('ov-let');
-  if(fatte.length&&el){el.hidden=false;el.innerHTML='<b>Fatto: '+fatte.length+(fatte.length===1?' voce aggiornata':' voci aggiornate')+' nel preventivo.</b><p style="margin:6px 0 0">'+fatte.map(function(f){return 'voce '+es(nomi[f.v]||'')+': '+eur(f.costo)+' → <b>'+eur(f.prezzo)+'</b>';}).join(' · ')+'</p><p style="margin:6px 0 0">Premi «Chiudi» per vedere il preventivo aggiornato.</p>';}
-  if(!r||r.esito!=='ok'){nota('ov-msg',(fatte.length?'Alcune voci sono state messe, poi: ':'')+errore(r),'err');return;}
-  var bx=document.getElementById('ov-righe');if(bx)bx.innerHTML='';OV.righe=[];
-  nota('ov-msg',fatte.length===1?'Prezzo messo nel preventivo.':'Prezzi messi nel preventivo.','ok');});}
+  if(fatte.length&&el){el.hidden=false;el.innerHTML='<b>Fatto: '+fatte.length+(fatte.length===1?' voce aggiornata':' voci aggiornate')+' nel preventivo.</b><p style="margin:6px 0 0">'+fatte.map(function(f){return 'voce '+es(nomi[f.v]||'')+': '+eur(f.costo)+' → <b>'+eur(f.prezzo)+'</b>';}).join(' · ')+'</p>'+
+   '<p style="margin:6px 0 0">Se va bene premi <b>«Conferma»</b>: torni al preventivo con i prezzi giusti. Se vuoi cambiare qualcosa, correggi qui sotto e premi di nuovo «Metti nel preventivo».</p>';el.scrollIntoView({block:'start'});}
+  if(fatte.length){var bt=document.getElementById('ov-bt');if(bt&&!document.querySelector('[data-ofx="ov_conferma"]'))bt.insertAdjacentHTML('afterbegin','<button type="button" class="pv-b pv-pr" data-ofx="ov_conferma">Conferma</button>');
+   var mb=document.querySelector('[data-ofx="ov_usa"]');if(mb)mb.classList.remove('pv-pr');}
+  if(!r||r.esito!=='ok'){if(r&&r.campo==='spese_generali_pct'&&sgI)crControlla([{el:sgI,ok:function(){return false;},testo:errore(r)}]);if(r&&r.campo==='utile_pct'&&utI)crControlla([{el:utI,ok:function(){return false;},testo:errore(r)}]);
+   nota('ov-msg',(fatte.length?'Alcune voci sono state messe, poi: ':'')+errore(r),'err');return;}
+  nota('ov-msg',fatte.length===1?'Prezzo messo nel preventivo: premi «Conferma» per tornare al preventivo.':'Prezzi messi nel preventivo: premi «Conferma» per tornare al preventivo.','ok');});}
 function caricaOf(){CH=null;return Promise.all([api('of_elenco'),caricaPosta(),api('el_cerca',{solo_stato:true})]).then(function(x){var r=x[0];if(r.esito!=='ok'){finestra(testa('Richieste di offerta','')+'<p class="pv-msg err">'+es(errore(r))+'</p>');return;}OF=r;OF.elenco=!!(x[2]&&x[2].esito==='ok');disegnaOf();});}
 // 10/11/2026 (elenco-1, chat 02B): «Cerca nell'elenco TIX» — fornitori e subappaltatori iscritti all'elenco di TIX, per tipo, parola e provincia
 var EL=[],EL_TIPO='';
@@ -2584,7 +2672,7 @@ function disegnaOf(){
  // confronto delle offerte per voce
  var per={};(r.richieste||[]).forEach(function(q){if(q.stato==='annullata')return;(q.righe||[]).forEach(function(g){if(g.prezzo==null)return;var kk=g.voce_id+'|'+(q.tipo||'altro');(per[kk]=per[kk]||{v:g,t:q.tipo,o:[]}).o.push({q:q,g:g});});});
  var ids=Object.keys(per).sort(function(a,b){return (per[a].v.ordine||0)-(per[b].v.ordine||0);});
- if(ids.length){h+='<h3>Confronto delle offerte</h3>'+(r.solo_richieste?'':'<p class="sotto">Con «Usa questo prezzo» nel preventivo va il prezzo del fornitore più le spese generali ('+pcT(r.spese_generali_pct)+' %) e l\'utile d\'impresa ('+pcT(r.utile_pct)+' %) di questo preventivo.</p>')+'<table class="pv-ofg"><tr><th>Voce</th><th>Offerte (prezzo unitario + IVA)</th></tr>'+ids.map(function(k){var x=per[k],min=Math.min.apply(null,x.o.map(function(o){return Number(o.g.prezzo);}));
+ if(ids.length){h+='<h3>Confronto delle offerte</h3>'+(r.solo_richieste?'':(r.spese_generali_pct==null||r.utile_pct==null)?'<p class="sotto" style="color:#B3261E"><b>Prima di «Usa questo prezzo» scrivi le spese generali e l\'utile d\'impresa</b> di questo preventivo: in alto nei dati del preventivo, oppure con «Allega l\'offerta di un fornitore».</p>':'<p class="sotto">Con «Usa questo prezzo» nel preventivo va il prezzo del fornitore più le spese generali ('+pcT(r.spese_generali_pct)+' %) e l\'utile d\'impresa ('+pcT(r.utile_pct)+' %) di questo preventivo.</p>')+'<table class="pv-ofg"><tr><th>Voce</th><th>Offerte (prezzo unitario + IVA)</th></tr>'+ids.map(function(k){var x=per[k],min=Math.min.apply(null,x.o.map(function(o){return Number(o.g.prezzo);}));
   return '<tr><td><b>'+x.v.ordine+'.</b> '+es(x.v.descrizione)+(TD[x.t]?' '+tdChip(x.t):'')+'</td><td>'+x.o.map(function(o){return '<div class="'+(Number(o.g.prezzo)===min?'min':'')+'">'+es(o.q.destinatario)+': '+eur(o.g.prezzo)+(o.g.prezzo_prima!=null&&Number(o.g.prezzo_prima)!==Number(o.g.prezzo)?' <small>(prima offerta '+eur(o.g.prezzo_prima)+')</small>':'')+(o.g.note?' <small>('+es(o.g.note)+')</small>':'')+
    (o.g.scelta?' ✓ <small>nel preventivo</small>':(bozza?' <button type="button" class="pv-b sm" data-ofx="scegli" data-riga="'+o.g.id+'">Usa questo prezzo</button>':''))+'</div>';}).join('')+'</td></tr>';}).join('')+'</table>';}
  h+='<h3>Richieste fatte</h3>'+((r.richieste||[]).length?'':'<p class="sotto">Nessuna richiesta ancora.</p>');
@@ -2616,6 +2704,7 @@ function disegnaOf(){
  emTutti();
  esitiSchede();
  var sel=document.getElementById('of-rub');
+ rubAggancia('of');
  if(sel)sel.onchange=function(){var k=(OF.rubrica||[])[Number(sel.value)];if(!k)return;document.getElementById('of-dest').value=k.impresa||k.nome||'';document.getElementById('of-ea').value=k.email||'';sel.dataset.cid=k.id;sel.dataset.tipo=k.tipo;var ot=document.getElementById('of-tipo');if(ot&&TD[k.tipo])ot.value=k.tipo;};
 }
 // 17/11/2026 (rdo-allegati-1): file allegati alla richiesta (schede tecniche, disegni, foto)
@@ -2927,6 +3016,7 @@ document.addEventListener('click',function(e){
  var az=b.getAttribute('data-ofx')||b.getAttribute('data-chx');
  if(az==='chiudi'){var ric=(OF&&OF.cambiato)||CAMBIATO;chiudi();if(ric)location.reload();return;}
  if(az==='ov_usa'){ovUsa(b);return;}
+ if(az==='ov_conferma'){chiudi();location.reload();return;}
  if(b.hasAttribute('data-ofx'))azioneOf(az,b);else azioneCh(az,b);
 });
 // 13/11/2026 (rdo-cantiere-1): dal cantiere la finestra delle richieste si apre da sola
