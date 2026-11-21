@@ -47,7 +47,12 @@ export async function ncRubricaApi(request, env, h) {
 export const NC_RUBRICA_CSS =
   "#modulo-nc .sr-btn{display:inline-flex;width:auto;margin:4px 6px 0 0;padding:0 14px;font-size:.88rem;min-height:36px}" +
   "#modulo-nc .sr-btn:not(.sr-pr){background:#fff;color:#23302A;border:1px solid #c9d1cc}" +
-  "#modulo-nc .sr-grid label{margin:0}#modulo-nc .sr-grid input,#modulo-nc .sr-grid select{margin:0}";
+  "#modulo-nc .sr-grid label{margin:0}#modulo-nc .sr-grid input,#modulo-nc .sr-grid select{margin:0}" +
+  // telefono-b15-2: bandierina e prefisso (srTelefono) nel «Cellulare WhatsApp» del referente
+  "#modulo-nc .srt-paese{display:flex;align-items:center;gap:6px;flex:0 0 auto;width:auto;min-height:44px;margin:0;padding:0 10px;border:1px solid #c9d1cc;border-radius:10px;background:#fff;color:#23302A;font-size:.95rem;font-weight:600;cursor:pointer}" +
+  "#modulo-nc .srt-box input{flex:1 1 auto;width:auto;min-width:0;margin:0}" +
+  "#modulo-nc .srt-op{display:flex;align-items:center;gap:10px;width:100%;margin:0;padding:8px;border:0;border-radius:8px;background:none;color:inherit;font-size:.92rem;font-weight:400;text-align:left}" +
+  "#modulo-nc .srt-lista input{width:100%;margin:0 0 6px}";
 
 // Nel browser, dopo SALVA_RUBRICA_JS e dopo lo script del modulo (PORTALE_NC_SCRIPT). Serve GL_NC_RUB = {base, t, a}.
 // Se l'elenco della Rubrica non arriva (rotta spenta, sezione non disponibile) il modulo resta esattamente com'era.
