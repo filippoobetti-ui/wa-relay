@@ -57,7 +57,10 @@ function lista(a) { return Array.isArray(a) ? a : []; }
 async function nomiRubrica(env, h, sezione, tok, c) {
   const r = await h.rpc(env, "rubrica_da_sezione", { p_token: tok, p_commessa: c, p_sezione: sezione, p_azione: "elenco", p_dati: {} }, 8000).catch(() => null);
   if (!r || r.esito !== "ok" || !Array.isArray(r.nomi)) return [];
-  return r.nomi.map((x) => String(x || "").trim().slice(0, 120)).filter(Boolean).slice(0, 3000);
+  const a = r.nomi.map((x) => String(x || "").trim().slice(0, 120)).filter(Boolean).slice(0, 3000);
+  // rubrica-b13-2: nomi della propria impresa (array 'propria' dell'elenco): per questi il riquadro «Salva in Rubrica» non compare
+  a.propria = (Array.isArray(r.propria) ? r.propria : []).map((x) => String(x || "").trim().slice(0, 120)).filter(Boolean).slice(0, 50);
+  return a;
 }
 // rubrica-b13-1: POST …/rubrica {t, c, dati:{impresa, nome, tipo_rapporto, telefono, email, partita_iva, note}} → rubrica_da_sezione 'salva'
 // (stessa funzione che usa /agenda/contatto della B1: controlli di rubrica_salva e doppioni → esito «gia»)
@@ -324,6 +327,7 @@ export async function portaleCosti(request, env, base, inUrl, h) {
   if (d.esito === "gettone") return Response.redirect(inUrl.origin + base + "/", 303);
   if (d.esito !== "ok") return h.risposta(h.foglio(base, "Costi e margine", "Questa pagina non è disponibile per questo cantiere.", indietro), 404);
   d.rubrica_nomi = d.chiuso ? [] : await nomiRubrica(env, h, "costi", p.tok, p.c);   // rubrica-b13-1
+  d.rubrica_propria = (d.rubrica_nomi && d.rubrica_nomi.propria) || [];   // rubrica-b13-2
   return h.risposta(pagina(base, h, p, d, torna, elenco));
 }
 
@@ -887,7 +891,7 @@ function pagina(base, h, p, d, torna, elenco) {
       ";function no(s){return String(s||'').toLowerCase().replace(/\\s+/g,' ').trim();}function conosciuto(x){var n=no(x);for(var i=0;i<N.length;i++){if(no(N[i])===n)return true;}return false;}" +
       "var T=[];" + "[{id:'cm-f-forn'},{id:'cm-x-forn',piva:'cm-x-piva'}]" + ".forEach(function(k){var el=document.getElementById(k.id);if(!el||typeof srAggancia!=='function')return;" +
       "var o=srAggancia({campo:el,dopoDi:el.closest('label')||el,base:" + JSON.stringify(base) + ",t:" + JSON.stringify(p.tok) + ",c:" + JSON.stringify(p.c) + "," +
-      "modo:'ditta',rapporto:'fornitore',sezione:'costi',conosciuto:conosciuto,piva:function(){var e=k.piva&&document.getElementById(k.piva);return e?String(e.value||''):'';}," +
+      "modo:'ditta',rapporto:'fornitore',sezione:'costi',conosciuto:conosciuto,propria:" + JSON.stringify(lista(d.rubrica_propria)).replace(/</g, "\\u003c") + ",piva:function(){var e=k.piva&&document.getElementById(k.piva);return e?String(e.value||''):'';}," +
       "salva:function(dati){return fetch(" + JSON.stringify(base + "/costi/rubrica") + ",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:" + JSON.stringify(p.tok) + ",c:" + JSON.stringify(p.c) + ",dati:dati})})" +
       ".then(function(r){return r.json().catch(function(){return{esito:'errore'};});});},dopo:function(c){var nome=c&&(c.impresa||c.nome);if(nome){N.push(nome);el.value=nome;el.classList.remove('manca');" +
       "if(k.piva&&c.partita_iva){var pv=document.getElementById(k.piva);if(pv&&!pv.value.trim())pv.value=c.partita_iva;}" +
