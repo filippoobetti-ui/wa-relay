@@ -24,6 +24,7 @@
 // ============================================================================
 
 import { leggiOffertaFornitore, pulisciPropostaOfferta } from "./lettore-offerte.js";
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b13-1: regola di Filippo del 14/11
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERIFICA_MAX = 5 * 1024 * 1024;   // il Worker ricalcola l'impronta solo fino a 5 MB
@@ -531,7 +532,7 @@ function pagina(base, h, p, d, torna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
     "<title>Chiedi un preventivo - TIX · Diario di cantiere</title>" + h.testa(base) +
-    "<style>" + STILE + "</style></head><body><main>" +
+    "<style>" + STILE + CAMPI_ROSSI_CSS + "</style></head><body><main>" +
     '<a class="of-torna" href="' + e(torna) + '">‹ Torna al cantiere</a>' +
     '<div class="of-card">' +
     '<div class="of-testa"><div>' + (d.cantiere ? '<p class="of-cant">' + e(d.cantiere) + '</p>' : "") +
@@ -566,7 +567,7 @@ function pagina(base, h, p, d, torna) {
     '<label for="of-t-mot">Perché (facoltativo)</label><input id="of-t-mot" maxlength="300" placeholder="Per esempio: file sbagliato">' +
     '<p class="of-msg" id="of-t-msg" role="status"></p>' +
     '<div class="of-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="of-t-si">Togli</button></div></form></dialog>' +
-    "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
+    "<script>" + CAMPI_ROSSI_JS + "</script><script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 
 function scheda(e, qui, p, x, chiuso, oggi, minimi) {
@@ -771,9 +772,9 @@ function prepEd(pre,righe){var cont=$(pre+'-righe');if(!cont)return;cont.innerHT
 var agg=$(pre+'-agg');if(agg&&!agg._ok){agg._ok=1;agg.addEventListener('click',function(){var r=rigaEd(cont);r.querySelector('input').focus();});}}
 function campi(pre){return{fornitore:$(pre+'-forn').value.trim(),materiale:$(pre+'-mat').value.trim(),descrizione:$(pre+'-descr').value.trim(),numero:$(pre+'-num').value.trim(),
 data:$(pre+'-data').value,valida_fino:$(pre+'-val').value,note:$(pre+'-note').value.trim()};}
-function controlla(pre,x,msg){var ok=true;[['forn','fornitore'],['mat','materiale']].forEach(function(k){var el=$(pre+'-'+k[0]);el.classList.toggle('manca',!x[k[1]]);if(!x[k[1]])ok=false;});
-if(!ok){msg.textContent='Scrivi il fornitore e cosa offre.';return false;}
-if(x.data&&x.valida_fino&&x.valida_fino<x.data){msg.textContent='La validità finisce prima della data dell\u2019offerta: controlla le due date.';return false;}return true;}
+function controlla(pre,x,msg,piu,prima){var rr=(prima||[]).concat([{el:$(pre+'-forn'),testo:'Scrivi il fornitore'},{el:$(pre+'-mat'),testo:'Scrivi cosa offre, per esempio Calcestruzzo'}]);
+if(x.data&&x.valida_fino&&x.valida_fino<x.data)rr.push({el:$(pre+'-val'),ok:function(){return false;},testo:'La validità finisce prima della data dell’offerta'});
+rr=rr.concat(piu||[]);if(crControlla(rr))return true;msg.className='of-msg';msg.textContent='Completa i campi segnati in rosso.';return false;}
 // ---- caricamento
 var FILE=null,drop=$('of-drop'),inp=$('of-file');
 function scegli(f){if(!f)return;var est=(f.name.match(/\.([A-Za-z0-9]{1,5})$/)||[])[1];est=(est||'').toLowerCase();var msg=$('of-c-msg');msg.className='of-msg';msg.textContent='';
@@ -814,10 +815,10 @@ drop.addEventListener('drop',function(ev){var f=ev.dataTransfer&&ev.dataTransfer
 inp.addEventListener('change',function(){scegli(inp.files&&inp.files[0]);});prepEd('of-c',[]);if($('of-c-chi'))$('of-c-chi').value=leggiChi();}
 var salva=$('of-c-salva');
 if(salva)salva.addEventListener('click',function(){var msg=$('of-c-msg');msg.className='of-msg';msg.textContent='';
-if(!FILE){msg.textContent='Scegli il file dell\u2019offerta.';return;}
-var x=campi('of-c');if(!controlla('of-c',x,msg))return;
-var righe=righeDi($('of-c-righe'));if(righe===null){$('of-c-det').open=true;msg.textContent='Controlla le voci segnate in rosso: serve la voce e un prezzo come 98,50.';return;}
-var chi=$('of-c-chi').value.trim();$('of-c-chi').classList.toggle('manca',!chi);if(!chi){msg.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);
+var x=campi('of-c'),righe=righeDi($('of-c-righe')),chi=$('of-c-chi').value.trim(),piu=[];
+if(righe===null){$('of-c-det').open=true;piu.push({el:$('of-c-righe'),ok:function(){return false;},testo:'Controlla le voci: serve la voce e un prezzo come 98,50'});}
+piu.push({el:$('of-c-chi'),testo:'Scrivi il tuo nome'});
+if(!controlla('of-c',x,msg,piu,[{el:drop,ok:function(){return !!FILE;},testo:'Scegli il file dell’offerta'}]))return;scriviChi(chi);
 salva.disabled=true;msg.className='of-msg ok';msg.textContent='Calcolo il codice di controllo e salvo l\u2019offerta…';
 FILE.arrayBuffer().then(function(buf){return crypto.subtle.digest('SHA-256',buf).then(function(h){
 var dati={t:CFG.t,c:CFG.c,fornitore:x.fornitore,materiale:x.materiale,descrizione:x.descrizione,numero:x.numero,data:x.data,valida_fino:x.valida_fino,note:x.note,
@@ -834,7 +835,7 @@ var TESTI={accettata:['Accetta l\u2019offerta','L\u2019offerta diventa quella sc
 non_scelta:['Segna «Non scelta»','L\u2019offerta resta in archivio, ma il suo prezzo non conta più nel confronto.'],ricevuta:['Rimetti da decidere','L\u2019offerta torna tra quelle da decidere.']};
 Array.prototype.forEach.call(D.querySelectorAll('[data-st]'),function(b){b.addEventListener('click',function(){stId=b.getAttribute('data-id');stVal=b.getAttribute('data-st');var v=voce(stId);
 $('of-st-tit').textContent=TESTI[stVal][0];$('of-st-txt').textContent=(v?v.fornitore+' · '+v.materiale+'. ':'')+TESTI[stVal][1];$('of-st-chi').value=leggiChi();$('of-st-msg').textContent='';stDlg.showModal();});});
-if($('of-st-si'))$('of-st-si').addEventListener('click',function(){var chi=$('of-st-chi').value.trim(),m=$('of-st-msg');if(!chi){$('of-st-chi').classList.add('manca');m.textContent='Scrivi il tuo nome.';return;}
+if($('of-st-si'))$('of-st-si').addEventListener('click',function(){var chi=$('of-st-chi').value.trim(),m=$('of-st-msg');if(!chi){crSegna($('of-st-chi'),'Scrivi il tuo nome');m.textContent='Completa i campi segnati in rosso.';return;}
 scriviChi(chi);var self=this;self.disabled=true;chiamaA('stato',stId,{stato:stVal,chi:chi}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';})
 .catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- prezzi
@@ -849,8 +850,8 @@ righeIa($('of-p-righe'),righe);var dd=r.proposta.dubbi||[];
 boxIa('of-p-ia','','<b>Ho ricopiato '+righe.length+(righe.length===1?' voce':' voci')+' dal documento: controllale, poi «Salva i prezzi».</b>'+(dd.length?'<ul><li>'+dd.map(esc).join('</li><li>')+'</li></ul>':''));return;}
 boxIa('of-p-ia','no',esc((r&&r.messaggio)||'Non sono riuscito a leggere i prezzi: scrivili a mano.'));})
 .catch(function(){self.disabled=false;boxIa('of-p-ia','no','Non sono riuscito a leggere i prezzi: scrivili a mano.');});});
-if($('of-p-si'))$('of-p-si').addEventListener('click',function(){var m=$('of-p-msg');var righe=righeDi($('of-p-righe'));if(righe===null){m.textContent='Controlla le voci segnate in rosso: serve la voce e un prezzo come 98,50.';return;}
-var chi=$('of-p-chi').value.trim();if(!chi){$('of-p-chi').classList.add('manca');m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);var self=this;self.disabled=true;
+if($('of-p-si'))$('of-p-si').addEventListener('click',function(){var m=$('of-p-msg');var righe=righeDi($('of-p-righe')),rr=[];if(righe===null)rr.push({el:$('of-p-righe'),ok:function(){return false;},testo:'Controlla le voci: serve la voce e un prezzo come 98,50'});
+rr.push({el:$('of-p-chi'),testo:'Scrivi il tuo nome'});if(!crControlla(rr)){m.textContent='Completa i campi segnati in rosso.';return;}var chi=$('of-p-chi').value.trim();scriviChi(chi);var self=this;self.disabled=true;
 chiamaA('righe',prId,{righe:righe,chi:chi}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';})
 .catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 // ---- modifica
@@ -858,7 +859,7 @@ var mDlg=$('of-m-dlg'),mId='';
 Array.prototype.forEach.call(D.querySelectorAll('[data-mod]'),function(b){b.addEventListener('click',function(){mId=b.getAttribute('data-mod');var v=voce(mId)||{};
 $('of-m-forn').value=v.fornitore||'';$('of-m-mat').value=v.materiale||'';$('of-m-descr').value=v.descrizione||'';$('of-m-num').value=v.numero||'';$('of-m-data').value=v.data||'';
 $('of-m-val').value=v.valida_fino||'';$('of-m-note').value=v.note||'';$('of-m-chi').value=leggiChi();$('of-m-msg').textContent='';mDlg.showModal();});});
-if($('of-m-si'))$('of-m-si').addEventListener('click',function(){var m=$('of-m-msg');var x=campi('of-m');if(!controlla('of-m',x,m))return;
+if($('of-m-si'))$('of-m-si').addEventListener('click',function(){var m=$('of-m-msg');var x=campi('of-m');if(!controlla('of-m',x,m,[{el:$('of-m-chi'),testo:'Scrivi il tuo nome'}]))return;
 var chi=$('of-m-chi').value.trim();if(!chi){$('of-m-chi').classList.add('manca');m.textContent='Scrivi il tuo nome.';return;}scriviChi(chi);x.chi=chi;var self=this;self.disabled=true;
 chiamaA('modifica',mId,x).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';})
 .catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
@@ -866,7 +867,7 @@ chiamaA('modifica',mId,x).then(function(r){if(r&&r.esito==='ok'){location.reload
 var tDlg=$('of-t-dlg'),tId='';
 Array.prototype.forEach.call(D.querySelectorAll('[data-togli]'),function(b){b.addEventListener('click',function(){tId=b.getAttribute('data-togli');var v=voce(tId);
 $('of-t-cod').textContent=v?'di '+v.fornitore:'';$('of-t-chi').value=leggiChi();$('of-t-mot').value='';$('of-t-msg').textContent='';tDlg.showModal();});});
-if($('of-t-si'))$('of-t-si').addEventListener('click',function(){var chi=$('of-t-chi').value.trim(),m=$('of-t-msg');if(!chi){$('of-t-chi').classList.add('manca');m.textContent='Scrivi il tuo nome.';return;}
+if($('of-t-si'))$('of-t-si').addEventListener('click',function(){var chi=$('of-t-chi').value.trim(),m=$('of-t-msg');if(!chi){crSegna($('of-t-chi'),'Scrivi il tuo nome');m.textContent='Completa i campi segnati in rosso.';return;}
 scriviChi(chi);var self=this;self.disabled=true;chiamaA('togli',tId,{chi:chi,motivo:$('of-t-mot').value.trim()}).then(function(r){if(r&&r.esito==='ok'){location.reload();return;}
 self.disabled=false;m.textContent=(r&&r.messaggio)||'Non è andata: riprova.';}).catch(function(){self.disabled=false;m.textContent='Non è andata: controlla la connessione e riprova.';});});
 }catch(err){}})();`;

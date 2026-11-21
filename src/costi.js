@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { leggiFatturaFornitore } from "./lettore-offerte.js";
+import { CAMPI_ROSSI_CSS, CAMPI_ROSSI_JS } from "./campi-rossi.js";   // campi-rossi-b13-1: regola di Filippo del 14/11
 import { xlsxDaCsv, rispostaXlsx } from "./xlsx-loghi.js";   // costi-6: «Scarica in Excel» con i due loghi (file della 02)
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -545,7 +546,7 @@ async function apriFattura(request, env, base, inUrl, h) {
 function testaHtml(h, base, titolo, moderna) {
   return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light">' +
-    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
+    "<title>" + titolo + " - TIX · Diario di cantiere</title>" + h.testa(base) + "<style>" + STILE + (moderna ? STILE_MODERNO : "") + CAMPI_ROSSI_CSS + "</style></head><body" + (moderna ? ' class="cm-moderna"' : "") + "><main>";
 }
 // costi-3 (MG3): pagina del cantiere nello stile scelto da Filippo il 10/11 (lo stesso del riepilogo «versione moderna»)
 const svI = (d) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";
@@ -849,7 +850,7 @@ function pagina(base, h, p, d, torna, elenco) {
     '<label for="cm-t-chi">Il tuo nome</label><input id="cm-t-chi" maxlength="120" autocomplete="name">' +
     '<label for="cm-t-mot">Perché (facoltativo)</label><input id="cm-t-mot" maxlength="300" placeholder="Per esempio: scritto due volte">' +
     '<p class="cm-msg" id="cm-t-msg" role="status"></p><div class="cm-form-az"><button value="no" class="btn tenue">Annulla</button><button type="button" class="btn rosso" id="cm-t-si">Togli</button></div></form></dialog>' +
-    "<script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
+    "<script>" + CAMPI_ROSSI_JS + "</script><script>var CFG=" + cfg + ";" + SCRIPT + "</script></body></html>";
 }
 function addGiorno(iso) {
   const t = Date.parse(String(iso || "") + "T00:00:00Z");
@@ -1209,24 +1210,25 @@ function leggiChi(){try{return localStorage.getItem('tix_pg_chi')||'';}catch(e){
 function scriviChi(v){try{if(v)localStorage.setItem('tix_pg_chi',v);}catch(e){}}
 function numero(s){s=String(s==null?'':s).replace(/\s| |€/g,'');if(!s)return '';if(s.indexOf(',')!==-1)s=s.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');return /^-?\d{1,9}(\.\d{1,4})?$/.test(s)?s:null;}
 function invia(az,dati){return fetch(CFG.u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:CFG.t,c:CFG.c,azione:az,dati:dati})}).then(function(r){return r.json();});}
-function chiDi(id,msg){var el=$(id);var v=(el.value||'').trim();el.classList.toggle('manca',!v);if(!v){msg.className='cm-msg';msg.textContent='Scrivi il tuo nome: resta registrato chi ha fatto la modifica.';return '';}scriviChi(v);return v;}
+function chiDi(id,msg){var el=$(id);var v=(el.value||'').trim();if(!v){crSegna(el,'Scrivi il tuo nome: resta registrato chi ha fatto la modifica');msg.className='cm-msg';msg.textContent='Completa i campi segnati in rosso.';return '';}scriviChi(v);return v;}
+function rosso(rr,msg,testo){if(crControlla(rr))return true;msg.className='cm-msg';msg.textContent=testo||'Completa i campi segnati in rosso.';return false;}
+function rNome(id){return{el:$(id),testo:'Scrivi il tuo nome: resta registrato chi ha fatto la modifica'};}
 ['cm-f-chi','cm-v-chi','cm-t-chi'].forEach(function(i){var el=$(i);if(el&&!el.value)el.value=leggiChi();});
 // costi della tua impresa: una richiesta per ogni voce cambiata
-var vs=$('cm-v-salva');if(vs)vs.addEventListener('click',function(){var msg=$('cm-v-msg');var chi=chiDi('cm-v-chi',msg);if(!chi)return;
-var dal=$('cm-v-dal').value||'';var lav=[],bad=false;
-Array.prototype.forEach.call(D.querySelectorAll('[data-voce]'),function(i){var v=i.value.trim();if(v===(i.getAttribute('data-prima')||''))return;var x=numero(v);i.classList.toggle('manca',x===null);if(x===null){bad=true;return;}lav.push(['costo_impresa',{voce:i.getAttribute('data-voce'),valore:x,valido_dal:dal,autore:chi}]);});
-Array.prototype.forEach.call(D.querySelectorAll('[data-mezzo]'),function(i){var v=i.value.trim();if(v===(i.getAttribute('data-prima')||''))return;var x=numero(v);i.classList.toggle('manca',x===null);if(x===null){bad=true;return;}lav.push(['costo_mezzo',{mezzo_id:i.getAttribute('data-mezzo'),costo:x,valido_dal:dal,autore:chi}]);});
-if(bad){msg.className='cm-msg';msg.textContent='Scrivi i numeri così: 32,50 (euro) oppure 12 (percentuale).';return;}
+var vs=$('cm-v-salva');if(vs)vs.addEventListener('click',function(){var msg=$('cm-v-msg');var chi=$('cm-v-chi').value.trim();
+var dal=$('cm-v-dal').value||'';var lav=[],bad=false,rr=[];
+Array.prototype.forEach.call(D.querySelectorAll('[data-voce]'),function(i){var v=i.value.trim();if(v===(i.getAttribute('data-prima')||''))return;var x=numero(v);if(x===null){bad=true;rr.push({el:i,ok:function(){return false;},testo:'Scrivi un numero, per esempio 32,50 oppure 12'});return;}lav.push(['costo_impresa',{voce:i.getAttribute('data-voce'),valore:x,valido_dal:dal,autore:chi}]);});
+Array.prototype.forEach.call(D.querySelectorAll('[data-mezzo]'),function(i){var v=i.value.trim();if(v===(i.getAttribute('data-prima')||''))return;var x=numero(v);if(x===null){bad=true;rr.push({el:i,ok:function(){return false;},testo:'Scrivi un numero, per esempio 32,50'});return;}lav.push(['costo_mezzo',{mezzo_id:i.getAttribute('data-mezzo'),costo:x,valido_dal:dal,autore:chi}]);});
+rr.push(rNome('cm-v-chi'));if(!rosso(rr,msg,bad?'Completa i campi segnati in rosso. I numeri si scrivono così: 32,50 (euro) oppure 12 (percentuale).':''))return;scriviChi(chi);
 if(!lav.length){msg.className='cm-msg';msg.textContent='Non hai cambiato niente.';return;}
 vs.disabled=true;msg.className='cm-msg ok';msg.textContent='Salvo…';
 (function prossimo(k){if(k>=lav.length){msg.textContent='Salvato.';location.reload();return;}invia(lav[k][0],lav[k][1]).then(function(r){if(r&&r.esito==='ok')return prossimo(k+1);vs.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){vs.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});})(0);});
 // costi a mano: aggiungi, modifica, togli
 var fs=$('cm-f-salva');
 function svuota(){$('cm-f-id').value='';$('cm-f-tit').textContent='Aggiungi un costo';$('cm-f-annulla').hidden=true;fs.textContent='Salva il costo';['cm-f-imp','cm-f-descr','cm-f-forn','cm-f-num'].forEach(function(i){$(i).value='';});}
-if(fs)fs.addEventListener('click',function(){var msg=$('cm-f-msg');var chi=chiDi('cm-f-chi',msg);if(!chi)return;
+if(fs)fs.addEventListener('click',function(){var msg=$('cm-f-msg');var chi=$('cm-f-chi').value.trim();
 var imp=numero($('cm-f-imp').value),descr=$('cm-f-descr').value.trim(),dt=$('cm-f-data').value;
-$('cm-f-imp').classList.toggle('manca',!imp);$('cm-f-descr').classList.toggle('manca',!descr);$('cm-f-data').classList.toggle('manca',!dt);
-if(!imp||!descr||!dt){msg.className='cm-msg';msg.textContent='Servono la data, che cosa è e l’importo + IVA (per esempio 1.234,50).';return;}
+if(!rosso([{el:$('cm-f-data'),testo:'Scegli la data'},{el:$('cm-f-descr'),testo:'Scrivi che cosa è'},{el:$('cm-f-imp'),ok:function(){return !!imp;},testo:'Scrivi l’importo + IVA, per esempio 1.234,50'},rNome('cm-f-chi')],msg))return;scriviChi(chi);
 fs.disabled=true;msg.className='cm-msg ok';msg.textContent='Salvo…';
 invia('manuale_salva',{id:$('cm-f-id').value,data:dt,categoria:$('cm-f-cat').value,fornitore:$('cm-f-forn').value.trim(),descrizione:descr,numero:$('cm-f-num').value.trim(),importo:imp,autore:chi}).then(function(r){
 if(r&&r.esito==='ok'){msg.textContent='Salvato.';location.hash='manuali';location.reload();return;}fs.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){fs.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
@@ -1354,11 +1356,13 @@ function scegliFattura(f){
 var fx=$('cm-x-file');if(fx)fx.addEventListener('change',function(){var f=fx.files&&fx.files[0];if(f)scegliFattura(f);});
 var xs=$('cm-x-salva');if(xs)xs.addEventListener('click',function(){
   var msg=$('cm-x-msg');if(!DOC){msg.className='cm-msg';msg.textContent='Scegli prima il file della fattura.';return;}
-  var chi=chiDi('cm-x-chi',msg);if(!chi)return;
+  var chi=$('cm-x-chi').value.trim();
   var imp=numero($('cm-x-imp').value),iva=numero($('cm-x-iva').value),tot=numero($('cm-x-tot').value),quota=numero($('cm-x-quota').value);
   var obb=[['cm-x-forn',$('cm-x-forn').value.trim()],['cm-x-num',$('cm-x-num').value.trim()],['cm-x-data',$('cm-x-data').value],['cm-x-imp',imp]];
-  var bad=false;obb.forEach(function(k){var ok=!!k[1];$(k[0]).classList.toggle('manca',!ok);if(!ok)bad=true;});
-  if(bad||iva===null||tot===null||quota===null){msg.className='cm-msg';msg.textContent='Servono fornitore, numero, data e imponibile; i numeri si scrivono così: 1.234,50.';return;}
+  var NOMI={'cm-x-forn':'Scrivi il fornitore','cm-x-num':'Scrivi il numero della fattura','cm-x-data':'Scegli la data della fattura','cm-x-imp':'Scrivi l’imponibile, per esempio 1.234,50'};
+  var rr=obb.map(function(k){return{el:$(k[0]),ok:function(){return !!k[1];},testo:NOMI[k[0]]};});
+  [['cm-x-iva',iva],['cm-x-tot',tot],['cm-x-quota',quota]].forEach(function(k){rr.push({el:$(k[0]),ok:function(){return k[1]!==null;},testo:'Scrivi il numero così: 1.234,50'});});
+  rr.push(rNome('cm-x-chi'));if(!rosso(rr,msg))return;scriviChi(chi);
   xs.disabled=true;msg.className='cm-msg ok';msg.textContent='Salvo…';
   var dati={t:CFG.t,c:CFG.c,nome:DOC.nome,byte:DOC.byte,sha256:DOC.sha,fornitore:$('cm-x-forn').value.trim(),partita_iva:$('cm-x-piva').value.trim(),numero:$('cm-x-num').value.trim(),
     data:$('cm-x-data').value,tipo:$('cm-x-tipo').value,categoria:$('cm-x-cat').value,imponibile:imp,iva:iva||'',totale:tot||'',importo_cantiere:quota||'',competenza:$('cm-x-comp').value,
@@ -1396,9 +1400,9 @@ function apriBolla(b){
 }
 Array.prototype.forEach.call(D.querySelectorAll('[data-bprezza]'),function(x){x.addEventListener('click',function(){var b=bolla(x.getAttribute('data-bprezza'));if(b)apriBolla(b);});});
 var bpiu=$('cm-b-piu');if(bpiu)bpiu.addEventListener('click',function(){rigaB({descrizione_ddt:'',quantita:'',unita:''},offerta($('cm-b-off').value));});
-var bsi=$('cm-b-si');if(bsi)bsi.addEventListener('click',function(){var msg=$('cm-b-msg');var chi=chiDi('cm-b-chi',msg);if(!chi||!BOL)return;var righe=[],bad=false;
-  Array.prototype.forEach.call(D.querySelectorAll('#cm-b-righe .cm-b-r'),function(d){var i=d.querySelectorAll('input'),q=numero(i[1].value),s=d.querySelector('select').value;if(!q&&!s)return;if(!q||!s){bad=true;return;}righe.push({descrizione_ddt:i[0].value.trim(),quantita:q,unita:d.dataset.unita||'',offerta_riga_id:s});});
-  if(bad||!righe.length){msg.className='cm-msg';msg.textContent='Per ogni riga servono la quantità e la voce dell’offerta.';return;}
+var bsi=$('cm-b-si');if(bsi)bsi.addEventListener('click',function(){var msg=$('cm-b-msg');var chi=$('cm-b-chi').value.trim();if(!BOL)return;var righe=[],bad=false,rr=[];
+  Array.prototype.forEach.call(D.querySelectorAll('#cm-b-righe .cm-b-r'),function(d){var i=d.querySelectorAll('input'),q=numero(i[1].value),s=d.querySelector('select').value;if(!q&&!s)return;if(!q||!s){bad=true;rr.push({el:d,ok:function(){return false;},testo:!q?'Scrivi la quantità':'Scegli la voce dell’offerta'});return;}righe.push({descrizione_ddt:i[0].value.trim(),quantita:q,unita:d.dataset.unita||'',offerta_riga_id:s});});
+  if(!righe.length&&!bad)rr.push({el:$('cm-b-righe'),ok:function(){return false;},testo:'Scrivi almeno una riga con la quantità e la voce dell’offerta'});rr.push(rNome('cm-b-chi'));if(!rosso(rr,msg))return;scriviChi(chi);
   bsi.disabled=true;invia('bolla_stima',{ddt_id:String(BOL.ddt_id),offerta_id:$('cm-b-off').value,righe:righe,autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='fornitori';location.reload();return;}bsi.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){bsi.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
 // modifica e togli di fatture e stime
 var fdlg=$('cm-fm-dlg'),FMOD=null;
@@ -1406,7 +1410,7 @@ function fattura(id){for(var i=0;i<CFG.fatture.length;i++){if(CFG.fatture[i].id=
 Array.prototype.forEach.call(D.querySelectorAll('[data-fmod]'),function(x){x.addEventListener('click',function(){var f=fattura(x.getAttribute('data-fmod'));if(!f)return;FMOD=f;
   $('cm-fm-txt').textContent=f.fornitore+', fattura n. '+f.numero+': imponibile '+eur(f.imponibile)+'.';$('cm-fm-quota').value=nIt(f.importo_cantiere);$('cm-fm-comp').value=f.competenza||'';$('cm-fm-cat').value=f.categoria;$('cm-fm-note').value=f.note||'';$('cm-fm-msg').textContent='';
   if(fdlg.showModal)fdlg.showModal();else fdlg.setAttribute('open','');});});
-var fsi=$('cm-fm-si');if(fsi)fsi.addEventListener('click',function(){var msg=$('cm-fm-msg');var chi=chiDi('cm-fm-chi',msg);if(!chi||!FMOD)return;var q=numero($('cm-fm-quota').value);if(!q){msg.className='cm-msg';msg.textContent='Scrivi la quota del cantiere, per esempio 1.234,50.';return;}
+var fsi=$('cm-fm-si');if(fsi)fsi.addEventListener('click',function(){var msg=$('cm-fm-msg');var chi=$('cm-fm-chi').value.trim();if(!FMOD)return;var q=numero($('cm-fm-quota').value);if(!rosso([{el:$('cm-fm-quota'),ok:function(){return !!q;},testo:'Scrivi la quota del cantiere, per esempio 1.234,50'},rNome('cm-fm-chi')],msg))return;scriviChi(chi);
   fsi.disabled=true;invia('fattura_modifica',{id:FMOD.id,importo_cantiere:q,competenza:$('cm-fm-comp').value,categoria:$('cm-fm-cat').value,note:$('cm-fm-note').value.trim(),autore:chi}).then(function(r){if(r&&r.esito==='ok'){location.hash='fornitori';location.reload();return;}fsi.disabled=false;msg.className='cm-msg';msg.textContent=(r&&r.messaggio)||'Non sono riuscito a salvare: riprova.';}).catch(function(){fsi.disabled=false;msg.className='cm-msg';msg.textContent='Il servizio non risponde: riprova tra un minuto.';});});
 var t2=$('cm-t2-dlg'),T2=null;
 function apriT2(az,id,tit,txt){T2={az:az,id:id};$('cm-t2-tit').textContent=tit;$('cm-t2-txt').textContent=txt;$('cm-t2-msg').textContent='';if(t2.showModal)t2.showModal();else t2.setAttribute('open','');}
